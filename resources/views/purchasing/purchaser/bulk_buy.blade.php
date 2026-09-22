@@ -1,4 +1,4 @@
-<x-layouts.app title="Bulk Purchase" :show-mobile-nav="false">
+<x-layouts.app title="Bulk Purchase">
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
         @include('purchasing.purchaser.partials.feedback')
         @include('purchasing.purchaser.partials.deadline_alert')
@@ -20,29 +20,24 @@
             </div>
         </section>
 
-        {{-- Filter and search bar --}}
+        {{-- Filter bar --}}
         <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
             <div class="flex flex-col gap-3">
-                <div class="flex flex-col gap-3 md:flex-row md:items-center">
-                    <div class="relative flex-1">
-                        <input id="search-input" type="search" placeholder="Search product..." class="w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-4">
-                    </div>
-                    <div class="relative custom-select-container w-full md:w-64 shrink-0">
-                        <button type="button" class="custom-select-trigger flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 text-left text-xs font-black text-slate-700 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-5">
-                            <span class="custom-select-label truncate">Filter: All</span>
-                            <svg class="h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                            </svg>
-                        </button>
-                        <input type="hidden" id="filter-select" value="All">
-                        <div class="custom-select-options hidden absolute right-0 left-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg lg:rounded-2xl">
-                            @foreach ($quickFilters as $filter)
-                                <button type="button" data-value="{{ $filter }}" class="custom-select-option flex w-full items-center justify-between px-4 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-100">
-                                    <span>{{ $filter }}</span>
-                                    <span class="checkmark {{ $filter === 'All' ? '' : 'hidden' }} text-teal-600">✓</span>
-                                </button>
-                            @endforeach
-                        </div>
+                <div class="relative custom-select-container w-full">
+                    <button type="button" class="custom-select-trigger flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 text-left text-xs font-black text-slate-700 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-5">
+                        <span class="custom-select-label truncate">Filter: All</span>
+                        <svg class="h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </button>
+                    <input type="hidden" id="filter-select" value="All">
+                    <div class="custom-select-options hidden absolute right-0 left-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg lg:rounded-2xl">
+                        @foreach ($quickFilters as $filter)
+                            <button type="button" data-value="{{ $filter }}" class="custom-select-option flex w-full items-center justify-between px-4 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-100">
+                                <span>{{ $filter }}</span>
+                                <span class="checkmark {{ $filter === 'All' ? '' : 'hidden' }} text-teal-600">✓</span>
+                            </button>
+                        @endforeach
                     </div>
                 </div>
 
@@ -71,7 +66,7 @@
             <div id="hidden-selected-addons-container"></div>
             
             {{-- Professional Tabs switcher --}}
-            <div class="mb-4 flex rounded-xl bg-slate-100 p-1 lg:rounded-2xl">
+            <div class="mb-3 flex rounded-xl bg-slate-100 p-1 lg:rounded-2xl">
                 <button type="button" onclick="switchTab('pending')" id="tab-btn-pending" class="flex-1 rounded-lg py-2.5 text-center text-xs font-black uppercase tracking-wider transition-all bg-white text-slate-900 shadow-xs focus:outline-none">
                     Pending ({{ $pendingSummary->count() }})
                 </button>
@@ -83,12 +78,9 @@
                 </button>
             </div>
 
-            {{-- Select All visible --}}
-            <div class="mb-3 flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm lg:rounded-2xl">
-                <label class="flex items-center gap-2 cursor-pointer select-none">
-                    <input type="checkbox" id="select-all-checkbox" class="h-4.5 w-4.5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer">
-                    <span class="text-xs font-black uppercase tracking-wider text-slate-500">Select All Visible</span>
-                </label>
+            {{-- Search product input (just above product list) --}}
+            <div class="mb-3 relative">
+                <input id="search-input" type="search" placeholder="Search product..." class="w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-4 lg:py-3">
             </div>
 
             <div class="space-y-3" id="product-list">
@@ -131,7 +123,7 @@
             </div>
 
             {{-- Sticky bottom bar --}}
-            <div class="sticky bottom-4 z-40 mt-6 bg-white/95 backdrop-blur-md border border-slate-200 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.08)] rounded-2xl">
+            <div class="sticky bottom-20 lg:bottom-4 z-40 mt-6 bg-white/95 backdrop-blur-md border border-slate-200 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.08)] rounded-2xl">
                 <div class="mx-auto flex max-w-full items-center justify-between gap-3 lg:max-w-6xl">
                     <div>
                         <p class="text-xs font-black text-slate-500 uppercase">Selection</p>
@@ -203,7 +195,6 @@
             const selectionCount = document.getElementById('selection-count');
             const nextBtn = document.getElementById('next-btn');
             const noResultsMsg = document.getElementById('no-results-msg');
-            const selectAllCheckbox = document.getElementById('select-all-checkbox');
 
             // Initialize selectedProductIds from any pre-checked checkboxes
             document.querySelectorAll('.product-checkbox:checked').forEach(cb => {
@@ -411,66 +402,7 @@
                 const checkedCount = selectedProductIds.size;
                 selectionCount.textContent = `${checkedCount} item${checkedCount !== 1 ? 's' : ''} selected`;
                 nextBtn.disabled = checkedCount === 0;
-
-                // Update Select All checkbox state based on visible items
-                const visibleCheckboxes = [];
-                
-                staticItems.forEach(item => {
-                    if (!item.classList.contains('hidden')) {
-                        const cb = item.querySelector('.product-checkbox');
-                        if (cb) visibleCheckboxes.push(cb);
-                    }
-                });
-
-                if (activeTab === 'addons' && addonsContainer) {
-                    addonsContainer.querySelectorAll('.product-checkbox').forEach(cb => {
-                        visibleCheckboxes.push(cb);
-                    });
-                }
-
-                if (visibleCheckboxes.length > 0) {
-                    const allChecked = visibleCheckboxes.every(cb => cb.checked);
-                    selectAllCheckbox.disabled = false;
-                    selectAllCheckbox.checked = allChecked;
-                } else {
-                    selectAllCheckbox.checked = false;
-                    selectAllCheckbox.disabled = true;
-                }
             }
-
-            selectAllCheckbox.addEventListener('change', () => {
-                const isChecked = selectAllCheckbox.checked;
-                
-                staticItems.forEach(item => {
-                    if (!item.classList.contains('hidden')) {
-                        const cb = item.querySelector('.product-checkbox');
-                        if (cb) {
-                            cb.checked = isChecked;
-                            if (isChecked) {
-                                selectedProductIds.add(Number(cb.value));
-                            } else {
-                                selectedProductIds.delete(Number(cb.value));
-                            }
-                        }
-                    }
-                });
-
-                if (activeTab === 'addons' && addonsContainer) {
-                    addonsContainer.querySelectorAll('.product-checkbox').forEach(cb => {
-                        cb.checked = isChecked;
-                        const id = Number(cb.value);
-                        if (isChecked) {
-                            selectedProductIds.add(id);
-                        } else {
-                            selectedProductIds.delete(id);
-                        }
-                    });
-                }
-
-                if (window.filterItems) {
-                    window.filterItems();
-                }
-            });
 
             // Bind change events on static checkboxes
             staticItems.forEach(item => {

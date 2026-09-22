@@ -234,28 +234,61 @@
         [
             'label' => 'Demand',
             'route' => 'purchaser.daily',
-            'active' => request()->routeIs('purchaser.daily') || request()->routeIs('purchaser.shop-orders.*'),
+            'active' => request()->routeIs('purchaser.daily')
+                || request()->routeIs('purchaser.daily.*')
+                || request()->routeIs('purchaser.daily-prices')
+                || request()->routeIs('purchaser.daily-prices.*')
+                || request()->routeIs('purchaser.purchase-grade-prices.*')
+                || request()->routeIs('purchaser.shop-orders.*')
+                || request()->routeIs('purchaser.b-grade')
+                || request()->routeIs('purchaser.add-ons.*')
+                || request()->routeIs('purchaser.products')
+                || request()->routeIs('purchaser-v2.daily')
+                || request()->routeIs('purchaser-v2.daily.*')
+                || request()->routeIs('purchaser-v2.dashboard')
+                || request()->routeIs('purchaser-v2.products.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>',
             'type' => 'link',
         ],
         [
-            'label' => 'Cart',
-            'route' => 'purchaser.vendors',
-            'active' => request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>',
-            'type' => 'center',
+            'label' => 'Buy',
+            'route' => 'purchaser.bulk-buy',
+            'active' => request()->routeIs('purchaser.bulk-buy')
+                || request()->routeIs('purchaser.bulk-buy.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg>',
+            'type' => 'link',
         ],
         [
-            'label' => 'Bills',
-            'route' => 'purchaser.history',
-            'active' => request()->routeIs('purchaser.history'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+            'label' => 'Cart',
+            'route' => 'purchaser.cart',
+            'active' => request()->routeIs('purchaser.cart')
+                || request()->routeIs('purchaser.cart.*')
+                || request()->routeIs('purchaser.carts.*')
+                || request()->routeIs('purchaser.cart-items.*')
+                || request()->routeIs('purchaser.vendors')
+                || request()->routeIs('purchaser.vendors.*')
+                || request()->routeIs('purchaser.bill')
+                || request()->routeIs('purchaser.bill-prices.*')
+                || request()->routeIs('purchaser.suppliers.*')
+                || request()->routeIs('purchaser.invoices.*')
+                || request()->routeIs('purchaser-v2.cart.*')
+                || request()->routeIs('purchaser-v2.suppliers.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>',
             'type' => 'link',
         ],
         [
             'label' => 'Report',
-            'route' => 'purchaser.reports.item-summary',
-            'active' => request()->routeIs('purchaser.reports.*'),
+            'route' => 'purchaser.history',
+            'active' => request()->routeIs('purchaser.reports.*')
+                || request()->routeIs('purchaser.history')
+                || request()->routeIs('purchaser.history.*')
+                || request()->routeIs('purchaser.business-day.*')
+                || request()->routeIs('purchaser.business-days.*')
+                || request()->routeIs('purchaser.finance')
+                || request()->routeIs('purchaser.cash')
+                || request()->routeIs('purchaser.procurement-expenses.*')
+                || request()->routeIs('purchaser.other-expenses.*')
+                || request()->routeIs('purchaser-v2.report'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>',
             'type' => 'link',
         ],
@@ -933,7 +966,7 @@
 
 @if($showAdminMobileNav || $showStaffMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav)
 <div id="layout-mobile-nav" class="fixed inset-x-0 bottom-0 z-[70] px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] lg:hidden">
-    <nav class="mx-auto flex min-h-[64px] w-full max-w-lg items-center gap-1 rounded-2xl border border-slate-100 bg-white/98 px-1.5 py-1.5 shadow-[0_-2px_10px_rgba(15,23,42,0.05),0_10px_40px_rgba(15,23,42,0.16)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/96">
+    <nav class="mx-auto flex min-h-[64px] w-full max-w-lg items-center gap-1 rounded-2xl border border-white/60 bg-white/40 px-1.5 py-1.5 shadow-[0_-4px_20px_rgba(15,23,42,0.08),0_12px_40px_rgba(15,23,42,0.22)] backdrop-blur-xl dark:border-slate-700/40 dark:bg-slate-900/40">
         @php
             $mobileNavItems = match(true) {
                 $showAdminMobileNav => $adminMobileNavItems,
@@ -954,7 +987,7 @@
                 @class([
                     'group relative flex min-h-[50px] min-w-0 flex-1 items-center justify-center gap-0.5 rounded-xl border-0 px-0.5 font-bold transition-all duration-200',
                     'bg-cyan-500 text-white shadow-sm' => $isActive,
-                    'bg-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300' => ! $isActive,
+                    'bg-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200' => ! $isActive,
                 ])
                 title="{{ $item['label'] }}"
             >

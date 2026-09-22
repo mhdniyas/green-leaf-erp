@@ -42,6 +42,7 @@ use App\Services\Purchasing\PurchaseGradePriceResolver;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\PurchaserCartBatchStateResolver;
+use App\Services\Purchasing\PurchaserDailyInitialQuery;
 use App\Services\Purchasing\PurchaserReadCacheService;
 use App\Services\Purchasing\ShopPurchaserDailyVerificationService;
 use App\Services\Purchasing\VendorPriceService;
@@ -50,6 +51,7 @@ use App\Support\PerformanceProbe;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -91,6 +93,7 @@ class PurchaserDashboardController extends Controller
         private readonly PurchaseGradePriceResolver $purchaseGradePriceResolver,
         private readonly PurchaserReadCacheService $readCacheService,
         private readonly DailyInventoryComparisonService $comparisonService,
+        private readonly PurchaserDailyInitialQuery $dailyInitialQuery,
     ) {}
 
     public function index(): RedirectResponse
@@ -308,36 +311,98 @@ class PurchaserDashboardController extends Controller
         $selectedChip = $this->resolveQuickFilter($request->string('chip')->toString());
         $search = trim($request->string('search')->toString());
         $user = $request->user();
-        $purchaseGrade = $request->routeIs('purchaser.b-grade') ? 'B' : 'A';
-        $frequentProductIds = $this->frequentProductIds((int) $user->id);
+        $purchaseGrade = $request->routeIs('purchaser.b-grade') || $request->string('purchase_grade')->upper()->toString() === 'B' ? 'B' : 'A';
 
-        $dailySummary = $purchaseGrade === 'B'
-            ? $this->buildGradeBPurchaseCatalog($date, (int) $user->id)
-            : $this->buildDailySummary($date, $frequentProductIds);
-        $filteredDailySummary = $this->filterProductsForChip($dailySummary, $selectedChip, $search, $frequentProductIds);
+        $pendingSummary = $this->dailyInitialQuery->getPendingDemand(
+            date: $date,
+            purchaseGrade: $purchaseGrade,
+            user: $user,
+            selectedChip: $selectedChip,
+            search: $search
+        );
 
-        $draftCarts = $this->draftCartsForDate((int) $user->id, $date)
-            ->where('purchase_grade', $purchaseGrade)
-            ->values();
+        $fulfillmentMetrics = $this->dailyInitialQuery->getFulfillmentMetrics(
+            date: $date,
+            purchaseGrade: $purchaseGrade,
+            user: $user
+        );
 
-        $quickFilters = $this->quickFiltersForPurchaser($user);
+        $quickFilters = $this->dailyInitialQuery->getQuickFilters($user);
 
         return view('purchasing.purchaser.daily', [
             'date' => $date->format('Y-m-d'),
             'quickFilters' => $quickFilters,
             'selectedChip' => $selectedChip,
             'search' => $search,
-            'dailySummary' => $filteredDailySummary,
-            'draftCarts' => $draftCarts,
+            'dailySummary' => $pendingSummary,
             'purchaseGrade' => $purchaseGrade,
-            'dailyFulfillment' => [
-                'products' => $dailySummary->count(),
-                'approved_qty' => (float) $dailySummary->sum('total_approved_qty'),
-                'bought_qty' => (float) $dailySummary->sum('bought_qty'),
-                'remaining_qty' => (float) $dailySummary->sum('remaining_qty'),
-                'draft_carts' => $draftCarts->count(),
-            ],
-            'deadlineAlert' => $this->buildDeadlineAlert((int) $user->id, $date),
+            'dailyFulfillment' => $fulfillmentMetrics,
+        ]);
+    }
+
+    public function dailyProductDemand(Request $request, Product $product): JsonResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+        if ($date instanceof RedirectResponse) {
+            $date = $this->businessDayService->operationalDate();
+        }
+
+        $dateString = $date->format('Y-m-d');
+        $purchaseGrade = $request->string('purchase_grade')->upper()->toString() === 'B' ? 'B' : 'A';
+
+        $items = ShopOrderItem::query()
+            ->where('product_id', $product->id)
+            ->where('product_grade', $purchaseGrade)
+            ->whereNull('deleted_at')
+            ->whereHas('order', function ($query) use ($dateString): void {
+                $query->whereDate('business_date', $dateString)->where('state', 'approved');
+            })
+            ->with('order.shop')
+            ->get();
+
+        $shopDetails = $items->map(fn (ShopOrderItem $item): array => [
+            'shop_order_item_id' => $item->id,
+            'shop_name' => $item->order->demandSourceLabel(),
+            'is_direct_purchase' => $item->order->isAdminDirectPurchase(),
+            'approved_qty' => (float) $item->approved_qty,
+            'unit' => $item->unit,
+            'requested_measure_label' => $item->requestedMeasureBreakdownLabel(),
+            'order_number' => $item->order->order_number,
+            'notes' => $item->notes,
+        ])->sortBy('shop_name')->values()->all();
+
+        $quantityBuckets = $this->dailySummaryQuantityBuckets($items, $items->first() ?? new ShopOrderItem(['unit' => $product->unit]));
+        $measureBreakdown = $this->dailySummaryMeasureBreakdown($items);
+
+        return response()->json([
+            'product_id' => $product->id,
+            'product_name' => $product->name,
+            'unit' => $product->unit,
+            'category_name' => $product->category?->name ?? 'Other',
+            'total_approved_qty' => (float) $items->sum('approved_qty'),
+            'quantity_buckets' => $quantityBuckets,
+            'measure_breakdown' => $measureBreakdown,
+            'shop_details' => $shopDetails,
+        ]);
+    }
+
+    public function dailyProductPurchaseOptions(Request $request, Product $product): JsonResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $product->loadMissing(['orderUnits' => fn ($query) => $query->where('is_orderable', true)->orderBy('sort_order')->orderBy('id')]);
+
+        $options = $this->orderableUnitOptions($product);
+        $step = $product->unit === 'kg' ? '0.5' : '1';
+
+        return response()->json([
+            'product_id' => $product->id,
+            'product_name' => $product->name,
+            'base_unit' => $product->unit,
+            'step' => $step,
+            'orderable_units' => $options,
         ]);
     }
 
@@ -702,9 +767,9 @@ class PurchaserDashboardController extends Controller
             'quickFilters' => $quickFilters,
             'dailySummary' => $dailySummary,
             'pendingSummary' => $pendingSummary,
-            'pendingCount' => $orderedSummary->filter(fn (array $summary): bool => (float) $summary['remaining_qty'] > 0)->count(),
+            'pendingCount' => $pendingSummary->count(),
             'fulfilledCount' => $orderedSummary->filter(fn (array $summary): bool => (float) $summary['remaining_qty'] <= 0)->count(),
-            'deadlineAlert' => $this->buildDeadlineAlert((int) $user->id, $date),
+            'deadlineAlert' => ['show' => false],
         ]);
     }
 
@@ -780,40 +845,13 @@ class PurchaserDashboardController extends Controller
         }
 
         $user = $request->user();
-        $frequentProductIds = $this->frequentProductIds((int) $user->id);
-
         $selectedProductIds = collect($productIds)->map(fn ($id): int => (int) $id)->filter()->unique()->values()->all();
-        $dailySummaryMap = ($purchaseGrade === 'B'
-            ? $this->buildGradeBPurchaseCatalog($date, (int) $user->id, $selectedProductIds)
-            : $this->buildDailySummary($date, $frequentProductIds, productIds: $selectedProductIds))->keyBy('product_id');
-        $products = Product::query()
-            ->with(['category:id,name', 'orderUnits'])
-            ->whereIn('id', $selectedProductIds)
-            ->get();
 
-        $selectedSummary = collect();
-        foreach ($products as $product) {
-            if ($dailySummaryMap->has($product->id)) {
-                $selectedSummary->push([
-                    ...$dailySummaryMap->get($product->id),
-                    'orderable_units' => $this->allMeasurementUnitOptions($product),
-                ]);
-            } else {
-                $selectedSummary->push([
-                    'product_id' => $product->id,
-                    'product_name' => $product->name,
-                    'category_name' => $product->category?->name,
-                    'sku' => $product->sku,
-                    'unit' => $product->unit,
-                    'orderable_units' => $this->allMeasurementUnitOptions($product),
-                    'total_approved_qty' => 0.0,
-                    'bought_qty' => 0.0,
-                    'draft_qty' => 0.0,
-                    'remaining_qty' => 0.0,
-                    'is_frequent' => in_array($product->id, $frequentProductIds, true),
-                ]);
-            }
-        }
+        $selectedSummary = $this->dailyInitialQuery->getSelectedProductsSummary(
+            date: $date,
+            purchaseGrade: $purchaseGrade,
+            productIds: $selectedProductIds
+        );
 
         if ($selectedSummary->isEmpty()) {
             return redirect()
@@ -825,7 +863,7 @@ class PurchaserDashboardController extends Controller
             ->where('purchase_grade', $purchaseGrade)
             ->values();
 
-        $uniqueSupplierIds = $draftCarts->pluck('supplier_id')->unique()->all();
+        $uniqueSupplierIds = $draftCarts->pluck('supplier_id')->filter()->unique()->all();
         $pricesBySupplier = [];
         $selectedProductIds = $selectedSummary->pluck('product_id')->all();
         foreach ($uniqueSupplierIds as $supId) {
@@ -847,9 +885,9 @@ class PurchaserDashboardController extends Controller
             'bulkPriceHintsByCart' => $bulkPriceHintsByCart,
             'bulkFallbackPriceHints' => $this->vendorPriceService->previousPricesForSupplier(
                 null,
-                $selectedSummary->pluck('product_id')->all(),
+                $selectedProductIds,
             ),
-            'deadlineAlert' => $this->buildDeadlineAlert((int) $user->id, $date),
+            'deadlineAlert' => ['show' => false],
         ]);
     }
 
@@ -873,10 +911,11 @@ class PurchaserDashboardController extends Controller
         $cart = PurchaserCart::query()
             ->whereKey($cart->id)
             ->where('user_id', $request->user()->id)
-            ->with(['supplier', 'items.product.category', 'goodsReceived', 'purchaseInvoice'])
+            ->with(['supplier', 'items.product'])
             ->firstOrFail();
 
-        if ($cart->status === 'submitted' || $cart->purchase_invoice_id || $cart->purchaseInvoice) {
+        if ($cart->status === 'submitted' || $cart->purchase_invoice_id) {
+            $cart->loadMissing('purchaseInvoice');
             if ($cart->purchaseInvoice) {
                 return redirect()
                     ->route('purchaser.invoices.show', $cart->purchaseInvoice)
@@ -897,7 +936,6 @@ class PurchaserDashboardController extends Controller
         return view('purchasing.purchaser.bill', [
             'date' => $cart->business_date->format('Y-m-d'),
             'cart' => $cart,
-            'suppliers' => $this->scopedSuppliersForUser($request->user()),
             'subtotal' => (float) $cart->items->sum(
                 fn ($item) => round((float) $item->quantity * (float) $item->unit_price, 2)
             ),
@@ -906,7 +944,7 @@ class PurchaserDashboardController extends Controller
                 $cart->supplier_id,
                 $cart->items->pluck('product_id')->all(),
             ),
-            'deadlineAlert' => $this->buildDeadlineAlert((int) $request->user()->id, $cart->business_date),
+            'deadlineAlert' => ['show' => false],
         ]);
     }
 
@@ -948,137 +986,217 @@ class PurchaserDashboardController extends Controller
 
         $userId = (int) $request->user()->id;
         $includeExpenses = $request->boolean('include_expenses', false);
+        $activeTab = $request->string('tab', 'today')->toString();
+        if (! in_array($activeTab, ['today', 'credit', 'due', 'history'], true)) {
+            $activeTab = 'today';
+        }
 
-        $todayCarts = PurchaserCart::query()
+        $todayBaseQuery = PurchaserCart::query()
             ->where('user_id', $userId)
             ->whereDate('business_date', $date)
-            ->where('status', '!=', 'cancelled')
-            ->with([
-                'supplier',
-                'items.product.category',
-                'purchaseOrder',
-                'goodsReceived',
-                'purchaseInvoice',
-            ])
-            ->orderByDesc('updated_at')
-            ->get();
+            ->where('status', '!=', 'cancelled');
 
-        $historyCarts = PurchaserCart::query()
+        $historyBaseQuery = PurchaserCart::query()
             ->where('user_id', $userId)
             ->whereDate('business_date', '<', $date)
+            ->where('status', '!=', 'cancelled');
+
+        $creditBaseQuery = PurchaserCart::query()
+            ->where('user_id', $userId)
             ->where('status', '!=', 'cancelled')
-            ->with([
-                'supplier',
-                'items.product.category',
-                'purchaseOrder',
-                'goodsReceived',
-                'purchaseInvoice',
-            ])
-            ->orderByDesc('business_date')
-            ->orderByDesc('updated_at')
-            ->limit(100)
-            ->get();
+            ->where(function ($q): void {
+                $q->whereHas('purchaseInvoice', function ($iq): void {
+                    $iq->where('payment_method', 'Credit')
+                        ->where('payment_status', '!=', 'paid')
+                        ->whereRaw('paid_amount < (amount - discount_amount)');
+                })->orWhere(function ($cq): void {
+                    $cq->whereDoesntHave('purchaseInvoice')
+                        ->where('payment_method', 'Credit')
+                        ->where('payment_status', '!=', 'paid');
+                });
+            });
 
-        $overdueCarts = $this->overdueCartsForUser($userId);
+        $dueBaseQuery = PurchaserCart::query()
+            ->where('user_id', $userId)
+            ->where('status', '!=', 'cancelled')
+            ->where(function ($q): void {
+                $q->whereHas('purchaseInvoice', function ($iq): void {
+                    $iq->where('payment_method', '!=', 'Credit')
+                        ->where('payment_status', '!=', 'paid')
+                        ->whereRaw('paid_amount < (amount - discount_amount)');
+                })->orWhere(function ($cq): void {
+                    $cq->whereDoesntHave('purchaseInvoice')
+                        ->where('payment_method', '!=', 'Credit')
+                        ->where('payment_status', '!=', 'paid');
+                });
+            });
 
-        $historyCarts = $historyCarts
-            ->merge($overdueCarts)
-            ->unique('id')
-            ->values();
-
-        $allCarts = $todayCarts->merge($historyCarts)->unique('id')->values();
-
-        $groupedCarts = collect([
-            'today' => $todayCarts->sortByDesc(fn (PurchaserCart $cart) => $cart->purchaseInvoice?->updated_at ?? $cart->updated_at)->values(),
-            'history' => $historyCarts->sortByDesc(fn (PurchaserCart $cart) => $cart->purchaseInvoice?->updated_at ?? $cart->updated_at)->values(),
-        ]);
-
-        $relatedBatchState = $this->relatedBatchStateForCarts($allCarts);
-
-        $todayTotalPurchase = (float) $todayCarts->sum(function (PurchaserCart $cart) {
-            if ($cart->status === 'draft') {
-                return (float) $cart->items->sum('line_total') - (float) $cart->discount_amount;
-            }
-            if ($cart->purchaseInvoice) {
-                return max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount);
-            }
-
-            return max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
-        });
-
-        $todayTotalCash = (float) $todayCarts->sum(function (PurchaserCart $cart) {
-            if ($cart->purchaseInvoice) {
-                $net = max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount);
-
-                return min($net, max(0.0, (float) $cart->purchaseInvoice->paid_amount));
-            }
-
-            return strcasecmp((string) $cart->payment_method, 'Cash') === 0
-                ? max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount)
-                : 0.0;
-        });
-
-        $todaySummary = [
-            'date_formatted' => $date->format('l, d M Y'),
-            'total_carts' => $todayCarts->count(),
-            'total_purchase' => $todayTotalPurchase,
-            'total_cash' => $todayTotalCash,
-            'total_credit' => max(0.0, $todayTotalPurchase - $todayTotalCash),
+        $tabCounts = [
+            'today' => (clone $todayBaseQuery)->count(),
+            'credit' => (clone $creditBaseQuery)->count(),
+            'due' => (clone $dueBaseQuery)->count(),
+            'history' => (clone $historyBaseQuery)->count(),
         ];
 
-        $monthStart = $date->copy()->startOfMonth();
-        $monthEnd = $date->copy()->endOfMonth();
+        $activeQuery = match ($activeTab) {
+            'credit' => (clone $creditBaseQuery)->orderByDesc('business_date')->orderByDesc('updated_at'),
+            'due' => (clone $dueBaseQuery)->orderByDesc('business_date')->orderByDesc('updated_at'),
+            'history' => (clone $historyBaseQuery)->orderByDesc('business_date')->orderByDesc('updated_at'),
+            default => (clone $todayBaseQuery)->orderByDesc('updated_at'),
+        };
 
-        $monthCarts = PurchaserCart::query()
-            ->where('user_id', $userId)
-            ->whereBetween('business_date', [$monthStart->format('Y-m-d'), $monthEnd->format('Y-m-d')])
-            ->where('status', '!=', 'cancelled')
-            ->with(['items', 'purchaseInvoice'])
+        $paginatedCarts = $activeQuery
+            ->with([
+                'supplier:id,name,mobile_number,credit_approved',
+                'purchaseInvoice' => fn ($query) => $query->select([
+                    'id',
+                    'purchaser_cart_id',
+                    'invoice_number',
+                    'amount',
+                    'discount_amount',
+                    'paid_amount',
+                    'payment_status',
+                    'payment_method',
+                    'payment_note',
+                    'payment_details',
+                    'purchaser_submitted_by',
+                    'purchaser_submitted_at',
+                    'deleted_at',
+                ]),
+                'goodsReceived:id,purchaser_cart_id,grn_number',
+            ])
+            ->withCount('items')
+            ->paginate(25)
+            ->withQueryString();
+
+        $todayAggregates = DB::table('purchaser_carts')
+            ->leftJoin('purchase_invoices', function ($join): void {
+                $join->on('purchaser_carts.id', '=', 'purchase_invoices.purchaser_cart_id')
+                    ->whereNull('purchase_invoices.deleted_at');
+            })
+            ->leftJoin('purchaser_cart_items', 'purchaser_carts.id', '=', 'purchaser_cart_items.purchaser_cart_id')
+            ->where('purchaser_carts.user_id', $userId)
+            ->whereDate('purchaser_carts.business_date', $date)
+            ->where('purchaser_carts.status', '!=', 'cancelled')
+            ->selectRaw('
+                purchaser_carts.id,
+                purchaser_carts.status,
+                purchaser_carts.payment_method,
+                purchaser_carts.discount_amount as cart_discount,
+                purchase_invoices.id as invoice_id,
+                purchase_invoices.amount as invoice_amount,
+                purchase_invoices.discount_amount as invoice_discount,
+                purchase_invoices.paid_amount as invoice_paid,
+                COALESCE(SUM(purchaser_cart_items.line_total), 0) as items_line_total
+            ')
+            ->groupBy(
+                'purchaser_carts.id',
+                'purchaser_carts.status',
+                'purchaser_carts.payment_method',
+                'purchaser_carts.discount_amount',
+                'purchase_invoices.id',
+                'purchase_invoices.amount',
+                'purchase_invoices.discount_amount',
+                'purchase_invoices.paid_amount'
+            )
             ->get();
 
-        $monthTotalPurchase = (float) $monthCarts->sum(function (PurchaserCart $cart) {
-            if ($cart->status === 'draft') {
-                return (float) $cart->items->sum('line_total') - (float) $cart->discount_amount;
+        $todayTotalPurchase = 0.0;
+        $todayTotalCash = 0.0;
+        foreach ($todayAggregates as $row) {
+            if ($row->status === 'draft') {
+                $todayTotalPurchase += (float) $row->items_line_total - (float) $row->cart_discount;
+            } elseif ($row->invoice_id) {
+                $net = max(0.0, (float) $row->invoice_amount - (float) $row->invoice_discount);
+                $todayTotalPurchase += $net;
+                $todayTotalCash += min($net, max(0.0, (float) $row->invoice_paid));
+            } else {
+                $net = max(0.0, (float) $row->items_line_total - (float) $row->cart_discount);
+                $todayTotalPurchase += $net;
+                if (strcasecmp((string) $row->payment_method, 'Cash') === 0) {
+                    $todayTotalCash += $net;
+                }
             }
-            if ($cart->purchaseInvoice) {
-                return max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount);
-            }
-
-            return max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
-        });
-
-        $monthTotalCash = (float) $monthCarts->sum(function (PurchaserCart $cart) {
-            if ($cart->purchaseInvoice) {
-                $net = max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount);
-
-                return min($net, max(0.0, (float) $cart->purchaseInvoice->paid_amount));
-            }
-
-            return strcasecmp((string) $cart->payment_method, 'Cash') === 0
-                ? max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount)
-                : 0.0;
-        });
+        }
 
         $todayExpenseTotal = round((float) ProcurementExpense::query()
             ->where('user_id', $userId)
             ->whereDate('expense_date', $date->toDateString())
             ->sum('amount'), 2);
 
+        $todaySummary = [
+            'date_formatted' => $date->format('l, d M Y'),
+            'total_carts' => $tabCounts['today'],
+            'total_purchase' => $todayTotalPurchase,
+            'total_cash' => $todayTotalCash,
+            'total_credit' => max(0.0, $todayTotalPurchase - $todayTotalCash),
+            'expense_total' => $todayExpenseTotal,
+            'grand_total' => round($todayTotalPurchase + ($includeExpenses ? $todayExpenseTotal : 0.0), 2),
+        ];
+
+        $monthStart = $date->copy()->startOfMonth();
+        $monthEnd = $date->copy()->endOfMonth();
+
+        $monthAggregates = DB::table('purchaser_carts')
+            ->leftJoin('purchase_invoices', function ($join): void {
+                $join->on('purchaser_carts.id', '=', 'purchase_invoices.purchaser_cart_id')
+                    ->whereNull('purchase_invoices.deleted_at');
+            })
+            ->leftJoin('purchaser_cart_items', 'purchaser_carts.id', '=', 'purchaser_cart_items.purchaser_cart_id')
+            ->where('purchaser_carts.user_id', $userId)
+            ->whereBetween('purchaser_carts.business_date', [$monthStart->format('Y-m-d'), $monthEnd->format('Y-m-d')])
+            ->where('purchaser_carts.status', '!=', 'cancelled')
+            ->selectRaw('
+                purchaser_carts.id,
+                purchaser_carts.status,
+                purchaser_carts.payment_method,
+                purchaser_carts.discount_amount as cart_discount,
+                purchase_invoices.id as invoice_id,
+                purchase_invoices.amount as invoice_amount,
+                purchase_invoices.discount_amount as invoice_discount,
+                purchase_invoices.paid_amount as invoice_paid,
+                COALESCE(SUM(purchaser_cart_items.line_total), 0) as items_line_total
+            ')
+            ->groupBy(
+                'purchaser_carts.id',
+                'purchaser_carts.status',
+                'purchaser_carts.payment_method',
+                'purchaser_carts.discount_amount',
+                'purchase_invoices.id',
+                'purchase_invoices.amount',
+                'purchase_invoices.discount_amount',
+                'purchase_invoices.paid_amount'
+            )
+            ->get();
+
+        $monthTotalPurchase = 0.0;
+        $monthTotalCash = 0.0;
+        foreach ($monthAggregates as $row) {
+            if ($row->status === 'draft') {
+                $monthTotalPurchase += (float) $row->items_line_total - (float) $row->cart_discount;
+            } elseif ($row->invoice_id) {
+                $net = max(0.0, (float) $row->invoice_amount - (float) $row->invoice_discount);
+                $monthTotalPurchase += $net;
+                $monthTotalCash += min($net, max(0.0, (float) $row->invoice_paid));
+            } else {
+                $net = max(0.0, (float) $row->items_line_total - (float) $row->cart_discount);
+                $monthTotalPurchase += $net;
+                if (strcasecmp((string) $row->payment_method, 'Cash') === 0) {
+                    $monthTotalCash += $net;
+                }
+            }
+        }
+
         $monthExpenseTotal = round((float) ProcurementExpense::query()
             ->where('user_id', $userId)
             ->whereBetween('expense_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
             ->sum('amount'), 2);
 
-        $todaySummary = array_merge($todaySummary, [
-            'expense_total' => $todayExpenseTotal,
-            'grand_total' => round($todayTotalPurchase + ($includeExpenses ? $todayExpenseTotal : 0.0), 2),
-        ]);
-
         $monthSummary = [
             'month_name' => $date->format('F Y'),
             'start_date_formatted' => $monthStart->format('d M Y'),
             'end_date_formatted' => $monthEnd->format('d M Y'),
-            'total_carts' => $monthCarts->count(),
+            'total_carts' => $monthAggregates->count(),
             'total_purchase' => $monthTotalPurchase,
             'total_cash' => $monthTotalCash,
             'total_credit' => max(0.0, $monthTotalPurchase - $monthTotalCash),
@@ -1086,16 +1204,151 @@ class PurchaserDashboardController extends Controller
             'grand_total' => round($monthTotalPurchase + ($includeExpenses ? $monthExpenseTotal : 0.0), 2),
         ];
 
+        $operationalDate = $this->businessDayService->operationalDate();
+        $statusBadges = $paginatedCarts->getCollection()->mapWithKeys(function (PurchaserCart $cart) use ($operationalDate): array {
+            if ($cart->status === 'draft') {
+                $label = $cart->supplier_id === null ? 'Vendor Pending' : 'Bill Pending';
+
+                return [(int) $cart->id => ['label' => $label, 'tone' => 'bg-amber-100 text-amber-700']];
+            }
+
+            $cartAmount = $cart->purchaseInvoice
+                ? max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount)
+                : max(0.0, (float) ($cart->total_amount ?? 0) - (float) ($cart->discount_amount ?? 0));
+
+            $isPaid = ($cart->purchaseInvoice && $cart->purchaseInvoice->payment_status === 'paid')
+                || $cart->payment_status === 'paid'
+                || ($cart->purchaseInvoice && (float) $cart->purchaseInvoice->paid_amount >= $cartAmount);
+
+            if ($isPaid) {
+                return [(int) $cart->id => ['label' => 'Completed', 'tone' => 'bg-emerald-100 text-emerald-700']];
+            }
+
+            if ($cart->business_date->lt($operationalDate)) {
+                return [(int) $cart->id => ['label' => 'Overdue', 'tone' => 'bg-rose-100 text-rose-700']];
+            }
+
+            return [(int) $cart->id => ['label' => 'Payment Pending', 'tone' => 'bg-amber-100 text-amber-700']];
+        })->all();
+
         return view('purchasing.purchaser.history', [
             'date' => $date->format('Y-m-d'),
             'todaySummary' => $todaySummary,
             'monthSummary' => $monthSummary,
             'includeExpenses' => $includeExpenses,
-            'groupedCarts' => $groupedCarts,
-            'statusBadges' => $this->statusBadgesForCarts($allCarts, $relatedBatchState),
-            'relatedBatchState' => $relatedBatchState,
-            'relatedReceiptNotes' => $this->relatedReceiptNotesForCarts($allCarts),
-            'deadlineAlert' => $this->buildDeadlineAlert($userId, $date, $overdueCarts, $relatedBatchState),
+            'activeTab' => $activeTab,
+            'tabCounts' => $tabCounts,
+            'paginatedCarts' => $paginatedCarts,
+            'statusBadges' => $statusBadges,
+            'deadlineAlert' => ['show' => false],
+        ]);
+    }
+
+    public function historyCartDetails(Request $request, PurchaserCart $cart): JsonResponse
+    {
+        $this->ensurePurchaser($request);
+
+        if ((int) $cart->user_id !== (int) $request->user()->id) {
+            abort(403);
+        }
+
+        $cart->loadMissing([
+            'supplier:id,name,mobile_number,credit_approved',
+            'items.product',
+            'purchaseInvoice.purchaserSubmittedBy',
+            'goodsReceived',
+            'user',
+        ]);
+
+        $hasInvoice = $cart->purchaseInvoice !== null;
+        $cartAmount = $hasInvoice
+            ? ((float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount)
+            : ((float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
+
+        $isPaid = ($hasInvoice && $cart->purchaseInvoice->payment_status === 'paid')
+            || $cart->payment_status === 'paid'
+            || ($hasInvoice && (float) $cart->purchaseInvoice->paid_amount >= $cartAmount);
+
+        $isCreditMethod = strcasecmp((string) ($cart->purchaseInvoice?->payment_method ?? $cart->payment_method), 'Credit') === 0;
+
+        $cashAmount = $hasInvoice
+            ? (float) $cart->purchaseInvoice->paid_amount
+            : ($isPaid || in_array($cart->payment_method, ['Cash', 'Online', 'GPay'], true) ? $cartAmount : (float) ($cart->paid_amount ?? 0));
+        $creditAmount = max(0.0, $cartAmount - $cashAmount);
+
+        $paymentStatusLabel = match (true) {
+            $cart->purchaseInvoice?->payment_status === 'credit_pending_approval' || $cart->payment_status === 'credit_pending_approval' => 'Credit Pending Approval',
+            $isPaid => 'Paid',
+            $cashAmount > 0 && $creditAmount > 0 => 'Partially Paid',
+            default => str($cart->payment_status ?: 'unpaid')->replace('_', ' ')->title()->toString(),
+        };
+
+        $invoiceData = [
+            'id' => $hasInvoice ? $cart->purchaseInvoice->id : $cart->id,
+            'number' => $hasInvoice ? $cart->purchaseInvoice->invoice_number : $cart->cart_number,
+            'billNumber' => $cart->bill_number ?: ($hasInvoice ? $cart->purchaseInvoice->invoice_number : ''),
+            'supplier' => $cart->supplier?->name ?: 'Vendor pending',
+            'amount' => round((float) $cartAmount, 2),
+            'discountAmount' => round((float) ($hasInvoice ? $cart->purchaseInvoice->discount_amount : ($cart->discount_amount ?? 0)), 2),
+            'paidAmount' => round((float) $cashAmount, 2),
+            'balance' => max(0, round((float) $creditAmount, 2)),
+            'paymentMethod' => $hasInvoice ? ($cart->purchaseInvoice->payment_method ?: 'Cash') : ($cart->payment_method ?: 'Cash'),
+            'paymentNote' => $hasInvoice ? $cart->purchaseInvoice->payment_note : $cart->payment_note,
+            'paymentDetails' => $hasInvoice ? $cart->purchaseInvoice->payment_details : $cart->payment_details,
+            'creditApproved' => (bool) ($cart->supplier?->credit_approved),
+            'isSubmitMode' => ! $hasInvoice,
+            'cartId' => $cart->id,
+            'supplierId' => $cart->supplier_id,
+            'businessDate' => $cart->business_date->format('Y-m-d'),
+            'cartItems' => $cart->items->mapWithKeys(fn ($item) => [
+                $item->id => ['unit_price' => (float) $item->unit_price],
+            ])->all(),
+        ];
+
+        $paymentActionUrl = $hasInvoice
+            ? route('purchaser.invoices.payment', $cart->purchaseInvoice)
+            : route('purchaser.carts.submit');
+
+        $grossTotal = $hasInvoice ? (float) $cart->purchaseInvoice->amount : (float) $cart->items->sum('line_total');
+        $discountVal = (float) ($hasInvoice ? $cart->purchaseInvoice->discount_amount : ($cart->discount_amount ?? 0));
+        $submitterName = $cart->purchaseInvoice?->purchaserSubmittedBy?->name ?? $cart->user?->name ?? 'Purchaser';
+        $submittedAt = ($cart->purchaseInvoice?->purchaser_submitted_at ?? $cart->submitted_at)?->format('d M Y, h:i A') ?? '';
+        $paymentNoteVal = $hasInvoice ? $cart->purchaseInvoice->payment_note : $cart->payment_note;
+        $pdfUrl = $hasInvoice ? route('purchaser.invoices.pdf', $cart->purchaseInvoice) : null;
+
+        $modalPayload = [
+            'supplierName' => $cart->supplier?->name ?: 'Vendor pending',
+            'supplierMobile' => $cart->supplier?->mobile_number ?: '',
+            'billRef' => $cart->cart_number,
+            'invoiceNumber' => $cart->purchaseInvoice?->invoice_number ?: ($cart->bill_number ?: 'PENDING-BILL-'.$cart->cart_number),
+            'date' => $cart->business_date->format('d M Y'),
+            'paymentStatus' => $paymentStatusLabel,
+            'totalAmount' => '₹'.number_format($cartAmount, 2),
+            'grossAmount' => '₹'.number_format($grossTotal, 2),
+            'discountAmount' => $discountVal > 0 ? '₹'.number_format($discountVal, 2) : '',
+            'netAmount' => '₹'.number_format($cartAmount, 2),
+            'cashAmount' => '₹'.number_format($cashAmount, 2),
+            'creditAmount' => '₹'.number_format($creditAmount, 2),
+            'submitterName' => $submitterName,
+            'submittedAt' => $submittedAt,
+            'paymentNote' => $paymentNoteVal,
+            'grnNumber' => $cart->goodsReceived?->grn_number ?: 'Pending',
+            'pdfUrl' => $pdfUrl ?: '#',
+            'purchaseGrade' => $cart->purchase_grade ?? 'A',
+            'items' => $cart->items->map(fn ($item) => [
+                'name' => $item->product?->name ?: 'Item',
+                'quantity' => (float) $item->quantity,
+                'unit' => $item->product?->unit ?: '',
+                'price' => number_format((float) $item->unit_price, 2),
+                'total' => number_format((float) $item->line_total, 2),
+                'grade' => $item->grade ?? 'A',
+            ])->values()->all(),
+        ];
+
+        return response()->json([
+            'invoiceData' => $invoiceData,
+            'modalPayload' => $modalPayload,
+            'paymentActionUrl' => $paymentActionUrl,
         ]);
     }
 
@@ -1120,40 +1373,303 @@ class PurchaserDashboardController extends Controller
             'user_id' => $user->id,
         ]);
 
-        $carts = PurchaserCart::query()
+        $activeTab = $request->string('tab')->toString();
+
+        // Query status counts cheaply in 1 query
+        $cartCounts = PurchaserCart::query()
             ->where('user_id', $user->id)
             ->whereDate('business_date', $date)
             ->when($purchaseGrade !== null, fn ($query) => $query->where('purchase_grade', $purchaseGrade))
+            ->selectRaw('status, count(*) as count')
+            ->groupBy('status')
+            ->pluck('count', 'status');
+
+        $draftCount = (int) ($cartCounts['draft'] ?? 0);
+        $submittedCount = (int) ($cartCounts['submitted'] ?? 0);
+        $cancelledCartCount = (int) ($cartCounts['cancelled'] ?? 0);
+
+        // Cancelled invoice count query
+        $cancelledInvoicesCount = PurchaseInvoice::withTrashed()
+            ->where('status', InvoiceStatus::Cancelled)
+            ->where(function ($query) use ($user, $date, $purchaseGrade): void {
+                $query->whereHas('purchaserCart', function ($cartQuery) use ($user, $date, $purchaseGrade): void {
+                    $cartQuery->where('user_id', $user->id)
+                        ->whereDate('business_date', $date)
+                        ->when($purchaseGrade !== null, fn ($q) => $q->where('purchase_grade', $purchaseGrade));
+                })->orWhere(function ($standaloneQuery) use ($user, $date): void {
+                    $standaloneQuery->where('purchaser_submitted_by', $user->id)
+                        ->whereDate('created_at', $date);
+                });
+            })
+            ->count();
+
+        $totalCancelledCount = $cancelledInvoicesCount + $cancelledCartCount;
+
+        if (! in_array($activeTab, ['draft', 'pending', 'completed', 'cancelled'], true)) {
+            $activeTab = match (true) {
+                $request->has('cancelled_page') => 'cancelled',
+                default => 'draft',
+            };
+        }
+
+        // Always load draft carts for the primary view
+        $draftCarts = PurchaserCart::query()
+            ->where('user_id', $user->id)
+            ->whereDate('business_date', $date)
+            ->when($purchaseGrade !== null, fn ($query) => $query->where('purchase_grade', $purchaseGrade))
+            ->where('status', 'draft')
             ->with([
-                'supplier',
+                'supplier:id,name,mobile_number',
                 'items.product.category',
-                'goodsReceived.items.product',
-                'goodsReceived.items.purchaseOrderItem.product',
-                'purchaseOrder',
-                'purchaseInvoice',
             ])
             ->orderByDesc('updated_at')
             ->get();
-        $probe?->checkpoint('load_carts_with_relations');
+        $probe?->checkpoint('load_draft_carts');
 
-        $relatedBatchState = $this->relatedBatchStateForCarts($carts);
-        $probe?->checkpoint('related_batch_state');
-        $relatedReceiptNotes = $this->relatedReceiptNotesForCarts($carts);
-        $probe?->checkpoint('related_receipt_notes');
-        $relatedReceiptDiscrepancies = $carts->mapWithKeys(fn (PurchaserCart $cart): array => [
-            (int) $cart->id => $this->buildReceiptDiscrepancySummary($cart->goodsReceived),
-        ])->all();
-        $probe?->checkpoint('receipt_discrepancies');
-        $draftCarts = $carts->where('status', 'draft')->values();
-        $submittedCarts = $carts->where('status', 'submitted')->values();
-        $cancelledCarts = $carts->where('status', 'cancelled')->values();
+        $mergeSuggestions = $this->buildDraftMergeSuggestions($draftCarts);
+        $mergeableDraftCounts = $mergeSuggestions
+            ->mapWithKeys(fn (array $suggestion): array => [
+                (int) $suggestion['target_cart']->id => (int) $suggestion['count'] - 1,
+            ])
+            ->all();
+        $probe?->checkpoint('merge_suggestions');
+
+        // Batched price hints for draft carts (1-2 queries total)
+        $vendorPriceHintsByCart = $this->vendorPriceService->previousPricesForCarts($draftCarts);
+        $probe?->checkpoint('vendor_price_hints');
+
+        // Scoped suppliers for modal (cached / lightweight)
+        $suppliers = $this->scopedSuppliersForUser($user);
+        $probe?->checkpoint('suppliers');
+
+        // Non-draft tab data (only loaded if activeTab is requested directly)
+        $pendingCarts = collect();
+        $completedCarts = collect();
+        $standaloneCancelledCarts = collect();
+        $cancelledInvoices = new LengthAwarePaginator([], 0, 25);
+        $relatedBatchState = [];
+        $relatedReceiptNotes = [];
+        $relatedReceiptDiscrepancies = [];
+
+        if ($activeTab === 'pending' || $activeTab === 'completed') {
+            $submittedCarts = PurchaserCart::query()
+                ->where('user_id', $user->id)
+                ->whereDate('business_date', $date)
+                ->when($purchaseGrade !== null, fn ($query) => $query->where('purchase_grade', $purchaseGrade))
+                ->where('status', 'submitted')
+                ->with([
+                    'supplier:id,name,mobile_number',
+                    'items.product',
+                    'purchaseInvoice.supplier',
+                    'goodsReceived',
+                ])
+                ->orderByDesc('updated_at')
+                ->get();
+
+            $relatedBatchState = $this->relatedBatchStateForCarts($submittedCarts);
+            $relatedReceiptNotes = $this->relatedReceiptNotesForCarts($submittedCarts);
+            $relatedReceiptDiscrepancies = $submittedCarts->mapWithKeys(fn (PurchaserCart $cart): array => [
+                (int) $cart->id => $this->buildReceiptDiscrepancySummary($cart->goodsReceived),
+            ])->all();
+
+            $pendingCarts = $submittedCarts
+                ->filter(fn (PurchaserCart $cart): bool => ! $this->isWarehouseConfirmed($relatedBatchState[(int) $cart->id] ?? []) || $this->cartHasPaymentPending($cart))
+                ->values();
+
+            $completedCarts = $submittedCarts
+                ->filter(fn (PurchaserCart $cart): bool => $this->isWarehouseConfirmed($relatedBatchState[(int) $cart->id] ?? []) && ! $this->cartHasPaymentPending($cart))
+                ->values();
+        } elseif ($activeTab === 'cancelled') {
+            $cancelledInvoices = PurchaseInvoice::withTrashed()
+                ->select([
+                    'id',
+                    'invoice_number',
+                    'purchaser_cart_id',
+                    'supplier_id',
+                    'amount',
+                    'status',
+                    'cancelled_at',
+                    'cancelled_by',
+                    'cancellation_reason',
+                    'cancellation_note',
+                    'deleted_at',
+                    'created_at',
+                ])
+                ->where('status', InvoiceStatus::Cancelled)
+                ->where(function ($query) use ($user, $date, $purchaseGrade): void {
+                    $query->whereHas('purchaserCart', function ($cartQuery) use ($user, $date, $purchaseGrade): void {
+                        $cartQuery->where('user_id', $user->id)
+                            ->whereDate('business_date', $date)
+                            ->when($purchaseGrade !== null, fn ($q) => $q->where('purchase_grade', $purchaseGrade));
+                    })->orWhere(function ($standaloneQuery) use ($user, $date): void {
+                        $standaloneQuery->where('purchaser_submitted_by', $user->id)
+                            ->whereDate('created_at', $date);
+                    });
+                })
+                ->with([
+                    'supplier:id,name',
+                    'purchaserCart:id,cart_number,user_id,business_date',
+                    'cancelledBy:id,name',
+                ])
+                ->latest('cancelled_at')
+                ->paginate(25, ['*'], 'cancelled_page')
+                ->withQueryString();
+
+            $cancelledCarts = PurchaserCart::query()
+                ->where('user_id', $user->id)
+                ->whereDate('business_date', $date)
+                ->when($purchaseGrade !== null, fn ($query) => $query->where('purchase_grade', $purchaseGrade))
+                ->where('status', 'cancelled')
+                ->with(['supplier:id,name', 'items.product'])
+                ->get();
+
+            $cancelledCartIdsWithInvoices = $cancelledCarts->isEmpty()
+                ? []
+                : PurchaseInvoice::withTrashed()
+                    ->where('status', InvoiceStatus::Cancelled)
+                    ->whereIn('purchaser_cart_id', $cancelledCarts->pluck('id'))
+                    ->pluck('purchaser_cart_id')
+                    ->filter()
+                    ->unique()
+                    ->all();
+
+            $standaloneCancelledCarts = $cancelledCarts
+                ->reject(fn (PurchaserCart $c): bool => in_array((int) $c->id, $cancelledCartIdsWithInvoices, true))
+                ->values();
+        }
+
+        $probe?->finish([
+            'draft_count' => $draftCarts->count(),
+            'submitted_count' => $submittedCount,
+            'cancelled_count' => $totalCancelledCount,
+        ]);
+
+        return view('purchasing.purchaser.vendors', [
+            'date' => $date->format('Y-m-d'),
+            'purchaseGrade' => $purchaseGrade,
+            'draftCarts' => $draftCarts,
+            'pendingCarts' => $pendingCarts,
+            'completedCarts' => $completedCarts,
+            'cancelledCarts' => $standaloneCancelledCarts,
+            'cancelledInvoices' => $cancelledInvoices,
+            'totalCancelledCount' => $totalCancelledCount,
+            'pendingCount' => $submittedCount,
+            'completedCount' => 0,
+            'mergeSuggestions' => $mergeSuggestions,
+            'mergeableDraftCounts' => $mergeableDraftCounts,
+            'productCatalog' => collect(),
+            'suppliers' => $suppliers,
+            'vendorPriceHintsByCart' => $vendorPriceHintsByCart,
+            'activeTab' => $activeTab,
+            'focusCartId' => $focusCartId,
+            'relatedBatchState' => $relatedBatchState,
+            'relatedReceiptNotes' => $relatedReceiptNotes,
+            'relatedReceiptDiscrepancies' => $relatedReceiptDiscrepancies,
+            'deadlineAlert' => ['show' => false],
+        ]);
+    }
+
+    public function vendorsPendingTab(Request $request): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+        $date = $this->resolveBusinessDate($request);
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+        $user = $request->user();
+        $purchaseGrade = $request->string('purchase_grade')->upper()->toString();
+        $purchaseGrade = in_array($purchaseGrade, ['A', 'B'], true) ? $purchaseGrade : null;
+        $focusCartId = $request->integer('focus_cart');
+
+        $submittedCarts = PurchaserCart::query()
+            ->where('user_id', $user->id)
+            ->whereDate('business_date', $date)
+            ->when($purchaseGrade !== null, fn ($query) => $query->where('purchase_grade', $purchaseGrade))
+            ->where('status', 'submitted')
+            ->with([
+                'supplier:id,name,mobile_number',
+                'items.product',
+                'purchaseInvoice.supplier',
+                'goodsReceived',
+            ])
+            ->orderByDesc('updated_at')
+            ->get();
+
+        $relatedBatchState = $this->relatedBatchStateForCarts($submittedCarts);
+        $relatedReceiptNotes = $this->relatedReceiptNotesForCarts($submittedCarts);
+
         $pendingCarts = $submittedCarts
             ->filter(fn (PurchaserCart $cart): bool => ! $this->isWarehouseConfirmed($relatedBatchState[(int) $cart->id] ?? []) || $this->cartHasPaymentPending($cart))
             ->values();
+
+        return view('purchasing.purchaser.partials.vendors_pending', [
+            'date' => $date->format('Y-m-d'),
+            'pendingCarts' => $pendingCarts,
+            'focusCartId' => $focusCartId,
+            'relatedBatchState' => $relatedBatchState,
+            'relatedReceiptNotes' => $relatedReceiptNotes,
+        ]);
+    }
+
+    public function vendorsCompletedTab(Request $request): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+        $date = $this->resolveBusinessDate($request);
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+        $user = $request->user();
+        $purchaseGrade = $request->string('purchase_grade')->upper()->toString();
+        $purchaseGrade = in_array($purchaseGrade, ['A', 'B'], true) ? $purchaseGrade : null;
+        $focusCartId = $request->integer('focus_cart');
+
+        $submittedCarts = PurchaserCart::query()
+            ->where('user_id', $user->id)
+            ->whereDate('business_date', $date)
+            ->when($purchaseGrade !== null, fn ($query) => $query->where('purchase_grade', $purchaseGrade))
+            ->where('status', 'submitted')
+            ->with([
+                'supplier:id,name,mobile_number',
+                'items.product',
+                'purchaseInvoice.supplier',
+                'goodsReceived',
+            ])
+            ->orderByDesc('updated_at')
+            ->get();
+
+        $relatedBatchState = $this->relatedBatchStateForCarts($submittedCarts);
+        $relatedReceiptNotes = $this->relatedReceiptNotesForCarts($submittedCarts);
+        $relatedReceiptDiscrepancies = $submittedCarts->mapWithKeys(fn (PurchaserCart $cart): array => [
+            (int) $cart->id => $this->buildReceiptDiscrepancySummary($cart->goodsReceived),
+        ])->all();
+
         $completedCarts = $submittedCarts
             ->filter(fn (PurchaserCart $cart): bool => $this->isWarehouseConfirmed($relatedBatchState[(int) $cart->id] ?? []) && ! $this->cartHasPaymentPending($cart))
             ->values();
-        $cancelledInvoicesQuery = PurchaseInvoice::withTrashed()
+
+        return view('purchasing.purchaser.partials.vendors_completed', [
+            'date' => $date->format('Y-m-d'),
+            'completedCarts' => $completedCarts,
+            'focusCartId' => $focusCartId,
+            'relatedBatchState' => $relatedBatchState,
+            'relatedReceiptNotes' => $relatedReceiptNotes,
+            'relatedReceiptDiscrepancies' => $relatedReceiptDiscrepancies,
+        ]);
+    }
+
+    public function vendorsCancelledTab(Request $request): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+        $date = $this->resolveBusinessDate($request);
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+        $user = $request->user();
+        $purchaseGrade = $request->string('purchase_grade')->upper()->toString();
+        $purchaseGrade = in_array($purchaseGrade, ['A', 'B'], true) ? $purchaseGrade : null;
+        $focusCartId = $request->integer('focus_cart');
+
+        $cancelledInvoices = PurchaseInvoice::withTrashed()
             ->select([
                 'id',
                 'invoice_number',
@@ -1184,13 +1700,17 @@ class PurchaserDashboardController extends Controller
                 'purchaserCart:id,cart_number,user_id,business_date',
                 'cancelledBy:id,name',
             ])
-            ->latest('cancelled_at');
-
-        $cancelledInvoicesCount = (clone $cancelledInvoicesQuery)->count();
-
-        $cancelledInvoices = (clone $cancelledInvoicesQuery)
+            ->latest('cancelled_at')
             ->paginate(25, ['*'], 'cancelled_page')
             ->withQueryString();
+
+        $cancelledCarts = PurchaserCart::query()
+            ->where('user_id', $user->id)
+            ->whereDate('business_date', $date)
+            ->when($purchaseGrade !== null, fn ($query) => $query->where('purchase_grade', $purchaseGrade))
+            ->where('status', 'cancelled')
+            ->with(['supplier:id,name', 'items.product'])
+            ->get();
 
         $cancelledCartIdsWithInvoices = $cancelledCarts->isEmpty()
             ? []
@@ -1206,79 +1726,11 @@ class PurchaserDashboardController extends Controller
             ->reject(fn (PurchaserCart $c): bool => in_array((int) $c->id, $cancelledCartIdsWithInvoices, true))
             ->values();
 
-        $totalCancelledCount = $cancelledInvoicesCount + $standaloneCancelledCarts->count();
-
-        $activeTab = $request->string('tab')->toString();
-
-        if (! in_array($activeTab, ['draft', 'pending', 'completed', 'cancelled'], true)) {
-            $activeTab = match (true) {
-                $request->has('cancelled_page') => 'cancelled',
-                $completedCarts->contains('id', $focusCartId) => 'completed',
-                $pendingCarts->contains('id', $focusCartId) => 'pending',
-                $cancelledCarts->contains('id', $focusCartId) || $cancelledInvoices->getCollection()->contains('purchaser_cart_id', $focusCartId) => 'cancelled',
-                default => 'draft',
-            };
-        }
-
-        $probe?->checkpoint('split_tabs');
-
-        $mergeSuggestions = $this->buildDraftMergeSuggestions($draftCarts);
-        $mergeableDraftCounts = $mergeSuggestions
-            ->mapWithKeys(fn (array $suggestion): array => [
-                (int) $suggestion['target_cart']->id => (int) $suggestion['count'] - 1,
-            ])
-            ->all();
-        $probe?->checkpoint('merge_suggestions');
-
-        $productCatalog = Product::query()
-            ->with('category')
-            ->active()
-            ->where('show_in_purchaser_order', true)
-            ->ordered()
-            ->get();
-        $probe?->checkpoint('product_catalog');
-
-        $suppliers = $this->scopedSuppliersForUser($request->user());
-        $probe?->checkpoint('suppliers');
-        $vendorPriceHintsByCart = $carts->mapWithKeys(fn (PurchaserCart $cart): array => [
-            $cart->id => $this->vendorPriceService->previousPricesForSupplier(
-                $cart->supplier_id,
-                $cart->items->pluck('product_id')->all(),
-            ),
-        ])->all();
-        $probe?->checkpoint('vendor_price_hints');
-        $deadlineAlert = $this->buildDeadlineAlert((int) $user->id, $date);
-        $probe?->checkpoint('deadline_alert');
-        $probe?->finish([
-            'cart_count' => $carts->count(),
-            'draft_count' => $draftCarts->count(),
-            'pending_count' => $pendingCarts->count(),
-            'completed_count' => $completedCarts->count(),
-            'cancelled_count' => $totalCancelledCount,
-            'product_count' => $productCatalog->count(),
-            'supplier_count' => $suppliers->count(),
-        ]);
-
-        return view('purchasing.purchaser.vendors', [
+        return view('purchasing.purchaser.partials.vendors_cancelled', [
             'date' => $date->format('Y-m-d'),
-            'purchaseGrade' => $purchaseGrade,
-            'draftCarts' => $draftCarts,
-            'pendingCarts' => $pendingCarts,
-            'completedCarts' => $completedCarts,
-            'cancelledCarts' => $standaloneCancelledCarts,
             'cancelledInvoices' => $cancelledInvoices,
-            'totalCancelledCount' => $totalCancelledCount,
-            'mergeSuggestions' => $mergeSuggestions,
-            'mergeableDraftCounts' => $mergeableDraftCounts,
-            'productCatalog' => $productCatalog,
-            'suppliers' => $suppliers,
-            'vendorPriceHintsByCart' => $vendorPriceHintsByCart,
-            'activeTab' => $activeTab,
+            'cancelledCarts' => $standaloneCancelledCarts,
             'focusCartId' => $focusCartId,
-            'relatedBatchState' => $relatedBatchState,
-            'relatedReceiptNotes' => $relatedReceiptNotes,
-            'relatedReceiptDiscrepancies' => $relatedReceiptDiscrepancies,
-            'deadlineAlert' => $deadlineAlert,
         ]);
     }
 
@@ -3190,7 +3642,7 @@ class PurchaserDashboardController extends Controller
     {
         return PurchaserCart::query()
             ->where('user_id', $userId)
-            ->where('business_date', $date->toDateString())
+            ->whereDate('business_date', $date->toDateString())
             ->where('status', 'draft')
             ->with(['supplier', 'items' => fn ($query) => $query->when($productIds !== null, fn ($items) => $items->whereIn('product_id', $productIds))->with('product:id,name,category_id,unit')->with('product.category:id,name')])
             ->when($productIds !== null, fn ($query) => $query->whereHas('items', fn ($items) => $items->whereIn('product_id', $productIds)))
@@ -3431,7 +3883,7 @@ class PurchaserDashboardController extends Controller
                             ->where('status', 'draft')
                             ->where('purchase_grade', $purchaseGrade);
                     })
-                    ->with('cart.user')
+                    ->with($includeDetails ? 'cart.user' : 'cart')
                     ->get()
                     ->groupBy(fn ($item) => $item->product_id.'_'.$item->cart->business_date->timezone(config('app.timezone'))->format('Y-m-d'));
 
@@ -3460,18 +3912,20 @@ class PurchaserDashboardController extends Controller
 
                         $productDraftItems = $draftCartItems->get($key) ?? collect();
                         $draftQty = (float) $productDraftItems->sum('quantity');
-                        $draftPurchasers = $productDraftItems
-                            ->groupBy('cart.user_id')
-                            ->map(function ($itemsByPurchaser) use ($product) {
-                                $user = $itemsByPurchaser->first()->cart->user;
-                                $purchaserQty = (float) $itemsByPurchaser->sum('quantity');
-                                $formattedQty = $product->unit === 'kg' ? number_format($purchaserQty, 1) : number_format($purchaserQty, 0);
+                        $draftPurchasers = $includeDetails
+                            ? $productDraftItems
+                                ->groupBy('cart.user_id')
+                                ->map(function ($itemsByPurchaser) use ($product) {
+                                    $user = $itemsByPurchaser->first()->cart->user;
+                                    $purchaserQty = (float) $itemsByPurchaser->sum('quantity');
+                                    $formattedQty = $product->unit === 'kg' ? number_format($purchaserQty, 1) : number_format($purchaserQty, 0);
 
-                                return $user ? "{$user->name} ({$formattedQty} {$product->unit})" : null;
-                            })
-                            ->filter()
-                            ->values()
-                            ->all();
+                                    return $user ? "{$user->name} ({$formattedQty} {$product->unit})" : null;
+                                })
+                                ->filter()
+                                ->values()
+                                ->all()
+                            : [];
 
                         $boughtQty = (float) ($submittedQuantities->get($key) ?? 0);
                         $totalApprovedQty = (float) $items->sum('approved_qty');
@@ -3818,37 +4272,45 @@ class PurchaserDashboardController extends Controller
             return $this->memoizedFrequentProductIds[$userId];
         }
 
-        $cartItems = PurchaserCartItem::query()
-            ->selectRaw('product_id, COUNT(*) as usage_count')
-            ->whereHas('cart', function ($query) use ($userId): void {
-                $query->where('user_id', $userId)
-                    ->whereDate('business_date', '>=', now()->subDays(14)->toDateString());
-            })
-            ->whereHas('product', function ($query): void {
-                $query->active()->where('show_in_purchaser_order', true);
-            })
-            ->groupBy('product_id')
-            ->orderByDesc('usage_count')
-            ->limit(12)
-            ->pluck('product_id')
-            ->map(fn ($productId): int => (int) $productId)
-            ->all();
+        return $this->memoizedFrequentProductIds[$userId] = $this->readCacheService->remember(
+            scopes: ['carts'],
+            dataset: 'frequent_product_ids',
+            ttlSeconds: 1800,
+            callback: function () use ($userId): array {
+                $cartItems = PurchaserCartItem::query()
+                    ->selectRaw('product_id, COUNT(*) as usage_count')
+                    ->whereHas('cart', function ($query) use ($userId): void {
+                        $query->where('user_id', $userId)
+                            ->whereDate('business_date', '>=', now()->subDays(14)->toDateString());
+                    })
+                    ->whereHas('product', function ($query): void {
+                        $query->active()->where('show_in_purchaser_order', true);
+                    })
+                    ->groupBy('product_id')
+                    ->orderByDesc('usage_count')
+                    ->limit(12)
+                    ->pluck('product_id')
+                    ->map(fn ($productId): int => (int) $productId)
+                    ->all();
 
-        if ($cartItems !== []) {
-            return $this->memoizedFrequentProductIds[$userId] = $cartItems;
-        }
+                if ($cartItems !== []) {
+                    return $cartItems;
+                }
 
-        return $this->memoizedFrequentProductIds[$userId] = Product::query()
-            ->active()
-            ->where('show_in_purchaser_order', true)
-            ->whereHas('category', function ($query): void {
-                $query->whereIn('name', ['Supply', 'VEG']);
-            })
-            ->ordered()
-            ->limit(12)
-            ->pluck('id')
-            ->map(fn ($productId): int => (int) $productId)
-            ->all();
+                return Product::query()
+                    ->active()
+                    ->where('show_in_purchaser_order', true)
+                    ->whereHas('category', function ($query): void {
+                        $query->whereIn('name', ['Supply', 'VEG']);
+                    })
+                    ->ordered()
+                    ->limit(12)
+                    ->pluck('id')
+                    ->map(fn ($productId): int => (int) $productId)
+                    ->all();
+            },
+            userId: $userId
+        );
     }
 
     private function resolveSubmissionSupplier(Request $request): Supplier

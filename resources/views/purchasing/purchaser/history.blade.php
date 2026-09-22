@@ -1,65 +1,33 @@
 <x-layouts.app title="Purchaser Report">
     @php
-        $allCartsList = $groupedCarts['today']->merge($groupedCarts['history'])->unique('id')->values();
-
-        $creditCarts = $allCartsList->filter(function ($cart) {
-            $cartAmount = $cart->purchaseInvoice 
-                ? ((float) $cart->purchaseInvoice->amount - (float) $cart->discount_amount) 
-                : ((float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
-            $isPaid = ($cart->purchaseInvoice && $cart->purchaseInvoice->payment_status === 'paid') 
-                || $cart->payment_status === 'paid' 
-                || ($cart->purchaseInvoice && (float) $cart->purchaseInvoice->paid_amount >= $cartAmount);
-            if ($isPaid) return false;
-
-            $method = (string) ($cart->purchaseInvoice?->payment_method ?? $cart->payment_method);
-            return strcasecmp($method, 'Credit') === 0;
-        })->values();
-
-        $dueCarts = $allCartsList->filter(function ($cart) {
-            $cartAmount = $cart->purchaseInvoice 
-                ? ((float) $cart->purchaseInvoice->amount - (float) $cart->discount_amount) 
-                : ((float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
-            $isPaid = ($cart->purchaseInvoice && $cart->purchaseInvoice->payment_status === 'paid') 
-                || $cart->payment_status === 'paid' 
-                || ($cart->purchaseInvoice && (float) $cart->purchaseInvoice->paid_amount >= $cartAmount);
-            if ($isPaid) return false;
-
-            $method = (string) ($cart->purchaseInvoice?->payment_method ?? $cart->payment_method);
-            return strcasecmp($method, 'Credit') !== 0;
-        })->values();
-
         $reportTabs = [
             'today' => [
                 'label' => 'Today',
                 'tone' => 'bg-teal-100 text-teal-700',
-                'carts' => $groupedCarts['today'],
                 'description' => 'Purchases and active orders for the selected operational date.',
                 'empty' => 'No purchases for this date.',
             ],
             'credit' => [
                 'label' => 'Credit',
                 'tone' => 'bg-amber-100 text-amber-700',
-                'carts' => $creditCarts,
                 'description' => 'Pending bills with Credit payment method selected.',
                 'empty' => 'No pending credit bills found.',
             ],
             'due' => [
                 'label' => 'Due',
                 'tone' => 'bg-slate-100 text-slate-700',
-                'carts' => $dueCarts,
                 'description' => 'Unpaid and partially paid non-credit bills (To Be Paid).',
                 'empty' => 'No pending due bills found.',
             ],
             'history' => [
                 'label' => 'History',
                 'tone' => 'bg-slate-100 text-slate-700',
-                'carts' => $groupedCarts['history'],
                 'description' => 'All historical and overdue purchases from previous business days.',
                 'empty' => 'No historical purchases found.',
             ],
         ];
 
-        $defaultTab = request('tab', 'today');
+        $defaultTab = $activeTab ?? request('tab', 'today');
         if (!array_key_exists($defaultTab, $reportTabs)) {
             $defaultTab = 'today';
         }
@@ -91,15 +59,16 @@
                 </a>
 
                 <form action="{{ route('purchaser.history') }}" method="GET" class="shrink-0">
+                    <input type="hidden" name="tab" value="{{ $defaultTab }}">
                     <input type="hidden" name="include_expenses" value="{{ $includeExpenses ? '1' : '0' }}">
                     <input type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
                 </form>
 
                 <div class="inline-flex h-8 shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-[9px]">
-                    <a href="{{ route('purchaser.history', ['date' => $date, 'include_expenses' => 0]) }}" class="flex items-center rounded-md px-2.5 py-1 font-black uppercase tracking-wider {{ $includeExpenses ? 'text-slate-600 hover:text-slate-800' : 'bg-white text-slate-900 shadow-2xs' }}">
+                    <a href="{{ route('purchaser.history', ['date' => $date, 'tab' => $defaultTab, 'include_expenses' => 0]) }}" class="flex items-center rounded-md px-2.5 py-1 font-black uppercase tracking-wider {{ $includeExpenses ? 'text-slate-600 hover:text-slate-800' : 'bg-white text-slate-900 shadow-2xs' }}">
                         Bills Only
                     </a>
-                    <a href="{{ route('purchaser.history', ['date' => $date, 'include_expenses' => 1]) }}" class="flex items-center rounded-md px-2.5 py-1 font-black uppercase tracking-wider {{ $includeExpenses ? 'bg-white text-teal-700 shadow-2xs' : 'text-slate-600 hover:text-slate-800' }}">
+                    <a href="{{ route('purchaser.history', ['date' => $date, 'tab' => $defaultTab, 'include_expenses' => 1]) }}" class="flex items-center rounded-md px-2.5 py-1 font-black uppercase tracking-wider {{ $includeExpenses ? 'bg-white text-teal-700 shadow-2xs' : 'text-slate-600 hover:text-slate-800' }}">
                         + Expenses
                     </a>
                 </div>
@@ -173,13 +142,13 @@
         <!-- Unified Tab Switcher, Vendor Search & Report Summary -->
         <section class="rounded-xl border border-slate-200 bg-white p-2.5 shadow-xs">
             <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                <!-- Left: Tab Switcher Buttons (Today / Credit / Due / History) -->
+                <!-- Left: Tab Switcher Links (Today / Credit / Due / History) -->
                 <div class="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5 text-xs font-bold text-slate-700 flex-wrap gap-0.5">
                     @foreach ($reportTabs as $tabKey => $tab)
-                        <button type="button" id="report-tab-btn-{{ $tabKey }}" onclick="switchReportTab('{{ $tabKey }}')" class="{{ $tabKey === $defaultTab ? 'bg-white text-slate-950 shadow-2xs font-black' : 'text-slate-500 hover:text-slate-800' }} inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-all">
+                        <a href="{{ route('purchaser.history', ['date' => $date, 'tab' => $tabKey, 'include_expenses' => $includeExpenses ? 1 : 0]) }}" class="{{ $tabKey === $defaultTab ? 'bg-white text-slate-950 shadow-2xs font-black' : 'text-slate-500 hover:text-slate-800' }} inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-all">
                             <span>{{ strtoupper($tab['label']) }}</span>
-                            <span class="rounded-full bg-slate-200/80 px-1.5 py-0.2 text-[9px] font-black text-slate-700">{{ $tab['carts']->count() }}</span>
-                        </button>
+                            <span class="rounded-full bg-slate-200/80 px-1.5 py-0.2 text-[9px] font-black text-slate-700">{{ $tabCounts[$tabKey] ?? 0 }}</span>
+                        </a>
                     @endforeach
                 </div>
 
@@ -195,27 +164,10 @@
 
                 <!-- Right: Active Tab Total Amount Summary & Desktop View Switcher -->
                 <div class="flex items-center justify-between md:justify-end gap-3 text-xs shrink-0">
-                    @foreach ($reportTabs as $tabKey => $tab)
-                        @php
-                            $tabTotalAmount = $tab['carts']->sum(function ($cart) use ($relatedBatchState) {
-                                if ($cart->status === 'draft') {
-                                    return (float) $cart->items->sum('line_total') - (float) $cart->discount_amount;
-                                }
-                                $batchState = $relatedBatchState[$cart->id] ?? [];
-                                if (! ($batchState['warehouse_confirmed'] ?? false)) {
-                                    return 0;
-                                }
-                                if ($cart->purchaseInvoice) {
-                                    return max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount);
-                                }
-                                return max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
-                            });
-                        @endphp
-                        <div id="tab-summary-total-{{ $tabKey }}" class="{{ $tabKey === $defaultTab ? '' : 'hidden' }} text-right">
-                            <span class="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Total Amount</span>
-                            <span class="font-mono font-black text-slate-950 text-xs sm:text-sm">₹{{ number_format($tabTotalAmount, 2) }}</span>
-                        </div>
-                    @endforeach
+                    <div id="tab-summary-total" class="text-right">
+                        <span class="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Total Amount</span>
+                        <span class="font-mono font-black text-slate-950 text-xs sm:text-sm">₹{{ number_format($tabTotalAmount ?? 0, 2) }}</span>
+                    </div>
 
                     <!-- Desktop View Switcher -->
                     <div class="hidden md:flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
@@ -226,402 +178,273 @@
             </div>
         </section>
 
-        @foreach ($reportTabs as $tabKey => $tab)
-            <section id="report-section-{{ $tabKey }}" class="{{ $tabKey === $defaultTab ? '' : 'hidden' }} space-y-3">
+        <section id="report-section-{{ $defaultTab }}" class="space-y-3">
+            @if ($paginatedCarts->isEmpty())
+                <div class="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm font-bold text-slate-500 lg:rounded-[2rem] lg:px-4">
+                    {{ $reportTabs[$defaultTab]['empty'] }}
+                </div>
+            @else
+                @php
+                    $tableTotalAmount = $paginatedCarts->sum(function ($cart) {
+                        if ($cart->purchaseInvoice) {
+                            return max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount);
+                        }
+                        return max(0.0, (float) ($cart->total_amount ?? 0) - (float) ($cart->discount_amount ?? 0));
+                    });
+                    $tableTotalCash = $paginatedCarts->sum(function ($cart) {
+                        if ($cart->purchaseInvoice) {
+                            return (float) $cart->purchaseInvoice->paid_amount;
+                        }
+                        $cartAmount = max(0.0, (float) ($cart->total_amount ?? 0) - (float) ($cart->discount_amount ?? 0));
+                        $isPaid = $cart->payment_status === 'paid' || in_array($cart->payment_method, ['Cash', 'Online', 'GPay'], true);
+                        return $isPaid ? $cartAmount : (float) ($cart->paid_amount ?? 0);
+                    });
+                    $tableTotalCredit = max(0.0, $tableTotalAmount - $tableTotalCash);
+                @endphp
 
-                @if ($tab['carts']->isEmpty())
-                    <div class="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm font-bold text-slate-500 lg:rounded-[2rem] lg:px-4">
-                        {{ $tab['empty'] }}
-                    </div>
-                @else
-                    @php
-                        $tableTotalAmount = $tab['carts']->sum(function ($cart) use ($relatedBatchState) {
-                            if ($cart->status === 'draft') {
-                                return (float) $cart->items->sum('line_total') - (float) $cart->discount_amount;
-                            }
-                            if ($cart->purchaseInvoice) {
-                                return max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount);
-                            }
-                            return max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
-                        });
-                        $tableTotalCash = $tab['carts']->sum(function ($cart) {
-                            $cartAmount = $cart->purchaseInvoice 
-                                ? ((float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount) 
-                                : ((float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
-
-                            if ($cart->purchaseInvoice) {
-                                return (float) $cart->purchaseInvoice->paid_amount;
-                            }
-                            $isPaid = $cart->payment_status === 'paid' || in_array($cart->payment_method, ['Cash', 'Online', 'GPay']);
-                            return $isPaid ? $cartAmount : (float) ($cart->paid_amount ?? 0);
-                        });
-                        $tableTotalCredit = max(0.0, $tableTotalAmount - $tableTotalCash);
-                    @endphp
-
-                    <!-- Desktop Table View (Hidden on mobile) -->
-                    <div id="report-table-container-{{ $tabKey }}" class="report-view-table hidden md:block overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm lg:rounded-[2rem]">
-                        <table class="w-full text-left text-xs">
-                            <thead class="border-b border-slate-100 bg-slate-50/80 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                <tr>
-                                    <th scope="col" class="py-3 px-3.5">Ref / Date</th>
-                                    <th scope="col" class="py-3 px-3">Vendor</th>
-                                    <th scope="col" class="py-3 px-3 text-right">Amount</th>
-                                    <th scope="col" class="py-3 px-3">Bill / Invoice</th>
-                                    <th scope="col" class="py-3 px-3">Status</th>
-                                    <th scope="col" class="py-3 px-3.5 text-center">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-slate-700">
-                                @foreach ($tab['carts'] as $cart)
-                                    @php
-                                        $badge = $statusBadges[$cart->id] ?? ['label' => 'Pending', 'tone' => 'bg-slate-100 text-slate-700'];
-                                        $receiptNotes = $relatedReceiptNotes[$cart->id] ?? null;
-                                        $cartAmount = $cart->purchaseInvoice 
-                                            ? ((float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount) 
-                                            : ((float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
-                                        
-                                        $isPaid = ($cart->purchaseInvoice && $cart->purchaseInvoice->payment_status === 'paid') 
-                                            || $cart->payment_status === 'paid' 
-                                            || ($cart->purchaseInvoice && (float) $cart->purchaseInvoice->paid_amount >= $cartAmount);
-
-                                        $isCreditMethod = strcasecmp((string) ($cart->purchaseInvoice?->payment_method ?? $cart->payment_method), 'Credit') === 0;
-
-                                        $cashAmount = $cart->purchaseInvoice 
-                                            ? (float) $cart->purchaseInvoice->paid_amount 
-                                            : ($isPaid || in_array($cart->payment_method, ['Cash', 'Online', 'GPay']) ? $cartAmount : (float) ($cart->paid_amount ?? 0));
-                                        $creditAmount = max(0.0, $cartAmount - $cashAmount);
-
-                                        $billNumber = $cart->bill_number 
-                                            ?: ($cart->purchaseInvoice && !str_starts_with($cart->purchaseInvoice->invoice_number, 'PENDING-BILL-') 
-                                                ? $cart->purchaseInvoice->invoice_number 
-                                                : ($isPaid ? 'Paid' : 'Pending'));
-                                                
-                                        $pdfUrl = $cart->purchaseInvoice ? route('purchaser.invoices.pdf', $cart->purchaseInvoice) : null;
-                                        
-                                        $paymentStatusLabel = match(true) {
-                                            $cart->purchaseInvoice?->payment_status === 'credit_pending_approval' || $cart->payment_status === 'credit_pending_approval' => 'Credit Pending Approval',
-                                            $isPaid => 'Paid',
-                                            $cashAmount > 0 && $creditAmount > 0 => 'Partially Paid',
-                                            default => str($cart->payment_status ?: 'unpaid')->replace('_', ' ')->title()->toString(),
-                                        };
-
-                                        $hasInvoice = $cart->purchaseInvoice !== null;
-
-                                        $invoiceData = [
-                                            'id' => $hasInvoice ? $cart->purchaseInvoice->id : $cart->id,
-                                            'number' => $hasInvoice ? $cart->purchaseInvoice->invoice_number : $cart->cart_number,
-                                            'billNumber' => $cart->bill_number ?: ($hasInvoice ? $cart->purchaseInvoice->invoice_number : ''),
-                                            'supplier' => $cart->supplier?->name ?: 'Vendor pending',
-                                            'amount' => round((float) $cartAmount, 2),
-                                            'discountAmount' => round((float) ($hasInvoice ? $cart->purchaseInvoice->discount_amount : ($cart->discount_amount ?? 0)), 2),
-                                            'paidAmount' => round((float) $cashAmount, 2),
-                                            'balance' => max(0, round((float) $creditAmount, 2)),
-                                            'paymentMethod' => $hasInvoice ? ($cart->purchaseInvoice->payment_method ?: 'Cash') : ($cart->payment_method ?: 'Cash'),
-                                            'paymentNote' => $hasInvoice ? $cart->purchaseInvoice->payment_note : $cart->payment_note,
-                                            'paymentDetails' => $hasInvoice ? $cart->purchaseInvoice->payment_details : $cart->payment_details,
-                                            'creditApproved' => (bool) ($cart->supplier?->credit_approved),
-                                            'isSubmitMode' => ! $hasInvoice,
-                                            'cartId' => $cart->id,
-                                            'supplierId' => $cart->supplier_id,
-                                            'businessDate' => $cart->business_date->format('Y-m-d'),
-                                            'cartItems' => $cart->items->mapWithKeys(fn($item) => [
-                                                $item->id => ['unit_price' => (float) $item->unit_price]
-                                            ])->all(),
-                                        ];
-
-                                        $paymentActionUrl = $hasInvoice 
-                                            ? route('purchaser.invoices.payment', $cart->purchaseInvoice) 
-                                            : route('purchaser.carts.submit');
-
-                                        $grossTotal = $cart->purchaseInvoice ? (float) $cart->purchaseInvoice->amount : (float) $cart->items->sum('line_total');
-                                        $discountVal = (float) ($hasInvoice ? $cart->purchaseInvoice->discount_amount : ($cart->discount_amount ?? 0));
-                                        $submitterName = $cart->purchaseInvoice?->purchaserSubmittedBy?->name ?? $cart->user?->name ?? 'Purchaser';
-                                        $submittedAt = ($cart->purchaseInvoice?->purchaser_submitted_at ?? $cart->submitted_at)?->format('d M Y, h:i A') ?? '';
-                                        $paymentNoteVal = $hasInvoice ? $cart->purchaseInvoice->payment_note : $cart->payment_note;
-
-                                        $modalPayload = [
-                                            'supplierName' => $cart->supplier?->name ?: 'Vendor pending',
-                                            'supplierMobile' => $cart->supplier?->mobile_number ?: '',
-                                            'billRef' => $cart->cart_number,
-                                            'invoiceNumber' => $cart->purchaseInvoice?->invoice_number ?: ($cart->bill_number ?: 'PENDING-BILL-' . $cart->cart_number),
-                                            'date' => $cart->business_date->format('d M Y'),
-                                            'paymentStatus' => $paymentStatusLabel,
-                                            'totalAmount' => '₹' . number_format($cartAmount, 2),
-                                            'grossAmount' => '₹' . number_format($grossTotal, 2),
-                                            'discountAmount' => $discountVal > 0 ? '₹' . number_format($discountVal, 2) : '',
-                                            'netAmount' => '₹' . number_format($cartAmount, 2),
-                                            'cashAmount' => '₹' . number_format($cashAmount, 2),
-                                            'creditAmount' => '₹' . number_format($creditAmount, 2),
-                                            'submitterName' => $submitterName,
-                                            'submittedAt' => $submittedAt,
-                                            'paymentNote' => $paymentNoteVal,
-                                            'grnNumber' => $cart->goodsReceived?->grn_number ?: 'Pending',
-                                            'pdfUrl' => $pdfUrl ?: '#',
-                                            'purchaseGrade' => $cart->purchase_grade ?? 'A',
-                                            'items' => $cart->items->map(fn($item) => [
-                                                'name' => $item->product?->name ?: 'Item',
-                                                'quantity' => (float) $item->quantity,
-                                                'unit' => $item->product?->unit ?: '',
-                                                'price' => number_format((float) $item->unit_price, 2),
-                                                'total' => number_format((float) $item->line_total, 2),
-                                                'grade' => $item->grade ?? 'A',
-                                            ])->values()->all(),
-                                        ];
-                                    @endphp
-                                    <tr class="transition-colors hover:bg-slate-50/80">
-                                        <!-- Ref / Date -->
-                                        <td class="py-3 px-3.5 align-top">
-                                            <p class="font-mono text-xs font-black text-slate-950">{{ $cart->cart_number }}</p>
-                                            <p class="mt-0.5 text-[10px] font-semibold text-slate-500">{{ $cart->business_date->format('d M Y') }}</p>
-                                            <span class="mt-1 inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-600">
-                                                {{ $cart->items->count() }} {{ \Illuminate\Support\Str::plural('item', $cart->items->count()) }}
-                                            </span>
-                                        </td>
-                                        <!-- Vendor -->
-                                        <td class="py-3 px-3 align-top">
-                                            @if ($cart->supplier_id)
-                                                <a href="{{ route('purchaser.suppliers.show', ['supplier' => $cart->supplier_id, 'date' => $date]) }}" class="font-bold text-teal-700 hover:text-teal-600 hover:underline">
-                                                    {{ $cart->supplier?->name ?: 'Vendor pending' }}
-                                                </a>
-                                            @else
-                                                <p class="font-bold text-slate-900">{{ $cart->supplier?->name ?: 'Vendor pending' }}</p>
-                                            @endif
-                                            <p class="text-[10px] font-medium text-slate-500">{{ $cart->supplier?->mobile_number ?: 'Mobile pending' }}</p>
-                                        </td>
-                                        <!-- Amount -->
-                                        <td class="py-3 px-3 align-top text-right whitespace-nowrap">
-                                            <p class="font-mono text-xs font-black text-slate-950">₹{{ number_format($cartAmount, 2) }}</p>
-                                            <div class="mt-0.5 text-[10px] font-semibold space-y-0.5">
-                                                @if ($isPaid)
-                                                    <p class="text-emerald-700 font-bold">Paid: ₹{{ number_format($cashAmount, 2) }}</p>
-                                                @elseif ($cashAmount > 0 && $creditAmount > 0)
-                                                    <p class="text-emerald-700 font-bold">Paid: ₹{{ number_format($cashAmount, 2) }}</p>
-                                                    <p class="{{ $isCreditMethod ? 'text-amber-700' : 'text-slate-600' }} font-bold">
-                                                        {{ $isCreditMethod ? 'Credit' : 'To Be Paid' }}: ₹{{ number_format($creditAmount, 2) }}
-                                                    </p>
-                                                @elseif ($isCreditMethod)
-                                                    <p class="text-amber-700 font-bold">Credit: ₹{{ number_format($creditAmount, 2) }}</p>
-                                                @else
-                                                    <p class="text-slate-600 font-bold">To Be Paid: ₹{{ number_format($creditAmount, 2) }}</p>
-                                                @endif
-                                            </div>
-                                        </td>
-                                        <!-- Bill / Invoice -->
-                                        <td class="py-3 px-3 align-top">
-                                            @if ($pdfUrl)
-                                                <a href="{{ $pdfUrl }}" target="_blank" class="font-mono text-xs font-bold text-teal-700 hover:underline">
-                                                    {{ $billNumber }}
-                                                </a>
-                                            @else
-                                                <span class="font-mono text-xs font-semibold text-slate-600">{{ $billNumber }}</span>
-                                            @endif
-                                            <p class="mt-0.5 text-[10px] font-bold {{ $isPaid ? 'text-emerald-700' : 'text-slate-500' }}">
-                                                Pay: {{ $paymentStatusLabel }}
-                                            </p>
-                                        </td>
-                                        <!-- Status -->
-                                        <td class="py-3 px-3 align-top">
-                                            <span class="inline-block rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider {{ $badge['tone'] }}">
-                                                {{ $badge['label'] }}
-                                            </span>
-                                            @if ($cart->goodsReceived?->grn_number)
-                                                <p class="mt-1 text-[10px] font-medium text-slate-500">GRN: {{ $cart->goodsReceived->grn_number }}</p>
-                                            @endif
-                                        </td>
-                                        <!-- Actions -->
-                                        <td class="py-3 px-3.5 text-center align-top whitespace-nowrap">
-                                            <div class="flex items-center justify-center gap-1.5">
-                                                <button type="button" onclick='openPaymentModal(@json($invoiceData), "{{ $paymentActionUrl }}")' class="inline-flex h-7 items-center justify-center rounded-lg {{ $isPaid ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-slate-950 hover:bg-slate-800' }} px-2.5 text-[10px] font-black text-white shadow-2xs transition-all active:scale-95">
-                                                    {{ $isPaid ? 'Paid ✓' : 'Payment' }}
-                                                </button>
-                                                <button type="button" onclick='openMobileBillModal(@json($modalPayload))' class="inline-flex h-7 items-center justify-center rounded-lg bg-teal-600 px-2.5 text-[10px] font-black text-white shadow-2xs transition-all hover:bg-teal-500 active:scale-95">
-                                                    View Bill
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                            <tfoot class="border-t-2 border-slate-900 bg-slate-950 text-white font-mono text-xs">
-                                <tr>
-                                    <td colspan="2" class="py-3 px-3.5 font-sans font-black uppercase text-[10px] tracking-wider text-slate-300">
-                                        Table Total ({{ $tab['carts']->count() }} {{ \Illuminate\Support\Str::plural('bill', $tab['carts']->count()) }})
-                                    </td>
-                                    <td class="py-3 px-3 text-right whitespace-nowrap">
-                                        <p class="font-black text-white">₹{{ number_format($tableTotalAmount, 2) }}</p>
-                                        @if ($tableTotalCash > 0)
-                                            <p class="text-[10px] font-bold text-emerald-400">Cash: ₹{{ number_format($tableTotalCash, 2) }}</p>
-                                        @endif
-                                        @if ($tableTotalCredit > 0)
-                                            <p class="text-[9px] font-bold text-amber-400">Credit: ₹{{ number_format($tableTotalCredit, 2) }}</p>
-                                        @endif
-                                    </td>
-                                    <td colspan="3"></td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-
-                    <!-- Mobile Compact Cards View (Default on mobile) -->
-                    <div id="report-cards-container-{{ $tabKey }}" class="report-view-cards space-y-2 md:hidden">
-                        @foreach ($tab['carts'] as $cart)
-                            @php
-                                $badge = $statusBadges[$cart->id] ?? ['label' => 'Pending', 'tone' => 'bg-slate-100 text-slate-700'];
-                                $cartAmount = $cart->purchaseInvoice 
-                                    ? ((float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount) 
-                                    : ((float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
+                <!-- Desktop Table View (Hidden on mobile) -->
+                <div id="report-table-container-{{ $defaultTab }}" class="report-view-table hidden md:block overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm lg:rounded-[2rem]">
+                    <table class="w-full text-left text-xs">
+                        <thead class="border-b border-slate-100 bg-slate-50/80 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            <tr>
+                                <th scope="col" class="py-3 px-3.5">Ref / Date</th>
+                                <th scope="col" class="py-3 px-3">Vendor</th>
+                                <th scope="col" class="py-3 px-3 text-right">Amount</th>
+                                <th scope="col" class="py-3 px-3">Bill / Invoice</th>
+                                <th scope="col" class="py-3 px-3">Status</th>
+                                <th scope="col" class="py-3 px-3.5 text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 text-slate-700">
+                            @foreach ($paginatedCarts as $cart)
+                                @php
+                                    $badge = $statusBadges[$cart->id] ?? ['label' => 'Pending', 'tone' => 'bg-slate-100 text-slate-700'];
+                                    $hasInvoice = $cart->purchaseInvoice !== null;
+                                    $cartAmount = $hasInvoice 
+                                        ? max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount) 
+                                        : max(0.0, (float) ($cart->total_amount ?? 0) - (float) ($cart->discount_amount ?? 0));
                                     
-                                $isPaid = ($cart->purchaseInvoice && $cart->purchaseInvoice->payment_status === 'paid') 
-                                    || $cart->payment_status === 'paid' 
-                                    || ($cart->purchaseInvoice && (float) $cart->purchaseInvoice->paid_amount >= $cartAmount);
+                                    $isPaid = ($hasInvoice && $cart->purchaseInvoice->payment_status === 'paid') 
+                                        || $cart->payment_status === 'paid' 
+                                        || ($hasInvoice && (float) $cart->purchaseInvoice->paid_amount >= $cartAmount);
 
-                                $isCreditMethod = strcasecmp((string) ($cart->purchaseInvoice?->payment_method ?? $cart->payment_method), 'Credit') === 0;
+                                    $isCreditMethod = strcasecmp((string) ($cart->purchaseInvoice?->payment_method ?? $cart->payment_method), 'Credit') === 0;
 
-                                $cashAmount = $cart->purchaseInvoice 
-                                    ? (float) $cart->purchaseInvoice->paid_amount 
-                                    : ($isPaid || in_array($cart->payment_method, ['Cash', 'Online', 'GPay']) ? $cartAmount : (float) ($cart->paid_amount ?? 0));
-                                $creditAmount = max(0.0, $cartAmount - $cashAmount);
-                                
-                                $paymentStatusLabel = match(true) {
-                                    $cart->purchaseInvoice?->payment_status === 'credit_pending_approval' || $cart->payment_status === 'credit_pending_approval' => 'Credit Pending Approval',
-                                    $isPaid => 'Paid',
-                                    $cashAmount > 0 && $creditAmount > 0 => 'Partially Paid',
-                                    default => str($cart->payment_status ?: 'unpaid')->replace('_', ' ')->title()->toString(),
-                                };
+                                    $cashAmount = $hasInvoice 
+                                        ? (float) $cart->purchaseInvoice->paid_amount 
+                                        : ($isPaid || in_array($cart->payment_method, ['Cash', 'Online', 'GPay'], true) ? $cartAmount : (float) ($cart->paid_amount ?? 0));
+                                    $creditAmount = max(0.0, $cartAmount - $cashAmount);
 
-                                $hasInvoice = $cart->purchaseInvoice !== null;
-
-                                $invoiceData = [
-                                    'id' => $hasInvoice ? $cart->purchaseInvoice->id : $cart->id,
-                                    'number' => $hasInvoice ? $cart->purchaseInvoice->invoice_number : $cart->cart_number,
-                                    'billNumber' => $cart->bill_number ?: ($hasInvoice ? $cart->purchaseInvoice->invoice_number : ''),
-                                    'supplier' => $cart->supplier?->name ?: 'Vendor pending',
-                                    'amount' => round((float) $cartAmount, 2),
-                                    'discountAmount' => round((float) ($hasInvoice ? $cart->purchaseInvoice->discount_amount : ($cart->discount_amount ?? 0)), 2),
-                                    'paidAmount' => round((float) $cashAmount, 2),
-                                    'balance' => max(0, round((float) $creditAmount, 2)),
-                                    'paymentMethod' => $hasInvoice ? ($cart->purchaseInvoice->payment_method ?: 'Cash') : ($cart->payment_method ?: 'Cash'),
-                                    'paymentNote' => $hasInvoice ? $cart->purchaseInvoice->payment_note : $cart->payment_note,
-                                    'paymentDetails' => $hasInvoice ? $cart->purchaseInvoice->payment_details : $cart->payment_details,
-                                    'creditApproved' => (bool) ($cart->supplier?->credit_approved),
-                                    'isSubmitMode' => ! $hasInvoice,
-                                    'cartId' => $cart->id,
-                                    'supplierId' => $cart->supplier_id,
-                                    'businessDate' => $cart->business_date->format('Y-m-d'),
-                                    'cartItems' => $cart->items->mapWithKeys(fn($item) => [
-                                        $item->id => ['unit_price' => (float) $item->unit_price]
-                                    ])->all(),
-                                ];
-
-                                $paymentActionUrl = $hasInvoice 
-                                    ? route('purchaser.invoices.payment', $cart->purchaseInvoice) 
-                                    : route('purchaser.carts.submit');
-
-                                $grossTotal = $cart->purchaseInvoice ? (float) $cart->purchaseInvoice->amount : (float) $cart->items->sum('line_total');
-                                $discountVal = (float) ($hasInvoice ? $cart->purchaseInvoice->discount_amount : ($cart->discount_amount ?? 0));
-                                $submitterName = $cart->purchaseInvoice?->purchaserSubmittedBy?->name ?? $cart->user?->name ?? 'Purchaser';
-                                $submittedAt = ($cart->purchaseInvoice?->purchaser_submitted_at ?? $cart->submitted_at)?->format('d M Y, h:i A') ?? '';
-                                $paymentNoteVal = $hasInvoice ? $cart->purchaseInvoice->payment_note : $cart->payment_note;
-
-                                $modalPayload = [
-                                    'supplierName' => $cart->supplier?->name ?: 'Vendor pending',
-                                    'supplierMobile' => $cart->supplier?->mobile_number ?: '',
-                                    'billRef' => $cart->cart_number,
-                                    'invoiceNumber' => $cart->purchaseInvoice?->invoice_number ?: ($cart->bill_number ?: 'PENDING-BILL-' . $cart->cart_number),
-                                    'date' => $cart->business_date->format('d M Y'),
-                                    'paymentStatus' => $paymentStatusLabel,
-                                    'totalAmount' => '₹' . number_format($cartAmount, 2),
-                                    'grossAmount' => '₹' . number_format($grossTotal, 2),
-                                    'discountAmount' => $discountVal > 0 ? '₹' . number_format($discountVal, 2) : '',
-                                    'netAmount' => '₹' . number_format($cartAmount, 2),
-                                    'cashAmount' => '₹' . number_format($cashAmount, 2),
-                                    'creditAmount' => '₹' . number_format($creditAmount, 2),
-                                    'submitterName' => $submitterName,
-                                    'submittedAt' => $submittedAt,
-                                    'paymentNote' => $paymentNoteVal,
-                                    'grnNumber' => $cart->goodsReceived?->grn_number ?: 'Pending',
-                                    'purchaseGrade' => $cart->purchase_grade ?? 'A',
-                                    'items' => $cart->items->map(fn($item) => [
-                                        'name' => $item->product?->name ?: 'Item',
-                                        'quantity' => (float) $item->quantity,
-                                        'unit' => $item->product?->unit ?: '',
-                                        'price' => number_format((float) $item->unit_price, 2),
-                                        'total' => number_format((float) $item->line_total, 2),
-                                        'grade' => $item->grade ?? 'A',
-                                    ])->values()->all(),
-                                ];
-                            @endphp
-                            <article class="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs space-y-2">
-                                <!-- Row 1: Vendor Name & Cart Ref (Left) | Badge (Right) -->
-                                <div class="flex items-start justify-between gap-2">
-                                    <div class="min-w-0 flex items-center gap-1.5 truncate">
+                                    $billNumber = $cart->bill_number 
+                                        ?: ($hasInvoice && !str_starts_with($cart->purchaseInvoice->invoice_number, 'PENDING-BILL-') 
+                                            ? $cart->purchaseInvoice->invoice_number 
+                                            : ($isPaid ? 'Paid' : 'Pending'));
+                                            
+                                    $pdfUrl = $hasInvoice ? route('purchaser.invoices.pdf', $cart->purchaseInvoice) : null;
+                                    
+                                    $paymentStatusLabel = match(true) {
+                                        $cart->purchaseInvoice?->payment_status === 'credit_pending_approval' || $cart->payment_status === 'credit_pending_approval' => 'Credit Pending Approval',
+                                        $isPaid => 'Paid',
+                                        $cashAmount > 0 && $creditAmount > 0 => 'Partially Paid',
+                                        default => str($cart->purchaseInvoice?->payment_status ?: ($cart->payment_status ?: 'unpaid'))->replace('_', ' ')->title()->toString(),
+                                    };
+                                    $itemCount = $cart->items_count ?? 0;
+                                @endphp
+                                <tr class="vendor-card-item transition-colors hover:bg-slate-50/80" data-vendor-name="{{ strtolower($cart->supplier?->name ?? '') }}" data-vendor-mobile="{{ $cart->supplier?->mobile_number ?? '' }}">
+                                    <!-- Ref / Date -->
+                                    <td class="py-3 px-3.5 align-top">
+                                        <p class="font-mono text-xs font-black text-slate-950">{{ $cart->cart_number }}</p>
+                                        <p class="mt-0.5 text-[10px] font-semibold text-slate-500">{{ $cart->business_date->format('d M Y') }}</p>
+                                        <span class="mt-1 inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-600">
+                                            {{ $itemCount }} {{ \Illuminate\Support\Str::plural('item', $itemCount) }}
+                                        </span>
+                                    </td>
+                                    <!-- Vendor -->
+                                    <td class="py-3 px-3 align-top">
                                         @if ($cart->supplier_id)
-                                            <a href="{{ route('purchaser.suppliers.show', ['supplier' => $cart->supplier_id, 'date' => $date]) }}" class="text-xs font-black text-teal-700 hover:text-teal-600 hover:underline truncate">
+                                            <a href="{{ route('purchaser.suppliers.show', ['supplier' => $cart->supplier_id, 'date' => $date]) }}" class="font-bold text-teal-700 hover:text-teal-600 hover:underline">
                                                 {{ $cart->supplier?->name ?: 'Vendor pending' }}
                                             </a>
                                         @else
-                                            <h3 class="text-xs font-black text-slate-950 truncate">{{ $cart->supplier?->name ?: 'Vendor pending' }}</h3>
+                                            <p class="font-bold text-slate-900">{{ $cart->supplier?->name ?: 'Vendor pending' }}</p>
                                         @endif
-                                        <span class="font-mono text-[10px] font-bold text-slate-500 shrink-0">{{ $cart->cart_number }}</span>
-                                    </div>
-                                    <span class="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider {{ $badge['tone'] }}">
-                                        {{ $badge['label'] }}
-                                    </span>
-                                </div>
-
-                                <!-- Row 2: Amount, Status & Date/Items (Left) | Action Buttons (Right) -->
-                                <div class="flex items-center justify-between gap-2 border-t border-slate-100/80 pt-2 text-xs">
-                                    <div class="min-w-0">
-                                        <div class="flex items-baseline gap-1.5 flex-wrap">
-                                            <span class="font-mono text-xs font-black text-slate-950">₹{{ number_format($cartAmount, 2) }}</span>
-                                            <span class="text-[10px] font-bold {{ $isPaid ? 'text-emerald-700' : ($isCreditMethod ? 'text-amber-700' : 'text-slate-600') }}">
-                                                @if ($cart->purchaseInvoice?->payment_status === 'credit_pending_approval' || $cart->payment_status === 'credit_pending_approval')
-                                                    Credit Pending
-                                                @elseif ($isPaid)
-                                                    Paid
-                                                @elseif ($cashAmount > 0 && $creditAmount > 0)
-                                                    Paid ₹{{ number_format($cashAmount, 2) }} · {{ $isCreditMethod ? 'Credit' : 'Due' }} ₹{{ number_format($creditAmount, 2) }}
-                                                @elseif ($isCreditMethod)
-                                                    Credit ₹{{ number_format($creditAmount, 2) }}
-                                                @else
-                                                    To Be Paid ₹{{ number_format($creditAmount, 2) }}
-                                                @endif
-                                            </span>
+                                        <p class="text-[10px] font-medium text-slate-500">{{ $cart->supplier?->mobile_number ?: 'Mobile pending' }}</p>
+                                    </td>
+                                    <!-- Amount -->
+                                    <td class="py-3 px-3 align-top text-right whitespace-nowrap">
+                                        <p class="font-mono text-xs font-black text-slate-950">₹{{ number_format($cartAmount, 2) }}</p>
+                                        <div class="mt-0.5 text-[10px] font-semibold space-y-0.5">
+                                            @if ($isPaid)
+                                                <p class="text-emerald-700 font-bold">Paid: ₹{{ number_format($cashAmount, 2) }}</p>
+                                            @elseif ($cashAmount > 0 && $creditAmount > 0)
+                                                <p class="text-emerald-700 font-bold">Paid: ₹{{ number_format($cashAmount, 2) }}</p>
+                                                <p class="{{ $isCreditMethod ? 'text-amber-700' : 'text-slate-600' }} font-bold">
+                                                    {{ $isCreditMethod ? 'Credit' : 'To Be Paid' }}: ₹{{ number_format($creditAmount, 2) }}
+                                                </p>
+                                            @elseif ($isCreditMethod)
+                                                <p class="text-amber-700 font-bold">Credit: ₹{{ number_format($creditAmount, 2) }}</p>
+                                            @else
+                                                <p class="text-slate-600 font-bold">To Be Paid: ₹{{ number_format($creditAmount, 2) }}</p>
+                                            @endif
                                         </div>
-                                        <p class="text-[10px] font-medium text-slate-500 mt-0.5">{{ $cart->business_date->format('d M') }} · {{ $cart->items->count() }} {{ \Illuminate\Support\Str::plural('item', $cart->items->count()) }}</p>
-                                    </div>
+                                    </td>
+                                    <!-- Bill / Invoice -->
+                                    <td class="py-3 px-3 align-top">
+                                        @if ($pdfUrl)
+                                            <a href="{{ $pdfUrl }}" target="_blank" class="font-mono text-xs font-bold text-teal-700 hover:underline">
+                                                {{ $billNumber }}
+                                            </a>
+                                        @else
+                                            <span class="font-mono text-xs font-semibold text-slate-600">{{ $billNumber }}</span>
+                                        @endif
+                                        <p class="mt-0.5 text-[10px] font-bold {{ $isPaid ? 'text-emerald-700' : 'text-slate-500' }}">
+                                            Pay: {{ $paymentStatusLabel }}
+                                        </p>
+                                    </td>
+                                    <!-- Status -->
+                                    <td class="py-3 px-3 align-top">
+                                        <span class="inline-block rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider {{ $badge['tone'] }}">
+                                            {{ $badge['label'] }}
+                                        </span>
+                                    </td>
+                                    <!-- Actions -->
+                                    <td class="py-3 px-3.5 text-center align-top whitespace-nowrap">
+                                        <div class="flex items-center justify-center gap-1.5">
+                                            <button type="button" onclick="loadAndOpenPaymentModal({{ $cart->id }})" class="inline-flex h-7 items-center justify-center rounded-lg {{ $isPaid ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-slate-950 hover:bg-slate-800' }} px-2.5 text-[10px] font-black text-white shadow-2xs transition-all active:scale-95">
+                                                {{ $isPaid ? 'Paid ✓' : 'Payment' }}
+                                            </button>
+                                            <button type="button" onclick="loadAndOpenMobileBillModal({{ $cart->id }})" class="inline-flex h-7 items-center justify-center rounded-lg bg-teal-600 px-2.5 text-[10px] font-black text-white shadow-2xs transition-all hover:bg-teal-500 active:scale-95">
+                                                View Bill
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                        <tfoot class="border-t-2 border-slate-900 bg-slate-950 text-white font-mono text-xs">
+                            <tr>
+                                <td colspan="2" class="py-3 px-3.5 font-sans font-black uppercase text-[10px] tracking-wider text-slate-300">
+                                    Page Total ({{ $paginatedCarts->count() }} {{ \Illuminate\Support\Str::plural('bill', $paginatedCarts->count()) }})
+                                </td>
+                                <td class="py-3 px-3 text-right whitespace-nowrap">
+                                    <p class="font-black text-white">₹{{ number_format($tableTotalAmount, 2) }}</p>
+                                    @if ($tableTotalCash > 0)
+                                        <p class="text-[10px] font-bold text-emerald-400">Cash: ₹{{ number_format($tableTotalCash, 2) }}</p>
+                                    @endif
+                                    @if ($tableTotalCredit > 0)
+                                        <p class="text-[9px] font-bold text-amber-400">Credit: ₹{{ number_format($tableTotalCredit, 2) }}</p>
+                                    @endif
+                                </td>
+                                <td colspan="3"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
 
-                                    <div class="flex items-center gap-1 shrink-0">
-                                        <button type="button" onclick='openPaymentModal(@json($invoiceData), "{{ $paymentActionUrl }}")' class="inline-flex h-7 items-center justify-center rounded-lg {{ $isPaid ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-slate-950 hover:bg-slate-800' }} px-2 text-[10px] font-black text-white shadow-2xs">
-                                            {{ $isPaid ? 'Paid ✓' : 'Payment' }}
-                                        </button>
-                                        <button type="button" onclick='openMobileBillModal(@json($modalPayload))' class="inline-flex h-7 items-center justify-center rounded-lg bg-teal-600 px-2 text-[10px] font-black text-white hover:bg-teal-500 shadow-2xs">
-                                            View Bill
-                                        </button>
-                                    </div>
+                <!-- Mobile Compact Cards View (Default on mobile) -->
+                <div id="report-cards-container-{{ $defaultTab }}" class="report-view-cards space-y-2 md:hidden">
+                    @foreach ($paginatedCarts as $cart)
+                        @php
+                            $badge = $statusBadges[$cart->id] ?? ['label' => 'Pending', 'tone' => 'bg-slate-100 text-slate-700'];
+                            $hasInvoice = $cart->purchaseInvoice !== null;
+                            $cartAmount = $hasInvoice 
+                                ? max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount) 
+                                : max(0.0, (float) ($cart->total_amount ?? 0) - (float) ($cart->discount_amount ?? 0));
+                            
+                            $isPaid = ($hasInvoice && $cart->purchaseInvoice->payment_status === 'paid') 
+                                || $cart->payment_status === 'paid' 
+                                || ($hasInvoice && (float) $cart->purchaseInvoice->paid_amount >= $cartAmount);
+
+                            $isCreditMethod = strcasecmp((string) ($cart->purchaseInvoice?->payment_method ?? $cart->payment_method), 'Credit') === 0;
+
+                            $cashAmount = $hasInvoice 
+                                ? (float) $cart->purchaseInvoice->paid_amount 
+                                : ($isPaid || in_array($cart->payment_method, ['Cash', 'Online', 'GPay'], true) ? $cartAmount : (float) ($cart->paid_amount ?? 0));
+                            $creditAmount = max(0.0, $cartAmount - $cashAmount);
+                            
+                            $paymentStatusLabel = match(true) {
+                                $cart->purchaseInvoice?->payment_status === 'credit_pending_approval' || $cart->payment_status === 'credit_pending_approval' => 'Credit Pending Approval',
+                                $isPaid => 'Paid',
+                                $cashAmount > 0 && $creditAmount > 0 => 'Partially Paid',
+                                default => str($cart->purchaseInvoice?->payment_status ?: ($cart->payment_status ?: 'unpaid'))->replace('_', ' ')->title()->toString(),
+                            };
+                            $itemCount = $cart->items_count ?? 0;
+                        @endphp
+                        <article class="vendor-card-item rounded-xl border border-slate-200 bg-white p-3 shadow-2xs space-y-2" data-vendor-name="{{ strtolower($cart->supplier?->name ?? '') }}" data-vendor-mobile="{{ $cart->supplier?->mobile_number ?? '' }}">
+                            <!-- Row 1: Vendor Name & Cart Ref (Left) | Badge (Right) -->
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="min-w-0 flex items-center gap-1.5 truncate">
+                                    @if ($cart->supplier_id)
+                                        <a href="{{ route('purchaser.suppliers.show', ['supplier' => $cart->supplier_id, 'date' => $date]) }}" class="text-xs font-black text-teal-700 hover:text-teal-600 hover:underline truncate">
+                                            {{ $cart->supplier?->name ?: 'Vendor pending' }}
+                                        </a>
+                                    @else
+                                        <h3 class="text-xs font-black text-slate-950 truncate">{{ $cart->supplier?->name ?: 'Vendor pending' }}</h3>
+                                    @endif
+                                    <span class="font-mono text-[10px] font-bold text-slate-500 shrink-0">{{ $cart->cart_number }}</span>
                                 </div>
-                            </article>
-                        @endforeach
-                    </div>
+                                <span class="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider {{ $badge['tone'] }}">
+                                    {{ $badge['label'] }}
+                                </span>
+                            </div>
 
-                    <!-- Simplified Mobile Total Footer Section -->
-                    <div class="rounded-2xl border border-slate-900 bg-slate-950 p-4 text-white shadow-sm md:hidden">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-xs font-bold text-slate-400">{{ $tab['carts']->count() }} {{ \Illuminate\Support\Str::plural('Bill', $tab['carts']->count()) }}</p>
-                                <p class="mt-0.5 text-xs font-black uppercase tracking-wider text-slate-200">Total Credit Due</p>
+                            <!-- Row 2: Amount, Status & Date/Items (Left) | Action Buttons (Right) -->
+                            <div class="flex items-center justify-between gap-2 border-t border-slate-100/80 pt-2 text-xs">
+                                <div class="min-w-0">
+                                    <div class="flex items-baseline gap-1.5 flex-wrap">
+                                        <span class="font-mono text-xs font-black text-slate-950">₹{{ number_format($cartAmount, 2) }}</span>
+                                        <span class="text-[10px] font-bold {{ $isPaid ? 'text-emerald-700' : ($isCreditMethod ? 'text-amber-700' : 'text-slate-600') }}">
+                                            @if ($cart->purchaseInvoice?->payment_status === 'credit_pending_approval' || $cart->payment_status === 'credit_pending_approval')
+                                                Credit Pending
+                                            @elseif ($isPaid)
+                                                Paid
+                                            @elseif ($cashAmount > 0 && $creditAmount > 0)
+                                                Paid ₹{{ number_format($cashAmount, 2) }} · {{ $isCreditMethod ? 'Credit' : 'Due' }} ₹{{ number_format($creditAmount, 2) }}
+                                            @elseif ($isCreditMethod)
+                                                Credit ₹{{ number_format($creditAmount, 2) }}
+                                            @else
+                                                To Be Paid ₹{{ number_format($creditAmount, 2) }}
+                                            @endif
+                                        </span>
+                                    </div>
+                                    <p class="text-[10px] font-medium text-slate-500 mt-0.5">{{ $cart->business_date->format('d M') }} · {{ $itemCount }} {{ \Illuminate\Support\Str::plural('item', $itemCount) }}</p>
+                                </div>
+
+                                <div class="flex items-center gap-1 shrink-0">
+                                    <button type="button" onclick="loadAndOpenPaymentModal({{ $cart->id }})" class="inline-flex h-7 items-center justify-center rounded-lg {{ $isPaid ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-slate-950 hover:bg-slate-800' }} px-2 text-[10px] font-black text-white shadow-2xs">
+                                        {{ $isPaid ? 'Paid ✓' : 'Payment' }}
+                                    </button>
+                                    <button type="button" onclick="loadAndOpenMobileBillModal({{ $cart->id }})" class="inline-flex h-7 items-center justify-center rounded-lg bg-teal-600 px-2 text-[10px] font-black text-white hover:bg-teal-500 shadow-2xs">
+                                        View Bill
+                                    </button>
+                                </div>
                             </div>
-                            <div class="text-right">
-                                <p class="font-mono text-lg font-black text-amber-400">₹{{ number_format($tableTotalCredit, 2) }}</p>
-                                @if ($tableTotalCash > 0)
-                                    <p class="mt-0.5 text-[10px] font-bold text-emerald-400">Cash: ₹{{ number_format($tableTotalCash, 2) }}</p>
-                                @endif
-                            </div>
+                        </article>
+                    @endforeach
+                </div>
+
+                <!-- Simplified Mobile Total Footer Section -->
+                <div class="rounded-2xl border border-slate-900 bg-slate-950 p-4 text-white shadow-sm md:hidden">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-bold text-slate-400">{{ $paginatedCarts->count() }} {{ \Illuminate\Support\Str::plural('Bill', $paginatedCarts->count()) }}</p>
+                            <p class="mt-0.5 text-xs font-black uppercase tracking-wider text-slate-200">Total Credit Due</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="font-mono text-lg font-black text-amber-400">₹{{ number_format($tableTotalCredit, 2) }}</p>
+                            @if ($tableTotalCash > 0)
+                                <p class="mt-0.5 text-[10px] font-bold text-emerald-400">Cash: ₹{{ number_format($tableTotalCash, 2) }}</p>
+                            @endif
                         </div>
                     </div>
-                @endif
-            </section>
-        @endforeach
+                </div>
+
+                <!-- Pagination Links -->
+                <div class="pt-2">
+                    {{ $paginatedCarts->links() }}
+                </div>
+            @endif
+        </section>
     </div>
 
     <!-- Mobile Bottom-Sheet Bill Modal -->
@@ -756,7 +579,7 @@
                 <input type="hidden" id="payment-form-payment-note" name="payment_note" value="">
                 <input type="hidden" name="return_to" value="history">
                 <input type="hidden" name="date" value="{{ request('date', $date ?? now()->format('Y-m-d')) }}">
-                <input type="hidden" id="payment-form-tab" name="tab" value="today">
+                <input type="hidden" id="payment-form-tab" name="tab" value="{{ $defaultTab }}">
                 <input type="hidden" id="discount_amount" name="discount_amount" value="0.00">
 
                 <!-- Total Amount & Balance Card -->
@@ -854,6 +677,38 @@
         let userToggledDiffMode = false;
         let currentDifference = 0;
         let currentPaymentMethod = 'Cash';
+        const cartDetailsCache = new Map();
+
+        async function fetchCartDetails(cartId) {
+            if (cartDetailsCache.has(cartId)) {
+                return cartDetailsCache.get(cartId);
+            }
+            const response = await fetch(`/purchaser/history/${cartId}/details`);
+            if (!response.ok) {
+                throw new Error('Failed to load cart details');
+            }
+            const data = await response.json();
+            cartDetailsCache.set(cartId, data);
+            return data;
+        }
+
+        async function loadAndOpenPaymentModal(cartId) {
+            try {
+                const details = await fetchCartDetails(cartId);
+                openPaymentModal(details.invoiceData, details.paymentActionUrl);
+            } catch (e) {
+                alert('Could not load payment details. Please try again.');
+            }
+        }
+
+        async function loadAndOpenMobileBillModal(cartId) {
+            try {
+                const details = await fetchCartDetails(cartId);
+                openMobileBillModal(details.modalPayload);
+            } catch (e) {
+                alert('Could not load bill details. Please try again.');
+            }
+        }
 
         function togglePageJumpControls(show) {
             document.querySelectorAll('.fixed.z-\\[60\\]').forEach(el => {
@@ -924,33 +779,6 @@
             }
 
             updatePaymentModalStatus();
-        }
-
-        function switchReportTab(tab) {
-            const tabs = ['today', 'credit', 'due', 'history'];
-
-            tabs.forEach((tabKey) => {
-                const button = document.getElementById(`report-tab-btn-${tabKey}`);
-                const section = document.getElementById(`report-section-${tabKey}`);
-                const totalSummary = document.getElementById(`tab-summary-total-${tabKey}`);
-
-                if (!button || !section) {
-                    return;
-                }
-
-                if (tabKey === tab) {
-                    button.className = 'bg-white text-slate-950 shadow-2xs font-black inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-all';
-                    section.classList.remove('hidden');
-                    if (totalSummary) totalSummary.classList.remove('hidden');
-                } else {
-                    button.className = 'text-slate-500 hover:text-slate-800 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-all';
-                    section.classList.add('hidden');
-                    if (totalSummary) totalSummary.classList.add('hidden');
-                }
-            });
-
-            const tabFormInput = document.getElementById('payment-form-tab');
-            if (tabFormInput) tabFormInput.value = tab;
         }
 
         function filterVendorCards(query) {

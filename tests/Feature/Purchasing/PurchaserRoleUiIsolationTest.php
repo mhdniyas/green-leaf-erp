@@ -147,4 +147,47 @@ class PurchaserRoleUiIsolationTest extends TestCase
             ->assertViewIs('purchaser.business-days.bills.edit')
             ->assertSee('Edit Purchase Bill');
     }
+
+    public function test_purchaser_bottom_nav_renders_four_target_items(): void
+    {
+        $response = $this->actingAs($this->purchaserUser)->get(route('purchaser.daily'));
+
+        $response->assertOk()
+            ->assertSee('id="layout-mobile-nav"', false)
+            ->assertSee('title="Demand"', false)
+            ->assertSee('title="Cart"', false)
+            ->assertSee('title="Buy"', false)
+            ->assertSee('title="Report"', false)
+            ->assertDontSee('title="Bills"', false)
+            ->assertSee(route('purchaser.daily'), false)
+            ->assertSee(route('purchaser.cart'), false)
+            ->assertSee(route('purchaser.bulk-buy'), false)
+            ->assertSee(route('purchaser.history'), false);
+    }
+
+    public function test_purchaser_bottom_nav_shows_cart_as_active_on_vendors_page(): void
+    {
+        $response = $this->actingAs($this->purchaserUser)->get(route('purchaser.vendors'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        // Cart link must have bg-cyan-500 active state
+        $this->assertMatchesRegularExpression('/href="[^"]*purchaser\/cart"[^>]*class="[^"]*bg-cyan-500[^"]*"[^>]*title="Cart"/', $content);
+        // Buy link must NOT have bg-cyan-500 active state
+        $this->assertMatchesRegularExpression('/href="[^"]*purchaser\/bulk-buy"[^>]*class="[^"]*bg-transparent[^"]*"[^>]*title="Buy"/', $content);
+    }
+
+    public function test_purchaser_bottom_nav_shows_buy_as_active_on_bulk_buy_page(): void
+    {
+        $response = $this->actingAs($this->purchaserUser)->get(route('purchaser.bulk-buy'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        // Buy link must have bg-cyan-500 active state
+        $this->assertMatchesRegularExpression('/href="[^"]*purchaser\/bulk-buy"[^>]*class="[^"]*bg-cyan-500[^"]*"[^>]*title="Buy"/', $content);
+        // Cart link must NOT have bg-cyan-500 active state
+        $this->assertMatchesRegularExpression('/href="[^"]*purchaser\/cart"[^>]*class="[^"]*bg-transparent[^"]*"[^>]*title="Cart"/', $content);
+    }
 }

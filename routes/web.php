@@ -594,6 +594,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/purchaser/business-day/submit', [PurchaserBusinessDaySubmissionController::class, 'store'])->name('purchaser.business-day.submit');
     Route::get('/purchaser/dashboard', [PurchaserDashboardController::class, 'index'])->name('purchaser.dashboard');
     Route::get('/purchaser/daily', [PurchaserDashboardController::class, 'daily'])->name('purchaser.daily');
+    Route::get('/purchaser/daily/products/{product}/demand', [PurchaserDashboardController::class, 'dailyProductDemand'])->name('purchaser.daily.product-demand');
+    Route::get('/purchaser/daily/products/{product}/purchase-options', [PurchaserDashboardController::class, 'dailyProductPurchaseOptions'])->name('purchaser.daily.product-purchase-options');
     Route::get('/purchaser/b-grade', [PurchaserDashboardController::class, 'bGrade'])->name('purchaser.b-grade');
     Route::get('/purchaser/daily/share', [PurchaserDashboardController::class, 'dailyShare'])->name('purchaser.daily.share');
     Route::get('/purchaser/daily/share/presets', [PurchaserDashboardController::class, 'dailySharePresets'])->name('purchaser.daily.share.presets');
@@ -613,6 +615,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/bulk-buy/product-search', [PurchaserDashboardController::class, 'bulkBuyProductSearch'])->name('purchaser.bulk-buy.product-search');
     Route::get('/purchaser/cart', [PurchaserDashboardController::class, 'cart'])->name('purchaser.cart');
     Route::get('/purchaser/vendors', [PurchaserDashboardController::class, 'vendors'])->name('purchaser.vendors');
+    Route::get('/purchaser/vendors/tabs/pending', [PurchaserDashboardController::class, 'vendorsPendingTab'])->name('purchaser.vendors.tabs.pending');
+    Route::get('/purchaser/vendors/tabs/completed', [PurchaserDashboardController::class, 'vendorsCompletedTab'])->name('purchaser.vendors.tabs.completed');
+    Route::get('/purchaser/vendors/tabs/cancelled', [PurchaserDashboardController::class, 'vendorsCancelledTab'])->name('purchaser.vendors.tabs.cancelled');
     Route::get('/purchaser/suppliers', [PurchaserDashboardController::class, 'supplierHub'])->name('purchaser.suppliers');
     Route::get('/purchaser/suppliers/{supplier}', [PurchaserDashboardController::class, 'supplierShow'])->name('purchaser.suppliers.show');
     Route::get('/purchaser/suppliers/{supplier}/bulk-payment', [PurchaserDashboardController::class, 'showBulkPayment'])->name('purchaser.suppliers.bulk-payment.show');
@@ -631,6 +636,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/purchaser/bill-prices/{specialPrice}', [BillPriceApprovalController::class, 'destroy'])->name('purchaser.bill-prices.destroy');
     Route::get('/purchaser/cart/{cart}/bill', [PurchaserDashboardController::class, 'bill'])->name('purchaser.bill');
     Route::get('/purchaser/history', [PurchaserDashboardController::class, 'history'])->name('purchaser.history');
+    Route::get('/purchaser/history/{cart}/details', [PurchaserDashboardController::class, 'historyCartDetails'])->name('purchaser.history.details');
     Route::get('/purchaser/reports/sales-summary', [PurchaserReportController::class, 'salesSummary'])
         ->middleware('can:purchaser.reports.sales.view')
         ->name('purchaser.reports.sales-summary');
