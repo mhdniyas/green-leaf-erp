@@ -79,12 +79,6 @@ use App\Http\Controllers\Web\Purchasing\PurchasingBusinessDayController;
 use App\Http\Controllers\Web\Purchasing\ShopInvoiceController;
 use App\Http\Controllers\Web\Purchasing\ShopPriceGroupController;
 use App\Http\Controllers\Web\Purchasing\SupplierController;
-use App\Http\Controllers\Web\Purchasing\V2\PurchaserV2BuyController;
-use App\Http\Controllers\Web\Purchasing\V2\PurchaserV2CartController;
-use App\Http\Controllers\Web\Purchasing\V2\PurchaserV2DailyController;
-use App\Http\Controllers\Web\Purchasing\V2\PurchaserV2DashboardController;
-use App\Http\Controllers\Web\Purchasing\V2\PurchaserV2ReportController;
-use App\Http\Controllers\Web\Purchasing\V2\PurchaserV2SearchController;
 use App\Http\Controllers\Web\RequisitionController;
 use App\Http\Controllers\Web\Sales\CustomerController;
 use App\Http\Controllers\Web\Sales\PaymentController;
@@ -620,6 +614,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/vendors/tabs/pending', [PurchaserDashboardController::class, 'vendorsPendingTab'])->name('purchaser.vendors.tabs.pending');
     Route::get('/purchaser/vendors/tabs/completed', [PurchaserDashboardController::class, 'vendorsCompletedTab'])->name('purchaser.vendors.tabs.completed');
     Route::get('/purchaser/vendors/tabs/cancelled', [PurchaserDashboardController::class, 'vendorsCancelledTab'])->name('purchaser.vendors.tabs.cancelled');
+    Route::get('/purchaser/suppliers/search', [PurchaserDashboardController::class, 'searchSuppliers'])->name('purchaser.suppliers.search');
     Route::get('/purchaser/suppliers', [PurchaserDashboardController::class, 'supplierHub'])->name('purchaser.suppliers');
     Route::get('/purchaser/suppliers/{supplier}', [PurchaserDashboardController::class, 'supplierShow'])->name('purchaser.suppliers.show');
     Route::get('/purchaser/suppliers/{supplier}/bulk-payment', [PurchaserDashboardController::class, 'showBulkPayment'])->name('purchaser.suppliers.bulk-payment.show');
@@ -1394,29 +1389,5 @@ Route::middleware('auth')->group(function () {
         Route::get('/matrix-print', [SortSheetController::class, 'segregationMatrixPrint'])->name('matrix-print');
         Route::get('/grid-print', [SortSheetController::class, 'segregationGridPrint'])->name('grid-print');
         Route::get('/print', [SortSheetController::class, 'segregationPdf'])->name('print');
-    });
-
-    // ── Purchaser V2 (Isolated High-Performance Architecture) ──────────────
-    Route::prefix('purchaser-v2')->name('purchaser-v2.')->group(function () {
-        Route::get('/', [PurchaserV2DashboardController::class, 'index'])->name('index');
-        Route::get('/dashboard', [PurchaserV2DashboardController::class, 'index'])->name('dashboard');
-        Route::get('/daily', [PurchaserV2DailyController::class, 'index'])->name('daily');
-        Route::get('/daily/products', [PurchaserV2DailyController::class, 'products'])->name('daily.products');
-        Route::get('/daily/products/{product}/detail', [PurchaserV2DailyController::class, 'productDetail'])->name('daily.product-detail');
-        Route::get('/products/search', [PurchaserV2SearchController::class, 'products'])->name('products.search');
-        Route::get('/buy', [PurchaserV2BuyController::class, 'index'])->name('buy');
-        Route::get('/buy/product-details', [PurchaserV2BuyController::class, 'productDetails'])->name('buy.product-details');
-        Route::post('/cart/store', [PurchaserV2BuyController::class, 'storeCart'])->name('cart.store');
-        Route::get('/cart', [PurchaserV2CartController::class, 'index'])->name('cart.index');
-        Route::get('/cart/{cart}/items', [PurchaserV2CartController::class, 'items'])->name('cart.items');
-        Route::patch('/cart/{cart}/items', [PurchaserV2CartController::class, 'updateItems'])->name('cart.items.update');
-        Route::delete('/cart/{cart}/items/{item}', [PurchaserV2CartController::class, 'destroyItem'])->name('cart.items.destroy');
-        Route::delete('/cart/{cart}', [PurchaserV2CartController::class, 'destroyCart'])->name('cart.destroy');
-        Route::get('/suppliers/search', [PurchaserV2CartController::class, 'searchSuppliers'])->name('suppliers.search');
-        Route::post('/suppliers', [PurchaserV2CartController::class, 'storeSupplier'])->name('suppliers.store');
-        Route::patch('/cart/{cart}/supplier', [PurchaserV2CartController::class, 'updateSupplier'])->name('cart.update-supplier');
-        Route::get('/cart/{cart}/price-hints', [PurchaserV2CartController::class, 'priceHints'])->name('cart.price-hints');
-        Route::post('/cart/{cart}/merge-drafts', [PurchaserV2CartController::class, 'mergeDrafts'])->name('cart.merge-drafts');
-        Route::get('/report', [PurchaserV2ReportController::class, 'index'])->name('report');
     });
 });

@@ -529,7 +529,7 @@
         const billVendorCreate = document.getElementById('bill-vendor-create');
         const billVendorResults = document.getElementById('bill-vendor-results');
         const billVendorSearch = document.getElementById('bill-vendor-search');
-        const billVendorSearchUrl = @json(route('purchaser-v2.suppliers.search'));
+        const billVendorSearchUrl = @json(route('purchaser.suppliers.search'));
 
         window.closeBillVendorOverlays = () => {
             billVendorPicker.classList.add('hidden');

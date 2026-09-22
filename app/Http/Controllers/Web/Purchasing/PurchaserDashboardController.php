@@ -2228,6 +2228,41 @@ class PurchaserDashboardController extends Controller
         ]);
     }
 
+    public function searchSuppliers(Request $request): JsonResponse
+    {
+        $this->ensurePurchaser($request);
+        $user = $request->user();
+        $query = trim((string) $request->query('q', ''));
+
+        $suppliersQuery = $user->scopedSuppliersQuery();
+
+        if ($query !== '') {
+            $suppliersQuery->where(function ($q) use ($query): void {
+                $q->where('name', 'like', '%'.$query.'%')
+                    ->orWhere('mobile_number', 'like', '%'.$query.'%')
+                    ->orWhere('location', 'like', '%'.$query.'%');
+            });
+        }
+
+        $results = $suppliersQuery
+            ->orderBy('name')
+            ->limit(min(50, max(5, (int) $request->query('limit', 20))))
+            ->get(['id', 'name', 'mobile_number', 'location', 'credit_approved'])
+            ->map(fn (Supplier $s): array => [
+                'id' => (int) $s->id,
+                'name' => (string) $s->name,
+                'mobile_number' => $s->mobile_number,
+                'location' => $s->location,
+                'credit_approved' => (bool) $s->credit_approved,
+            ])
+            ->all();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $results,
+        ]);
+    }
+
     public function supplierShow(Request $request, Supplier $supplier): View|RedirectResponse
     {
         $this->ensurePurchaser($request);

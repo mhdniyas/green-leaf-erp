@@ -242,11 +242,7 @@
                 || request()->routeIs('purchaser.shop-orders.*')
                 || request()->routeIs('purchaser.b-grade')
                 || request()->routeIs('purchaser.add-ons.*')
-                || request()->routeIs('purchaser.products')
-                || request()->routeIs('purchaser-v2.daily')
-                || request()->routeIs('purchaser-v2.daily.*')
-                || request()->routeIs('purchaser-v2.dashboard')
-                || request()->routeIs('purchaser-v2.products.*'),
+                || request()->routeIs('purchaser.products'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>',
             'type' => 'link',
         ],
@@ -271,9 +267,7 @@
                 || request()->routeIs('purchaser.bill')
                 || request()->routeIs('purchaser.bill-prices.*')
                 || request()->routeIs('purchaser.suppliers.*')
-                || request()->routeIs('purchaser.invoices.*')
-                || request()->routeIs('purchaser-v2.cart.*')
-                || request()->routeIs('purchaser-v2.suppliers.*'),
+                || request()->routeIs('purchaser.invoices.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>',
             'type' => 'link',
         ],
@@ -288,8 +282,7 @@
                 || request()->routeIs('purchaser.finance')
                 || request()->routeIs('purchaser.cash')
                 || request()->routeIs('purchaser.procurement-expenses.*')
-                || request()->routeIs('purchaser.other-expenses.*')
-                || request()->routeIs('purchaser-v2.report'),
+                || request()->routeIs('purchaser.other-expenses.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>',
             'type' => 'link',
         ],
@@ -486,29 +479,8 @@
                 </x-nav-item>
             @elseif(auth()->user()->hasRole('purchaser'))
                 @php
-                    $isPurchaserActive = request()->routeIs('purchaser.*') || request()->routeIs('purchasing.business-days.*') || request()->routeIs('purchaser-v2.*');
+                    $isPurchaserActive = request()->routeIs('purchaser.*') || request()->routeIs('purchasing.business-days.*');
                 @endphp
-
-                {{-- Purchaser V2 Beta Access Card --}}
-                <div class="mb-2">
-                    <a href="{{ route('purchaser-v2.daily', ['date' => $navDate]) }}"
-                       class="group flex items-center justify-between rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50/60 p-3 text-xs font-bold text-emerald-950 shadow-sm transition-all hover:border-emerald-300 hover:shadow-md active:scale-98">
-                        <div class="flex items-center gap-2.5">
-                            <span class="flex h-7 w-7 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm shadow-emerald-600/30">
-                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                </svg>
-                            </span>
-                            <div>
-                                <p class="text-xs font-black text-slate-900 leading-tight">Purchaser V2</p>
-                                <p class="text-[10px] text-emerald-700 font-medium">Fast Mobile Workspace</p>
-                            </div>
-                        </div>
-                        <span class="rounded-full bg-emerald-600 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-white shadow-sm">
-                            Beta
-                        </span>
-                    </a>
-                </div>
 
                 <div class="sidebar-group space-y-1">
                     <button
@@ -588,12 +560,6 @@
                         </div>
                         <div class="space-y-1">
                             <p class="px-3 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">More</p>
-                            <x-nav-item href="{{ route('purchaser-v2.report', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser-v2.report')" :sub="true">
-                                <span class="flex items-center justify-between w-full">
-                                    <span>V2 Daily Report</span>
-                                    <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-800">Beta</span>
-                                </span>
-                            </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.bill-prices.index') }}" :active="request()->routeIs('purchaser.bill-prices.*')" :sub="true">
                                 Approval - Bill
                             </x-nav-item>
