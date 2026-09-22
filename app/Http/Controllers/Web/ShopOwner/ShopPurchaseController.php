@@ -815,7 +815,7 @@ class ShopPurchaseController extends Controller
 
         $mode = $validationTarget->vendor_access_mode ?: 'linked_create';
 
-            if ($mode === 'defined_only') {
+        if ($mode === 'defined_only') {
             if (! empty($validated['new_supplier_name'])) {
                 $this->rejectAccess($request, 'new_supplier_name', 'Vendor creation is not permitted for this category.');
             }
