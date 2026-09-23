@@ -2706,7 +2706,10 @@ class PurchaserDashboardController extends Controller
 
             $remainingApproved = $remainingByProduct[$productId] ?? 0.0;
             $quantity = (float) $itemData['quantity'];
-            $unitPrice = $this->purchaseGradePriceResolver->resolve($productId, $date->toDateString(), $purchaseGrade, (float) $itemData['unit_price']);
+            $submittedPrice = (float) ($itemData['unit_price'] ?? 0);
+            $unitPrice = $submittedPrice > 0
+                ? $submittedPrice
+                : $this->purchaseGradePriceResolver->resolve($productId, $date->toDateString(), $purchaseGrade);
 
             $existingItem = $cart->items()->where('product_id', $productId)->where('grade', $purchaseGrade)->first();
             $newQuantity = $existingItem instanceof PurchaserCartItem
