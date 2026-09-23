@@ -43,6 +43,7 @@ use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\PurchaserCartBatchStateResolver;
 use App\Services\Purchasing\PurchaserDailyInitialQuery;
+use App\Services\Purchasing\PurchaserPreviousPriceResolver;
 use App\Services\Purchasing\PurchaserReadCacheService;
 use App\Services\Purchasing\ShopPurchaserDailyVerificationService;
 use App\Services\Purchasing\VendorPriceService;
@@ -94,6 +95,7 @@ class PurchaserDashboardController extends Controller
         private readonly PurchaserReadCacheService $readCacheService,
         private readonly DailyInventoryComparisonService $comparisonService,
         private readonly PurchaserDailyInitialQuery $dailyInitialQuery,
+        private readonly PurchaserPreviousPriceResolver $previousPriceResolver,
     ) {}
 
     public function index(): RedirectResponse
@@ -1123,18 +1125,16 @@ class PurchaserDashboardController extends Controller
             ->where('purchase_grade', $purchaseGrade)
             ->values();
 
-        $uniqueSupplierIds = $draftCarts->pluck('supplier_id')->filter()->unique()->all();
-        $pricesBySupplier = [];
         $selectedProductIds = $selectedSummary->pluck('product_id')->all();
-        foreach ($uniqueSupplierIds as $supId) {
-            $pricesBySupplier[$supId] = $this->vendorPriceService->previousPricesForSupplier(
-                $supId,
-                $selectedProductIds,
-            );
-        }
+
+        $previousPrices = $this->previousPriceResolver->getPreviousWeightedPrices(
+            $selectedProductIds,
+            $date,
+            $purchaseGrade
+        );
 
         $bulkPriceHintsByCart = $draftCarts->mapWithKeys(fn (PurchaserCart $cart): array => [
-            $cart->id => $pricesBySupplier[$cart->supplier_id] ?? [],
+            $cart->id => $previousPrices,
         ])->all();
 
         return view('purchasing.purchaser.bulk_buy_details', [
@@ -1143,10 +1143,7 @@ class PurchaserDashboardController extends Controller
             'dailySummary' => $selectedSummary,
             'draftCarts' => $draftCarts,
             'bulkPriceHintsByCart' => $bulkPriceHintsByCart,
-            'bulkFallbackPriceHints' => $this->vendorPriceService->previousPricesForSupplier(
-                null,
-                $selectedProductIds,
-            ),
+            'bulkFallbackPriceHints' => $previousPrices,
             'deadlineAlert' => ['show' => false],
         ]);
     }
@@ -1200,9 +1197,10 @@ class PurchaserDashboardController extends Controller
                 fn ($item) => round((float) $item->quantity * (float) $item->unit_price, 2)
             ),
             'companyDetails' => $this->companyDetailsForBill(),
-            'vendorPriceHints' => $this->vendorPriceService->previousPricesForSupplier(
-                $cart->supplier_id,
+            'vendorPriceHints' => $this->previousPriceResolver->getPreviousWeightedPrices(
                 $cart->items->pluck('product_id')->all(),
+                $cart->business_date,
+                $cart->purchase_grade ?? 'A',
             ),
             'deadlineAlert' => ['show' => false],
         ]);
