@@ -77,7 +77,7 @@ class RequisitionController extends Controller
                 ->withInput();
         }
 
-        $items = $this->resolveRequestedProducts($request->input('items', []), $request->input('item_units', []), $request->input('item_measures', []));
+        $items = $this->resolveRequestedProducts($request->input('items', []), $request->input('item_units', []), $request->input('item_measures', []), allowZero: true);
 
         if ($items === []) {
             if ($request->expectsJson()) {
@@ -113,6 +113,11 @@ class RequisitionController extends Controller
                         autoApproveOrder: $autoApproveOrder,
                         dailyOrderKey: $dailyOrderKey,
                     );
+                }
+
+                $positiveItems = array_filter($items, fn (array $item): bool => (float) $item['quantity'] > 0);
+                if ($positiveItems === []) {
+                    throw ValidationException::withMessages(['items' => 'Requisition cannot be empty.']);
                 }
 
                 $shopOrder = ShopOrder::create([
@@ -623,7 +628,7 @@ class RequisitionController extends Controller
                 ->with('error', 'This order can no longer be modified from the shop incharge workflow.');
         }
 
-        $items = $this->resolveRequestedProducts($request->input('items', []), $request->input('item_units', []), $request->input('item_measures', []));
+        $items = $this->resolveRequestedProducts($request->input('items', []), $request->input('item_units', []), $request->input('item_measures', []), allowZero: true);
         if ($items === []) {
             return redirect()->route('shop-owner.orders.create')
                 ->withErrors(['items' => 'Updated order cannot be empty.']);
@@ -2100,9 +2105,9 @@ class RequisitionController extends Controller
      * @param  array<string, mixed>  $rawItems
      * @return array<int, array{product: Product, quantity: float}>
      */
-    private function resolveRequestedProducts(array $rawItems, array $rawUnits = [], array $rawMeasures = []): array
+    private function resolveRequestedProducts(array $rawItems, array $rawUnits = [], array $rawMeasures = [], bool $allowZero = false): array
     {
-        return $this->shopOrderItemSyncService->resolveRequestedProducts($rawItems, $rawUnits, $rawMeasures);
+        return $this->shopOrderItemSyncService->resolveRequestedProducts($rawItems, $rawUnits, $rawMeasures, $allowZero);
     }
 
     /**

@@ -17,6 +17,12 @@ class ShopOrderRevisionItem extends Model
     protected $fillable = [
         'shop_order_revision_id',
         'product_id',
+        /**
+         * Stores the previously *approved* quantity at the time the revision was created
+         * (sourced from ShopOrderItem::approved_qty ?? requested_qty).
+         * Despite the field name, this is NOT the shop's original requested_qty —
+         * it is the approved baseline, preserved for audit history.
+         */
         'old_requested_qty',
         'new_requested_qty',
         'delta_qty',

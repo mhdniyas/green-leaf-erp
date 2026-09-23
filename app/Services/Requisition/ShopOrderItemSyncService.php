@@ -24,8 +24,12 @@ class ShopOrderItemSyncService
      * @param  array<string, mixed>  $rawMeasures
      * @return array<int, array{product: Product, quantity: float, line_key?: string, requested_product_unit_id?: ?int, unit?: string, requested_unit?: string, requested_unit_label?: string, requested_unit_quantity?: float, requested_unit_conversion_to_base?: ?float}>
      */
-    public function resolveRequestedProducts(array $rawItems, array $rawUnits = [], array $rawMeasures = []): array
-    {
+    public function resolveRequestedProducts(
+        array $rawItems,
+        array $rawUnits = [],
+        array $rawMeasures = [],
+        bool $allowZero = false,
+    ): array {
         $requestedQuantities = [];
         $lineMeta = [];
 
@@ -39,7 +43,7 @@ class ShopOrderItemSyncService
             $normalizedSku = (string) $normalizedSku;
             $numericQuantity = (float) $quantity;
 
-            if ($numericQuantity <= 0) {
+            if ($allowZero ? $numericQuantity < 0 : $numericQuantity <= 0) {
                 continue;
             }
 
@@ -121,6 +125,10 @@ class ShopOrderItemSyncService
         $incomingKeys = [];
 
         foreach ($items as $item) {
+            if ((float) $item['quantity'] <= 0) {
+                continue;
+            }
+
             $product = $item['product'];
             $incomingKey = $this->resolvedOrderItemKey($item);
             $incomingKeys[] = $incomingKey;

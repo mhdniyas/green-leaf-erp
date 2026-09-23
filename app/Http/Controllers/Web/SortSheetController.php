@@ -635,7 +635,7 @@ class SortSheetController extends Controller
         }
 
         $orders = ShopOrder::whereDate('business_date', $filters['date'])
-            ->where('state', 'approved')
+            ->whereIn('state', ['approved', 'update_requested'])
             ->whereIn('shop_id', $shopQuery->pluck('id'))
             ->with(['items.product.category.warehouses:id'])
             ->get();
@@ -700,7 +700,7 @@ class SortSheetController extends Controller
         $filteredShops = $shopQuery->orderBy('warehouse_tag')->get();
 
         $orders = ShopOrder::whereDate('business_date', $date)
-            ->where('state', 'approved')
+            ->whereIn('state', ['approved', 'update_requested'])
             ->whereIn('shop_id', $filteredShops->pluck('id'))
             ->with(['items.product.category'])
             ->get();

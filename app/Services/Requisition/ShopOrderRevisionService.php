@@ -40,6 +40,8 @@ class ShopOrderRevisionService
             ]);
         }
 
+        // $baselineQuantities uses approved_qty (falling back to requested_qty), so
+        // old_requested_qty on revision items stores the previously *approved* baseline quantity.
         $baselineQuantities = $order->items()
             ->get()
             ->groupBy('product_id')
@@ -48,8 +50,11 @@ class ShopOrderRevisionService
             ->groupBy(fn (array $item): int => (int) $item['product']->id)
             ->map(fn ($productItems): float => (float) $productItems->sum(fn (array $item): float => (float) $item['quantity']));
 
-        $changedProducts = collect($baselineQuantities->keys())
-            ->merge($incomingQuantities->keys())
+        // Iterate ONLY over products the shop explicitly included in this payload.
+        // Products absent from $incomingQuantities are treated as UNCHANGED.
+        // This prevents an accidentally incomplete payload from zeroing out entire categories
+        // (the Casio/Leaf incident: Leaf was omitted → all Leaf items were silently set to 0).
+        $changedProducts = collect($incomingQuantities->keys())
             ->unique()
             ->values()
             ->map(function (int $productId) use ($baselineQuantities, $incomingQuantities): ?array {
@@ -184,23 +189,21 @@ class ShopOrderRevisionService
                 $payload = $this->lockedPricePayload($order, $product, $finalQuantity);
 
                 if ($existingItem) {
+                    // Update approved_qty to the new effective quantity.
+                    // Do NOT touch requested_qty — it records the shop's original request.
                     $existingItem->update([
-                        'requested_qty' => $finalQuantity,
                         'approved_qty' => $finalQuantity,
                         'unit' => $product->unit,
-                        'requested_product_unit_id' => null,
-                        'requested_unit' => $product->unit,
-                        'requested_unit_label' => strtoupper((string) $product->unit),
-                        'requested_unit_quantity' => $finalQuantity,
-                        'requested_unit_conversion_to_base' => 1,
                         'fulfillment_type' => $fulfillmentType,
                         ...$payload,
                     ]);
+                    // Remove genuine duplicate rows for the same product (not the baseline).
                     $extraItemIds = $existingProductItems->skip(1)->pluck('id')->all();
                     if ($extraItemIds !== []) {
                         $order->items()->whereIn('id', $extraItemIds)->delete();
                     }
                 } else {
+                    // New product added via late revision — create the item.
                     $existingItem = $order->items()->create([
                         'product_id' => $product->id,
                         'requested_qty' => $finalQuantity,
@@ -215,7 +218,15 @@ class ShopOrderRevisionService
                     ]);
                 }
             } elseif ($existingItem) {
-                $order->items()->whereIn('id', $existingProductItems->pluck('id')->all())->delete();
+                // Explicit approved removal — zero out the effective approved quantity.
+                // NEVER delete the baseline row: it must remain for audit history,
+                // and downstream modules (purchaser demand, loadout, invoice) read approved_qty.
+                $existingItem->update(['approved_qty' => 0.0]);
+                // Remove genuine duplicate rows only.
+                $extraItemIds = $existingProductItems->skip(1)->pluck('id')->all();
+                if ($extraItemIds !== []) {
+                    $order->items()->whereIn('id', $extraItemIds)->delete();
+                }
             }
 
             if (abs((float) $revisionItem->old_requested_qty - $finalQuantity) > 0.0001) {
