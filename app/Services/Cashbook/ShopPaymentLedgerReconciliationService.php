@@ -794,9 +794,24 @@ class ShopPaymentLedgerReconciliationService
     }
 
     /**
+     * Automatically allocate an unallocated payment using existing configured allocation settings and open obligations.
+     *
+     * @return Collection<int, ShopPaymentLedgerAllocation>
+     */
+    public function autoAllocatePayment(ShopInvoicePaymentRequest $payment, int $userId): Collection
+    {
+        $plan = $this->buildAutoAllocationPlanForPayment($payment, (int) $payment->shop_id);
+        if (empty($plan)) {
+            return collect();
+        }
+
+        return $this->allocatePayment($payment, $plan, $userId);
+    }
+
+    /**
      * @return array<int, array{ledger_transaction_id: int, amount: float}>
      */
-    private function buildAutoAllocationPlanForPayment(ShopInvoicePaymentRequest $payment, int $shopId): array
+    public function buildAutoAllocationPlanForPayment(ShopInvoicePaymentRequest $payment, int $shopId): array
     {
         $payment = ShopInvoicePaymentRequest::query()
             ->whereKey($payment->id)

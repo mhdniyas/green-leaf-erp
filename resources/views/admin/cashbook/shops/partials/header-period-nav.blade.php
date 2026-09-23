@@ -91,6 +91,15 @@
                 </a>
             @endif
 
+            <!-- SHOP FINANCIAL LEDGER -->
+            <a href="{{ route('admin.cashbook.shop.financial-ledger', $currentShopSlugOrId) }}"
+               class="inline-flex items-center gap-2 rounded-2xl border border-sky-300 bg-sky-50 px-4 py-2 text-xs font-black uppercase tracking-wider text-sky-950 shadow-xs hover:bg-sky-100 transition cursor-pointer">
+                <svg class="w-4 h-4 text-sky-700 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Shop Financial Ledger</span>
+            </a>
+
             <!-- 3. SETTINGS -->
             <a href="{{ route('admin.cashbook.settings.shop', $currentShopSlugOrId) }}"
                class="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2 text-xs font-black uppercase tracking-wider text-slate-800 shadow-xs hover:border-slate-400 hover:bg-slate-50 transition cursor-pointer">

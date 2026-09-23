@@ -10,6 +10,8 @@
     ];
     $paymentModes = $financialReport['payment_modes'] ?? [];
     $totalReceived = $financialReport['total_received'] ?? 0.0;
+    $targetMonth = $month ?? ($financialReport['period']['month'] ?? now()->format('Y-m'));
+    $shopIdentifier = $currentShop ? ($currentShop->slug ?: $currentShop->shop_id) : ($shopKey ?? '');
 @endphp
 
 <section class="rounded-3xl border border-slate-200/80 bg-white p-4 sm:p-6 shadow-xs space-y-6" aria-label="Company Settlement and Payment Mode Breakdown">
@@ -19,48 +21,60 @@
             <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-100 pb-3">
                 <h2 class="text-sm font-black uppercase tracking-wider text-slate-900 flex items-center gap-2">
                     <span class="inline-block w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
-                    Company Settlement
+                    Company Payable &amp; Settlement
                 </h2>
-                <span class="text-xs font-semibold text-slate-500">Period Settlement Engine</span>
+                <div class="flex items-center gap-1.5">
+                    <a href="{{ route('admin.cashbook.shop.history.payments', ['shop' => $shopIdentifier, 'month' => $targetMonth]) }}"
+                       class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition"
+                       title="Open Payments Monthly Control">
+                        <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
+                        <span>Open Payments</span>
+                    </a>
+                    <a href="{{ route('admin.cashbook.settings.shop.payments.index', $shopIdentifier) }}#allocation"
+                       class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition"
+                       title="View Allocation Settings">
+                        <i data-lucide="sliders" class="w-3.5 h-3.5 text-slate-500"></i>
+                        <span>Allocation Settings</span>
+                    </a>
+                </div>
             </div>
 
             <div class="divide-y divide-slate-100 text-xs font-semibold">
                 <div class="flex items-center justify-between py-2.5">
-                    <span class="text-slate-600">Due to Company</span>
+                    <span class="text-slate-600">Company Payable</span>
                     <span class="font-mono font-bold text-slate-900 tabular-nums">₹{{ number_format((float) $settlement['due'], 2) }}</span>
                 </div>
 
                 <div class="flex items-center justify-between py-2.5">
-                    <span class="text-slate-600">Received</span>
+                    <span class="text-slate-600">Received / Verified</span>
                     <span class="font-mono font-bold text-emerald-700 tabular-nums">₹{{ number_format((float) $settlement['received'], 2) }}</span>
                 </div>
 
                 <div class="flex items-center justify-between py-2.5">
-                    <span class="text-slate-600">Allocated</span>
-                    <span class="font-mono font-bold text-slate-900 tabular-nums">₹{{ number_format((float) $settlement['allocated'], 2) }}</span>
-                </div>
-
-                <div class="flex items-center justify-between py-2.5">
-                    <span class="text-slate-600">Unallocated</span>
-                    <span class="font-mono font-bold text-amber-700 tabular-nums">₹{{ number_format((float) $settlement['unallocated'], 2) }}</span>
-                </div>
-
-                <div class="flex items-center justify-between py-2.5">
                     <span class="text-slate-600">Pending Verification</span>
-                    <span class="font-mono font-bold text-slate-700 tabular-nums">₹{{ number_format((float) $settlement['pending_verification'], 2) }}</span>
-                </div>
-
-                <div class="flex items-center justify-between py-2.5">
-                    <span class="text-slate-600">Floating Cheques</span>
-                    <span class="font-mono font-bold text-slate-700 tabular-nums">₹{{ number_format((float) $settlement['floating_cheques'], 2) }}</span>
-                </div>
-
-                <div class="flex items-center justify-between pt-3 pb-1">
-                    <span class="text-xs font-black uppercase text-slate-950">Pending</span>
-                    <span class="font-mono text-sm font-black {{ (float) $settlement['pending'] > 0 ? 'text-indigo-900' : 'text-emerald-700' }} tabular-nums">
-                        ₹{{ number_format((float) $settlement['pending'], 2) }}
+                    <span class="font-mono font-bold {{ (float) $settlement['pending_verification'] > 0 ? 'text-amber-700' : 'text-slate-500' }} tabular-nums">
+                        ₹{{ number_format((float) $settlement['pending_verification'], 2) }}
                     </span>
                 </div>
+
+                <div class="flex items-center justify-between py-2.5">
+                    <span class="text-slate-600">Pending Allocation</span>
+                    <span class="font-mono font-bold {{ (float) $settlement['unallocated'] > 0 ? 'text-sky-700' : 'text-slate-500' }} tabular-nums">
+                        ₹{{ number_format((float) $settlement['unallocated'], 2) }}
+                    </span>
+                </div>
+
+                <div class="flex items-center justify-between py-2.5">
+                    <span class="text-slate-600">Allocated</span>
+                    <span class="font-mono font-bold text-slate-700 tabular-nums">₹{{ number_format((float) $settlement['allocated'], 2) }}</span>
+                </div>
+
+                @if((float) ($settlement['floating_cheques'] ?? 0) > 0)
+                    <div class="flex items-center justify-between py-2.5">
+                        <span class="text-slate-600">Floating Cheques</span>
+                        <span class="font-mono font-bold text-slate-700 tabular-nums">₹{{ number_format((float) $settlement['floating_cheques'], 2) }}</span>
+                    </div>
+                @endif
             </div>
         </div>
 

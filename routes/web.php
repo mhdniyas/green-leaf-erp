@@ -1041,6 +1041,9 @@ Route::middleware('auth')->group(function () {
             Route::get('shops/{shop}', [CashbookController::class, 'salesReport'])->name('shop.show');
             Route::get('shops/{shop}/sales-report', [CashbookController::class, 'salesReport'])->name('shop.sales-report');
             Route::get('shops/{shop}/overview', [CashbookController::class, 'showShop'])->name('shop.overview');
+            Route::get('shops/{shop}/financial-ledger', [CashbookController::class, 'financialLedger'])->name('shop.financial-ledger');
+            Route::post('shops/{shop}/financial-ledger/update', [CashbookController::class, 'updateFinancialLedgerEntry'])->name('shop.financial-ledger.update');
+            Route::post('shops/{shop}/financial-ledger/delete', [CashbookController::class, 'deleteFinancialLedgerEntry'])->name('shop.financial-ledger.delete');
             Route::get('shops/{shop}/sales-report/pdf', [CashbookController::class, 'exportSalesReportPdf'])->name('shop.sales-report.pdf');
             Route::get('shops/{shop}/sales-report/excel', [CashbookController::class, 'exportSalesReportExcel'])->name('shop.sales-report.excel');
             Route::get('shops/{shop}/sales-report/csv', [CashbookController::class, 'exportSalesReportCsv'])->name('shop.sales-report.csv');
@@ -1049,6 +1052,13 @@ Route::middleware('auth')->group(function () {
             Route::get('shops/{shop}/purchases/vendors', [CashbookController::class, 'shopVendorPurchasesReport'])->name('shop.purchases.vendors');
             Route::prefix('shops/{shop}/history')->name('shop.history.')->group(function () {
                 Route::get('payments', [CashbookController::class, 'shopPaymentsHistory'])->name('payments');
+                Route::post('payments/verify-all-direct', [CashbookController::class, 'verifyAllDirectBank'])->name('payments.verify-all-direct');
+                Route::post('payments/verify-day', [CashbookController::class, 'verifyDayPayment'])->name('payments.verify-day');
+                Route::post('payments/allocate-day', [CashbookController::class, 'allocateDayPayment'])->name('payments.allocate-day');
+                Route::post('payments/record-cash', [CashbookController::class, 'recordManualCashReceipt'])->name('payments.record-cash');
+                Route::post('payments/match-payable', [CashbookController::class, 'matchReceiptToPayable'])->name('payments.match-payable');
+                Route::get('payments/fifo-preview', [CashbookController::class, 'previewReceiptFifo'])->name('payments.fifo-preview');
+                Route::post('payments/allocate-expenses', [CashbookController::class, 'allocateReceiptExpenses'])->name('payments.allocate-expenses');
                 Route::get('allocations', [CashbookController::class, 'shopAllocationsHistory'])->name('allocations');
                 Route::get('cheques', [CashbookController::class, 'shopChequesHistory'])->name('cheques');
                 Route::get('petty', [CashbookController::class, 'shopPettyHistory'])->name('petty');

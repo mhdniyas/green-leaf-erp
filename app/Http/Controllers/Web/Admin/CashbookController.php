@@ -50,6 +50,7 @@ use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerProductEntry;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Cashbook\ShopPaymentCompanyPayableMatch;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use App\Models\Category;
 use App\Models\CompanyAccountingCategory;
@@ -82,6 +83,7 @@ use App\Models\VendorAdvance;
 use App\Models\VendorSettlement;
 use App\Models\Warehouse;
 use App\Models\WastageEntry;
+use App\Services\Cashbook\AdminExactCashbookService;
 use App\Services\Cashbook\BankSettlementExpectedAmountService;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\CashbookTransactionReversalService;
@@ -90,12 +92,14 @@ use App\Services\Cashbook\CollectionGroupPostingService;
 use App\Services\Cashbook\CompanyAccountingCashbookService;
 use App\Services\Cashbook\CompanyExpenseAllocationService;
 use App\Services\Cashbook\CompanyMoneyPositionService;
+use App\Services\Cashbook\CompanyPayableReceiptMatchingService;
 use App\Services\Cashbook\CompanyPaymentReconciliationService;
 use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Cashbook\DirectCompanySaleInventoryService;
 use App\Services\Cashbook\HistoricalBankCollectionFetchService;
 use App\Services\Cashbook\ReconciliationAutoMatchSuggestionService;
 use App\Services\Cashbook\ReconciliationTransactionQuery;
+use App\Services\Cashbook\RelationSettlementCalculator;
 use App\Services\Cashbook\ShopCashbookMonthConfigService;
 use App\Services\Cashbook\ShopCashbookMonthRecalculationService;
 use App\Services\Cashbook\ShopCollectionAutoMatchService;
@@ -950,6 +954,118 @@ final class CashbookController extends Controller
         ));
     }
 
+    public function financialLedger(
+        Request $request,
+        int|string $shop,
+        AdminExactCashbookService $exactCashbookService
+    ): View {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $currentShop = $this->resolveShop($shop);
+        $currentShop->load('client', 'preset', 'shop');
+        $shopModel = $currentShop->shop ?: Shop::findOrFail($currentShop->shop_id);
+
+        $selectedDate = $request->filled('date')
+            ? Carbon::parse((string) $request->input('date'))->toDateString()
+            : $this->ledgerService->resolveActiveBusinessDate($shopModel);
+
+        $cashbookData = $exactCashbookService->getExactCashbookData($shopModel, $selectedDate, $request->user());
+
+        return view('admin.cashbook.shops.financial-ledger', array_merge($cashbookData, [
+            'shops' => $shops,
+            'currentShop' => $currentShop,
+            'shopModel' => $shopModel,
+            'selectedDate' => $selectedDate,
+        ]));
+    }
+
+    public function updateFinancialLedgerEntry(
+        Request $request,
+        int|string $shop,
+        AdminExactCashbookService $exactCashbookService
+    ): JsonResponse {
+        $this->ensureMainAdmin($request);
+
+        $currentShop = $this->resolveShop($shop);
+        $shopModel = $currentShop->shop ?: Shop::findOrFail($currentShop->shop_id);
+
+        $validated = $request->validate([
+            'transaction_id' => ['required', 'integer', 'exists:shop_ledger_transactions,id'],
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'entry_type_id' => ['required', 'integer', 'exists:ledger_entry_types,id'],
+            'amount' => ['required', 'numeric', 'min:0'],
+            'funding_source' => ['nullable', 'string', 'in:sales,petty,company,bank,external,company_later,none'],
+            'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
+            'notes' => ['nullable', 'string', 'max:255'],
+            'status' => ['nullable', 'string', 'in:posted,approved,draft,submitted,void'],
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        try {
+            $result = $exactCashbookService->correctEntry(
+                $request->user(),
+                $shopModel,
+                (int) $validated['transaction_id'],
+                $validated
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => $result['message'],
+                'transaction' => $result['transaction'],
+                'snapshot' => $result['snapshot'],
+            ]);
+        } catch (ValidationException $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->validator->errors()->first() ?: $exception->getMessage(),
+                'errors' => $exception->validator->errors(),
+            ], 422);
+        } catch (Throwable $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function deleteFinancialLedgerEntry(
+        Request $request,
+        int|string $shop,
+        AdminExactCashbookService $exactCashbookService
+    ): JsonResponse {
+        $this->ensureMainAdmin($request);
+
+        $currentShop = $this->resolveShop($shop);
+        $shopModel = $currentShop->shop ?: Shop::findOrFail($currentShop->shop_id);
+
+        $validated = $request->validate([
+            'transaction_id' => ['required', 'integer', 'exists:shop_ledger_transactions,id'],
+            'reason' => ['required', 'string', 'min:3', 'max:255'],
+        ]);
+
+        try {
+            $result = $exactCashbookService->voidEntry(
+                $request->user(),
+                $shopModel,
+                (int) $validated['transaction_id'],
+                $validated['reason']
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => $result['message'],
+                'snapshot' => $result['snapshot'],
+            ]);
+        } catch (Throwable $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+    }
+
     public function salesReport(
         Request $request,
         int|string $shop,
@@ -1284,7 +1400,7 @@ final class CashbookController extends Controller
     }
 
     /**
-     * Dedicated full-history page for Shop Payments.
+     * Dedicated monthly control page for Shop Payments.
      */
     public function shopPaymentsHistory(Request $request, int|string $shop): View
     {
@@ -1294,165 +1410,845 @@ final class CashbookController extends Controller
         $currentShop = $this->resolveShop($shop);
         $currentShop->load('client', 'preset', 'shop');
         $shopId = (int) $currentShop->shop_id;
+        $shopKey = $currentShop->slug ?: $currentShop->shop_id;
         $companyAccounts = CompanyAccount::query()->where('enabled', true)->orderBy('name')->get();
 
-        $month = $request->input('month');
-        $search = $request->input('search');
-        $paymentMethod = $request->input('payment_method');
+        $monthInput = (string) $request->input('month', '');
+        $month = (preg_match('/^\d{4}-\d{2}$/', $monthInput)) ? $monthInput : now()->format('Y-m');
 
-        $monthStart = $month ? Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString() : null;
-        $monthEnd = $month ? Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString() : null;
-        $targetMonth = $month ?: now()->format('Y-m');
-        $effectiveMonthStart = Carbon::parse($targetMonth.'-01')->startOfMonth()->toDateString();
-        $effectiveMonthEnd = Carbon::parse($targetMonth.'-01')->endOfMonth()->toDateString();
+        $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+        $monthStart = $monthCarbon->copy()->startOfMonth()->toDateString();
+        $monthEnd = $monthCarbon->copy()->endOfMonth()->toDateString();
 
-        $query = ShopInvoicePaymentRequest::query()
+        $settlementService = app(ShopSettlementService::class);
+        $relationCalculator = app(RelationSettlementCalculator::class);
+        $matchingService = app(CompanyPayableReceiptMatchingService::class);
+
+        // 1. Authoritative Company Payable Relation & Dynamic Contributors
+        $payableRelation = $settlementService->getCompanyPayableSettlement($shopId);
+        $dynamicContributors = [];
+        $directBankEntryTypeIds = [];
+
+        if ($payableRelation) {
+            foreach ($payableRelation->items as $item) {
+                $setting = $item->setting;
+                $headerGroup = $item->headerGroup;
+                $sourceSettlement = $item->sourceSettlement;
+
+                $label = $setting ? ($setting->displayName() ?? $setting->entryType?->name)
+                    : ($headerGroup ? $headerGroup->name
+                    : ($sourceSettlement ? $sourceSettlement->name : 'Contributor'));
+
+                $isDirectBank = (bool) ($setting && $setting->company_account_id);
+                if ($isDirectBank && $setting?->entry_type_id) {
+                    $directBankEntryTypeIds[] = (int) $setting->entry_type_id;
+                }
+
+                $dynamicContributors[] = [
+                    'id' => $item->id,
+                    'key' => 'item_'.$item->id,
+                    'label' => $label,
+                    'role' => strtolower((string) ($item->role ?? 'add')),
+                    'setting_id' => $item->shop_ledger_entry_setting_id,
+                    'entry_type_id' => $setting?->entry_type_id,
+                    'header_group_id' => $item->header_group_id,
+                    'source_settlement_id' => $item->source_settlement_id,
+                    'target_account' => $setting?->companyAccount?->name,
+                    'target_account_id' => $setting?->company_account_id,
+                    'is_direct_bank' => $isDirectBank,
+                ];
+            }
+        }
+
+        // 2. Query transactions strictly by business_date in the selected month
+        $monthTransactions = ShopLedgerTransaction::query()
+            ->with(['entryType', 'companyAccount'])
+            ->where('shop_id', $shopId)
+            ->whereBetween('business_date', [$monthStart, $monthEnd])
+            ->whereIn('status', ['posted', 'approved'])
+            ->whereNull('voided_at')
+            ->get();
+
+        // Matches in month for calculating daily Received
+        $monthMatches = ShopPaymentCompanyPayableMatch::query()
+            ->with(['paymentRequest'])
+            ->where('shop_id', $shopId)
+            ->where('status', 'active')
+            ->whereBetween('payable_business_date', [$monthStart, $monthEnd])
+            ->get();
+
+        $monthMatchesByDate = $monthMatches->groupBy(fn ($m) => $m->payable_business_date instanceof CarbonInterface ? $m->payable_business_date->toDateString() : (string) $m->payable_business_date);
+
+        // 3. Build Daily Breakdown Rows
+        $txDates = $monthTransactions->pluck('business_date')->map(fn ($d) => Carbon::parse($d)->toDateString());
+        $matchDates = $monthMatches->pluck('payable_business_date')->map(fn ($d) => Carbon::parse($d)->toDateString());
+        $allActiveDates = $txDates->merge($matchDates)->unique()->sortDesc()->values();
+
+        $dailyRows = [];
+        $monthlyTotalGrossPayable = 0.0;
+        $monthlyTotalReceived = 0.0;
+
+        foreach ($allActiveDates as $dateStr) {
+            $dayTxs = $monthTransactions->filter(fn ($t) => $t->business_date?->toDateString() === $dateStr);
+            $dayMatches = $monthMatchesByDate->get($dateStr, collect());
+
+            $dayEntryAmounts = [];
+            $txTotalsByEntryType = $dayTxs->groupBy('entry_type_id')->map(fn ($group) => (float) $group->sum('amount'));
+
+            if ($payableRelation) {
+                foreach ($payableRelation->items as $item) {
+                    if ($item->setting && (int) $item->setting->shop_id === $shopId) {
+                        $dayEntryAmounts[$item->shop_ledger_entry_setting_id] = (float) ($txTotalsByEntryType[$item->setting->entry_type_id] ?? 0.0);
+                    }
+                }
+            }
+
+            $dayFormulaCalc = $payableRelation ? $relationCalculator->calculate($payableRelation, $dayEntryAmounts) : [
+                'formula_net' => 0.0,
+                'items' => [],
+            ];
+
+            // 1. Gross Company Payable = formula_net
+            $dayGrossPayable = round((float) ($dayFormulaCalc['formula_net'] ?? ($dayFormulaCalc['netSettlement'] ?? 0.0)), 2);
+
+            // 2. Received for date = SUM(active payable matches for that date)
+            $dayReceived = round((float) $dayMatches->sum('amount'), 2);
+
+            // 3. Pending for date = Gross Company Payable - Received
+            $dayPending = round(max(0.0, $dayGrossPayable - $dayReceived), 2);
+
+            $dayContributorValues = [];
+            $dayDirectBankTotal = 0.0;
+            $dayShopHeldTotal = 0.0;
+            $unverifiedContributors = [];
+
+            foreach ($dynamicContributors as $contrib) {
+                $val = 0.0;
+                if ($contrib['setting_id'] && isset($dayEntryAmounts[$contrib['setting_id']])) {
+                    $val = (float) $dayEntryAmounts[$contrib['setting_id']];
+                } elseif ($contrib['entry_type_id']) {
+                    $val = (float) ($txTotalsByEntryType[$contrib['entry_type_id']] ?? 0.0);
+                }
+                $dayContributorValues[$contrib['key']] = $val;
+
+                if ($contrib['is_direct_bank']) {
+                    $dayDirectBankTotal += $val;
+                } else {
+                    $dayShopHeldTotal += $val;
+                }
+
+                if ($val > 0.01) {
+                    $unverifiedContributors[] = [
+                        'label' => $contrib['label'],
+                        'amount' => $val,
+                        'account' => $contrib['target_account'] ?? 'Configured Company Account',
+                        'is_direct_bank' => $contrib['is_direct_bank'],
+                    ];
+                }
+            }
+
+            if ($dayGrossPayable <= 0.0 && $dayReceived <= 0.0 && $dayPending <= 0.0) {
+                continue;
+            }
+
+            // Determine day direct unverified amount
+            $dayDirectTxs = $dayTxs->filter(fn ($t) => in_array((int) $t->entry_type_id, $directBankEntryTypeIds, true));
+            $hasUnverifiedDirect = false;
+            foreach ($dayDirectTxs as $dtx) {
+                $stmt = CompanyAccountStatementEntry::query()
+                    ->where('source_type', ShopLedgerTransaction::class)
+                    ->where('source_id', $dtx->id)
+                    ->first();
+                if (! $stmt || ! $stmt->is_finalized || $stmt->status !== 'reconciled') {
+                    $hasUnverifiedDirect = true;
+                    break;
+                }
+            }
+
+            $action = match (true) {
+                $dayPending <= 0.01 => 'completed',
+                $hasUnverifiedDirect => 'verify_direct',
+                default => 'record_cash',
+            };
+
+            $dailyRows[] = [
+                'business_date' => $dateStr,
+                'formatted_date' => Carbon::parse($dateStr)->format('d M'),
+                'day_name' => Carbon::parse($dateStr)->format('D'),
+                'contributors' => $dayContributorValues,
+                'company_payable' => $dayGrossPayable,
+                'received' => $dayReceived,
+                'pending' => $dayPending,
+                'pending_verification' => $dayPending,
+                'pending_allocation' => 0.0,
+                'action' => $action,
+                'direct_bank_total' => round($dayDirectBankTotal, 2),
+                'shop_held_total' => round($dayShopHeldTotal, 2),
+                'has_unverified_direct' => $hasUnverifiedDirect,
+                'unverified_contributors' => $unverifiedContributors,
+            ];
+
+            $monthlyTotalGrossPayable += $dayGrossPayable;
+            $monthlyTotalReceived += $dayReceived;
+        }
+
+        // 4. Authoritative Monthly Summary
+        $monthlyPayableCalc = $settlementService->calculateCompanyPayable($shopId, $monthStart, $monthEnd);
+        $authoritativeMonthlyPayable = round((float) ($monthlyPayableCalc['formula_net'] ?? $monthlyTotalGrossPayable), 2);
+        $monthlyTotalReceived = round($monthMatches->sum('amount'), 2);
+
+        // Receipts work queue & unallocated/unmatched metrics
+        $allVerifiedReceipts = ShopInvoicePaymentRequest::query()
             ->with([
+                'payableMatches' => fn ($q) => $q->where('status', 'active'),
+                'ledgerAllocations' => fn ($q) => $q->where('status', 'active'),
                 'reconciliations.companyAccount',
-                'reconciliations.statementEntry',
-                'ledgerAllocations.ledgerTransaction.entryType',
-                'ledgerAllocations.reconciledBy',
-                'companyExpenseAllocations.ledgerTransaction.entryType',
-                'requestedBy',
-            ])
-            ->where('shop_id', $shopId);
-
-        if ($monthStart && $monthEnd) {
-            $query->whereBetween('payment_date', [$monthStart, $monthEnd]);
-        }
-
-        if ($paymentMethod) {
-            $query->where('payment_method', $paymentMethod);
-        }
-
-        if ($search) {
-            $query->where(function (Builder $q) use ($search): void {
-                $q->where('payment_reference', 'like', "%{$search}%")
-                    ->orWhere('shop_note', 'like', "%{$search}%")
-                    ->orWhere('admin_note', 'like', "%{$search}%");
-            });
-        }
-
-        $payments = $query->latest('payment_date')->latest('id')->paginate(20)->withQueryString();
-        $payments->through(fn (ShopInvoicePaymentRequest $payment): ShopInvoicePaymentRequest => $this->enrichShopPaymentModel($payment, $shopId));
-
-        // ── Period Summary & Allocation Metrics ─────────────────────────────
-        $periodPaymentQuery = ShopInvoicePaymentRequest::query()
-            ->with([
-                'reconciliations.companyAccount',
-                'reconciliations.statementEntry',
-                'ledgerAllocations.ledgerTransaction.entryType',
-                'ledgerAllocations.reconciledBy',
+                'reconciliations.statementEntry.companyAccount',
             ])
             ->where('shop_id', $shopId)
-            ->whereNotIn('status', ['rejected', 'cancelled']);
+            ->where('status', 'approved')
+            ->where('reconciliation_status', 'reconciled')
+            ->whereBetween('payment_date', [$monthStart, $monthEnd])
+            ->latest('payment_date')
+            ->get();
 
-        if ($monthStart && $monthEnd) {
-            $periodPaymentQuery->where(function (Builder $q) use ($monthStart, $monthEnd): void {
-                $q->whereBetween('payment_date', [$monthStart, $monthEnd])
-                    ->orWhere(function (Builder $q2) use ($monthStart, $monthEnd): void {
-                        $q2->whereNull('payment_date')
-                            ->whereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
-                    });
-            });
+        $workQueue = [];
+        $totalPendingPayableMatch = 0.0;
+        $totalPendingExpenseAllocation = 0.0;
+
+        foreach ($allVerifiedReceipts as $receipt) {
+            $receiptAmount = $matchingService->resolveReceiptAmount($receipt);
+            $matchedToPayable = round((float) $receipt->payableMatches->sum('amount'), 2);
+            $allocatedToExpenses = round((float) $receipt->ledgerAllocations->sum('amount'), 2);
+
+            $unmatchedPayable = round(max(0, $receiptAmount - $matchedToPayable), 2);
+            $unallocatedExpenses = round(max(0, $receiptAmount - $allocatedToExpenses), 2);
+
+            $totalPendingPayableMatch += $unmatchedPayable;
+            $totalPendingExpenseAllocation += $unallocatedExpenses;
+
+            $depositAccount = $receipt->reconciliations->first()?->companyAccount?->name
+                ?? $receipt->reconciliations->first()?->statementEntry?->companyAccount?->name
+                ?? 'Company Account';
+
+            $workQueue[] = [
+                'id' => (int) $receipt->id,
+                'payment_date' => $receipt->payment_date?->toDateString() ?: Carbon::parse($receipt->created_at)->toDateString(),
+                'formatted_date' => Carbon::parse($receipt->payment_date ?: $receipt->created_at)->format('d M Y'),
+                'reference' => $receipt->payment_reference ?: '#RCP-'.$receipt->id,
+                'payment_method' => ucfirst(str_replace('_', ' ', (string) $receipt->payment_method)),
+                'account_name' => $depositAccount,
+                'amount' => $receiptAmount,
+                'matched_amount' => $matchedToPayable,
+                'unmatched_amount' => $unmatchedPayable,
+                'allocated_amount' => $allocatedToExpenses,
+                'unallocated_amount' => $unallocatedExpenses,
+                'match_status' => $unmatchedPayable <= 0.01 ? 'fully_matched' : ($matchedToPayable > 0.01 ? 'partially_matched' : 'unmatched'),
+                'allocation_status' => $unallocatedExpenses <= 0.01 ? 'fully_allocated' : ($allocatedToExpenses > 0.01 ? 'partially_allocated' : 'unallocated'),
+            ];
         }
 
-        $periodPayments = $periodPaymentQuery->get();
+        // Direct bank unverified items in month for top bulk action
+        $unverifiedDirectTxs = $monthTransactions->filter(function ($t) use ($directBankEntryTypeIds) {
+            if (! in_array((int) $t->entry_type_id, $directBankEntryTypeIds, true)) {
+                return false;
+            }
+            $stmt = CompanyAccountStatementEntry::query()
+                ->where('source_type', ShopLedgerTransaction::class)
+                ->where('source_id', $t->id)
+                ->first();
 
-        $totalPaymentAmount = round((float) $periodPayments->sum(function (ShopInvoicePaymentRequest $p): float {
-            return (float) $this->shopPaymentLedgerReconciliationService->resolvePaymentAmount($p);
-        }), 2);
+            return ! $stmt || ! $stmt->is_finalized || $stmt->status !== 'reconciled';
+        });
 
-        $shopToCompanyAllocated = round((float) ShopPaymentLedgerAllocation::query()
-            ->where('shop_id', $shopId)
-            ->where('status', 'active')
-            ->when($monthStart && $monthEnd, function (Builder $q) use ($monthStart, $monthEnd): void {
-                $q->where(function (Builder $sub) use ($monthStart, $monthEnd): void {
-                    $sub->whereHas('paymentRequest', fn (Builder $p) => $p->whereBetween('payment_date', [$monthStart, $monthEnd]))
-                        ->orWhereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
-                });
-            })
-            ->sum('amount'), 2);
+        $unverifiedDirectTotal = round((float) $unverifiedDirectTxs->sum('amount'), 2);
+        $unverifiedDirectCount = $unverifiedDirectTxs->count();
 
-        $companyToShopAllocated = round((float) CompanyExpenseLedgerAllocation::query()
-            ->where('shop_id', $shopId)
-            ->where('status', 'active')
-            ->when($monthStart && $monthEnd, fn (Builder $q) => $q->whereBetween('allocation_date', [$monthStart, $monthEnd]))
-            ->sum('allocated_amount'), 2);
+        $monthlyDirectPayable = round((float) collect($dailyRows)->sum('direct_bank_total'), 2);
+        $monthlyCashPayable = round(max(0.0, $authoritativeMonthlyPayable - $monthlyDirectPayable), 2);
 
-        $allocatedAmount = $shopToCompanyAllocated;
-        $unallocatedAmount = round(max(0, $totalPaymentAmount - $allocatedAmount), 2);
+        $receivedBank = 0.0;
+        $receivedCash = 0.0;
+        foreach ($monthMatches as $match) {
+            $method = strtolower((string) ($match->paymentRequest?->payment_method ?? ''));
+            $reqType = strtolower((string) ($match->paymentRequest?->request_type ?? ''));
+            if ($method === 'cash' || $reqType === 'shop_cashbook') {
+                $receivedCash += (float) $match->amount;
+            } else {
+                $receivedBank += (float) $match->amount;
+            }
+        }
+        $receivedBank = round($receivedBank, 2);
+        $receivedCash = round($receivedCash, 2);
 
-        $allocationCount = (int) ShopPaymentLedgerAllocation::query()
-            ->where('shop_id', $shopId)
-            ->where('status', 'active')
-            ->when($monthStart && $monthEnd, function (Builder $q) use ($monthStart, $monthEnd): void {
-                $q->where(function (Builder $sub) use ($monthStart, $monthEnd): void {
-                    $sub->whereHas('paymentRequest', fn (Builder $p) => $p->whereBetween('payment_date', [$monthStart, $monthEnd]))
-                        ->orWhereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
-                });
-            })
-            ->count()
-            + (int) CompanyExpenseLedgerAllocation::query()
-                ->where('shop_id', $shopId)
-                ->where('status', 'active')
-                ->when($monthStart && $monthEnd, fn (Builder $q) => $q->whereBetween('allocation_date', [$monthStart, $monthEnd]))
-                ->count();
+        $totalPendingVerification = round(max(0.0, $authoritativeMonthlyPayable - $monthlyTotalReceived), 2);
+        $pendingBank = round(min($totalPendingVerification, $unverifiedDirectTotal), 2);
+        $pendingCash = round(max(0.0, $totalPendingVerification - $pendingBank), 2);
 
-        $allocationSummary = [
-            'total_payment_amount' => $totalPaymentAmount,
-            'allocated_amount' => $allocatedAmount,
-            'unallocated_amount' => $unallocatedAmount,
-            'company_to_shop_allocated' => $companyToShopAllocated,
-            'shop_to_company_allocated' => $shopToCompanyAllocated,
-            'allocation_count' => $allocationCount,
+        $pendingMatchBank = 0.0;
+        $pendingMatchCash = 0.0;
+        $pendingAllocBank = 0.0;
+        $pendingAllocCash = 0.0;
+        foreach ($workQueue as $item) {
+            $isCash = strtolower((string) $item['payment_method']) === 'cash';
+            if ($item['unmatched_amount'] > 0.01) {
+                if ($isCash) {
+                    $pendingMatchCash += (float) $item['unmatched_amount'];
+                } else {
+                    $pendingMatchBank += (float) $item['unmatched_amount'];
+                }
+            }
+            if ($item['unallocated_amount'] > 0.01) {
+                if ($isCash) {
+                    $pendingAllocCash += (float) $item['unallocated_amount'];
+                } else {
+                    $pendingAllocBank += (float) $item['unallocated_amount'];
+                }
+            }
+        }
+        $pendingMatchBank = round($pendingMatchBank, 2);
+        $pendingMatchCash = round($pendingMatchCash, 2);
+        $pendingAllocBank = round($pendingAllocBank, 2);
+        $pendingAllocCash = round($pendingAllocCash, 2);
+
+        $summary = [
+            'company_payable' => $authoritativeMonthlyPayable,
+            'payable_bank' => $monthlyDirectPayable,
+            'payable_cash' => $monthlyCashPayable,
+            'received' => $monthlyTotalReceived,
+            'received_bank' => $receivedBank,
+            'received_cash' => $receivedCash,
+            'pending_verification' => $totalPendingVerification,
+            'pending_bank' => $pendingBank,
+            'pending_cash' => $pendingCash,
+            'pending_payable_match' => round($totalPendingPayableMatch, 2),
+            'pending_match_bank' => $pendingMatchBank,
+            'pending_match_cash' => $pendingMatchCash,
+            'pending_allocation' => round($totalPendingExpenseAllocation, 2),
+            'pending_alloc_bank' => $pendingAllocBank,
+            'pending_alloc_cash' => $pendingAllocCash,
+            'unverified_direct_total' => $unverifiedDirectTotal,
+            'unverified_direct_count' => $unverifiedDirectCount,
         ];
 
-        // ── Unallocated / Partially Allocated Payments ──────────────────────
-        $unallocatedPayments = $periodPayments
-            ->map(function (ShopInvoicePaymentRequest $payment) use ($shopId): ?ShopInvoicePaymentRequest {
-                $enriched = $this->enrichShopPaymentModel($payment, $shopId);
-
-                return $enriched->unallocated_amount_calc > 0.01 ? $enriched : null;
-            })
-            ->filter()
-            ->sortByDesc(fn (ShopInvoicePaymentRequest $p): int => $p->payment_date ? $p->payment_date->timestamp : $p->created_at->timestamp)
-            ->values();
-
-        // ── Auto Allocate Data & Status ─────────────────────────────────────
-        $openSettlementTransactions = $this->shopPaymentLedgerReconciliationService->getOpenDailySettlements($shopId, $targetMonth);
-        $bulkEligiblePayments = $this->bulkEligibleShopPayments($shopId, $effectiveMonthStart, $effectiveMonthEnd);
-        $autoAllocateConfig = app(ShopSettlementService::class)->expenseAllocationConfiguration($currentShop);
+        $autoAllocateConfig = $settlementService->expenseAllocationConfiguration($currentShop);
         $autoAllocateEnabled = (bool) ($autoAllocateConfig['auto_allocate'] ?? false);
-
-        $bulkEligibleAmount = round((float) collect($bulkEligiblePayments)->sum('unallocated'), 2);
-        $bulkSettlementOutstanding = round((float) collect($openSettlementTransactions)->sum('remaining_due'), 2);
-        $bulkProposedTotal = round(min($bulkEligibleAmount, $bulkSettlementOutstanding), 2);
-
-        $autoAllocateProposal = [
-            'target_month' => $targetMonth,
-            'eligible_amount' => $bulkEligibleAmount,
-            'settlement_outstanding' => $bulkSettlementOutstanding,
-            'proposed_total' => $bulkProposedTotal,
-            'eligible_count' => count($bulkEligiblePayments),
-            'settlement_count' => count($openSettlementTransactions),
-        ];
+        $openSettlementTransactions = $this->shopPaymentLedgerReconciliationService->getOpenDailySettlements($shopId, $month);
 
         return view('admin.cashbook.shops.history.payments', compact(
             'shops',
             'currentShop',
-            'payments',
-            'companyAccounts',
+            'shopKey',
             'month',
-            'search',
-            'paymentMethod',
-            'allocationSummary',
-            'unallocatedPayments',
-            'openSettlementTransactions',
-            'bulkEligiblePayments',
-            'autoAllocateProposal',
+            'summary',
+            'dynamicContributors',
+            'dailyRows',
+            'workQueue',
+            'companyAccounts',
             'autoAllocateEnabled',
+            'openSettlementTransactions',
         ));
+    }
+
+    /**
+     * Resilient bulk verification for all direct-bank transactions in the month.
+     */
+    public function verifyAllDirectBank(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $user = $request->user();
+        $userId = (int) $user->id;
+
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        $monthInput = (string) $request->input('month', '');
+        $month = (preg_match('/^\d{4}-\d{2}$/', $monthInput)) ? $monthInput : now()->format('Y-m');
+        $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+        $monthStart = $monthCarbon->copy()->startOfMonth()->toDateString();
+        $monthEnd = $monthCarbon->copy()->endOfMonth()->toDateString();
+
+        $matchingService = app(CompanyPayableReceiptMatchingService::class);
+
+        $directSettings = ShopLedgerEntrySetting::query()
+            ->with('companyAccount')
+            ->where('shop_id', $shopId)
+            ->where('enabled', true)
+            ->whereNotNull('company_account_id')
+            ->get()
+            ->keyBy('entry_type_id');
+
+        if ($directSettings->isEmpty()) {
+            return redirect()->route('admin.cashbook.shop.history.payments', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'month' => $month,
+            ])->with('warning', 'No direct-bank payment settings configured for this shop.');
+        }
+
+        $directTxs = ShopLedgerTransaction::query()
+            ->with(['entryType', 'shop'])
+            ->where('shop_id', $shopId)
+            ->whereBetween('business_date', [$monthStart, $monthEnd])
+            ->whereIn('status', ['posted', 'approved'])
+            ->whereNull('voided_at')
+            ->whereIn('entry_type_id', $directSettings->keys())
+            ->orderBy('business_date')
+            ->orderBy('id')
+            ->get();
+
+        $counts = [
+            'verified' => 0,
+            'already_verified' => 0,
+            'skipped' => 0,
+            'errors' => 0,
+        ];
+
+        foreach ($directTxs as $tx) {
+            $setting = $directSettings->get($tx->entry_type_id);
+            if (! $setting || ! $setting->company_account_id || ! $setting->companyAccount?->enabled) {
+                $counts['skipped']++;
+
+                continue;
+            }
+
+            try {
+                DB::transaction(function () use ($tx, $setting, $userId, $matchingService, &$counts): void {
+                    $lockedTx = ShopLedgerTransaction::query()->whereKey($tx->id)->lockForUpdate()->first();
+                    if (! $lockedTx) {
+                        $counts['skipped']++;
+
+                        return;
+                    }
+
+                    if (! $lockedTx->company_account_id) {
+                        $lockedTx->update(['company_account_id' => $setting->company_account_id]);
+                    }
+
+                    if ($lockedTx->status !== 'approved' && $lockedTx->status !== TransactionStatus::Approved->value) {
+                        $lockedTx = $this->ledgerService->approveEntry($lockedTx, $userId);
+                    }
+
+                    $stmt = CompanyAccountStatementEntry::query()
+                        ->where('source_type', ShopLedgerTransaction::class)
+                        ->where('source_id', $lockedTx->id)
+                        ->lockForUpdate()
+                        ->first();
+
+                    $resolvedExpected = $this->expectedAmountService->resolve(
+                        (int) $lockedTx->shop_id,
+                        $lockedTx->business_date->toDateString(),
+                        (int) $lockedTx->entry_type_id,
+                        (float) $lockedTx->amount
+                    );
+                    $statementAmount = (float) $resolvedExpected['expected_amount'];
+
+                    if (! $stmt) {
+                        $direction = $lockedTx->direction === 'income' ? 'in' : 'out';
+                        $narration = ($lockedTx->entryType?->name ?? 'Shop collection').' from '.($lockedTx->shop?->name ?? 'Shop #'.$lockedTx->shop_id);
+                        $stmt = CompanyAccountStatementEntry::query()->create([
+                            'company_account_id' => $setting->company_account_id,
+                            'transaction_date' => $lockedTx->business_date->toDateString(),
+                            'value_date' => $lockedTx->business_date->toDateString(),
+                            'direction' => $direction,
+                            'amount' => $statementAmount,
+                            'reference' => $lockedTx->reference_id ?: 'SHOP-TX-'.$lockedTx->id,
+                            'narration' => $narration,
+                            'status' => 'unmatched',
+                            'is_finalized' => false,
+                            'source_type' => ShopLedgerTransaction::class,
+                            'source_id' => $lockedTx->id,
+                        ]);
+                    } elseif (! $stmt->is_finalized) {
+                        if (abs((float) $stmt->amount - $statementAmount) > 0.005 || (int) $stmt->company_account_id !== (int) $setting->company_account_id) {
+                            $stmt->update([
+                                'amount' => $statementAmount,
+                                'company_account_id' => $setting->company_account_id,
+                            ]);
+                        }
+                    }
+
+                    if ($stmt->is_finalized && $stmt->status === 'reconciled') {
+                        $recon = CompanyPaymentReconciliation::query()->where('statement_entry_id', $stmt->id)->first();
+                        if ($recon && $recon->paymentRequest) {
+                            $matchingService->autoMatchDirectBank(
+                                $recon->paymentRequest,
+                                $lockedTx->business_date->toDateString(),
+                                (float) $stmt->amount,
+                                $userId
+                            );
+                        }
+                        $counts['already_verified']++;
+
+                        return;
+                    }
+
+                    $verifiedStmt = $this->companyPaymentReconciliationService->verifyPendingShopCollection($stmt, $userId);
+                    $recon = CompanyPaymentReconciliation::query()->where('statement_entry_id', $verifiedStmt->id)->first();
+                    if ($recon && $recon->paymentRequest) {
+                        $matchingService->autoMatchDirectBank(
+                            $recon->paymentRequest,
+                            $lockedTx->business_date->toDateString(),
+                            (float) $verifiedStmt->amount,
+                            $userId
+                        );
+                    }
+
+                    $counts['verified']++;
+                });
+            } catch (Throwable $e) {
+                Log::warning("Direct bank bulk verification error for tx #{$tx->id}: {$e->getMessage()}");
+                $counts['errors']++;
+            }
+        }
+
+        $message = "Direct Bank Verification — Verified: {$counts['verified']}, Already Verified: {$counts['already_verified']}, Skipped: {$counts['skipped']}, Errors: {$counts['errors']}.";
+
+        return redirect()->route('admin.cashbook.shop.history.payments', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with($counts['errors'] > 0 ? 'warning' : 'success', $message);
+    }
+
+    /**
+     * Single-day direct bank verification.
+     */
+    public function verifyDayPayment(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+        $userId = (int) $request->user()->id;
+
+        $validated = $request->validate([
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'month' => ['nullable', 'string'],
+        ]);
+
+        $businessDate = (string) $validated['business_date'];
+        $month = (string) ($validated['month'] ?? Carbon::parse($businessDate)->format('Y-m'));
+        $matchingService = app(CompanyPayableReceiptMatchingService::class);
+
+        DB::transaction(function () use ($shopId, $businessDate, $userId, $matchingService): void {
+            $settings = ShopLedgerEntrySetting::query()
+                ->with('companyAccount')
+                ->where('shop_id', $shopId)
+                ->where('enabled', true)
+                ->whereNotNull('company_account_id')
+                ->get()
+                ->keyBy('entry_type_id');
+
+            $transactions = ShopLedgerTransaction::query()
+                ->where('shop_id', $shopId)
+                ->where('business_date', $businessDate)
+                ->whereIn('status', ['posted', 'approved'])
+                ->whereNull('voided_at')
+                ->whereIn('entry_type_id', $settings->keys())
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($transactions as $tx) {
+                $setting = $settings->get($tx->entry_type_id);
+                if (! $setting || ! $setting->company_account_id || ! $setting->companyAccount?->enabled) {
+                    continue;
+                }
+
+                if (! $tx->company_account_id) {
+                    $tx->update(['company_account_id' => $setting->company_account_id]);
+                }
+
+                if ($tx->status !== 'approved' && $tx->status !== TransactionStatus::Approved->value) {
+                    $tx = $this->ledgerService->approveEntry($tx, $userId);
+                }
+
+                $stmt = CompanyAccountStatementEntry::query()
+                    ->where('source_type', ShopLedgerTransaction::class)
+                    ->where('source_id', $tx->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                $resolvedExpected = $this->expectedAmountService->resolve(
+                    (int) $tx->shop_id,
+                    $tx->business_date->toDateString(),
+                    (int) $tx->entry_type_id,
+                    (float) $tx->amount
+                );
+                $statementAmount = (float) $resolvedExpected['expected_amount'];
+
+                if (! $stmt) {
+                    $direction = $tx->direction === 'income' ? 'in' : 'out';
+                    $narration = ($tx->entryType?->name ?? 'Shop collection').' from '.($tx->shop?->name ?? 'Shop #'.$tx->shop_id);
+                    $stmt = CompanyAccountStatementEntry::query()->create([
+                        'company_account_id' => $setting->company_account_id,
+                        'transaction_date' => $businessDate,
+                        'value_date' => $businessDate,
+                        'direction' => $direction,
+                        'amount' => $statementAmount,
+                        'reference' => $tx->reference_id ?: 'SHOP-TX-'.$tx->id,
+                        'narration' => $narration,
+                        'status' => 'unmatched',
+                        'is_finalized' => false,
+                        'source_type' => ShopLedgerTransaction::class,
+                        'source_id' => $tx->id,
+                    ]);
+                } elseif (! $stmt->is_finalized) {
+                    if (abs((float) $stmt->amount - $statementAmount) > 0.005 || (int) $stmt->company_account_id !== (int) $setting->company_account_id) {
+                        $stmt->update([
+                            'amount' => $statementAmount,
+                            'company_account_id' => $setting->company_account_id,
+                        ]);
+                    }
+                }
+
+                if (! $stmt->is_finalized || $stmt->status !== 'reconciled') {
+                    $verifiedStmt = $this->companyPaymentReconciliationService->verifyPendingShopCollection($stmt, $userId);
+                    $recon = CompanyPaymentReconciliation::query()->where('statement_entry_id', $verifiedStmt->id)->first();
+                    if ($recon && $recon->paymentRequest) {
+                        $matchingService->autoMatchDirectBank(
+                            $recon->paymentRequest,
+                            $businessDate,
+                            (float) $verifiedStmt->amount,
+                            $userId
+                        );
+                    }
+                } else {
+                    $recon = CompanyPaymentReconciliation::query()->where('statement_entry_id', $stmt->id)->first();
+                    if ($recon && $recon->paymentRequest) {
+                        $matchingService->autoMatchDirectBank(
+                            $recon->paymentRequest,
+                            $businessDate,
+                            (float) $stmt->amount,
+                            $userId
+                        );
+                    }
+                }
+            }
+
+            $pendingPayments = ShopInvoicePaymentRequest::query()
+                ->where('shop_id', $shopId)
+                ->where('payment_date', $businessDate)
+                ->where('status', 'pending')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($pendingPayments as $p) {
+                $p->update([
+                    'status' => 'approved',
+                    'reconciliation_status' => 'reconciled',
+                    'approved_amount' => $p->requested_amount,
+                    'reconciled_amount' => $p->requested_amount,
+                    'reviewed_by' => $userId,
+                    'reviewed_at' => now(),
+                ]);
+                $this->shopPaymentLedgerReconciliationService->syncPaymentToCashbook($p, $userId);
+            }
+        });
+
+        return redirect()->route('admin.cashbook.shop.history.payments', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', "Confirmed and verified direct payments for {$businessDate}.");
+    }
+
+    /**
+     * Record a manual cash / shop-held receipt and optionally FIFO match it to open payable dates.
+     */
+    public function recordManualCashReceipt(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $userId = (int) $request->user()->id;
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'payment_date' => ['required', 'date_format:Y-m-d'],
+            'payment_method' => ['required', 'string', 'in:cash,bank_transfer,cheque,upi'],
+            'company_account_id' => ['required', 'integer', 'exists:cashbook_company_accounts,id'],
+            'payment_reference' => ['nullable', 'string', 'max:100'],
+            'notes' => ['nullable', 'string', 'max:500'],
+            'auto_match_fifo' => ['nullable', 'boolean'],
+            'month' => ['nullable', 'string'],
+        ]);
+
+        $month = (string) ($validated['month'] ?? Carbon::parse($validated['payment_date'])->format('Y-m'));
+
+        $paymentRequest = $this->shopPaymentLedgerReconciliationService->recordReceivedPayment(
+            $currentShop->shop,
+            $validated,
+            $userId
+        );
+
+        $autoMatchedCount = 0;
+        if ($request->boolean('auto_match_fifo') && $paymentRequest->status === 'approved') {
+            $matchingService = app(CompanyPayableReceiptMatchingService::class);
+            $preview = $matchingService->previewFifoMatch($paymentRequest);
+            if (! empty($preview['matches'])) {
+                $matched = $matchingService->matchReceipt($paymentRequest, $preview['matches'], $userId);
+                $autoMatchedCount = $matched->count();
+            }
+        }
+
+        $msg = 'Recorded receipt of ₹'.number_format((float) $validated['amount'], 2).'.';
+        if ($autoMatchedCount > 0) {
+            $msg .= " Automatically matched to {$autoMatchedCount} open Company Payable date(s).";
+        }
+
+        return redirect()->route('admin.cashbook.shop.history.payments', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', $msg);
+    }
+
+    /**
+     * Match a verified receipt to open Company Payable dates.
+     */
+    public function matchReceiptToPayable(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+        $userId = (int) $request->user()->id;
+
+        $validated = $request->validate([
+            'payment_request_id' => ['required', 'integer', 'exists:shop_invoice_payment_requests,id'],
+            'mode' => ['nullable', 'string', 'in:fifo,custom'],
+            'matches' => ['nullable', 'array'],
+            'matches.*.business_date' => ['required_with:matches', 'date_format:Y-m-d'],
+            'matches.*.amount' => ['required_with:matches', 'numeric', 'min:0.01'],
+            'month' => ['nullable', 'string'],
+        ]);
+
+        $paymentRequest = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shopId)
+            ->whereKey($validated['payment_request_id'])
+            ->firstOrFail();
+
+        $matchingService = app(CompanyPayableReceiptMatchingService::class);
+        $mode = $validated['mode'] ?? 'custom';
+
+        if ($mode === 'fifo' || empty($validated['matches'])) {
+            $preview = $matchingService->previewFifoMatch($paymentRequest);
+            if (empty($preview['matches'])) {
+                return redirect()->back()->with('warning', 'No open Company Payable dates found to match.');
+            }
+            $matchesToApply = $preview['matches'];
+        } else {
+            $matchesToApply = $validated['matches'];
+        }
+
+        $matched = $matchingService->matchReceipt($paymentRequest, $matchesToApply, $userId);
+        $month = (string) ($validated['month'] ?? Carbon::parse($paymentRequest->payment_date ?: now())->format('Y-m'));
+
+        return redirect()->route('admin.cashbook.shop.history.payments', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', 'Successfully matched ₹'.number_format((float) $matched->sum('amount'), 2).' to Company Payable dates.');
+    }
+
+    /**
+     * Preview FIFO match for modal.
+     */
+    public function previewReceiptFifo(Request $request, int|string $shop): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        $paymentId = (int) $request->input('payment_request_id');
+        $paymentRequest = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shopId)
+            ->whereKey($paymentId)
+            ->firstOrFail();
+
+        $matchingService = app(CompanyPayableReceiptMatchingService::class);
+        $preview = $matchingService->previewFifoMatch($paymentRequest);
+
+        return response()->json($preview);
+    }
+
+    /**
+     * Allocate verified receipt against shop expense obligations.
+     */
+    public function allocateReceiptExpenses(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+        $userId = (int) $request->user()->id;
+
+        $validated = $request->validate([
+            'payment_request_id' => ['required', 'integer', 'exists:shop_invoice_payment_requests,id'],
+            'month' => ['nullable', 'string'],
+        ]);
+
+        $paymentRequest = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shopId)
+            ->whereKey($validated['payment_request_id'])
+            ->firstOrFail();
+
+        $month = (string) ($validated['month'] ?? Carbon::parse($paymentRequest->payment_date ?: now())->format('Y-m'));
+
+        $allocated = $this->shopPaymentLedgerReconciliationService->autoAllocatePayment($paymentRequest, $userId);
+        $total = (float) $allocated->sum('amount');
+
+        return redirect()->route('admin.cashbook.shop.history.payments', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', 'Allocated ₹'.number_format($total, 2).' to shop expense obligations.');
+    }
+
+    public function allocateDayPayment(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+        $userId = (int) $request->user()->id;
+
+        $validated = $request->validate([
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'month' => ['nullable', 'string'],
+        ]);
+
+        $businessDate = (string) $validated['business_date'];
+        $month = (string) ($validated['month'] ?? Carbon::parse($businessDate)->format('Y-m'));
+
+        $allocatedTotal = DB::transaction(function () use ($shopId, $businessDate, $userId): float {
+            $statements = CompanyAccountStatementEntry::query()
+                ->where('source_type', ShopLedgerTransaction::class)
+                ->whereHasMorph('sourceRecord', [ShopLedgerTransaction::class], fn (Builder $q) => $q->where('shop_id', $shopId))
+                ->where('transaction_date', $businessDate)
+                ->where('status', 'reconciled')
+                ->where('is_finalized', true)
+                ->whereDoesntHave('reconciliations')
+                ->get();
+
+            foreach ($statements as $stmt) {
+                $this->companyPaymentReconciliationService->verifyPendingShopCollection($stmt, $userId);
+            }
+
+            $payments = ShopInvoicePaymentRequest::query()
+                ->where('shop_id', $shopId)
+                ->where(fn (Builder $q) => $q->whereDate('payment_date', $businessDate)->orWhere(fn ($q2) => $q2->whereNull('payment_date')->whereDate('created_at', $businessDate)))
+                ->where('status', 'approved')
+                ->where(fn (Builder $q) => $q->whereNull('cheque_status')->orWhere('cheque_status', '!=', 'pending'))
+                ->lockForUpdate()
+                ->get();
+
+            $totalAlloc = 0.0;
+            foreach ($payments as $payment) {
+                $enriched = $this->enrichShopPaymentModel($payment, $shopId);
+                if ($enriched->unallocated_amount_calc > 0.01) {
+                    $created = $this->shopPaymentLedgerReconciliationService->autoAllocatePayment($payment, $userId);
+                    $totalAlloc += (float) $created->sum('amount');
+                }
+            }
+
+            return $totalAlloc;
+        });
+
+        return redirect()->route('admin.cashbook.shop.history.payments', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', 'Allocated ₹'.number_format($allocatedTotal, 2).' against open settlement obligations.');
     }
 
     /**

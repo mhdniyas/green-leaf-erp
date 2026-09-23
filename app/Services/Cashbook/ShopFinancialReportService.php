@@ -332,10 +332,7 @@ final class ShopFinancialReportService
 
         $remainingCompanyPayable = round(max(0, $settlementDue - $totalAllocated), 2);
         $unallocated = round(max(0, $totalReceived - $totalAllocated), 2);
-
-        $pendingVerification = round((float) $paymentRequests
-            ->filter(fn (ShopInvoicePaymentRequest $p) => $p->status === 'pending' || $p->reconciliation_status === 'unreconciled')
-            ->sum('requested_amount'), 2);
+        $pendingVerification = round(max(0, $settlementDue - $totalReceived), 2);
 
         $floatingCheques = round((float) $paymentRequests
             ->filter(fn (ShopInvoicePaymentRequest $p) => $p->payment_method === 'cheque' && $p->cheque_status === 'pending')

@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Models\Cashbook\CompanyExpenseLedgerAllocation;
 use App\Models\Cashbook\CompanyPaymentReconciliation;
+use App\Models\Cashbook\ShopPaymentCompanyPayableMatch;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use Database\Factories\ShopInvoicePaymentRequestFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -129,6 +130,11 @@ class ShopInvoicePaymentRequest extends Model
     public function companyExpenseAllocations(): HasMany
     {
         return $this->hasMany(CompanyExpenseLedgerAllocation::class, 'payment_request_id');
+    }
+
+    public function payableMatches(): HasMany
+    {
+        return $this->hasMany(ShopPaymentCompanyPayableMatch::class, 'payment_request_id');
     }
 
     public function allocatedAmount(): float
