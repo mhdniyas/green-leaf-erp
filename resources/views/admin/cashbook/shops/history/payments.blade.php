@@ -37,6 +37,20 @@
         </div>
     </div>
 
+    <!-- Unified Cashbook Navigation Bar -->
+    <div class="flex items-center gap-2 border-b border-slate-200">
+        <a href="{{ route('admin.cashbook.shop.history.payments', ['shop' => $shopKey, 'month' => $month]) }}"
+           class="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-black border-b-2 border-slate-900 text-slate-900 transition">
+            <i data-lucide="receipt" class="w-4 h-4 text-slate-800"></i>
+            <span>Payment History</span>
+        </a>
+        <a href="{{ route('admin.cashbook.shop.history.allocations', ['shop' => $shopKey, 'month' => $month]) }}"
+           class="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-black border-b-2 border-transparent text-slate-500 hover:text-slate-900 hover:border-slate-300 transition">
+            <i data-lucide="split" class="w-4 h-4 text-slate-400"></i>
+            <span>Expense Allocations</span>
+        </a>
+    </div>
+
     <!-- 1. MONTH FILTER & PRIMARY ACTIONS BAR -->
     @php
         $currentMonthCarbon = \Carbon\Carbon::createFromFormat('Y-m', $month);
@@ -311,28 +325,40 @@
 
                                 <!-- Action -->
                                 <td class="py-3 px-4 text-center font-sans">
-                                    @if($row['action'] === 'verify_direct')
-                                        <button type="button"
-                                                @click="openVerifyModal({{ json_encode($row) }})"
-                                                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black shadow-xs transition cursor-pointer"
-                                                title="Confirm &amp; Verify direct-bank collections for this day">
-                                            <i data-lucide="check" class="w-3.5 h-3.5"></i>
-                                            <span>VERIFY DIRECT</span>
-                                        </button>
-                                    @elseif($row['action'] === 'record_cash')
-                                        <button type="button"
-                                                @click="openRecordCashModal('{{ $row['business_date'] }}', {{ $row['pending'] }})"
-                                                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-xs transition cursor-pointer"
-                                                title="Record received cash / shop-held payment">
-                                            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
-                                            <span>RECORD CASH</span>
-                                        </button>
-                                    @else
-                                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-extrabold">
-                                            <i data-lucide="check-check" class="w-3.5 h-3.5 text-emerald-600"></i>
-                                            <span>COMPLETED</span>
-                                        </span>
-                                    @endif
+                                    <div class="inline-flex items-center justify-center gap-1.5 flex-wrap">
+                                        @if($row['action'] === 'verify_direct')
+                                            <button type="button"
+                                                    @click="openVerifyModal({{ json_encode($row) }})"
+                                                    class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black shadow-xs transition cursor-pointer"
+                                                    title="Confirm &amp; Verify direct-bank collections for this day">
+                                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                                <span>VERIFY DIRECT</span>
+                                            </button>
+                                        @elseif($row['action'] === 'record_cash')
+                                            <button type="button"
+                                                    @click="openRecordCashModal('{{ $row['business_date'] }}', {{ $row['pending'] }})"
+                                                    class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-xs transition cursor-pointer"
+                                                    title="Record received cash / shop-held payment">
+                                                <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                                                <span>RECORD CASH</span>
+                                            </button>
+                                        @else
+                                            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-extrabold">
+                                                <i data-lucide="check-check" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                                <span>COMPLETED</span>
+                                            </span>
+                                        @endif
+
+                                        @if($row['received'] > 0.01 && ! empty($row['active_matches']))
+                                            <button type="button"
+                                                    @click="openDayMatchesModal({{ json_encode($row) }})"
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-extrabold shadow-xs transition cursor-pointer"
+                                                    title="View active receipt matches contributing to this date">
+                                                <i data-lucide="list-filter" class="w-3.5 h-3.5 text-slate-500"></i>
+                                                <span>Matches ({{ count($row['active_matches']) }})</span>
+                                            </button>
+                                        @endif
+                                    </div>
                                 </td>
                             </tr>
                         @endforeach
@@ -409,16 +435,50 @@
                                 <!-- Payable Match Status -->
                                 <td class="py-3.5 px-4 text-center font-sans">
                                     @if($receipt['match_status'] === 'fully_matched')
-                                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-extrabold">
-                                            <i data-lucide="check" class="w-3 h-3 text-emerald-600"></i>
-                                            <span>Matched ₹{{ number_format($receipt['matched_amount'], 2) }}</span>
-                                        </span>
+                                        <div class="space-y-1">
+                                            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-extrabold">
+                                                <i data-lucide="check" class="w-3 h-3 text-emerald-600"></i>
+                                                <span>Matched ₹{{ number_format($receipt['matched_amount'], 2) }}</span>
+                                            </span>
+                                            <div>
+                                                <form method="POST"
+                                                      action="{{ route('admin.cashbook.shop.history.payments.undo-receipt-matches', $shopKey) }}"
+                                                      onsubmit="return confirm('Clear payable matches for this receipt? This will release ₹{{ number_format($receipt['matched_amount'], 2) }} back to open payable dates.')"
+                                                      class="inline-block">
+                                                    @csrf
+                                                    <input type="hidden" name="payment_request_id" value="{{ $receipt['id'] }}">
+                                                    <input type="hidden" name="month" value="{{ $month }}">
+                                                    <button type="submit"
+                                                            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold transition cursor-pointer"
+                                                            title="Undo / Clear Payable Match">
+                                                        <i data-lucide="undo-2" class="w-3 h-3"></i>
+                                                        <span>Undo Match</span>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </div>
                                     @elseif($receipt['match_status'] === 'partially_matched')
                                         <div class="space-y-1">
                                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-800 border border-indigo-200 text-[10px] font-extrabold">
                                                 <span>Matched ₹{{ number_format($receipt['matched_amount'], 2) }} of ₹{{ number_format($receipt['amount'], 2) }}</span>
                                             </span>
                                             <span class="block text-[10px] text-amber-700 font-bold font-mono">Unmatched: ₹{{ number_format($receipt['unmatched_amount'], 2) }}</span>
+                                            <div>
+                                                <form method="POST"
+                                                      action="{{ route('admin.cashbook.shop.history.payments.undo-receipt-matches', $shopKey) }}"
+                                                      onsubmit="return confirm('Clear payable matches for this receipt? This will release ₹{{ number_format($receipt['matched_amount'], 2) }} back to open payable dates.')"
+                                                      class="inline-block">
+                                                    @csrf
+                                                    <input type="hidden" name="payment_request_id" value="{{ $receipt['id'] }}">
+                                                    <input type="hidden" name="month" value="{{ $month }}">
+                                                    <button type="submit"
+                                                            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold transition cursor-pointer"
+                                                            title="Undo / Clear Payable Match">
+                                                        <i data-lucide="undo-2" class="w-3 h-3"></i>
+                                                        <span>Undo Match</span>
+                                                    </button>
+                                                </form>
+                                            </div>
                                         </div>
                                     @else
                                         <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-extrabold">
@@ -431,16 +491,50 @@
                                 <!-- Expense Allocation Status -->
                                 <td class="py-3.5 px-4 text-center font-sans">
                                     @if($receipt['allocation_status'] === 'fully_allocated')
-                                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-50 text-sky-800 border border-sky-200 text-[11px] font-extrabold">
-                                            <i data-lucide="check" class="w-3 h-3 text-sky-600"></i>
-                                            <span>Allocated ₹{{ number_format($receipt['allocated_amount'], 2) }}</span>
-                                        </span>
+                                        <div class="space-y-1">
+                                            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-50 text-sky-800 border border-sky-200 text-[11px] font-extrabold">
+                                                <i data-lucide="check" class="w-3 h-3 text-sky-600"></i>
+                                                <span>Allocated ₹{{ number_format($receipt['allocated_amount'], 2) }}</span>
+                                            </span>
+                                            <div>
+                                                <form method="POST"
+                                                      action="{{ route('admin.cashbook.shop.history.payments.undo-receipt-allocations', $shopKey) }}"
+                                                      onsubmit="return confirm('Clear expense allocations for this receipt? This will restore ₹{{ number_format($receipt['allocated_amount'], 2) }} unallocated balance.')"
+                                                      class="inline-block">
+                                                    @csrf
+                                                    <input type="hidden" name="payment_request_id" value="{{ $receipt['id'] }}">
+                                                    <input type="hidden" name="month" value="{{ $month }}">
+                                                    <button type="submit"
+                                                            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold transition cursor-pointer"
+                                                            title="Undo / Clear Expense Allocation">
+                                                        <i data-lucide="undo-2" class="w-3 h-3"></i>
+                                                        <span>Undo Allocation</span>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </div>
                                     @elseif($receipt['allocation_status'] === 'partially_allocated')
                                         <div class="space-y-1">
                                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-50 text-sky-800 border border-sky-200 text-[10px] font-extrabold">
                                                 <span>Allocated ₹{{ number_format($receipt['allocated_amount'], 2) }} of ₹{{ number_format($receipt['amount'], 2) }}</span>
                                             </span>
                                             <span class="block text-[10px] text-slate-500 font-bold font-mono">Unallocated: ₹{{ number_format($receipt['unallocated_amount'], 2) }}</span>
+                                            <div>
+                                                <form method="POST"
+                                                      action="{{ route('admin.cashbook.shop.history.payments.undo-receipt-allocations', $shopKey) }}"
+                                                      onsubmit="return confirm('Clear expense allocations for this receipt? This will restore ₹{{ number_format($receipt['allocated_amount'], 2) }} unallocated balance.')"
+                                                      class="inline-block">
+                                                    @csrf
+                                                    <input type="hidden" name="payment_request_id" value="{{ $receipt['id'] }}">
+                                                    <input type="hidden" name="month" value="{{ $month }}">
+                                                    <button type="submit"
+                                                            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold transition cursor-pointer"
+                                                            title="Undo / Clear Expense Allocation">
+                                                        <i data-lucide="undo-2" class="w-3 h-3"></i>
+                                                        <span>Undo Allocation</span>
+                                                    </button>
+                                                </form>
+                                            </div>
                                         </div>
                                     @else
                                         <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 border border-slate-200 text-[11px] font-extrabold">
@@ -834,6 +928,113 @@
             </template>
         </div>
     </div>
+
+    <!-- 9. MODAL: VIEW DAY MATCHES & UNDO -->
+    <div x-show="showDayMatchesModal"
+         x-cloak
+         @keydown.escape.window="showDayMatchesModal = false"
+         class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div @click.away="showDayMatchesModal = false"
+             class="bg-white rounded-3xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div class="px-6 py-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-indigo-500/20 text-indigo-400">
+                        <i data-lucide="link" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-black uppercase tracking-wide">Attributed Receipt Matches</h3>
+                        <p class="text-[11px] text-slate-300 font-medium" x-text="selectedDayRow ? (selectedDayRow.formatted_date + ' (' + selectedDayRow.day_name + ') · ' + '{{ $currentShop->name }}') : ''"></p>
+                    </div>
+                </div>
+                <button type="button" @click="showDayMatchesModal = false" class="p-1 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition cursor-pointer">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <template x-if="selectedDayRow">
+                <div class="p-6 space-y-4 font-sans text-xs">
+                    <!-- Day Summary Banner -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between font-mono">
+                        <div>
+                            <span class="text-slate-500 font-sans font-bold block text-[11px]">Total Matched to Date</span>
+                            <span class="text-base font-black text-emerald-700" x-text="'₹' + Number(selectedDayRow.received).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-slate-500 font-sans font-bold block text-[11px]">Active Matches</span>
+                            <span class="text-sm font-black text-slate-900" x-text="(selectedDayRow.active_matches?.length || 0) + ' match(es)'"></span>
+                        </div>
+                    </div>
+
+                    <!-- Matches Table -->
+                    <div class="space-y-2">
+                        <span class="text-[11px] font-black uppercase tracking-wide text-slate-700 block">
+                            Active Contributing Matches
+                        </span>
+
+                        <template x-if="selectedDayRow.active_matches && selectedDayRow.active_matches.length > 0">
+                            <div class="rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden text-xs max-h-64 overflow-y-auto">
+                                <template x-for="m in selectedDayRow.active_matches" :key="m.id">
+                                    <div class="p-3 bg-white flex items-center justify-between gap-3 hover:bg-slate-50 transition">
+                                        <div class="space-y-0.5">
+                                            <div class="flex items-center gap-2">
+                                                <span class="font-extrabold text-slate-900 font-sans" x-text="m.payment_method"></span>
+                                                <span class="text-[10px] text-slate-500 font-mono" x-text="m.reference"></span>
+                                            </div>
+                                            <span class="text-[10px] text-slate-400 block" x-text="m.account_name"></span>
+                                        </div>
+
+                                        <div class="flex items-center gap-3">
+                                            <span class="font-mono font-black text-slate-900" x-text="'₹' + Number(m.amount).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                                            
+                                            <form method="POST"
+                                                  action="{{ route('admin.cashbook.shop.history.payments.undo-match', $shopKey) }}"
+                                                  onsubmit="return confirm('Undo this specific match? This will release the match amount back to the receipt.')">
+                                                @csrf
+                                                <input type="hidden" name="match_id" :value="m.id">
+                                                <input type="hidden" name="month" value="{{ $month }}">
+                                                <button type="submit"
+                                                        class="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[10px] transition cursor-pointer"
+                                                        title="Undo individual match">
+                                                    Undo
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+
+                        <template x-if="!selectedDayRow.active_matches || selectedDayRow.active_matches.length === 0">
+                            <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-xs text-center">
+                                No active matches found for this business date.
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- Footer Actions -->
+                    <div class="flex items-center justify-between gap-2 pt-3 border-t border-slate-100">
+                        <template x-if="selectedDayRow.active_matches && selectedDayRow.active_matches.length > 0">
+                            <form method="POST"
+                                  action="{{ route('admin.cashbook.shop.history.payments.undo-day-matches', $shopKey) }}"
+                                  :onsubmit="`return confirm('WARNING: Clear ALL ' + (selectedDayRow.active_matches?.length || 0) + ' matches for ' + selectedDayRow.business_date + '? Total amount to be released: ₹' + Number(selectedDayRow.received).toLocaleString(\'en-IN\', {minimumFractionDigits: 2}))`">
+                                @csrf
+                                <input type="hidden" name="business_date" :value="selectedDayRow.business_date">
+                                <input type="hidden" name="month" value="{{ $month }}">
+                                <button type="submit"
+                                        class="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs shadow-xs transition cursor-pointer">
+                                    Clear All Matches for Day
+                                </button>
+                            </form>
+                        </template>
+
+                        <button type="button" @click="showDayMatchesModal = false" class="ml-auto px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition text-xs cursor-pointer">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -843,7 +1044,9 @@ function shopMonthlyPaymentsControl() {
         showVerifyModal: false,
         showRecordCashModal: false,
         showFifoMatchModal: false,
+        showDayMatchesModal: false,
         selectedRow: null,
+        selectedDayRow: null,
         fifoPaymentId: null,
         fifoPreview: null,
         fifoLoading: false,
@@ -870,6 +1073,11 @@ function shopMonthlyPaymentsControl() {
         openVerifyModal(row) {
             this.selectedRow = row;
             this.showVerifyModal = true;
+        },
+
+        openDayMatchesModal(row) {
+            this.selectedDayRow = row;
+            this.showDayMatchesModal = true;
         },
 
         openRecordCashModal(date = null, amount = null) {

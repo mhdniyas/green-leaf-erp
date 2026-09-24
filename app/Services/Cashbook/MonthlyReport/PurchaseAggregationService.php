@@ -139,6 +139,8 @@ final class PurchaseAggregationService
                 }
             }
 
+            $item->report_group = $categoryGroup;
+
             if (isset($dailyBreakdown[$itemDate])) {
                 $dailyBreakdown[$itemDate]['total_expense'] = round($dailyBreakdown[$itemDate]['total_expense'] + $netAmount, 2);
             }

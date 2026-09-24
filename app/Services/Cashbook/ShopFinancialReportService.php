@@ -691,6 +691,7 @@ final class ShopFinancialReportService
             $payments[] = [
                 'id' => $p->id,
                 'date' => $paymentDateStr,
+                'raw_date' => $p->payment_date ? Carbon::parse($p->payment_date)->toDateString() : $p->created_at->toDateString(),
                 'reference' => (string) ($p->payment_reference ?: ('PAY-'.$p->id)),
                 'mode' => $modeLabel,
                 'amount' => $paymentAmt,
@@ -712,6 +713,7 @@ final class ShopFinancialReportService
             $payments[] = [
                 'id' => $dr->id,
                 'date' => $dr->transaction_date ? Carbon::parse($dr->transaction_date)->format('d M Y') : '—',
+                'raw_date' => $dr->transaction_date ? Carbon::parse($dr->transaction_date)->toDateString() : ($dr->created_at ? $dr->created_at->toDateString() : ''),
                 'reference' => (string) ($dr->reference_number ?: ('STMT-'.$dr->id)),
                 'mode' => $mode,
                 'amount' => $amt,
@@ -794,6 +796,8 @@ final class ShopFinancialReportService
                 'status_color' => $statusColor,
             ],
             'how_calculated' => [
+                'relation_id' => $payableCalculation['relation_id'] ?? null,
+                'public_uuid' => $payableCalculation['public_uuid'] ?? null,
                 'items' => $calculatedItems,
                 'gross_additions' => $grossAdditions,
                 'gross_deductions' => $grossDeductions,

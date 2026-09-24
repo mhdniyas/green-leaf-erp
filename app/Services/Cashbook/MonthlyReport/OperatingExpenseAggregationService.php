@@ -72,6 +72,8 @@ final class OperatingExpenseAggregationService
                         'report_bucket' => $bucket,
                         'heading_label' => ReportHeadingDictionary::getLabel($bucket),
                         'entity_name' => ($stx['client_name'] ? $stx['client_name'].' / ' : '').$stx['shop_name'],
+                        'shop_id' => $stx['shop_id'] ?? null,
+                        'client_id' => $stx['client_id'] ?? null,
                         'description' => $stx['notes'] ?: $stx['entry_type_name'],
                         'reference' => $stx['reference'],
                         'amount' => (float) $stx['amount'],

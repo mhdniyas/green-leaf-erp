@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Cashbook\MonthlyReport;
 
+use App\Models\Client;
+use App\Models\Shop;
 use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
 
@@ -492,7 +494,7 @@ final class GreenLeafMonthlyReportService
 
         $startDate = $date ?: $period['start_date'];
         $endDate = $date ?: $period['end_date'];
-        $dates = [$startDate];
+        $dates = $date ? [$date] : $period['dates'];
 
         $clientShopData = $this->shopReportBridge->calculateClientShopsData($startDate, $endDate, $dates);
         $salesData = $this->salesAggregationService->calculate($startDate, $endDate, $dates, $clientShopData);
@@ -501,11 +503,19 @@ final class GreenLeafMonthlyReportService
             $shopProductExpensesByDate[$d] = $clientShopData['daily_breakdown'][$d]['product_expenses_by_heading'] ?? [];
         }
         $purchasesData = $this->purchaseAggregationService->calculate($startDate, $endDate, $dates, $shopProductExpensesByDate);
-        $opData = $this->operatingExpenseAggregationService->calculate($startDate, $endDate, $dates, [], $clientShopData['transactions']);
+
+        $shopOperatingExpensesByDate = [];
+        foreach ($dates as $d) {
+            $shopOperatingExpensesByDate[$d] = $clientShopData['daily_breakdown'][$d]['operating_expenses_by_heading'] ?? [];
+        }
+        $opData = $this->operatingExpenseAggregationService->calculate($startDate, $endDate, $dates, $shopOperatingExpensesByDate, $clientShopData['transactions']);
 
         $rows = [];
         $metricLabel = 'Metric Breakdown';
         $total = 0.0;
+
+        $shopId = isset($inputs['shop_id']) && $inputs['shop_id'] !== '' ? (int) $inputs['shop_id'] : null;
+        $clientId = isset($inputs['client_id']) && $inputs['client_id'] !== '' ? (int) $inputs['client_id'] : null;
 
         switch ($metric) {
             case 'total_sales':
@@ -560,16 +570,26 @@ final class GreenLeafMonthlyReportService
 
             case 'client_sales':
                 $metricLabel = 'Client & Owned Shops Sales';
-                $total = $clientShopData['total_client_sales'];
-                $rows = $clientShopData['transactions']
+                $salesTxs = $clientShopData['transactions']
                     ->whereIn('report_bucket', [
                         ReportHeadingDictionary::FRUITS_SALE,
                         ReportHeadingDictionary::VEGETABLES_SALE,
                         ReportHeadingDictionary::STATIONERY_SALE,
                         ReportHeadingDictionary::OTHER_SALE,
-                    ])
-                    ->values()
-                    ->all();
+                    ]);
+
+                if ($shopId) {
+                    $salesTxs = $salesTxs->where('shop_id', $shopId);
+                    $shopObj = Shop::find($shopId);
+                    $metricLabel = ($shopObj?->name ?? 'Shop #'.$shopId).' — Sales';
+                } elseif ($clientId) {
+                    $salesTxs = $salesTxs->where('client_id', $clientId);
+                    $clientObj = Client::find($clientId);
+                    $metricLabel = ($clientObj?->name ?? 'Client #'.$clientId).' — Sales';
+                }
+
+                $total = (float) $salesTxs->sum('amount');
+                $rows = $salesTxs->values()->all();
                 break;
 
             case 'all_other_sales':
@@ -611,14 +631,29 @@ final class GreenLeafMonthlyReportService
                 $metricLabel = 'Total Expenses (Purchases + Operating)';
                 $total = round($purchasesData['total_purchases'] + $opData['total_operating_expenses'], 2);
                 foreach ($purchasesData['items_collection'] as $it) {
+                    $qtyDesc = isset($it->quantity) ? ' ('.round((float) $it->quantity, 2).(isset($it->unit) && $it->unit !== '' ? ' '.$it->unit : '').')' : '';
                     $rows[] = [
                         'source_type' => 'Product Purchase',
                         'business_date' => $it->business_date,
                         'entity_name' => $it->purchaser_name ?? 'Purchaser',
                         'reference' => $it->invoice_number ?? ('CART-'.$it->purchaser_cart_id),
                         'amount' => (float) $it->item_net,
-                        'description' => $it->product_name.' ('.round((float) $it->quantity, 2).' '.$it->unit.')',
+                        'description' => $it->product_name.$qtyDesc,
                     ];
+                }
+                foreach ($clientShopData['transactions'] as $stx) {
+                    if (ReportHeadingDictionary::isProductExpense($stx['report_bucket'] ?? '')) {
+                        $rows[] = [
+                            'source_type' => 'Shop Cashbook Purchase',
+                            'business_date' => $stx['business_date'],
+                            'entity_name' => ($stx['client_name'] ? $stx['client_name'].' / ' : '').$stx['shop_name'],
+                            'reference' => $stx['reference'],
+                            'amount' => (float) $stx['amount'],
+                            'description' => $stx['entry_type_name'].' ('.$stx['bucket_label'].')',
+                            'shop_id' => $stx['shop_id'] ?? null,
+                            'client_id' => $stx['client_id'] ?? null,
+                        ];
+                    }
                 }
                 foreach ($opData['detailed_rows'] as $r) {
                     $rows[] = $r;
@@ -626,18 +661,76 @@ final class GreenLeafMonthlyReportService
                 break;
 
             case 'product_expenses':
-                $metricLabel = 'Product Purchases / Expenses';
-                $total = $purchasesData['total_purchases'];
-                foreach ($purchasesData['items_collection'] as $it) {
-                    $rows[] = [
-                        'source_type' => 'Product Purchase',
-                        'business_date' => $it->business_date,
-                        'entity_name' => $it->purchaser_name ?? 'Purchaser',
-                        'reference' => $it->invoice_number ?? ('CART-'.$it->purchaser_cart_id),
-                        'amount' => (float) $it->item_net,
-                        'description' => $it->product_name.' ('.round((float) $it->quantity, 2).' '.$it->unit.') - '.strtoupper((string) $it->report_group),
-                    ];
+            case 'purchases':
+                if ($shopId || $clientId) {
+                    $prodTxs = $clientShopData['transactions']->filter(function ($tx) use ($shopId, $clientId) {
+                        $matchShop = ! $shopId || (int) ($tx['shop_id'] ?? 0) === $shopId;
+                        $matchClient = ! $clientId || (int) ($tx['client_id'] ?? 0) === $clientId;
+                        $isProduct = ($tx['report_bucket'] ?? '') === 'purchase_bill' || ReportHeadingDictionary::isProductExpense($tx['report_bucket'] ?? '');
+
+                        return $matchShop && $matchClient && $isProduct;
+                    })->values();
+
+                    if ($shopId) {
+                        $shopObj = Shop::find($shopId);
+                        $metricLabel = ($shopObj?->name ?? 'Shop #'.$shopId).' — Purchases';
+                    } else {
+                        $clientObj = Client::find($clientId);
+                        $metricLabel = ($clientObj?->name ?? 'Client #'.$clientId).' — Purchases';
+                    }
+
+                    $total = (float) $prodTxs->sum('amount');
+                    $rows = $prodTxs->all();
+                } else {
+                    $metricLabel = 'Product Purchases / Expenses';
+                    $total = $purchasesData['total_purchases'];
+                    foreach ($purchasesData['items_collection'] as $it) {
+                        $qtyDesc = isset($it->quantity) ? ' ('.round((float) $it->quantity, 2).(isset($it->unit) && $it->unit !== '' ? ' '.$it->unit : '').')' : '';
+                        $grpDesc = isset($it->report_group) ? ' - '.strtoupper((string) $it->report_group) : '';
+                        $rows[] = [
+                            'source_type' => 'Product Purchase',
+                            'business_date' => $it->business_date,
+                            'entity_name' => $it->purchaser_name ?? 'Purchaser',
+                            'reference' => $it->invoice_number ?? ('CART-'.$it->purchaser_cart_id),
+                            'amount' => (float) $it->item_net,
+                            'description' => $it->product_name.$qtyDesc.$grpDesc,
+                        ];
+                    }
+                    foreach ($clientShopData['transactions'] as $stx) {
+                        if (ReportHeadingDictionary::isProductExpense($stx['report_bucket'] ?? '')) {
+                            $rows[] = [
+                                'source_type' => 'Shop Cashbook Purchase',
+                                'business_date' => $stx['business_date'],
+                                'entity_name' => ($stx['client_name'] ? $stx['client_name'].' / ' : '').$stx['shop_name'],
+                                'reference' => $stx['reference'],
+                                'amount' => (float) $stx['amount'],
+                                'description' => $stx['entry_type_name'].' ('.$stx['bucket_label'].')',
+                                'shop_id' => $stx['shop_id'] ?? null,
+                                'client_id' => $stx['client_id'] ?? null,
+                            ];
+                        }
+                    }
                 }
+                break;
+
+            case 'operating_expenses':
+            case 'operating_cost':
+            case 'shop_operating_expenses':
+                $metricLabel = 'Operating Expenses Breakdown';
+                $allOpRows = $opData['detailed_rows'];
+
+                if ($shopId) {
+                    $allOpRows = $allOpRows->filter(fn ($r) => ((int) ($r['shop_id'] ?? 0)) === $shopId)->values();
+                    $shopObj = Shop::find($shopId);
+                    $metricLabel = ($shopObj?->name ?? 'Shop #'.$shopId).' — Operating Expenses';
+                } elseif ($clientId) {
+                    $allOpRows = $allOpRows->filter(fn ($r) => ((int) ($r['client_id'] ?? 0)) === $clientId)->values();
+                    $clientObj = Client::find($clientId);
+                    $metricLabel = ($clientObj?->name ?? 'Client #'.$clientId).' — Operating Expenses';
+                }
+
+                $total = (float) $allOpRows->sum('amount');
+                $rows = $allOpRows->all();
                 break;
 
             case 'fruits_sale':
@@ -663,13 +756,27 @@ final class GreenLeafMonthlyReportService
                 $filteredItems = $purchasesData['items_collection']->where('report_group', $grpName)->values();
                 $total = (float) $filteredItems->sum('item_net');
                 foreach ($filteredItems as $it) {
+                    $qtyDesc = isset($it->quantity) ? ' ('.round((float) $it->quantity, 2).(isset($it->unit) && $it->unit !== '' ? ' '.$it->unit : '').')' : '';
                     $rows[] = [
                         'source_type' => 'Product Purchase',
                         'business_date' => $it->business_date,
                         'entity_name' => $it->purchaser_name ?? 'Purchaser',
                         'reference' => $it->invoice_number ?? ('CART-'.$it->purchaser_cart_id),
                         'amount' => (float) $it->item_net,
-                        'description' => $it->product_name.' ('.round((float) $it->quantity, 2).' '.$it->unit.')',
+                        'description' => $it->product_name.$qtyDesc,
+                    ];
+                }
+                foreach ($clientShopData['transactions']->where('report_bucket', $metric) as $stx) {
+                    $total += (float) $stx['amount'];
+                    $rows[] = [
+                        'source_type' => 'Shop Cashbook Purchase',
+                        'business_date' => $stx['business_date'],
+                        'entity_name' => ($stx['client_name'] ? $stx['client_name'].' / ' : '').$stx['shop_name'],
+                        'reference' => $stx['reference'],
+                        'amount' => (float) $stx['amount'],
+                        'description' => $stx['entry_type_name'].' ('.$stx['bucket_label'].')',
+                        'shop_id' => $stx['shop_id'] ?? null,
+                        'client_id' => $stx['client_id'] ?? null,
                     ];
                 }
                 break;

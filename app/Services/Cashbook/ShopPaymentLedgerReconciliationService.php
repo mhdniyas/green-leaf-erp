@@ -739,6 +739,52 @@ class ShopPaymentLedgerReconciliationService
      *
      * @return array{cleared_count: int, created_count: int, allocated_total: float, remaining_amount: float}
      */
+    /**
+     * Safely and auditably reverse all active expense allocations for a receipt.
+     *
+     * @return array{reversed_count: int, reversed_amount: float}
+     */
+    public function reverseReceiptAllocations(
+        ShopInvoicePaymentRequest $payment,
+        ?int $userId = null,
+        string $reason = 'Accidental allocation reversal'
+    ): array {
+        return DB::transaction(function () use ($payment, $userId, $reason): array {
+            $lockedPayment = ShopInvoicePaymentRequest::query()
+                ->whereKey($payment->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $shopId = (int) $lockedPayment->shop_id;
+
+            $activeAllocations = ShopPaymentLedgerAllocation::query()
+                ->where('payment_request_id', $lockedPayment->id)
+                ->where('shop_id', $shopId)
+                ->where('status', 'active')
+                ->lockForUpdate()
+                ->get();
+
+            $reversedCount = 0;
+            $reversedAmount = 0.0;
+
+            foreach ($activeAllocations as $allocation) {
+                $this->reverseAllocation($allocation, $userId, $reason);
+                $reversedCount++;
+                $reversedAmount += (float) $allocation->amount;
+            }
+
+            return [
+                'reversed_count' => $reversedCount,
+                'reversed_amount' => round($reversedAmount, 2),
+            ];
+        }, attempts: 3);
+    }
+
+    /**
+     * Clear all current allocations for this payment and re-run configured auto-allocation rules.
+     *
+     * @return array{cleared_count: int, created_count: int, allocated_total: float, remaining_amount: float}
+     */
     public function clearAndReallocatePayment(ShopInvoicePaymentRequest $payment, int $userId): array
     {
         if (! app(ShopSettlementService::class)->expenseAllocationConfiguration((int) $payment->shop_id)['auto_allocate']) {
@@ -755,18 +801,9 @@ class ShopPaymentLedgerReconciliationService
 
             $shopId = (int) $lockedPayment->shop_id;
 
-            $existingAllocations = ShopPaymentLedgerAllocation::query()
-                ->where('payment_request_id', $lockedPayment->id)
-                ->where('shop_id', $shopId)
-                ->lockForUpdate()
-                ->get();
-
-            $clearedCount = 0;
-            if ($existingAllocations->isNotEmpty()) {
-                $clearedCount = (int) ShopPaymentLedgerAllocation::query()
-                    ->whereIn('id', $existingAllocations->pluck('id')->all())
-                    ->delete();
-            }
+            // Audited reversal of active allocations (preserving history)
+            $reversalResult = $this->reverseReceiptAllocations($lockedPayment, $userId, 'Cleared for re-allocation');
+            $clearedCount = $reversalResult['reversed_count'];
 
             $plan = $this->buildAutoAllocationPlanForPayment($lockedPayment, $shopId);
             if ($plan === []) {

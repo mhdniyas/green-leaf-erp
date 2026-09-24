@@ -836,8 +836,14 @@ Route::middleware('auth')->group(function () {
 
             // ── Green Leaf Monthly Reports ────────────────────────────────────
             Route::prefix('reports/monthly')->name('monthly-report.')->group(function () {
-                Route::get('/', [GreenLeafMonthlyReportController::class, 'overview'])->name('overview');
+                Route::get('/', [GreenLeafMonthlyReportController::class, 'overview'])->name('index');
+                Route::get('/overview', [GreenLeafMonthlyReportController::class, 'overview'])->name('overview');
                 Route::get('/sale-split', [GreenLeafMonthlyReportController::class, 'saleSplit'])->name('sale-split');
+                Route::get('/section-reports', [GreenLeafMonthlyReportController::class, 'sectionReports'])->name('section-reports');
+                Route::get('/section-reports/print', [GreenLeafMonthlyReportExportController::class, 'printSectionReports'])->name('section-reports.print');
+                Route::get('/section-reports/export/csv', [GreenLeafMonthlyReportExportController::class, 'exportSectionReportsCsv'])->name('section-reports.export.csv');
+                Route::get('/section-reports/export/excel', [GreenLeafMonthlyReportExportController::class, 'exportSectionReportsExcel'])->name('section-reports.export.excel');
+                Route::get('/section-reports/export/pdf', [GreenLeafMonthlyReportExportController::class, 'exportSectionReportsPdf'])->name('section-reports.export.pdf');
                 Route::get('/other-expenses', [GreenLeafMonthlyReportController::class, 'otherExpenses'])->name('other-expenses');
                 Route::get('/expense-report', [GreenLeafMonthlyReportController::class, 'expenseReport'])->name('expense-report');
                 Route::get('/drilldown', [GreenLeafMonthlyReportController::class, 'drilldown'])->name('drilldown');
@@ -1059,6 +1065,10 @@ Route::middleware('auth')->group(function () {
                 Route::post('payments/match-payable', [CashbookController::class, 'matchReceiptToPayable'])->name('payments.match-payable');
                 Route::get('payments/fifo-preview', [CashbookController::class, 'previewReceiptFifo'])->name('payments.fifo-preview');
                 Route::post('payments/allocate-expenses', [CashbookController::class, 'allocateReceiptExpenses'])->name('payments.allocate-expenses');
+                Route::post('payments/undo-match', [CashbookController::class, 'undoIndividualMatch'])->name('payments.undo-match');
+                Route::post('payments/undo-day-matches', [CashbookController::class, 'undoDayMatches'])->name('payments.undo-day-matches');
+                Route::post('payments/undo-receipt-matches', [CashbookController::class, 'undoReceiptMatches'])->name('payments.undo-receipt-matches');
+                Route::post('payments/undo-receipt-allocations', [CashbookController::class, 'undoReceiptAllocations'])->name('payments.undo-receipt-allocations');
                 Route::get('allocations', [CashbookController::class, 'shopAllocationsHistory'])->name('allocations');
                 Route::get('cheques', [CashbookController::class, 'shopChequesHistory'])->name('cheques');
                 Route::get('petty', [CashbookController::class, 'shopPettyHistory'])->name('petty');

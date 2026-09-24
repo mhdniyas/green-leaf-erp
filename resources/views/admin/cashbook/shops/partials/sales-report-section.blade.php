@@ -83,7 +83,7 @@
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <!-- 1. TOTAL SALES -->
         <div data-period="{{ $salesReport['period']['label'] ?? '' }}"
-             data-breakdown="{{ e(json_encode($salesReport['summary_breakdowns']['total_sales'] ?? [])) }}"
+             data-breakdown="{{ json_encode($salesReport['summary_breakdowns']['total_sales'] ?? []) }}"
              onclick="openBreakdownFromEl(this)"
              class="group rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-teal-50/50 p-4 shadow-2xs hover:border-emerald-400 hover:shadow-md transition cursor-pointer">
             <div class="flex items-center justify-between">
@@ -101,7 +101,7 @@
 
         <!-- 2. RENT -->
         <div data-period="{{ $salesReport['period']['label'] ?? '' }}"
-             data-breakdown="{{ e(json_encode($salesReport['summary_breakdowns']['rent_expense'] ?? [])) }}"
+             data-breakdown="{{ json_encode($salesReport['summary_breakdowns']['rent_expense'] ?? []) }}"
              onclick="openBreakdownFromEl(this)"
              class="group rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-50/80 to-pink-50/50 p-4 shadow-2xs hover:border-rose-400 hover:shadow-md transition cursor-pointer">
             <div class="flex items-center justify-between">
@@ -119,7 +119,7 @@
 
         <!-- 3. PURCHASE -->
         <div data-period="{{ $salesReport['period']['label'] ?? '' }}"
-             data-breakdown="{{ e(json_encode($salesReport['summary_breakdowns']['cash_purchase'] ?? [])) }}"
+             data-breakdown="{{ json_encode($salesReport['summary_breakdowns']['cash_purchase'] ?? []) }}"
              onclick="openBreakdownFromEl(this)"
              class="group rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/80 to-orange-50/50 p-4 shadow-2xs hover:border-amber-400 hover:shadow-md transition cursor-pointer">
             <div class="flex items-center justify-between">
@@ -137,7 +137,7 @@
 
         <!-- 4. OTHER EXPENSE -->
         <div data-period="{{ $salesReport['period']['label'] ?? '' }}"
-             data-breakdown="{{ e(json_encode($salesReport['summary_breakdowns']['other_expense'] ?? [])) }}"
+             data-breakdown="{{ json_encode($salesReport['summary_breakdowns']['other_expense'] ?? []) }}"
              onclick="openBreakdownFromEl(this)"
              class="group rounded-2xl border border-purple-200 bg-gradient-to-br from-purple-50/80 to-indigo-50/50 p-4 shadow-2xs hover:border-purple-400 hover:shadow-md transition cursor-pointer">
             <div class="flex items-center justify-between">
@@ -155,7 +155,7 @@
 
         <!-- 5. NET BALANCE -->
         <div data-period="{{ $salesReport['period']['label'] ?? '' }}"
-             data-breakdown="{{ e(json_encode($salesReport['summary_breakdowns']['net_operating_balance'] ?? [])) }}"
+             data-breakdown="{{ json_encode($salesReport['summary_breakdowns']['net_operating_balance'] ?? []) }}"
              onclick="openBreakdownFromEl(this)"
              class="group rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50/80 to-blue-50/50 p-4 shadow-2xs hover:border-sky-400 hover:shadow-md transition cursor-pointer">
             <div class="flex items-center justify-between">
@@ -209,7 +209,7 @@
                             <td class="px-4 py-3 font-sans text-slate-500">{{ $row['day_name'] }}</td>
                             <td class="px-4 py-3 text-right font-bold text-emerald-700 hover:bg-emerald-50/80 hover:underline cursor-pointer group"
                                 data-period="{{ $row['formatted_date'] }}"
-                                data-breakdown="{{ e(json_encode($row['breakdowns']['total_sales'] ?? [])) }}"
+                                data-breakdown="{{ json_encode($row['breakdowns']['total_sales'] ?? []) }}"
                                 onclick="openBreakdownFromEl(this)"
                                 title="Click to view Sales breakdown for {{ $row['formatted_date'] }}">
                                 <span class="inline-flex items-center gap-1">
@@ -222,7 +222,7 @@
                             </td>
                             <td class="px-4 py-3 text-right text-rose-700 hover:bg-rose-50/80 hover:underline cursor-pointer group"
                                 data-period="{{ $row['formatted_date'] }}"
-                                data-breakdown="{{ e(json_encode($row['breakdowns']['rent_expense'] ?? [])) }}"
+                                data-breakdown="{{ json_encode($row['breakdowns']['rent_expense'] ?? []) }}"
                                 onclick="openBreakdownFromEl(this)"
                                 title="Click to view Rent breakdown for {{ $row['formatted_date'] }}">
                                 <span class="inline-flex items-center gap-1">
@@ -235,7 +235,7 @@
                             </td>
                             <td class="px-4 py-3 text-right text-amber-700 hover:bg-amber-50/80 hover:underline cursor-pointer group"
                                 data-period="{{ $row['formatted_date'] }}"
-                                data-breakdown="{{ e(json_encode($row['breakdowns']['cash_purchase'] ?? [])) }}"
+                                data-breakdown="{{ json_encode($row['breakdowns']['cash_purchase'] ?? []) }}"
                                 onclick="openBreakdownFromEl(this)"
                                 title="Click to view Purchase breakdown for {{ $row['formatted_date'] }}">
                                 <span class="inline-flex items-center gap-1">
@@ -248,7 +248,7 @@
                             </td>
                             <td class="px-4 py-3 text-right text-purple-700 hover:bg-purple-50/80 hover:underline cursor-pointer group"
                                 data-period="{{ $row['formatted_date'] }}"
-                                data-breakdown="{{ e(json_encode($row['breakdowns']['other_expense'] ?? [])) }}"
+                                data-breakdown="{{ json_encode($row['breakdowns']['other_expense'] ?? []) }}"
                                 onclick="openBreakdownFromEl(this)"
                                 title="Click to view Other Expenses breakdown for {{ $row['formatted_date'] }}">
                                 <span class="inline-flex items-center gap-1">
@@ -262,7 +262,7 @@
                             <td class="px-4 py-3 text-right font-bold text-slate-900">₹{{ number_format($row['total_expenses'], 2) }}</td>
                             <td class="px-4 py-3 text-right font-bold {{ $row['net_balance'] >= 0 ? 'text-blue-700' : 'text-rose-700' }} hover:bg-blue-50/80 hover:underline cursor-pointer group"
                                 data-period="{{ $row['formatted_date'] }}"
-                                data-breakdown="{{ e(json_encode($row['breakdowns']['net_operating_balance'] ?? [])) }}"
+                                data-breakdown="{{ json_encode($row['breakdowns']['net_operating_balance'] ?? []) }}"
                                 onclick="openBreakdownFromEl(this)"
                                 title="Click to view Balance calculation for {{ $row['formatted_date'] }}">
                                 <span class="inline-flex items-center gap-1">
@@ -379,14 +379,19 @@
     function openBreakdownFromEl(el) {
         if (!el) return;
         const period = el.getAttribute('data-period') || '';
-        const rawJson = el.getAttribute('data-breakdown') || '{}';
+        let rawJson = el.getAttribute('data-breakdown') || '{}';
         try {
-            const data = JSON.parse(rawJson);
+            if (typeof rawJson === 'string' && (rawJson.startsWith('{&quot;') || rawJson.startsWith('&quot;') || rawJson.includes('&quot;'))) {
+                const txt = document.createElement('textarea');
+                txt.innerHTML = rawJson;
+                rawJson = txt.value;
+            }
+            const data = typeof rawJson === 'object' ? rawJson : JSON.parse(rawJson);
             if (typeof window.openReportBreakdownModal === 'function') {
                 window.openReportBreakdownModal(period, data);
             }
         } catch (e) {
-            console.error('Failed to parse breakdown JSON:', e);
+            console.error('Failed to parse breakdown JSON:', e, rawJson);
         }
     }
 

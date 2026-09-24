@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Admin;
 
+use App\Exports\Cashbook\DynamicSectionReportMultiSheetExport;
 use App\Exports\Cashbook\MonthlyReportExport;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\MonthlyReportPeriodRequest;
 use App\Models\User;
+use App\Services\Cashbook\MonthlyReport\DynamicSectionReportService;
 use App\Services\Cashbook\MonthlyReport\GreenLeafMonthlyReportService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
+use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -19,7 +22,204 @@ class GreenLeafMonthlyReportExportController extends Controller
 {
     public function __construct(
         private readonly GreenLeafMonthlyReportService $reportService,
+        private readonly DynamicSectionReportService $dynamicSectionReportService,
     ) {}
+
+    public function exportSectionReportsCsv(MonthlyReportPeriodRequest $request): StreamedResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $sectionKey = $request->query('section');
+        $validSectionKey = is_string($sectionKey) && $sectionKey !== '' && $sectionKey !== 'all' ? $sectionKey : null;
+        $data = $this->dynamicSectionReportService->buildReport($request->validated(), $validSectionKey);
+
+        $filenameKey = $validSectionKey ?: 'all';
+        $filename = "green-leaf-section-reports-{$filenameKey}-{$data['period']['start_date']}-to-{$data['period']['end_date']}.csv";
+
+        return response()->streamDownload(function () use ($data, $validSectionKey): void {
+            $file = fopen('php://output', 'w');
+            if ($file === false) {
+                return;
+            }
+
+            $sanitize = function (array $row): array {
+                return array_map(function ($val) {
+                    if (is_string($val)) {
+                        $trimmed = trim($val);
+                        if (str_starts_with($trimmed, '=') || str_starts_with($trimmed, '+') || str_starts_with($trimmed, '-') || str_starts_with($trimmed, '@')) {
+                            return "'".$val;
+                        }
+                    }
+
+                    return $val;
+                }, $row);
+            };
+
+            $sections = $data['sections'] ?? [];
+
+            if ($validSectionKey && isset($sections[$validSectionKey])) {
+                $sec = $sections[$validSectionKey];
+                $isTrading = ($sec['type'] === 'trading');
+
+                fputcsv($file, [$sec['name'].' - Section Report ('.$data['period']['start_date'].' to '.$data['period']['end_date'].')']);
+                fputcsv($file, []);
+
+                if ($isTrading) {
+                    fputcsv($file, ['Date', 'Sale (₹)', 'Purchase (₹)', 'Other Expense (₹)', 'Total Expense (₹)', 'Balance (₹)']);
+                    foreach ($sec['daily_rows'] as $d) {
+                        fputcsv($file, $sanitize([
+                            $d['formatted_date'],
+                            number_format($d['sale'], 2, '.', ''),
+                            number_format($d['purchase'], 2, '.', ''),
+                            number_format($d['other_expense'], 2, '.', ''),
+                            number_format($d['total_expense'], 2, '.', ''),
+                            number_format($d['balance'], 2, '.', ''),
+                        ]));
+                    }
+                    fputcsv($file, $sanitize([
+                        'MONTHLY TOTAL',
+                        number_format($sec['summary']['sales'], 2, '.', ''),
+                        number_format($sec['summary']['purchases'], 2, '.', ''),
+                        number_format($sec['summary']['other_expenses'], 2, '.', ''),
+                        number_format($sec['summary']['total_expenses'], 2, '.', ''),
+                        number_format($sec['summary']['balance'], 2, '.', ''),
+                    ]));
+                } else {
+                    fputcsv($file, ['Date', 'Expense (₹)']);
+                    foreach ($sec['daily_rows'] as $d) {
+                        fputcsv($file, $sanitize([
+                            $d['formatted_date'],
+                            number_format($d['expense'], 2, '.', ''),
+                        ]));
+                    }
+                    fputcsv($file, $sanitize([
+                        'MONTHLY TOTAL',
+                        number_format($sec['summary']['total_expenses'], 2, '.', ''),
+                    ]));
+                }
+            } else {
+                // Full Multi-Section Export
+                fputcsv($file, ['Green Leaf Monthly Section Reports - All Sections ('.$data['period']['start_date'].' to '.$data['period']['end_date'].')']);
+                fputcsv($file, []);
+
+                // Summary Section
+                fputcsv($file, ['--- OVERALL SUMMARY ---']);
+                fputcsv($file, ['Section', 'Type', 'Sales (₹)', 'Purchases / Direct Exp (₹)', 'Other Expenses (₹)', 'Total Expenses (₹)', 'Balance (₹)']);
+                foreach ($sections as $sec) {
+                    $isTrading = ($sec['type'] === 'trading');
+                    fputcsv($file, $sanitize([
+                        $sec['name'],
+                        $isTrading ? 'Trading / Product' : 'Operating Overhead',
+                        $isTrading ? number_format($sec['summary']['sales'], 2, '.', '') : '—',
+                        $isTrading ? number_format($sec['summary']['purchases'], 2, '.', '') : '—',
+                        $isTrading ? number_format($sec['summary']['other_expenses'], 2, '.', '') : number_format($sec['summary']['total_expenses'], 2, '.', ''),
+                        number_format($sec['summary']['total_expenses'], 2, '.', ''),
+                        $isTrading ? number_format($sec['summary']['balance'], 2, '.', '') : '—',
+                    ]));
+                }
+                $overall = $data['overall_summary'] ?? [];
+                fputcsv($file, $sanitize([
+                    'TOTAL',
+                    'All Sections',
+                    number_format($overall['total_sales'] ?? 0, 2, '.', ''),
+                    number_format($overall['total_purchases'] ?? 0, 2, '.', ''),
+                    number_format($overall['total_operating_expenses'] ?? 0, 2, '.', ''),
+                    number_format($overall['total_expenses'] ?? 0, 2, '.', ''),
+                    number_format($overall['balance'] ?? 0, 2, '.', ''),
+                ]));
+
+                // Detailed tables per section
+                foreach ($sections as $sec) {
+                    fputcsv($file, []);
+                    fputcsv($file, ['--- '.$sec['name'].' ---']);
+                    $isTrading = ($sec['type'] === 'trading');
+                    if ($isTrading) {
+                        fputcsv($file, ['Date', 'Sale (₹)', 'Purchase (₹)', 'Other Expense (₹)', 'Total Expense (₹)', 'Balance (₹)']);
+                        foreach ($sec['daily_rows'] as $d) {
+                            fputcsv($file, $sanitize([
+                                $d['formatted_date'],
+                                number_format($d['sale'], 2, '.', ''),
+                                number_format($d['purchase'], 2, '.', ''),
+                                number_format($d['other_expense'], 2, '.', ''),
+                                number_format($d['total_expense'], 2, '.', ''),
+                                number_format($d['balance'], 2, '.', ''),
+                            ]));
+                        }
+                        fputcsv($file, $sanitize([
+                            'MONTHLY TOTAL',
+                            number_format($sec['summary']['sales'], 2, '.', ''),
+                            number_format($sec['summary']['purchases'], 2, '.', ''),
+                            number_format($sec['summary']['other_expenses'], 2, '.', ''),
+                            number_format($sec['summary']['total_expenses'], 2, '.', ''),
+                            number_format($sec['summary']['balance'], 2, '.', ''),
+                        ]));
+                    } else {
+                        fputcsv($file, ['Date', 'Expense (₹)']);
+                        foreach ($sec['daily_rows'] as $d) {
+                            fputcsv($file, $sanitize([
+                                $d['formatted_date'],
+                                number_format($d['expense'], 2, '.', ''),
+                            ]));
+                        }
+                        fputcsv($file, $sanitize([
+                            'MONTHLY TOTAL',
+                            number_format($sec['summary']['total_expenses'], 2, '.', ''),
+                        ]));
+                    }
+                }
+            }
+
+            fclose($file);
+        }, $filename, ['Content-Type' => 'text/csv']);
+    }
+
+    public function exportSectionReportsExcel(MonthlyReportPeriodRequest $request): BinaryFileResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $sectionKey = $request->query('section');
+        $validSectionKey = is_string($sectionKey) && $sectionKey !== '' && $sectionKey !== 'all' ? $sectionKey : null;
+        $data = $this->dynamicSectionReportService->buildReport($request->validated(), $validSectionKey);
+
+        $filenameKey = $validSectionKey ?: 'all';
+        $filename = "green-leaf-section-reports-{$filenameKey}-{$data['period']['start_date']}-to-{$data['period']['end_date']}.xlsx";
+
+        return Excel::download(new DynamicSectionReportMultiSheetExport($data, $validSectionKey), $filename);
+    }
+
+    public function exportSectionReportsPdf(MonthlyReportPeriodRequest $request): mixed
+    {
+        $this->ensureAuthorized($request);
+
+        $sectionKey = $request->query('section');
+        $validSectionKey = is_string($sectionKey) && $sectionKey !== '' && $sectionKey !== 'all' ? $sectionKey : null;
+        $data = $this->dynamicSectionReportService->buildReport($request->validated(), $validSectionKey);
+
+        $filenameKey = $validSectionKey ?: 'all';
+        $filename = "green-leaf-section-reports-{$filenameKey}-{$data['period']['start_date']}-to-{$data['period']['end_date']}.pdf";
+
+        $viewName = 'admin.cashbook.monthly-report.pdf.section-reports';
+
+        if ($request->boolean('download', false) || $request->input('download') === '1') {
+            return Pdf::loadView($viewName, $data)
+                ->setPaper('a4', 'landscape')
+                ->setOption(['isRemoteEnabled' => true, 'isHtml5ParserEnabled' => true])
+                ->download($filename);
+        }
+
+        return view($viewName, $data);
+    }
+
+    public function printSectionReports(MonthlyReportPeriodRequest $request): View
+    {
+        $this->ensureAuthorized($request);
+
+        $sectionKey = $request->query('section');
+        $validSectionKey = is_string($sectionKey) && $sectionKey !== '' && $sectionKey !== 'all' ? $sectionKey : null;
+        $data = $this->dynamicSectionReportService->buildReport($request->validated(), $validSectionKey);
+
+        return view('admin.cashbook.monthly-report.print.section-reports', $data);
+    }
 
     public function exportCsv(MonthlyReportPeriodRequest $request, string $report): StreamedResponse
     {
@@ -236,8 +436,15 @@ class GreenLeafMonthlyReportExportController extends Controller
                 || $user->hasRole('accounts')
                 || $user->hasRole('accountant')
                 || $user->hasRole('account')
+                || $user->hasRole('manager')
+                || (isset($user->is_admin) && $user->is_admin)
                 || $user->can('cashbook.monthly-report.export')
+                || $user->can('cashbook.monthly-report.view')
                 || $user->can('accounting.report.export')
+                || $user->can('accounting.report.view')
+                || $user->can('finance.dashboard.view')
+                || $user->can('accounting.dashboard.view')
+                || $user->can('accounting.ledger.view')
             ),
             403,
             'Unauthorized export action.'

@@ -366,23 +366,134 @@ class CompanyPayableReceiptMatchingService
     }
 
     /**
-     * Safely reverse all active matches for a receipt upon cancellation or reversal.
+     * Safely and auditably reverse an individual payable match.
      */
-    public function reverseReceiptMatches(ShopInvoicePaymentRequest $payment, ?int $userId = null, string $reason = 'Reversed match'): int
-    {
-        return DB::transaction(function () use ($payment, $userId, $reason): int {
-            return ShopPaymentCompanyPayableMatch::query()
+    public function reverseMatch(
+        ShopPaymentCompanyPayableMatch|int $match,
+        ?int $userId = null,
+        string $reason = 'Reversed match'
+    ): ShopPaymentCompanyPayableMatch {
+        return DB::transaction(function () use ($match, $userId, $reason): ShopPaymentCompanyPayableMatch {
+            $locked = $match instanceof ShopPaymentCompanyPayableMatch
+                ? ShopPaymentCompanyPayableMatch::query()->whereKey($match->id)->lockForUpdate()->firstOrFail()
+                : ShopPaymentCompanyPayableMatch::query()->whereKey($match)->lockForUpdate()->firstOrFail();
+
+            if ($locked->status === 'reversed') {
+                return $locked;
+            }
+
+            $locked->update([
+                'status' => 'reversed',
+                'reversed_by' => $userId && $userId > 0 ? $userId : null,
+                'reversed_at' => now(),
+                'reversal_reason' => $reason,
+            ]);
+
+            activity('shop_cashbook.reverse_payable_match')
+                ->performedOn($locked)
+                ->withProperties([
+                    'match_id' => $locked->id,
+                    'payment_request_id' => $locked->payment_request_id,
+                    'shop_id' => $locked->shop_id,
+                    'payable_business_date' => $locked->payable_business_date?->toDateString(),
+                    'amount' => (float) $locked->amount,
+                    'reason' => $reason,
+                    'user_id' => $userId,
+                ])
+                ->log('Reversed shop payment company payable match');
+
+            return $locked;
+        }, attempts: 3);
+    }
+
+    /**
+     * Safely reverse all active matches for a receipt upon cancellation or reversal.
+     *
+     * @return array{reversed_count: int, reversed_amount: float}
+     */
+    public function reverseReceiptMatches(
+        ShopInvoicePaymentRequest $payment,
+        ?int $userId = null,
+        string $reason = 'Reversed match'
+    ): array {
+        return DB::transaction(function () use ($payment, $userId, $reason): array {
+            $activeMatches = ShopPaymentCompanyPayableMatch::query()
                 ->where('payment_request_id', $payment->id)
                 ->where('status', 'active')
                 ->lockForUpdate()
-                ->update([
-                    'status' => 'reversed',
-                    'reversed_by' => $userId && $userId > 0 ? $userId : null,
-                    'reversed_at' => now(),
-                    'reversal_reason' => $reason,
-                    'updated_at' => now(),
-                ]);
+                ->get();
+
+            $reversedCount = 0;
+            $reversedAmount = 0.0;
+
+            foreach ($activeMatches as $match) {
+                $this->reverseMatch($match, $userId, $reason);
+                $reversedCount++;
+                $reversedAmount += (float) $match->amount;
+            }
+
+            return [
+                'reversed_count' => $reversedCount,
+                'reversed_amount' => round($reversedAmount, 2),
+            ];
         }, attempts: 3);
+    }
+
+    /**
+     * Safely reverse all active matches for a specific shop and business date.
+     *
+     * @return array{reversed_count: int, reversed_amount: float}
+     */
+    public function reverseDayMatches(
+        int $shopId,
+        string $businessDate,
+        ?int $userId = null,
+        string $reason = 'Reversed day matches'
+    ): array {
+        $formattedDate = Carbon::parse($businessDate)->toDateString();
+
+        return DB::transaction(function () use ($shopId, $formattedDate, $userId, $reason): array {
+            $activeMatches = ShopPaymentCompanyPayableMatch::query()
+                ->where('shop_id', $shopId)
+                ->where('payable_business_date', $formattedDate)
+                ->where('status', 'active')
+                ->lockForUpdate()
+                ->get();
+
+            $reversedCount = 0;
+            $reversedAmount = 0.0;
+
+            foreach ($activeMatches as $match) {
+                $this->reverseMatch($match, $userId, $reason);
+                $reversedCount++;
+                $reversedAmount += (float) $match->amount;
+            }
+
+            return [
+                'reversed_count' => $reversedCount,
+                'reversed_amount' => round($reversedAmount, 2),
+            ];
+        }, attempts: 3);
+    }
+
+    /**
+     * Get all active matches for a specific day with relations loaded.
+     */
+    public function getDayActiveMatches(int $shopId, string $businessDate): Collection
+    {
+        $formattedDate = Carbon::parse($businessDate)->toDateString();
+
+        return ShopPaymentCompanyPayableMatch::query()
+            ->with([
+                'paymentRequest.reconciliations.companyAccount',
+                'paymentRequest.reconciliations.statementEntry.companyAccount',
+                'matchedBy',
+            ])
+            ->where('shop_id', $shopId)
+            ->where('payable_business_date', $formattedDate)
+            ->where('status', 'active')
+            ->orderBy('id')
+            ->get();
     }
 
     /**

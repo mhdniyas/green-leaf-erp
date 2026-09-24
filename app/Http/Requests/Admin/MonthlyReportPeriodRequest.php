@@ -25,6 +25,8 @@ class MonthlyReportPeriodRequest extends FormRequest
             'date' => ['nullable', 'date_format:Y-m-d'],
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
+            'section' => ['nullable', 'string', 'max:50'],
+            'download' => ['nullable'],
             'heading' => ['nullable', 'string', 'max:50'],
             'source_type' => ['nullable', 'string', 'max:80'],
             'category' => ['nullable', 'string', 'max:120'],

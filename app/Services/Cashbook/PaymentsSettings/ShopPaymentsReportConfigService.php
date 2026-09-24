@@ -48,6 +48,9 @@ class ShopPaymentsReportConfigService
         $salesSources = [];
         if ($salesHeader) {
             $salesSources[] = ['type' => 'header', 'id' => (int) $salesHeader->id, 'name' => $salesHeader->name];
+            foreach ($settings->filter(fn ($s) => $s->resolveSalesReportBucket() === 'sales' && (int) $s->header_group_id !== (int) $salesHeader->id) as $s) {
+                $salesSources[] = ['type' => 'category', 'id' => (int) $s->id, 'name' => $s->displayName()];
+            }
         } else {
             foreach ($settings->filter(fn ($s) => $s->resolveSalesReportBucket() === 'sales') as $s) {
                 $salesSources[] = ['type' => 'category', 'id' => (int) $s->id, 'name' => $s->displayName()];
@@ -62,8 +65,11 @@ class ShopPaymentsReportConfigService
         $purchaseSources = [];
         if ($purchaseHeader) {
             $purchaseSources[] = ['type' => 'header', 'id' => (int) $purchaseHeader->id, 'name' => $purchaseHeader->name];
+            foreach ($settings->filter(fn ($s) => $s->resolveSalesReportBucket() === 'purchase' && (int) $s->header_group_id !== (int) $purchaseHeader->id && ! $s->is_vendor_purchase && ! in_array($s->entryType?->code, ['vendor_purchase_cash', 'vendor_purchase_credit'], true)) as $s) {
+                $purchaseSources[] = ['type' => 'category', 'id' => (int) $s->id, 'name' => $s->displayName()];
+            }
         } else {
-            foreach ($settings->filter(fn ($s) => $s->resolveSalesReportBucket() === 'purchase') as $s) {
+            foreach ($settings->filter(fn ($s) => $s->resolveSalesReportBucket() === 'purchase' && ! $s->is_vendor_purchase && ! in_array($s->entryType?->code, ['vendor_purchase_cash', 'vendor_purchase_credit'], true)) as $s) {
                 $purchaseSources[] = ['type' => 'category', 'id' => (int) $s->id, 'name' => $s->displayName()];
             }
         }
@@ -72,6 +78,9 @@ class ShopPaymentsReportConfigService
         $otherExpenseSources = [];
         if ($expenseHeader) {
             $otherExpenseSources[] = ['type' => 'header', 'id' => (int) $expenseHeader->id, 'name' => $expenseHeader->name];
+            foreach ($settings->filter(fn ($s) => $s->resolveSalesReportBucket() === 'other_expense' && (int) $s->header_group_id !== (int) $expenseHeader->id) as $s) {
+                $otherExpenseSources[] = ['type' => 'category', 'id' => (int) $s->id, 'name' => $s->displayName()];
+            }
         } else {
             foreach ($settings->filter(fn ($s) => $s->resolveSalesReportBucket() === 'other_expense') as $s) {
                 $otherExpenseSources[] = ['type' => 'category', 'id' => (int) $s->id, 'name' => $s->displayName()];
@@ -350,6 +359,21 @@ class ShopPaymentsReportConfigService
             $dayNetBalance = round($dayTotals[self::HEADING_TOTAL_SALES] - ($dayTotals[self::HEADING_RENT_EXPENSE] + $dayTotals[self::HEADING_CASH_PURCHASE] + $dayTotals[self::HEADING_OTHER_EXPENSE]), 2);
             $dayTotalExpenses = round($dayTotals[self::HEADING_RENT_EXPENSE] + $dayTotals[self::HEADING_CASH_PURCHASE] + $dayTotals[self::HEADING_OTHER_EXPENSE], 2);
 
+            foreach ([self::HEADING_TOTAL_SALES, self::HEADING_RENT_EXPENSE, self::HEADING_CASH_PURCHASE, self::HEADING_OTHER_EXPENSE] as $hKey) {
+                $headingMonthlyTotals[$hKey] += $dayTotals[$hKey];
+            }
+
+            // Exclude future dates if all values are zero and there are no transactions
+            $isAllZero = abs($dayTotals[self::HEADING_TOTAL_SALES]) < 0.001
+                && abs($dayTotals[self::HEADING_RENT_EXPENSE]) < 0.001
+                && abs($dayTotals[self::HEADING_CASH_PURCHASE]) < 0.001
+                && abs($dayTotals[self::HEADING_OTHER_EXPENSE]) < 0.001
+                && $dayTxs->isEmpty();
+
+            if ($dateCarbon->greaterThan(Carbon::today()) && $isAllZero) {
+                continue;
+            }
+
             $dailyRows[] = [
                 'date' => $dateStr,
                 'formatted_date' => $dateCarbon->format('d M Y'),
@@ -362,10 +386,6 @@ class ShopPaymentsReportConfigService
                 'net_balance' => $dayNetBalance,
                 'breakdowns' => $dayBreakdowns,
             ];
-
-            foreach ([self::HEADING_TOTAL_SALES, self::HEADING_RENT_EXPENSE, self::HEADING_CASH_PURCHASE, self::HEADING_OTHER_EXPENSE] as $hKey) {
-                $headingMonthlyTotals[$hKey] += $dayTotals[$hKey];
-            }
         }
 
         foreach ([self::HEADING_TOTAL_SALES, self::HEADING_RENT_EXPENSE, self::HEADING_CASH_PURCHASE, self::HEADING_OTHER_EXPENSE] as $hKey) {
@@ -439,7 +459,7 @@ class ShopPaymentsReportConfigService
         $settingsByEntryTypeId = $settings->keyBy('entry_type_id');
         $breakdowns = [];
 
-        // Pre-query product items for product_total sources in this period for this shop
+        // Pre-query product items for product_total sources (Direct Vendor Purchases ONLY) in this period for this shop
         $productItems = DB::table('purchaser_cart_items')
             ->join('purchaser_carts', 'purchaser_carts.id', '=', 'purchaser_cart_items.purchaser_cart_id')
             ->leftJoin('purchase_invoices', 'purchase_invoices.purchaser_cart_id', '=', 'purchaser_carts.id')
@@ -447,9 +467,13 @@ class ShopPaymentsReportConfigService
             ->whereNull('purchase_invoices.deleted_at')
             ->where('purchase_invoices.status', '!=', 'cancelled')
             ->where(function (Builder $q) use ($shopId): void {
-                $q->where('purchase_invoices.shop_id', $shopId)
-                    ->orWhere('purchaser_carts.destination_shop_id', $shopId)
-                    ->orWhere('purchaser_carts.purchase_source', 'shop');
+                $q->where(function (Builder $sq) use ($shopId): void {
+                    $sq->where('purchase_invoices.shop_id', $shopId)
+                        ->orWhere('purchaser_carts.destination_shop_id', $shopId);
+                })->where(function (Builder $sq): void {
+                    $sq->where('purchase_invoices.purchase_source', 'shop')
+                        ->orWhere('purchaser_carts.purchase_source', 'shop');
+                });
             })
             ->whereDate('purchaser_carts.business_date', '>=', $startDate)
             ->whereDate('purchaser_carts.business_date', '<=', $endDate)

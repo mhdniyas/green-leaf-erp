@@ -1471,7 +1471,10 @@ final class CashbookController extends Controller
 
         // Matches in month for calculating daily Received
         $monthMatches = ShopPaymentCompanyPayableMatch::query()
-            ->with(['paymentRequest'])
+            ->with([
+                'paymentRequest.reconciliations.companyAccount',
+                'paymentRequest.reconciliations.statementEntry.companyAccount',
+            ])
             ->where('shop_id', $shopId)
             ->where('status', 'active')
             ->whereBetween('payable_business_date', [$monthStart, $monthEnd])
@@ -1571,6 +1574,23 @@ final class CashbookController extends Controller
                 default => 'record_cash',
             };
 
+            $dayActiveMatchesList = $dayMatches->map(function ($m) {
+                $p = $m->paymentRequest;
+                $depositAccount = $p?->reconciliations->first()?->companyAccount?->name
+                    ?? $p?->reconciliations->first()?->statementEntry?->companyAccount?->name
+                    ?? 'Company Account';
+
+                return [
+                    'id' => (int) $m->id,
+                    'payment_request_id' => (int) $m->payment_request_id,
+                    'payment_date' => $p?->payment_date?->toDateString() ?: ($p?->created_at ? $p->created_at->toDateString() : ''),
+                    'reference' => $p?->payment_reference ?: '#RCP-'.$m->payment_request_id,
+                    'payment_method' => ucfirst(str_replace('_', ' ', (string) ($p?->payment_method ?? ''))),
+                    'account_name' => $depositAccount,
+                    'amount' => (float) $m->amount,
+                ];
+            })->values()->all();
+
             $dailyRows[] = [
                 'business_date' => $dateStr,
                 'formatted_date' => Carbon::parse($dateStr)->format('d M'),
@@ -1586,6 +1606,7 @@ final class CashbookController extends Controller
                 'shop_held_total' => round($dayShopHeldTotal, 2),
                 'has_unverified_direct' => $hasUnverifiedDirect,
                 'unverified_contributors' => $unverifiedContributors,
+                'active_matches' => $dayActiveMatchesList,
             ];
 
             $monthlyTotalGrossPayable += $dayGrossPayable;
@@ -2190,10 +2211,140 @@ final class CashbookController extends Controller
         $allocated = $this->shopPaymentLedgerReconciliationService->autoAllocatePayment($paymentRequest, $userId);
         $total = (float) $allocated->sum('amount');
 
+        if ($request->input('redirect_to') === 'allocations') {
+            return redirect()->route('admin.cashbook.shop.history.allocations', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'month' => $month,
+            ])->with('success', 'Allocated ₹'.number_format($total, 2).' to shop expense obligations.');
+        }
+
         return redirect()->route('admin.cashbook.shop.history.payments', [
             'shop' => $currentShop->slug ?: $currentShop->shop_id,
             'month' => $month,
         ])->with('success', 'Allocated ₹'.number_format($total, 2).' to shop expense obligations.');
+    }
+
+    /**
+     * Undo / reverse an individual payable match.
+     */
+    public function undoIndividualMatch(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+        $userId = (int) $request->user()->id;
+
+        $validated = $request->validate([
+            'match_id' => ['required', 'integer', 'exists:shop_payment_company_payable_matches,id'],
+            'month' => ['nullable', 'string'],
+        ]);
+
+        $match = ShopPaymentCompanyPayableMatch::query()
+            ->where('shop_id', $shopId)
+            ->whereKey($validated['match_id'])
+            ->firstOrFail();
+
+        $matchingService = app(CompanyPayableReceiptMatchingService::class);
+        $matchingService->reverseMatch($match, $userId, 'Manual undo match');
+
+        $month = (string) ($validated['month'] ?? Carbon::parse($match->payable_business_date ?: now())->format('Y-m'));
+
+        return redirect()->route('admin.cashbook.shop.history.payments', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', 'Successfully reversed payable match of ₹'.number_format((float) $match->amount, 2).'.');
+    }
+
+    /**
+     * Undo / reverse all active payable matches for a specific business date.
+     */
+    public function undoDayMatches(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+        $userId = (int) $request->user()->id;
+
+        $validated = $request->validate([
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'month' => ['nullable', 'string'],
+        ]);
+
+        $businessDate = (string) $validated['business_date'];
+        $month = (string) ($validated['month'] ?? Carbon::parse($businessDate)->format('Y-m'));
+
+        $matchingService = app(CompanyPayableReceiptMatchingService::class);
+        $result = $matchingService->reverseDayMatches($shopId, $businessDate, $userId, 'Manual clear all day matches');
+
+        return redirect()->route('admin.cashbook.shop.history.payments', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', "Successfully cleared {$result['reversed_count']} match(es) totaling ₹".number_format($result['reversed_amount'], 2)." for {$businessDate}.");
+    }
+
+    /**
+     * Undo / reverse all active payable matches for a specific receipt.
+     */
+    public function undoReceiptMatches(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+        $userId = (int) $request->user()->id;
+
+        $validated = $request->validate([
+            'payment_request_id' => ['required', 'integer', 'exists:shop_invoice_payment_requests,id'],
+            'month' => ['nullable', 'string'],
+        ]);
+
+        $paymentRequest = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shopId)
+            ->whereKey($validated['payment_request_id'])
+            ->firstOrFail();
+
+        $matchingService = app(CompanyPayableReceiptMatchingService::class);
+        $result = $matchingService->reverseReceiptMatches($paymentRequest, $userId, 'Manual undo receipt matches');
+
+        $month = (string) ($validated['month'] ?? Carbon::parse($paymentRequest->payment_date ?: now())->format('Y-m'));
+
+        return redirect()->route('admin.cashbook.shop.history.payments', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', "Cleared {$result['reversed_count']} payable match(es) totaling ₹".number_format($result['reversed_amount'], 2).'.');
+    }
+
+    /**
+     * Undo / reverse all active expense allocations for a specific receipt.
+     */
+    public function undoReceiptAllocations(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+        $userId = (int) $request->user()->id;
+
+        $validated = $request->validate([
+            'payment_request_id' => ['required', 'integer', 'exists:shop_invoice_payment_requests,id'],
+            'month' => ['nullable', 'string'],
+        ]);
+
+        $paymentRequest = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shopId)
+            ->whereKey($validated['payment_request_id'])
+            ->firstOrFail();
+
+        $result = $this->shopPaymentLedgerReconciliationService->reverseReceiptAllocations(
+            $paymentRequest,
+            $userId,
+            'Manual undo receipt expense allocations'
+        );
+
+        $month = (string) ($validated['month'] ?? Carbon::parse($paymentRequest->payment_date ?: now())->format('Y-m'));
+
+        return redirect()->route('admin.cashbook.shop.history.payments', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', "Cleared {$result['reversed_count']} expense allocation(s) totaling ₹".number_format($result['reversed_amount'], 2).'. Balance restored.');
     }
 
     public function allocateDayPayment(Request $request, int|string $shop): RedirectResponse
@@ -2254,6 +2405,9 @@ final class CashbookController extends Controller
     /**
      * Dedicated full-history page for Payment Allocations.
      */
+    /**
+     * Dedicated operational & control page for Shop Expense Allocations.
+     */
     public function shopAllocationsHistory(Request $request, int|string $shop): View
     {
         $this->ensureMainAdmin($request);
@@ -2262,29 +2416,217 @@ final class CashbookController extends Controller
         $currentShop = $this->resolveShop($shop);
         $currentShop->load('client', 'preset', 'shop');
         $shopId = (int) $currentShop->shop_id;
+        $shopKey = $currentShop->slug ?: (string) $currentShop->shop_id;
 
-        $month = $request->input('month');
+        $monthInput = (string) $request->input('month', now()->format('Y-m'));
+        $month = preg_match('/^\d{4}-\d{2}$/', $monthInput) ? $monthInput : now()->format('Y-m');
+
+        $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+        $monthStart = $monthCarbon->copy()->startOfMonth()->toDateString();
+        $monthEnd = $monthCarbon->copy()->endOfMonth()->toDateString();
+
         $search = $request->input('search');
 
-        $query = ShopPaymentLedgerAllocation::query()
-            ->with(['paymentRequest', 'ledgerTransaction.entryType', 'reconciledBy'])
-            ->where('shop_id', $shopId);
-
-        if ($month) {
-            $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
-            $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
-            $query->whereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
-        }
+        // 1. Fetch Approved Payments for the month
+        $paymentsQuery = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shopId)
+            ->where('status', 'approved')
+            ->whereBetween('payment_date', [$monthStart, $monthEnd])
+            ->with([
+                'ledgerAllocations' => fn ($q) => $q->where('status', 'active')
+                    ->with(['ledgerTransaction.entryType', 'reconciledBy'])
+                    ->latest('id'),
+                'requestedBy',
+            ])
+            ->orderBy('payment_date', 'asc')
+            ->orderBy('id', 'asc');
 
         if ($search) {
-            $query->whereHas('paymentRequest', function (Builder $q) use ($search): void {
-                $q->where('payment_reference', 'like', "%{$search}%");
+            $paymentsQuery->where(function (Builder $q) use ($search): void {
+                $q->where('payment_reference', 'like', "%{$search}%")
+                    ->orWhere('notes', 'like', "%{$search}%");
             });
         }
 
-        $allocations = $query->latest('id')->paginate(20)->withQueryString();
+        $paymentsCollection = $paymentsQuery->get();
 
-        return view('admin.cashbook.shops.history.allocations', compact('shops', 'currentShop', 'allocations', 'month', 'search'));
+        $payments = $paymentsCollection->map(function (ShopInvoicePaymentRequest $payment): array {
+            $totalAmount = round((float) ($payment->amount ?? $payment->approved_amount ?? $payment->requested_amount ?? 0), 2);
+            $activeAllocations = $payment->ledgerAllocations->filter(fn (ShopPaymentLedgerAllocation $a): bool => ($a->status ?? 'active') === 'active');
+            $allocatedAmount = round((float) $activeAllocations->sum('amount'), 2);
+            $unallocatedAmount = round(max(0, $totalAmount - $allocatedAmount), 2);
+
+            $status = 'UNALLOCATED';
+            if ($unallocatedAmount <= 0.005) {
+                $status = 'PAID';
+            } elseif ($allocatedAmount > 0.005) {
+                $status = 'PARTIAL';
+            }
+
+            return [
+                'id' => (int) $payment->id,
+                'model' => $payment,
+                'payment_reference' => $payment->payment_reference ?: ('PAY-'.$payment->id),
+                'payment_date' => $payment->payment_date ? Carbon::parse($payment->payment_date)->toDateString() : ($payment->created_at ? $payment->created_at->toDateString() : '-'),
+                'payment_method' => $payment->payment_method ?: 'direct',
+                'notes' => $payment->notes,
+                'amount' => $totalAmount,
+                'allocated_amount' => $allocatedAmount,
+                'unallocated_amount' => $unallocatedAmount,
+                'status' => $status,
+                'allocations' => $activeAllocations->map(function (ShopPaymentLedgerAllocation $alloc): array {
+                    $tx = $alloc->ledgerTransaction;
+                    $categoryName = $tx?->entryType?->name ?: ($tx?->notes ?: 'Expense');
+
+                    return [
+                        'id' => (int) $alloc->id,
+                        'transaction_id' => (int) $alloc->shop_ledger_transaction_id,
+                        'category_name' => $categoryName,
+                        'transaction_date' => $tx?->business_date ? Carbon::parse($tx->business_date)->toDateString() : '-',
+                        'amount' => round((float) $alloc->amount, 2),
+                        'reconciled_by_name' => $alloc->reconciledBy?->name ?: 'System',
+                        'created_at' => $alloc->created_at ? $alloc->created_at->format('d M Y, H:i') : '-',
+                    ];
+                })->values()->all(),
+            ];
+        });
+
+        // 2. Fetch Eligible Expense Transactions for the month
+        $settlementService = app(ShopSettlementService::class);
+        $eligibleEntryTypeIds = $settlementService->resolveExpenseAllocationTargets($shopId)->pluck('entry_type_id')->all();
+
+        $expensesQuery = ShopLedgerTransaction::query()
+            ->where('shop_id', $shopId)
+            ->whereNull('company_account_id')
+            ->whereBetween('business_date', [$monthStart, $monthEnd])
+            ->whereNotIn('status', ['void', 'voided', 'reversed'])
+            ->whereNull('voided_at')
+            ->with([
+                'entryType',
+                'paymentLedgerAllocations' => fn ($q) => $q->where('status', 'active')
+                    ->with(['paymentRequest', 'reconciledBy'])
+                    ->latest('id'),
+            ])
+            ->orderBy('business_date', 'asc')
+            ->orderBy('id', 'asc');
+
+        if (! empty($eligibleEntryTypeIds)) {
+            $expensesQuery->whereIn('entry_type_id', $eligibleEntryTypeIds);
+        } else {
+            $expensesQuery->where('affects_expense', true);
+        }
+
+        if ($search) {
+            $expensesQuery->where(function (Builder $q) use ($search): void {
+                $q->where('notes', 'like', "%{$search}%")
+                    ->orWhereHas('entryType', function (Builder $sq) use ($search): void {
+                        $sq->where('name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        $expensesCollection = $expensesQuery->get();
+
+        $expenses = $expensesCollection->map(function (ShopLedgerTransaction $tx): array {
+            $originalAmount = round((float) $tx->amount, 2);
+            $activeAllocations = $tx->paymentLedgerAllocations->filter(fn (ShopPaymentLedgerAllocation $a): bool => ($a->status ?? 'active') === 'active');
+            $allocatedAmount = round((float) $activeAllocations->sum('amount'), 2);
+            $remainingDue = round(max(0, $originalAmount - $allocatedAmount), 2);
+
+            $status = 'UNPAID';
+            if ($remainingDue <= 0.005) {
+                $status = 'PAID';
+            } elseif ($allocatedAmount > 0.005) {
+                $status = 'PARTIAL';
+            }
+
+            $categoryName = $tx->entryType?->name ?: ($tx->notes ?: 'Expense');
+
+            return [
+                'id' => (int) $tx->id,
+                'model' => $tx,
+                'business_date' => $tx->business_date ? Carbon::parse($tx->business_date)->toDateString() : '-',
+                'category_name' => $categoryName,
+                'description' => $tx->notes,
+                'amount' => $originalAmount,
+                'allocated_amount' => $allocatedAmount,
+                'remaining_due' => $remainingDue,
+                'status' => $status,
+                'allocations' => $activeAllocations->map(function (ShopPaymentLedgerAllocation $alloc): array {
+                    $p = $alloc->paymentRequest;
+
+                    return [
+                        'id' => (int) $alloc->id,
+                        'payment_id' => (int) $alloc->payment_request_id,
+                        'payment_reference' => $p?->payment_reference ?: ('PAY-'.$alloc->payment_request_id),
+                        'payment_date' => $p?->payment_date ? Carbon::parse($p->payment_date)->toDateString() : '-',
+                        'payment_method' => $p?->payment_method ?: 'direct',
+                        'amount' => round((float) $alloc->amount, 2),
+                        'reconciled_by_name' => $alloc->reconciledBy?->name ?: 'System',
+                        'created_at' => $alloc->created_at ? $alloc->created_at->format('d M Y, H:i') : '-',
+                    ];
+                })->values()->all(),
+            ];
+        });
+
+        // 3. Summary Aggregations
+        $totalReceived = round((float) $payments->sum('amount'), 2);
+        $totalAllocated = round((float) $payments->sum('allocated_amount'), 2);
+        $totalUnallocated = round((float) $payments->sum('unallocated_amount'), 2);
+        $totalOpenExpenses = round((float) $expenses->sum('remaining_due'), 2);
+        $openExpensesCount = (int) $expenses->where('remaining_due', '>', 0.005)->count();
+        $unallocatedPaymentsCount = (int) $payments->where('unallocated_amount', '>', 0.005)->count();
+
+        $summary = [
+            'received' => $totalReceived,
+            'allocated' => $totalAllocated,
+            'unallocated' => $totalUnallocated,
+            'open_expenses' => $totalOpenExpenses,
+            'open_expenses_count' => $openExpensesCount,
+            'payments_count' => $payments->count(),
+            'unallocated_payments_count' => $unallocatedPaymentsCount,
+        ];
+
+        // 4. Open Eligible Expenses for Modal (includes any open prior items for settling)
+        $settlementService = app(ShopSettlementService::class);
+        $autoAllocateConfig = $settlementService->expenseAllocationConfiguration($currentShop);
+        $autoAllocateEnabled = (bool) ($autoAllocateConfig['auto_allocate'] ?? false);
+
+        $openSettlements = $this->shopPaymentLedgerReconciliationService
+            ->getOpenDailySettlements($shopId, $month)
+            ->filter(fn (array $item): bool => (float) ($item['remaining_due'] ?? 0) > 0.005)
+            ->sortBy([['business_date', 'asc'], ['id', 'asc']])
+            ->values();
+
+        $eligiblePayments = collect($this->bulkEligibleShopPayments($shopId, $monthStart, $monthEnd));
+        $eligiblePaymentBalance = round((float) $eligiblePayments->sum('unallocated'), 2);
+        $openSettlementsTotal = round((float) $openSettlements->sum('remaining_due'), 2);
+        $amountToAllocate = round(min($eligiblePaymentBalance, $openSettlementsTotal), 2);
+        $remainingOpenExpenses = round(max(0, $openSettlementsTotal - $amountToAllocate), 2);
+
+        $allocateAllProposal = [
+            'available_payment_balance' => $eligiblePaymentBalance,
+            'open_expenses_total' => $openSettlementsTotal,
+            'amount_to_allocate' => $amountToAllocate,
+            'remaining_open_expenses' => $remainingOpenExpenses,
+            'submission_uuid' => (string) Str::uuid(),
+            'eligible_payments_count' => $eligiblePayments->count(),
+            'open_expenses_count' => $openSettlements->count(),
+        ];
+
+        return view('admin.cashbook.shops.history.allocations', compact(
+            'shops',
+            'currentShop',
+            'shopKey',
+            'month',
+            'search',
+            'summary',
+            'payments',
+            'expenses',
+            'openSettlements',
+            'autoAllocateEnabled',
+            'allocateAllProposal',
+        ));
     }
 
     /**
@@ -2993,7 +3335,7 @@ final class CashbookController extends Controller
      */
     private function bulkEligibleShopPayments(int $shopId, string $monthStart, string $monthEnd): array
     {
-        $payments = (clone $this->shopPaymentRequestReceiptQuery($shopId, $monthStart, $monthEnd))
+        $payments = (clone $this->shopPaymentRequestReceiptQuery($shopId, $monthStart, $monthEnd, false))
             ->with('ledgerAllocations:id,payment_request_id,shop_ledger_transaction_id,amount')
             ->oldest('payment_date')
             ->oldest('id')
@@ -4188,6 +4530,13 @@ final class CashbookController extends Controller
 
         $month = $request->input('month', Carbon::parse($payment->payment_date)->format('Y-m'));
 
+        if ($request->input('redirect_to') === 'allocations') {
+            return redirect()->route('admin.cashbook.shop.history.allocations', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'month' => $month,
+            ])->with('success', 'Payment allocated to selected daily settlements successfully.');
+        }
+
         return redirect()->route('admin.cashbook.shop.show', [
             'shop' => $currentShop->slug ?: $currentShop->shop_id,
             'month' => $month,
@@ -4440,6 +4789,13 @@ final class CashbookController extends Controller
             ];
         }, attempts: 3);
 
+        if ($request->input('redirect_to') === 'allocations') {
+            return redirect()->route('admin.cashbook.shop.history.allocations', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'month' => $month,
+            ])->with('success', 'Allocated ₹'.number_format($result['allocated_total'], 2).' across '.$result['created_count'].' settlement '.Str::plural('record', $result['created_count']).'.');
+        }
+
         return redirect()->route('admin.cashbook.shop.show', [
             'shop' => $currentShop->slug ?: $currentShop->shop_id,
             'month' => $month,
@@ -4456,9 +4812,18 @@ final class CashbookController extends Controller
 
         $this->shopPaymentLedgerReconciliationService->removeAllocation($allocation, (int) $request->user()->id);
 
+        $month = (string) $request->input('month', now()->format('Y-m'));
+
+        if ($request->input('redirect_to') === 'allocations') {
+            return redirect()->route('admin.cashbook.shop.history.allocations', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'month' => $month,
+            ])->with('success', 'Settlement allocation removed successfully.');
+        }
+
         return redirect()->route('admin.cashbook.shop.show', [
             'shop' => $currentShop->slug ?: $currentShop->shop_id,
-            'month' => $request->input('month', now()->format('Y-m')),
+            'month' => $month,
         ])->with('success', 'Settlement allocation removed successfully.');
     }
 

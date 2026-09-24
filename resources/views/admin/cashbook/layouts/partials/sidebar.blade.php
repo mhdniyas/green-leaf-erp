@@ -99,6 +99,31 @@
         || request()->routeIs('admin.cashbook.monthly-closing-summary*')
         || request()->routeIs('admin.cashbook.finance.purchase.monthly-summary*');
 
+    $dynamicSectionFilters = \App\Models\PurchaseProductFilter::where('is_active', true)->orderBy('id')->get();
+
+    $sectionReportSubChildren = [
+        [
+            'label' => 'All Sections',
+            'href' => route('admin.cashbook.monthly-report.section-reports'),
+            'active' => request()->routeIs('admin.cashbook.monthly-report.section-reports*') && (! request()->has('section') || request('section') === 'all' || request('section') === ''),
+        ],
+    ];
+
+    foreach ($dynamicSectionFilters as $filter) {
+        $secKey = 'filter_'.$filter->id;
+        $sectionReportSubChildren[] = [
+            'label' => $filter->name,
+            'href' => route('admin.cashbook.monthly-report.section-reports', ['section' => $secKey]),
+            'active' => request()->routeIs('admin.cashbook.monthly-report.section-reports*') && request('section') === $secKey,
+        ];
+    }
+
+    $sectionReportSubChildren[] = [
+        'label' => 'Operating Expense',
+        'href' => route('admin.cashbook.monthly-report.section-reports', ['section' => 'operating_expense']),
+        'active' => request()->routeIs('admin.cashbook.monthly-report.section-reports*') && request('section') === 'operating_expense',
+    ];
+
     $monthlyReportsSidebarItem = [
         'label' => 'Monthly Reports',
         'href' => route('admin.cashbook.monthly-report.overview'),
@@ -113,7 +138,20 @@
             [
                 'label' => 'Monthly Sale Split',
                 'href' => route('admin.cashbook.monthly-report.sale-split'),
-                'active' => request()->routeIs('admin.cashbook.monthly-report.sale-split'),
+                'active' => request()->routeIs('admin.cashbook.monthly-report.sale-split') || request()->routeIs('admin.cashbook.monthly-report.section-reports*'),
+                'children' => [
+                    [
+                        'label' => 'Sale Split Matrix',
+                        'href' => route('admin.cashbook.monthly-report.sale-split'),
+                        'active' => request()->routeIs('admin.cashbook.monthly-report.sale-split'),
+                    ],
+                    [
+                        'label' => 'Section Reports',
+                        'href' => route('admin.cashbook.monthly-report.section-reports'),
+                        'active' => request()->routeIs('admin.cashbook.monthly-report.section-reports*'),
+                        'children' => $sectionReportSubChildren,
+                    ],
+                ],
             ],
             [
                 'label' => 'Other Expense',

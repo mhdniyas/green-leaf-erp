@@ -8,6 +8,7 @@ use App\Models\Cashbook\ShopCashbookMonthConfigSnapshot;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Shop;
+use App\Models\ShopInvoice;
 use App\Services\Cashbook\PaymentsSettings\ShopPaymentsReportConfigService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
@@ -251,6 +252,41 @@ final class ShopReportBridge
             $shopSetting = $allSettings->get($shopId)?->firstWhere('entry_type_id', $tx->entry_type_id);
             $bucket = null;
 
+            // Exclude internal ShopInvoice projections (GL Bills) from enterprise consolidated report buckets,
+            // but include in per-shop product expenses for the client & shop breakdown.
+            $isGlBillProjection = $tx->entryType?->code === 'purchase_bill'
+                || $tx->reference_type === ShopInvoice::class
+                || $tx->reference_type === 'App\\Models\\ShopInvoice';
+
+            if ($isGlBillProjection) {
+                $amount = round((float) $tx->amount, 2);
+                if (isset($shopAccumulators[$shopId])) {
+                    $shopAccumulators[$shopId]['product_expenses'] = round($shopAccumulators[$shopId]['product_expenses'] + $amount, 2);
+                    $shopAccumulators[$shopId]['headings']['purchase_bill'] = round(($shopAccumulators[$shopId]['headings']['purchase_bill'] ?? 0.0) + $amount, 2);
+                }
+
+                $normalizedTransactions->push([
+                    'id' => $tx->id,
+                    'public_uuid' => $tx->public_uuid ?? (string) $tx->id,
+                    'business_date' => $txDate,
+                    'shop_id' => $shopId,
+                    'shop_name' => $shopAccumulators[$shopId]['shop_name'] ?? 'Shop #'.$shopId,
+                    'client_id' => $shopAccumulators[$shopId]['client_id'] ?? 0,
+                    'client_name' => $shopAccumulators[$shopId]['client_name'] ?? 'Client',
+                    'entry_type_id' => $tx->entry_type_id,
+                    'entry_type_name' => (string) ($shopSetting?->displayName() ?: $tx->entryType?->name ?: 'GL Bill'),
+                    'report_bucket' => 'purchase_bill',
+                    'bucket_label' => 'GL Bill',
+                    'amount' => $amount,
+                    'funding_source' => (string) ($tx->funding_source ?: 'company'),
+                    'notes' => $tx->notes,
+                    'source_type' => 'GL Bill / Shop Invoice',
+                    'reference' => $tx->reference_number ?? ('GL-'.$tx->id),
+                ]);
+
+                continue;
+            }
+
             // 1. Check if snapshot/month config explicitly maps this category or header
             if (! empty($monthHeadings)) {
                 $settingId = $snapshotSetting ? ((int) ($snapshotSetting['id'] ?? 0)) : ($shopSetting ? (int) $shopSetting->id : null);
@@ -266,8 +302,8 @@ final class ShopReportBridge
                             $bucket = match ($hKey) {
                                 ShopPaymentsReportConfigService::HEADING_TOTAL_SALES => $savedBucket ?: ReportHeadingDictionary::OTHER_SALE,
                                 ShopPaymentsReportConfigService::HEADING_RENT_EXPENSE => ReportHeadingDictionary::RENT,
-                                ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE => $savedBucket ?: ReportHeadingDictionary::OTHER_PRODUCT_EXPENSE,
-                                ShopPaymentsReportConfigService::HEADING_OTHER_EXPENSE => $savedBucket ?: ReportHeadingDictionary::OTHER_EXPENSE,
+                                ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE => $savedBucket ?: ($shopSetting?->resolveMonthlyReportBucket() ?: ReportHeadingDictionary::OTHER_PRODUCT_EXPENSE),
+                                ShopPaymentsReportConfigService::HEADING_OTHER_EXPENSE => $savedBucket ?: ($shopSetting?->resolveMonthlyReportBucket() === ReportHeadingDictionary::OTHER_PRODUCT_EXPENSE ? ReportHeadingDictionary::OTHER_PRODUCT_EXPENSE : ReportHeadingDictionary::OTHER_EXPENSE),
                                 default => null,
                             };
                             break 2;
@@ -282,6 +318,24 @@ final class ShopReportBridge
                     $bucket = $snapshotSetting['monthly_report_bucket'];
                 } elseif ($shopSetting) {
                     $bucket = $shopSetting->resolveMonthlyReportBucket();
+                } else {
+                    $cat = strtolower((string) ($tx->entryType?->category ?? ''));
+                    $code = strtolower((string) ($tx->entryType?->code ?? ''));
+                    if (in_array($cat, ['transfer', 'settlement'], true)) {
+                        $bucket = ReportHeadingDictionary::IGNORE;
+                    } elseif (in_array($code, ['rent_expense', 'expense_rent', 'income_rent'], true)) {
+                        $bucket = ReportHeadingDictionary::RENT;
+                    } elseif (in_array($code, [
+                        'vendor_purchase', 'vendor_purchase_cash', 'vendor_purchase_credit',
+                        'cash_purchase', 'cash_purchase_2', 'purchase_bill',
+                        'tomatto', 'banana', 'flower', 'onion', 'kuri',
+                    ], true) || ($code === 'tomato' && $cat === 'expense')) {
+                        $bucket = ReportHeadingDictionary::OTHER_PRODUCT_EXPENSE;
+                    } elseif ($cat === 'income') {
+                        $bucket = ReportHeadingDictionary::OTHER_SALE;
+                    } elseif ($cat === 'expense') {
+                        $bucket = ReportHeadingDictionary::OTHER_EXPENSE;
+                    }
                 }
             }
 

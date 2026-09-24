@@ -142,17 +142,33 @@
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <!-- SECTION B: HOW PERIOD DUE WAS CALCULATED ────────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
+    @php
+        $companyPayableSettingsUrl = !empty($howCalculated['public_uuid'])
+            ? route('admin.cashbook.settings.shop.settlements.edit', [$currentShopSlugOrId, $howCalculated['public_uuid']])
+            : route('admin.cashbook.settings.shop.settlements.index', $currentShopSlugOrId);
+    @endphp
     <div id="how-period-due-was-calculated" class="rounded-3xl border border-slate-200/90 bg-white p-6 shadow-xs space-y-4">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
-            <div>
-                <h2 class="text-base font-black text-slate-900 uppercase tracking-tight">
-                    How Period Due Was Calculated
-                </h2>
-                <p class="text-xs text-slate-500 mt-0.5">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div class="space-y-1">
+                <div class="flex items-center gap-2.5 flex-wrap">
+                    <h2 class="text-base font-black text-slate-900 uppercase tracking-tight">
+                        How Period Due Was Calculated
+                    </h2>
+                    <a href="{{ $companyPayableSettingsUrl }}"
+                       class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold transition shadow-2xs"
+                       title="Open Company Payable Settings">
+                        <svg class="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <span>Company Payable Settings</span>
+                    </a>
+                </div>
+                <p class="text-xs text-slate-500">
                     Source: <span class="font-semibold text-slate-700">{{ $howCalculated['relation_name'] ?? 'Company Payable Settlement' }}</span> (Configured in Cashbook Settings)
                 </p>
             </div>
-            <div class="text-right font-mono text-xs">
+            <div class="text-right font-mono text-xs shrink-0">
                 <span class="text-slate-500">Period Due:</span>
                 <span class="font-bold text-slate-900 text-sm ml-1">₹{{ number_format((float) ($howCalculated['formula_net'] ?? 0), 2) }}</span>
             </div>
@@ -220,13 +236,86 @@
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <!-- SECTION C: SETTLEMENT OBLIGATIONS ────────────────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <div class="rounded-3xl border border-slate-200/90 bg-white p-6 shadow-xs space-y-4" x-data="{ open: true }">
+    <div class="rounded-3xl border border-slate-200/90 bg-white p-6 shadow-xs space-y-4"
+         x-data="{
+             open: true,
+             rawItems: @js($obligations),
+             categoryFilter: 'all',
+             statusFilter: 'all',
+             searchQuery: '',
+             sortCol: 'raw_date',
+             sortAsc: true,
+             formatCurrency(val) {
+                 return '₹' + Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+             },
+             sortBy(col) {
+                 if (this.sortCol === col) {
+                     this.sortAsc = !this.sortAsc;
+                 } else {
+                     this.sortCol = col;
+                     this.sortAsc = (col === 'amount' || col === 'allocated' || col === 'remaining') ? false : true;
+                 }
+             },
+             get categories() {
+                 return [...new Set(this.rawItems.map(i => i.category))].filter(Boolean).sort();
+             },
+             get statuses() {
+                 return [...new Set(this.rawItems.map(i => i.status))].filter(Boolean).sort();
+             },
+             get filteredItems() {
+                 let items = this.rawItems.filter(item => {
+                     if (this.categoryFilter !== 'all' && item.category !== this.categoryFilter) return false;
+                     if (this.statusFilter !== 'all' && item.status !== this.statusFilter) return false;
+                     if (this.searchQuery.trim() !== '') {
+                         const q = this.searchQuery.toLowerCase();
+                         const match = (item.date || '').toLowerCase().includes(q)
+                             || (item.business_day || '').toLowerCase().includes(q)
+                             || (item.category || '').toLowerCase().includes(q)
+                             || (item.description || '').toLowerCase().includes(q)
+                             || (item.reference_id || '').toString().toLowerCase().includes(q);
+                         if (!match) return false;
+                     }
+                     return true;
+                 });
+
+                 return items.sort((a, b) => {
+                     let valA = a[this.sortCol];
+                     let valB = b[this.sortCol];
+                     if (this.sortCol === 'amount' || this.sortCol === 'allocated' || this.sortCol === 'remaining') {
+                         valA = parseFloat(valA) || 0;
+                         valB = parseFloat(valB) || 0;
+                     } else {
+                         valA = (valA || '').toString().toLowerCase();
+                         valB = (valB || '').toString().toLowerCase();
+                     }
+                     if (valA < valB) return this.sortAsc ? -1 : 1;
+                     if (valA > valB) return this.sortAsc ? 1 : -1;
+                     return 0;
+                 });
+             },
+             get totalAmount() {
+                 return this.filteredItems.reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
+             },
+             get totalAllocated() {
+                 return this.filteredItems.reduce((sum, i) => sum + (parseFloat(i.allocated) || 0), 0);
+             },
+             get totalRemaining() {
+                 return this.filteredItems.reduce((sum, i) => sum + (parseFloat(i.remaining) || 0), 0);
+             },
+             resetFilters() {
+                 this.categoryFilter = 'all';
+                 this.statusFilter = 'all';
+                 this.searchQuery = '';
+                 this.sortCol = 'raw_date';
+                 this.sortAsc = true;
+             }
+         }">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3 cursor-pointer" @click="open = !open">
             <div>
                 <h2 class="text-base font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
                     <span>Settlement Obligations</span>
                     <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-mono">
-                        {{ count($obligations) }}
+                        <span x-text="filteredItems.length"></span><span x-show="filteredItems.length !== rawItems.length" x-text="' / ' + rawItems.length" class="text-slate-400"></span>
                     </span>
                 </h2>
                 <p class="text-xs text-slate-500 mt-0.5">
@@ -242,74 +331,188 @@
 
         <div x-show="open" class="space-y-4">
             @if(!empty($obligations))
+                <!-- Filter Controls Toolbar -->
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/80 p-3 rounded-2xl border border-slate-200/80 text-xs">
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <!-- Category Filter -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="font-bold text-slate-500">Category:</span>
+                            <select x-model="categoryFilter"
+                                    class="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-800 shadow-2xs focus:ring-indigo-500 focus:border-indigo-500">
+                                <option value="all">All Categories</option>
+                                <template x-for="cat in categories" :key="cat">
+                                    <option :value="cat" x-text="cat"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <!-- Status Filter -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="font-bold text-slate-500">Status:</span>
+                            <select x-model="statusFilter"
+                                    class="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-800 shadow-2xs focus:ring-indigo-500 focus:border-indigo-500">
+                                <option value="all">All Statuses</option>
+                                <template x-for="st in statuses" :key="st">
+                                    <option :value="st" x-text="st"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <!-- Reset Filters Button -->
+                        <button type="button"
+                                x-show="categoryFilter !== 'all' || statusFilter !== 'all' || searchQuery !== '' || sortCol !== 'raw_date' || !sortAsc"
+                                @click="resetFilters()"
+                                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold transition">
+                            <span>Reset</span>
+                        </button>
+                    </div>
+
+                    <!-- Search Input -->
+                    <div class="relative w-full md:w-64">
+                        <input type="text"
+                               x-model="searchQuery"
+                               placeholder="Search obligations..."
+                               class="w-full rounded-xl border border-slate-200 bg-white pl-8 pr-3 py-1 text-xs font-bold text-slate-800 shadow-2xs focus:ring-indigo-500 focus:border-indigo-500">
+                        <svg class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Table -->
                 <div class="overflow-x-auto rounded-2xl border border-slate-100">
                     <table class="w-full text-left text-xs border-collapse">
                         <thead>
                             <tr class="bg-slate-50/80 border-b border-slate-200 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                <th class="px-4 py-3">Date</th>
-                                <th class="px-4 py-3">Business Day</th>
-                                <th class="px-4 py-3">Source / Category</th>
-                                <th class="px-4 py-3">Description</th>
-                                <th class="px-4 py-3 text-right">Amount</th>
-                                <th class="px-4 py-3 text-center">Status</th>
-                                <th class="px-4 py-3 text-right">Allocated</th>
-                                <th class="px-4 py-3 text-right">Remaining</th>
+                                <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('raw_date')">
+                                    <div class="flex items-center gap-1">
+                                        <span>Date</span>
+                                        <span class="text-[10px]" :class="sortCol === 'raw_date' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'raw_date' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'raw_date' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'raw_date'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('business_day')">
+                                    <div class="flex items-center gap-1">
+                                        <span>Business Day</span>
+                                        <span class="text-[10px]" :class="sortCol === 'business_day' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'business_day' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'business_day' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'business_day'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('category')">
+                                    <div class="flex items-center gap-1">
+                                        <span>Source / Category</span>
+                                        <span class="text-[10px]" :class="sortCol === 'category' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'category' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'category' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'category'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('description')">
+                                    <div class="flex items-center gap-1">
+                                        <span>Description</span>
+                                        <span class="text-[10px]" :class="sortCol === 'description' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'description' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'description' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'description'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('amount')">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Amount</span>
+                                        <span class="text-[10px]" :class="sortCol === 'amount' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'amount' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'amount' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'amount'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 text-center cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('status')">
+                                    <div class="flex items-center justify-center gap-1">
+                                        <span>Status</span>
+                                        <span class="text-[10px]" :class="sortCol === 'status' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'status' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'status' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'status'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('allocated')">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Allocated</span>
+                                        <span class="text-[10px]" :class="sortCol === 'allocated' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'allocated' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'allocated' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'allocated'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('remaining')">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Remaining</span>
+                                        <span class="text-[10px]" :class="sortCol === 'remaining' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'remaining' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'remaining' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'remaining'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
                                 <th class="px-4 py-3 text-center">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
-                            @foreach($obligations as $ob)
+                            <template x-for="ob in filteredItems" :key="ob.id">
                                 <tr class="hover:bg-slate-50/50 transition">
-                                    <td class="px-4 py-3 font-mono text-slate-900 font-bold whitespace-nowrap">
-                                        {{ $ob['date'] }}
-                                    </td>
-                                    <td class="px-4 py-3 text-slate-500 whitespace-nowrap">
-                                        {{ $ob['business_day'] }}
-                                    </td>
-                                    <td class="px-4 py-3 font-semibold text-slate-900">
-                                        {{ $ob['category'] }}
-                                    </td>
-                                    <td class="px-4 py-3 text-slate-600 max-w-xs truncate">
-                                        {{ $ob['description'] }}
-                                    </td>
-                                    <td class="px-4 py-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
-                                        ₹{{ number_format((float) $ob['amount'], 2) }}
-                                    </td>
+                                    <td class="px-4 py-3 font-mono text-slate-900 font-bold whitespace-nowrap" x-text="ob.date"></td>
+                                    <td class="px-4 py-3 text-slate-500 whitespace-nowrap" x-text="ob.business_day"></td>
+                                    <td class="px-4 py-3 font-semibold text-slate-900" x-text="ob.category"></td>
+                                    <td class="px-4 py-3 text-slate-600 max-w-xs truncate" x-text="ob.description"></td>
+                                    <td class="px-4 py-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap" x-text="formatCurrency(ob.amount)"></td>
                                     <td class="px-4 py-3 text-center whitespace-nowrap">
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase {{ $ob['status_color'] === 'emerald' ? 'bg-emerald-100 text-emerald-800' : ($ob['status_color'] === 'amber' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700') }}">
-                                            {{ $ob['status'] }}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase"
+                                              :class="{
+                                                  'bg-emerald-100 text-emerald-800': ob.status_color === 'emerald',
+                                                  'bg-amber-100 text-amber-800': ob.status_color === 'amber',
+                                                  'bg-slate-100 text-slate-700': ob.status_color !== 'emerald' && ob.status_color !== 'amber'
+                                              }"
+                                              x-text="ob.status">
                                         </span>
                                     </td>
-                                    <td class="px-4 py-3 text-right font-mono text-emerald-700 font-semibold whitespace-nowrap">
-                                        ₹{{ number_format((float) $ob['allocated'], 2) }}
-                                    </td>
-                                    <td class="px-4 py-3 text-right font-mono font-bold {{ (float) $ob['remaining'] > 0 ? 'text-amber-800' : 'text-slate-500' }} whitespace-nowrap">
-                                        ₹{{ number_format((float) $ob['remaining'], 2) }}
-                                    </td>
+                                    <td class="px-4 py-3 text-right font-mono text-emerald-700 font-semibold whitespace-nowrap" x-text="formatCurrency(ob.allocated)"></td>
+                                    <td class="px-4 py-3 text-right font-mono font-bold whitespace-nowrap"
+                                        :class="parseFloat(ob.remaining) > 0 ? 'text-amber-800' : 'text-slate-500'"
+                                        x-text="formatCurrency(ob.remaining)"></td>
                                     <td class="px-4 py-3 text-center whitespace-nowrap">
-                                        <a href="{{ route('admin.cashbook.transaction.show', $ob['id']) }}"
+                                        <a :href="'{{ url('admin/cashbook/transactions') }}/' + ob.id"
                                            class="inline-flex items-center px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-800 text-[11px] font-bold shadow-2xs transition">
                                             View
                                         </a>
                                     </td>
                                 </tr>
-                            @endforeach
+                            </template>
+                            <tr x-show="filteredItems.length === 0">
+                                <td colspan="9" class="p-8 text-center text-slate-400 italic">
+                                    No obligations match the selected filters.
+                                </td>
+                            </tr>
                         </tbody>
                         <tfoot>
                             <tr class="bg-slate-50 border-t border-slate-200 font-mono text-xs font-bold text-slate-900">
                                 <td colspan="4" class="px-4 py-3 uppercase tracking-wider text-slate-600">
-                                    Total Obligations ({{ count($obligations) }})
+                                    <span>Total Obligations</span>
+                                    <span class="font-normal text-slate-400 ml-1" x-text="'(' + filteredItems.length + ' records)'"></span>
                                 </td>
-                                <td class="px-4 py-3 text-right font-black">
-                                    ₹{{ number_format(collect($obligations)->sum('amount'), 2) }}
-                                </td>
+                                <td class="px-4 py-3 text-right font-black" x-text="formatCurrency(totalAmount)"></td>
                                 <td></td>
-                                <td class="px-4 py-3 text-right font-black text-emerald-700">
-                                    ₹{{ number_format(collect($obligations)->sum('allocated'), 2) }}
-                                </td>
-                                <td class="px-4 py-3 text-right font-black text-amber-800">
-                                    ₹{{ number_format(collect($obligations)->sum('remaining'), 2) }}
-                                </td>
+                                <td class="px-4 py-3 text-right font-black text-emerald-700" x-text="formatCurrency(totalAllocated)"></td>
+                                <td class="px-4 py-3 text-right font-black text-amber-800" x-text="formatCurrency(totalRemaining)"></td>
                                 <td></td>
                             </tr>
                         </tfoot>
@@ -326,13 +529,86 @@
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <!-- SECTION D: PAYMENTS RECEIVED ─────────────────────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <div class="rounded-3xl border border-slate-200/90 bg-white p-6 shadow-xs space-y-4" x-data="{ open: true }">
+    <div class="rounded-3xl border border-slate-200/90 bg-white p-6 shadow-xs space-y-4"
+         x-data="{
+             open: true,
+             rawItems: @js($payments),
+             modeFilter: 'all',
+             statusFilter: 'all',
+             searchQuery: '',
+             sortCol: 'raw_date',
+             sortAsc: true,
+             formatCurrency(val) {
+                 return '₹' + Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+             },
+             sortBy(col) {
+                 if (this.sortCol === col) {
+                     this.sortAsc = !this.sortAsc;
+                 } else {
+                     this.sortCol = col;
+                     this.sortAsc = (col === 'amount' || col === 'allocated' || col === 'unallocated') ? false : true;
+                 }
+             },
+             get modes() {
+                 return [...new Set(this.rawItems.map(i => i.mode))].filter(Boolean).sort();
+             },
+             get statuses() {
+                 return [...new Set(this.rawItems.map(i => i.status))].filter(Boolean).sort();
+             },
+             get filteredItems() {
+                 let items = this.rawItems.filter(item => {
+                     if (this.modeFilter !== 'all' && item.mode !== this.modeFilter) return false;
+                     if (this.statusFilter !== 'all' && item.status !== this.statusFilter) return false;
+                     if (this.searchQuery.trim() !== '') {
+                         const q = this.searchQuery.toLowerCase();
+                         const match = (item.date || '').toLowerCase().includes(q)
+                             || (item.reference || '').toLowerCase().includes(q)
+                             || (item.mode || '').toLowerCase().includes(q)
+                             || (item.company_account || '').toLowerCase().includes(q)
+                             || (item.cheque_number || '').toString().toLowerCase().includes(q);
+                         if (!match) return false;
+                     }
+                     return true;
+                 });
+
+                 return items.sort((a, b) => {
+                     let valA = a[this.sortCol];
+                     let valB = b[this.sortCol];
+                     if (this.sortCol === 'amount' || this.sortCol === 'allocated' || this.sortCol === 'unallocated') {
+                         valA = parseFloat(valA) || 0;
+                         valB = parseFloat(valB) || 0;
+                     } else {
+                         valA = (valA || '').toString().toLowerCase();
+                         valB = (valB || '').toString().toLowerCase();
+                     }
+                     if (valA < valB) return this.sortAsc ? -1 : 1;
+                     if (valA > valB) return this.sortAsc ? 1 : -1;
+                     return 0;
+                 });
+             },
+             get totalAmount() {
+                 return this.filteredItems.reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
+             },
+             get totalAllocated() {
+                 return this.filteredItems.reduce((sum, i) => sum + (parseFloat(i.allocated) || 0), 0);
+             },
+             get totalUnallocated() {
+                 return this.filteredItems.reduce((sum, i) => sum + (parseFloat(i.unallocated) || 0), 0);
+             },
+             resetFilters() {
+                 this.modeFilter = 'all';
+                 this.statusFilter = 'all';
+                 this.searchQuery = '';
+                 this.sortCol = 'raw_date';
+                 this.sortAsc = true;
+             }
+         }">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3 cursor-pointer" @click="open = !open">
             <div>
                 <h2 class="text-base font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
                     <span>Payments Received</span>
                     <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-mono">
-                        {{ count($payments) }}
+                        <span x-text="filteredItems.length"></span><span x-show="filteredItems.length !== rawItems.length" x-text="' / ' + rawItems.length" class="text-slate-400"></span>
                     </span>
                 </h2>
                 <p class="text-xs text-slate-500 mt-0.5">
@@ -348,73 +624,188 @@
 
         <div x-show="open" class="space-y-4">
             @if(!empty($payments))
+                <!-- Filter Controls Toolbar -->
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/80 p-3 rounded-2xl border border-slate-200/80 text-xs">
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <!-- Mode Filter -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="font-bold text-slate-500">Payment Mode:</span>
+                            <select x-model="modeFilter"
+                                    class="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-800 shadow-2xs focus:ring-indigo-500 focus:border-indigo-500">
+                                <option value="all">All Modes</option>
+                                <template x-for="m in modes" :key="m">
+                                    <option :value="m" x-text="m"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <!-- Status Filter -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="font-bold text-slate-500">Status:</span>
+                            <select x-model="statusFilter"
+                                    class="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-800 shadow-2xs focus:ring-indigo-500 focus:border-indigo-500">
+                                <option value="all">All Statuses</option>
+                                <template x-for="st in statuses" :key="st">
+                                    <option :value="st" x-text="st"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <!-- Reset Filters Button -->
+                        <button type="button"
+                                x-show="modeFilter !== 'all' || statusFilter !== 'all' || searchQuery !== '' || sortCol !== 'raw_date' || !sortAsc"
+                                @click="resetFilters()"
+                                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold transition">
+                            <span>Reset</span>
+                        </button>
+                    </div>
+
+                    <!-- Search Input -->
+                    <div class="relative w-full md:w-64">
+                        <input type="text"
+                               x-model="searchQuery"
+                               placeholder="Search payments..."
+                               class="w-full rounded-xl border border-slate-200 bg-white pl-8 pr-3 py-1 text-xs font-bold text-slate-800 shadow-2xs focus:ring-indigo-500 focus:border-indigo-500">
+                        <svg class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Table -->
                 <div class="overflow-x-auto rounded-2xl border border-slate-100">
                     <table class="w-full text-left text-xs border-collapse">
                         <thead>
                             <tr class="bg-slate-50/80 border-b border-slate-200 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                <th class="px-4 py-3">Date</th>
-                                <th class="px-4 py-3">Reference</th>
-                                <th class="px-4 py-3">Payment Mode</th>
-                                <th class="px-4 py-3 text-right">Amount</th>
-                                <th class="px-4 py-3 text-right">Allocated</th>
-                                <th class="px-4 py-3 text-right">Unallocated</th>
-                                <th class="px-4 py-3 text-center">Status</th>
-                                <th class="px-4 py-3">Company Account</th>
+                                <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('raw_date')">
+                                    <div class="flex items-center gap-1">
+                                        <span>Date</span>
+                                        <span class="text-[10px]" :class="sortCol === 'raw_date' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'raw_date' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'raw_date' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'raw_date'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('reference')">
+                                    <div class="flex items-center gap-1">
+                                        <span>Reference</span>
+                                        <span class="text-[10px]" :class="sortCol === 'reference' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'reference' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'reference' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'reference'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('mode')">
+                                    <div class="flex items-center gap-1">
+                                        <span>Payment Mode</span>
+                                        <span class="text-[10px]" :class="sortCol === 'mode' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'mode' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'mode' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'mode'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('amount')">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Amount</span>
+                                        <span class="text-[10px]" :class="sortCol === 'amount' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'amount' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'amount' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'amount'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('allocated')">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Allocated</span>
+                                        <span class="text-[10px]" :class="sortCol === 'allocated' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'allocated' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'allocated' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'allocated'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('unallocated')">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Unallocated</span>
+                                        <span class="text-[10px]" :class="sortCol === 'unallocated' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'unallocated' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'unallocated' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'unallocated'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 text-center cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('status')">
+                                    <div class="flex items-center justify-center gap-1">
+                                        <span>Status</span>
+                                        <span class="text-[10px]" :class="sortCol === 'status' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'status' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'status' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'status'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('company_account')">
+                                    <div class="flex items-center gap-1">
+                                        <span>Company Account</span>
+                                        <span class="text-[10px]" :class="sortCol === 'company_account' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'company_account' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'company_account' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'company_account'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
                                 <th class="px-4 py-3 text-center">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
-                            @foreach($payments as $p)
+                            <template x-for="p in filteredItems" :key="p.id">
                                 <tr class="hover:bg-slate-50/50 transition">
-                                    <td class="px-4 py-3 font-mono text-slate-900 font-bold whitespace-nowrap">
-                                        {{ $p['date'] }}
-                                    </td>
-                                    <td class="px-4 py-3 font-mono font-semibold text-slate-800">
-                                        {{ $p['reference'] }}
-                                    </td>
-                                    <td class="px-4 py-3 text-slate-700 font-semibold">
-                                        {{ $p['mode'] }}
-                                    </td>
-                                    <td class="px-4 py-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
-                                        ₹{{ number_format((float) $p['amount'], 2) }}
-                                    </td>
-                                    <td class="px-4 py-3 text-right font-mono text-emerald-700 font-semibold whitespace-nowrap">
-                                        ₹{{ number_format((float) $p['allocated'], 2) }}
-                                    </td>
-                                    <td class="px-4 py-3 text-right font-mono font-bold {{ (float) $p['unallocated'] > 0 ? 'text-amber-800' : 'text-slate-500' }} whitespace-nowrap">
-                                        ₹{{ number_format((float) $p['unallocated'], 2) }}
-                                    </td>
+                                    <td class="px-4 py-3 font-mono text-slate-900 font-bold whitespace-nowrap" x-text="p.date"></td>
+                                    <td class="px-4 py-3 font-mono font-semibold text-slate-800" x-text="p.reference"></td>
+                                    <td class="px-4 py-3 text-slate-700 font-semibold" x-text="p.mode"></td>
+                                    <td class="px-4 py-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap" x-text="formatCurrency(p.amount)"></td>
+                                    <td class="px-4 py-3 text-right font-mono text-emerald-700 font-semibold whitespace-nowrap" x-text="formatCurrency(p.allocated)"></td>
+                                    <td class="px-4 py-3 text-right font-mono font-bold whitespace-nowrap"
+                                        :class="parseFloat(p.unallocated) > 0 ? 'text-amber-800' : 'text-slate-500'"
+                                        x-text="formatCurrency(p.unallocated)"></td>
                                     <td class="px-4 py-3 text-center whitespace-nowrap">
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase {{ $p['status_color'] === 'emerald' ? 'bg-emerald-100 text-emerald-800' : ($p['status_color'] === 'amber' ? 'bg-amber-100 text-amber-800' : ($p['status_color'] === 'sky' ? 'bg-sky-100 text-sky-800' : 'bg-slate-100 text-slate-700')) }}">
-                                            {{ $p['status'] }}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase"
+                                              :class="{
+                                                  'bg-emerald-100 text-emerald-800': p.status_color === 'emerald',
+                                                  'bg-amber-100 text-amber-800': p.status_color === 'amber',
+                                                  'bg-sky-100 text-sky-800': p.status_color === 'sky',
+                                                  'bg-slate-100 text-slate-700': p.status_color !== 'emerald' && p.status_color !== 'amber' && p.status_color !== 'sky'
+                                              }"
+                                              x-text="p.status">
                                         </span>
                                     </td>
-                                    <td class="px-4 py-3 text-slate-600">
-                                        {{ $p['company_account'] }}
-                                    </td>
+                                    <td class="px-4 py-3 text-slate-600" x-text="p.company_account"></td>
                                     <td class="px-4 py-3 text-center whitespace-nowrap">
-                                        <a href="{{ route('admin.cashbook.shop.history.payments', ['shop' => $currentShopSlugOrId, 'search' => $p['reference'], 'month' => $month]) }}"
+                                        <a :href="'{{ route('admin.cashbook.shop.history.payments', ['shop' => $currentShopSlugOrId, 'month' => $month]) }}&search=' + encodeURIComponent(p.reference)"
                                            class="inline-flex items-center px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-800 text-[11px] font-bold shadow-2xs transition">
                                             View
                                         </a>
                                     </td>
                                 </tr>
-                            @endforeach
+                            </template>
+                            <tr x-show="filteredItems.length === 0">
+                                <td colspan="9" class="p-8 text-center text-slate-400 italic">
+                                    No payments match the selected filters.
+                                </td>
+                            </tr>
                         </tbody>
                         <tfoot>
                             <tr class="bg-slate-50 border-t border-slate-200 font-mono text-xs font-bold text-slate-900">
                                 <td colspan="3" class="px-4 py-3 uppercase tracking-wider text-slate-600">
-                                    Total Payments Received ({{ count($payments) }})
+                                    <span>Total Payments Received</span>
+                                    <span class="font-normal text-slate-400 ml-1" x-text="'(' + filteredItems.length + ' records)'"></span>
                                 </td>
-                                <td class="px-4 py-3 text-right font-black">
-                                    ₹{{ number_format(collect($payments)->sum('amount'), 2) }}
-                                </td>
-                                <td class="px-4 py-3 text-right font-black text-emerald-700">
-                                    ₹{{ number_format(collect($payments)->sum('allocated'), 2) }}
-                                </td>
-                                <td class="px-4 py-3 text-right font-black text-amber-800">
-                                    ₹{{ number_format(collect($payments)->sum('unallocated'), 2) }}
-                                </td>
+                                <td class="px-4 py-3 text-right font-black" x-text="formatCurrency(totalAmount)"></td>
+                                <td class="px-4 py-3 text-right font-black text-emerald-700" x-text="formatCurrency(totalAllocated)"></td>
+                                <td class="px-4 py-3 text-right font-black text-amber-800" x-text="formatCurrency(totalUnallocated)"></td>
                                 <td colspan="3"></td>
                             </tr>
                         </tfoot>
@@ -431,13 +822,62 @@
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <!-- SECTION E: ALLOCATION DETAILS ────────────────────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <div class="rounded-3xl border border-slate-200/90 bg-white p-6 shadow-xs space-y-4" x-data="{ open: true }">
+    <div class="rounded-3xl border border-slate-200/90 bg-white p-6 shadow-xs space-y-4"
+         x-data="{
+             open: true,
+             rawItems: @js($allocations),
+             searchQuery: '',
+             sortCol: 'allocated_at',
+             sortAsc: false,
+             formatCurrency(val) {
+                 return '₹' + Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+             },
+             sortBy(col) {
+                 if (this.sortCol === col) {
+                     this.sortAsc = !this.sortAsc;
+                 } else {
+                     this.sortCol = col;
+                     this.sortAsc = (col === 'amount') ? false : true;
+                 }
+             },
+             get filteredItems() {
+                 let items = this.rawItems.filter(item => {
+                     if (this.searchQuery.trim() !== '') {
+                         const q = this.searchQuery.toLowerCase();
+                         const match = (item.allocated_at || '').toLowerCase().includes(q)
+                             || (item.payment_reference || '').toLowerCase().includes(q)
+                             || (item.obligation_label || '').toLowerCase().includes(q)
+                             || (item.allocated_by || '').toLowerCase().includes(q);
+                         if (!match) return false;
+                     }
+                     return true;
+                 });
+
+                 return items.sort((a, b) => {
+                     let valA = a[this.sortCol];
+                     let valB = b[this.sortCol];
+                     if (this.sortCol === 'amount') {
+                         valA = parseFloat(valA) || 0;
+                         valB = parseFloat(valB) || 0;
+                     } else {
+                         valA = (valA || '').toString().toLowerCase();
+                         valB = (valB || '').toString().toLowerCase();
+                     }
+                     if (valA < valB) return this.sortAsc ? -1 : 1;
+                     if (valA > valB) return this.sortAsc ? 1 : -1;
+                     return 0;
+                 });
+             },
+             get totalAmount() {
+                 return this.filteredItems.reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
+             }
+         }">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3 cursor-pointer" @click="open = !open">
             <div>
                 <h2 class="text-base font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
                     <span>Allocation Details</span>
                     <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-mono">
-                        {{ count($allocations) }}
+                        <span x-text="filteredItems.length"></span><span x-show="filteredItems.length !== rawItems.length" x-text="' / ' + rawItems.length" class="text-slate-400"></span>
                     </span>
                 </h2>
                 <p class="text-xs text-slate-500 mt-0.5">
@@ -453,59 +893,120 @@
 
         <div x-show="open" class="space-y-4">
             @if(!empty($allocations))
+                <!-- Search Toolbar -->
+                <div class="flex items-center justify-between gap-3 bg-slate-50/80 p-3 rounded-2xl border border-slate-200/80 text-xs">
+                    <span class="text-slate-500 font-semibold">Filter allocations by payment reference, date, or obligation</span>
+                    <div class="relative w-full md:w-64">
+                        <input type="text"
+                               x-model="searchQuery"
+                               placeholder="Search allocations..."
+                               class="w-full rounded-xl border border-slate-200 bg-white pl-8 pr-3 py-1 text-xs font-bold text-slate-800 shadow-2xs focus:ring-indigo-500 focus:border-indigo-500">
+                        <svg class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Table -->
                 <div class="overflow-x-auto rounded-2xl border border-slate-100">
                     <table class="w-full text-left text-xs border-collapse">
                         <thead>
                             <tr class="bg-slate-50/80 border-b border-slate-200 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                <th class="px-4 py-3">Allocated At</th>
-                                <th class="px-4 py-3">Payment Reference</th>
-                                <th class="px-4 py-3">Business Day / Obligation</th>
-                                <th class="px-4 py-3 text-right">Amount Allocated</th>
-                                <th class="px-4 py-3">Allocated By</th>
-                                <th class="px-4 py-3 text-center">Status</th>
+                                <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('allocated_at')">
+                                    <div class="flex items-center gap-1">
+                                        <span>Allocated At</span>
+                                        <span class="text-[10px]" :class="sortCol === 'allocated_at' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'allocated_at' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'allocated_at' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'allocated_at'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('payment_reference')">
+                                    <div class="flex items-center gap-1">
+                                        <span>Payment Reference</span>
+                                        <span class="text-[10px]" :class="sortCol === 'payment_reference' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'payment_reference' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'payment_reference' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'payment_reference'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('obligation_label')">
+                                    <div class="flex items-center gap-1">
+                                        <span>Business Day / Obligation</span>
+                                        <span class="text-[10px]" :class="sortCol === 'obligation_label' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'obligation_label' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'obligation_label' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'obligation_label'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('amount')">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Amount Allocated</span>
+                                        <span class="text-[10px]" :class="sortCol === 'amount' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'amount' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'amount' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'amount'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('allocated_by')">
+                                    <div class="flex items-center gap-1">
+                                        <span>Allocated By</span>
+                                        <span class="text-[10px]" :class="sortCol === 'allocated_by' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'allocated_by' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'allocated_by' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'allocated_by'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
+                                <th class="px-4 py-3 text-center cursor-pointer select-none hover:bg-slate-100 transition group" @click="sortBy('status')">
+                                    <div class="flex items-center justify-center gap-1">
+                                        <span>Status</span>
+                                        <span class="text-[10px]" :class="sortCol === 'status' ? 'text-indigo-600 font-black' : 'text-slate-300 group-hover:text-slate-400'">
+                                            <span x-show="sortCol === 'status' && sortAsc">▲</span>
+                                            <span x-show="sortCol === 'status' && !sortAsc">▼</span>
+                                            <span x-show="sortCol !== 'status'">↕</span>
+                                        </span>
+                                    </div>
+                                </th>
                                 <th class="px-4 py-3 text-center">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
-                            @foreach($allocations as $al)
+                            <template x-for="al in filteredItems" :key="al.id">
                                 <tr class="hover:bg-slate-50/50 transition">
-                                    <td class="px-4 py-3 font-mono text-slate-900 font-bold whitespace-nowrap">
-                                        {{ $al['allocated_at'] }}
-                                    </td>
-                                    <td class="px-4 py-3 font-mono font-semibold text-slate-800">
-                                        {{ $al['payment_reference'] }}
-                                    </td>
-                                    <td class="px-4 py-3 text-slate-800 font-medium">
-                                        {{ $al['obligation_label'] }}
-                                    </td>
-                                    <td class="px-4 py-3 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
-                                        ₹{{ number_format((float) $al['amount'], 2) }}
-                                    </td>
-                                    <td class="px-4 py-3 text-slate-600">
-                                        {{ $al['allocated_by'] }}
+                                    <td class="px-4 py-3 font-mono text-slate-900 font-bold whitespace-nowrap" x-text="al.allocated_at"></td>
+                                    <td class="px-4 py-3 font-mono font-semibold text-slate-800" x-text="al.payment_reference"></td>
+                                    <td class="px-4 py-3 text-slate-800 font-medium" x-text="al.obligation_label"></td>
+                                    <td class="px-4 py-3 text-right font-mono font-bold text-emerald-700 whitespace-nowrap" x-text="formatCurrency(al.amount)"></td>
+                                    <td class="px-4 py-3 text-slate-600" x-text="al.allocated_by"></td>
+                                    <td class="px-4 py-3 text-center whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-100 text-emerald-800" x-text="al.status"></span>
                                     </td>
                                     <td class="px-4 py-3 text-center whitespace-nowrap">
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-100 text-emerald-800">
-                                            {{ $al['status'] }}
-                                        </span>
-                                    </td>
-                                    <td class="px-4 py-3 text-center whitespace-nowrap">
-                                        <a href="{{ route('admin.cashbook.shop.history.allocations', ['shop' => $currentShopSlugOrId, 'search' => $al['payment_reference'], 'month' => $month]) }}"
+                                        <a :href="'{{ route('admin.cashbook.shop.history.allocations', ['shop' => $currentShopSlugOrId, 'month' => $month]) }}&search=' + encodeURIComponent(al.payment_reference)"
                                            class="inline-flex items-center px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-800 text-[11px] font-bold shadow-2xs transition">
                                             View
                                         </a>
                                     </td>
                                 </tr>
-                            @endforeach
+                            </template>
+                            <tr x-show="filteredItems.length === 0">
+                                <td colspan="7" class="p-8 text-center text-slate-400 italic">
+                                    No allocations match the search query.
+                                </td>
+                            </tr>
                         </tbody>
                         <tfoot>
                             <tr class="bg-slate-50 border-t border-slate-200 font-mono text-xs font-bold text-slate-900">
                                 <td colspan="3" class="px-4 py-3 uppercase tracking-wider text-slate-600">
-                                    Total Allocated ({{ count($allocations) }})
+                                    <span>Total Allocated</span>
+                                    <span class="font-normal text-slate-400 ml-1" x-text="'(' + filteredItems.length + ' records)'"></span>
                                 </td>
-                                <td class="px-4 py-3 text-right font-black text-emerald-700">
-                                    ₹{{ number_format(collect($allocations)->sum('amount'), 2) }}
-                                </td>
+                                <td class="px-4 py-3 text-right font-black text-emerald-700" x-text="formatCurrency(totalAmount)"></td>
                                 <td colspan="3"></td>
                             </tr>
                         </tfoot>

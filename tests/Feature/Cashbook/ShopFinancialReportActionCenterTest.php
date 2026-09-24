@@ -679,6 +679,7 @@ class ShopFinancialReportActionCenterTest extends TestCase
         $response->assertSee('SETTLEMENT DETAILS');
         $response->assertSee('SETTLEMENT SUMMARY');
         $response->assertSee('How Period Due Was Calculated');
+        $response->assertSee('Company Payable Settings');
         $response->assertSee('Settlement Obligations');
         $response->assertSee('Payments Received');
         $response->assertSee('Allocation Details');

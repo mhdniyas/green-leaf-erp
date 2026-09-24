@@ -23,6 +23,8 @@ class MonthlyReportDrilldownRequest extends FormRequest
             'metric' => ['required', 'string', 'max:50'],
             'date' => ['nullable', 'date_format:Y-m-d'],
             'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
+            'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
+            'client_id' => ['nullable', 'integer', 'exists:clients,id'],
             'period_mode' => ['nullable', 'string', 'in:month,day,custom'],
             'month' => ['nullable', 'string', 'regex:/^\d{4}-\d{2}$/'],
             'from' => ['nullable', 'date_format:Y-m-d'],

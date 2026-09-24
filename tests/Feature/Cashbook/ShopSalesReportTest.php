@@ -18,6 +18,7 @@ use App\Models\ShopOrder;
 use App\Models\User;
 use App\Services\Cashbook\PaymentsSettings\ShopPaymentsReportConfigService;
 use App\Services\Cashbook\ShopSalesReportService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -682,6 +683,7 @@ class ShopSalesReportTest extends TestCase
         $cart = PurchaserCart::create([
             'cart_number' => 'CART-001',
             'user_id' => $this->admin->id,
+            'purchase_source' => 'shop',
             'destination_shop_id' => $this->shop1->shop_id,
             'business_date' => '2026-09-15',
             'status' => 'approved',
@@ -690,6 +692,7 @@ class ShopSalesReportTest extends TestCase
         PurchaseInvoice::factory()->create([
             'shop_id' => $this->shop1->shop_id,
             'purchaser_cart_id' => $cart->id,
+            'purchase_source' => 'shop',
             'invoice_number' => 'PINV-001',
             'amount' => 4200.00,
             'status' => 'approved',
@@ -890,5 +893,316 @@ class ShopSalesReportTest extends TestCase
         $this->assertEquals(4000.00, $balanceBreakdown['rent']);
         $this->assertEquals(15600.00, $balanceBreakdown['purchase']);
         $this->assertEquals(4260.00, $balanceBreakdown['other_expense']);
+    }
+
+    public function test_gl_bill_only_appears_as_summary_amount_with_no_product_split(): void
+    {
+        $glBillType = LedgerEntryType::create([
+            'code' => 'purchase_bill',
+            'name' => 'GL Bill',
+            'category' => 'expense',
+            'active' => true,
+        ]);
+
+        $glSetting = ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $glBillType->id,
+            'display_name' => 'GL Bill',
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'sales_report_bucket' => 'purchase',
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-22',
+            'entry_type_id' => $glBillType->id,
+            'amount' => 52564.90,
+            'direction' => 'expense',
+            'funding_source' => 'company',
+            'status' => 'approved',
+        ]);
+
+        // Create a central shop order cart with products for warehouse fulfillment
+        $product = Product::factory()->create(['name' => 'Tomato', 'unit' => 'kg']);
+        $cart = PurchaserCart::create([
+            'cart_number' => 'CART-GL',
+            'user_id' => $this->admin->id,
+            'purchase_source' => 'shop_order',
+            'destination_shop_id' => null,
+            'business_date' => '2026-09-22',
+            'status' => 'approved',
+        ]);
+        PurchaserCartItem::create([
+            'purchaser_cart_id' => $cart->id,
+            'product_id' => $product->id,
+            'quantity' => 100,
+            'unit_price' => 50.00,
+            'line_total' => 5000.00,
+        ]);
+
+        $service = app(ShopPaymentsReportConfigService::class);
+        $report = $service->calculateReport($this->shop1->shop_id, '2026-09-22', '2026-09-22', '2026-09');
+
+        $dailyRow = $report['daily_rows'][0];
+        $purchaseBreakdown = $dailyRow['breakdowns'][ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE];
+
+        $this->assertEquals(52564.90, $dailyRow['purchase']);
+        $this->assertEquals(52564.90, $purchaseBreakdown['total']);
+
+        $glBillSource = collect($purchaseBreakdown['sources'])->firstWhere('name', 'GL Bill');
+        $this->assertNotNull($glBillSource);
+        $this->assertEquals(52564.90, $glBillSource['total']);
+        $this->assertEmpty($glBillSource['products'], 'GL Bill must NOT have product breakdown');
+
+        $dvpSource = collect($purchaseBreakdown['sources'])->firstWhere('name', 'Direct Vendor Purchases');
+        $this->assertNotNull($dvpSource);
+        $this->assertEquals(0.00, $dvpSource['total']);
+        $this->assertEmpty($dvpSource['products'], 'Central shop_order products must not leak into Direct Vendor Purchases');
+    }
+
+    public function test_direct_vendor_purchase_only_shows_product_split(): void
+    {
+        $product1 = Product::factory()->create(['name' => 'Onion', 'unit' => 'kg']);
+        $product2 = Product::factory()->create(['name' => 'Lemon', 'unit' => 'kg']);
+
+        $cart = PurchaserCart::create([
+            'cart_number' => 'CART-DVP',
+            'user_id' => $this->admin->id,
+            'purchase_source' => 'shop',
+            'destination_shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-22',
+            'paid_amount' => 8200.00,
+            'status' => 'approved',
+        ]);
+        PurchaseInvoice::factory()->create([
+            'shop_id' => $this->shop1->shop_id,
+            'purchaser_cart_id' => $cart->id,
+            'purchase_source' => 'shop',
+            'amount' => 8200.00,
+            'status' => 'paid',
+        ]);
+        PurchaserCartItem::create([
+            'purchaser_cart_id' => $cart->id,
+            'product_id' => $product1->id,
+            'quantity' => 100,
+            'unit_price' => 55.00,
+            'line_total' => 5500.00,
+        ]);
+        PurchaserCartItem::create([
+            'purchaser_cart_id' => $cart->id,
+            'product_id' => $product2->id,
+            'quantity' => 12,
+            'unit_price' => 225.00,
+            'line_total' => 2700.00,
+        ]);
+
+        $service = app(ShopPaymentsReportConfigService::class);
+        $report = $service->calculateReport($this->shop1->shop_id, '2026-09-22', '2026-09-22', '2026-09');
+
+        $dailyRow = $report['daily_rows'][0];
+        $purchaseBreakdown = $dailyRow['breakdowns'][ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE];
+
+        $this->assertEquals(8200.00, $dailyRow['purchase']);
+        $dvpSource = collect($purchaseBreakdown['sources'])->firstWhere('name', 'Direct Vendor Purchases');
+        $this->assertNotNull($dvpSource);
+        $this->assertEquals(8200.00, $dvpSource['total']);
+        $this->assertCount(2, $dvpSource['products']);
+        $this->assertEquals('Onion', $dvpSource['products'][0]['name']);
+        $this->assertEquals(5500.00, $dvpSource['products'][0]['total']);
+        $this->assertEquals('Lemon', $dvpSource['products'][1]['name']);
+        $this->assertEquals(2700.00, $dvpSource['products'][1]['total']);
+    }
+
+    public function test_cash_purchase_plus_gl_bill_plus_direct_vendor_purchase_on_same_day(): void
+    {
+        // 1. Header Group CASH PURCHASE
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop1->shop_id,
+            'name' => 'CASH PURCHASE',
+            'type' => 'expense',
+            'display_order' => 1,
+        ]);
+
+        $cashType = LedgerEntryType::create(['code' => 'others', 'name' => 'OTHERS', 'category' => 'expense']);
+        $glBillType = LedgerEntryType::create(['code' => 'purchase_bill', 'name' => 'GL Bill', 'category' => 'expense']);
+
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $cashType->id,
+            'display_name' => 'OTHERS',
+            'header_group_id' => $header->id,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'sales_report_bucket' => null,
+        ]);
+
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $glBillType->id,
+            'display_name' => 'GL Bill',
+            'header_group_id' => null,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'sales_report_bucket' => 'purchase',
+        ]);
+
+        // Transaction 1: Cash Purchase Others = 3600
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-22',
+            'entry_type_id' => $cashType->id,
+            'amount' => 3600.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'status' => 'approved',
+        ]);
+
+        // Transaction 2: GL Bill = 52564.90
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-22',
+            'entry_type_id' => $glBillType->id,
+            'amount' => 52564.90,
+            'direction' => 'expense',
+            'funding_source' => 'company',
+            'status' => 'approved',
+        ]);
+
+        // 2. Direct Vendor Purchase = 35765
+        $product = Product::factory()->create(['name' => 'Banana Nendran Color', 'unit' => 'full_bunch']);
+        $cart = PurchaserCart::create([
+            'cart_number' => 'CART-VC',
+            'user_id' => $this->admin->id,
+            'purchase_source' => 'shop',
+            'destination_shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-22',
+            'paid_amount' => 35765.00,
+            'status' => 'approved',
+        ]);
+        PurchaseInvoice::factory()->create([
+            'shop_id' => $this->shop1->shop_id,
+            'purchaser_cart_id' => $cart->id,
+            'purchase_source' => 'shop',
+            'amount' => 35765.00,
+            'status' => 'paid',
+        ]);
+        PurchaserCartItem::create([
+            'purchaser_cart_id' => $cart->id,
+            'product_id' => $product->id,
+            'quantity' => 80,
+            'unit_price' => 447.06,
+            'line_total' => 35765.00,
+        ]);
+
+        $service = app(ShopPaymentsReportConfigService::class);
+        $report = $service->calculateReport($this->shop1->shop_id, '2026-09-22', '2026-09-22', '2026-09');
+
+        $dailyRow = $report['daily_rows'][0];
+        $purchaseBreakdown = $dailyRow['breakdowns'][ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE];
+
+        $expectedTotal = round(3600.00 + 52564.90 + 35765.00, 2);
+        $this->assertEquals($expectedTotal, $dailyRow['purchase']);
+        $this->assertEquals($expectedTotal, $purchaseBreakdown['total']);
+
+        // Assert Cash Purchase
+        $headerSource = collect($purchaseBreakdown['sources'])->firstWhere('name', 'CASH PURCHASE');
+        $this->assertNotNull($headerSource);
+        $this->assertEquals(3600.00, $headerSource['total']);
+        $this->assertEmpty($headerSource['products']);
+
+        // Assert GL Bill
+        $glSource = collect($purchaseBreakdown['sources'])->firstWhere('name', 'GL Bill');
+        $this->assertNotNull($glSource);
+        $this->assertEquals(52564.90, $glSource['total']);
+        $this->assertEmpty($glSource['products'], 'GL Bill must never have internal product split');
+
+        // Assert Direct Vendor Purchase
+        $dvpSource = collect($purchaseBreakdown['sources'])->firstWhere('name', 'Direct Vendor Purchases');
+        $this->assertNotNull($dvpSource);
+        $this->assertEquals(35765.00, $dvpSource['total']);
+        $this->assertCount(1, $dvpSource['products']);
+        $this->assertEquals('Banana Nendran Color', $dvpSource['products'][0]['name']);
+        $this->assertEquals(35765.00, $dvpSource['products'][0]['total']);
+    }
+
+    public function test_cross_shop_direct_vendor_purchases_are_strictly_isolated(): void
+    {
+        // Direct vendor purchase for Shop 2
+        $product = Product::factory()->create(['name' => 'Foreign Shop Product', 'unit' => 'kg']);
+        $cartShop2 = PurchaserCart::create([
+            'cart_number' => 'CART-S2',
+            'user_id' => $this->admin->id,
+            'purchase_source' => 'shop',
+            'destination_shop_id' => $this->shop2->shop_id,
+            'business_date' => '2026-09-22',
+            'paid_amount' => 9999.00,
+            'status' => 'approved',
+        ]);
+        PurchaseInvoice::factory()->create([
+            'shop_id' => $this->shop2->shop_id,
+            'purchaser_cart_id' => $cartShop2->id,
+            'purchase_source' => 'shop',
+            'amount' => 9999.00,
+            'status' => 'paid',
+        ]);
+        PurchaserCartItem::create([
+            'purchaser_cart_id' => $cartShop2->id,
+            'product_id' => $product->id,
+            'quantity' => 10,
+            'unit_price' => 999.90,
+            'line_total' => 9999.00,
+        ]);
+
+        // Query Shop 1 report
+        $service = app(ShopPaymentsReportConfigService::class);
+        $reportShop1 = $service->calculateReport($this->shop1->shop_id, '2026-09-22', '2026-09-22', '2026-09');
+
+        $dailyRow = $reportShop1['daily_rows'][0];
+        $purchaseBreakdown = $dailyRow['breakdowns'][ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE];
+
+        $this->assertEquals(0.00, $dailyRow['purchase']);
+        $dvpSource = collect($purchaseBreakdown['sources'])->firstWhere('name', 'Direct Vendor Purchases');
+        $this->assertEquals(0.00, $dvpSource['total']);
+        $this->assertEmpty($dvpSource['products'], 'Shop 1 must not see Shop 2 products');
+    }
+
+    public function test_future_dates_with_all_zeros_are_excluded_from_daily_rows(): void
+    {
+        Carbon::setTestNow('2026-09-24');
+
+        $salesType = LedgerEntryType::firstOrCreate(['code' => 'daily_sales'], ['name' => 'Daily Sales', 'category' => 'income']);
+
+        // Create transaction on future date 2026-09-28
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-28',
+            'entry_type_id' => $salesType->id,
+            'amount' => 500.00,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'affects_sales' => true,
+            'status' => 'approved',
+        ]);
+
+        $service = app(ShopSalesReportService::class);
+        $report = $service->generate($this->shop1->shop_id, '2026-09-01', '2026-09-30', 'month', '2026-09');
+
+        $datesInDailyRows = array_column($report['daily_rows'], 'date');
+
+        // Days up to today (2026-09-24) should be present (24 days) + 1 future day with data (2026-09-28) = 25 days
+        $this->assertContains('2026-09-24', $datesInDailyRows);
+        $this->assertContains('2026-09-01', $datesInDailyRows);
+        $this->assertContains('2026-09-28', $datesInDailyRows);
+        $this->assertCount(25, $report['daily_rows']);
+
+        // Future dates without data should NOT be present
+        $this->assertNotContains('2026-09-25', $datesInDailyRows);
+        $this->assertNotContains('2026-09-30', $datesInDailyRows);
+
+        Carbon::setTestNow();
     }
 }

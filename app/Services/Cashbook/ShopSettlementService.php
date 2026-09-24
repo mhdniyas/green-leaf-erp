@@ -12,7 +12,7 @@ use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class ShopSettlementService
@@ -416,7 +416,13 @@ class ShopSettlementService
         $dateConstraintStart = $cumulative ? '2020-01-01' : $startDate;
         $dateConstraintEnd = $endDate;
 
-        $amounts = [];
+        $formulaCalc = [
+            'grossAdditions' => 0.0,
+            'grossDeductions' => 0.0,
+            'netSettlement' => 0.0,
+            'items' => [],
+        ];
+
         if ($payableRelation) {
             $totals = ShopLedgerTransaction::query()
                 ->where('shop_id', $shopId)
@@ -427,19 +433,8 @@ class ShopSettlementService
                 ->groupBy('entry_type_id')
                 ->pluck('total', 'entry_type_id');
 
-            foreach ($payableRelation->items as $item) {
-                if ($item->setting && (int) $item->setting->shop_id === $shopId) {
-                    $amounts[$item->shop_ledger_entry_setting_id] = (float) ($totals[$item->setting->entry_type_id] ?? 0);
-                }
-            }
+            $formulaCalc = $this->calculateRelation($payableRelation, $totals, $shopId);
         }
-
-        $formulaCalc = $payableRelation ? $this->calculator->calculate($payableRelation, $amounts) : [
-            'grossAdditions' => 0.0,
-            'grossDeductions' => 0.0,
-            'netSettlement' => 0.0,
-            'items' => [],
-        ];
 
         // Verified payments (shop_paid_company transactions that are active and posted/approved)
         $paymentTransactions = ShopLedgerTransaction::query()
@@ -487,6 +482,91 @@ class ShopSettlementService
             'remaining_company_payable' => $remainingPayable,
             'payments' => $paymentsList,
         ];
+    }
+
+    /**
+     * Recursively calculate a relation result with support for direct settings,
+     * header groups, and nested source settlements (with cycle detection and memoization).
+     *
+     * @param  Collection<int, mixed>|array<int, mixed>  $totals
+     * @param  array<int, array<string, mixed>>  $resolved
+     * @param  array<int, bool>  $stack
+     * @return array<string, mixed>
+     */
+    public function calculateRelation(
+        ShopCashbookRelation $relation,
+        Collection|array $totals,
+        int $shopId,
+        array &$resolved = [],
+        array $stack = [],
+    ): array {
+        $relationId = (int) $relation->id;
+
+        // 1. Cycle detection: if this relation is currently in our traversal stack, prevent infinite loop
+        if (isset($stack[$relationId])) {
+            return [
+                'relation_id' => $relation->id,
+                'public_uuid' => $relation->public_uuid,
+                'name' => $relation->name,
+                'relation_type' => $relation->relation_type,
+                'is_company_payable' => (bool) $relation->is_company_payable || $relation->relation_type === 'default_company_payable',
+                'enabled' => (bool) $relation->enabled,
+                'grossAdditions' => 0.0,
+                'grossDeductions' => 0.0,
+                'netSettlement' => 0.0,
+                'items' => [],
+            ];
+        }
+
+        // 2. Memoization: if already calculated for this run, reuse result
+        if (isset($resolved[$relationId])) {
+            return $resolved[$relationId];
+        }
+
+        $stack[$relationId] = true;
+
+        $relation->loadMissing([
+            'items.setting.entryType',
+            'items.sourceSettlement',
+            'items.headerGroup.entrySettings',
+        ]);
+
+        $amounts = [];
+
+        foreach ($relation->items as $item) {
+            if ($item->source_settlement_id) {
+                $sourceRelation = $item->sourceSettlement
+                    ?? ShopCashbookRelation::where('shop_id', $shopId)->where('id', $item->source_settlement_id)->first();
+
+                if ($sourceRelation) {
+                    $nestedResult = $this->calculateRelation(
+                        $sourceRelation,
+                        $totals,
+                        $shopId,
+                        $resolved,
+                        $stack
+                    );
+                    $amounts['settlement_'.$item->source_settlement_id] = (float) ($nestedResult['netSettlement'] ?? 0.0);
+                } else {
+                    $amounts['settlement_'.$item->source_settlement_id] = 0.0;
+                }
+            } elseif ($item->header_group_id && $item->headerGroup) {
+                foreach ($item->headerGroup->entrySettings as $hSetting) {
+                    if ((int) $hSetting->shop_id === $shopId) {
+                        $amounts[$hSetting->id] = (float) ($totals[$hSetting->entry_type_id] ?? 0.0);
+                    }
+                }
+            } elseif ($item->setting && (int) $item->setting->shop_id === $shopId) {
+                $amounts[$item->shop_ledger_entry_setting_id] = (float) ($totals[$item->setting->entry_type_id] ?? 0.0);
+            }
+        }
+
+        $result = $this->calculator->calculate($relation, $amounts);
+
+        unset($stack[$relationId]);
+        $resolved[$relationId] = $result;
+
+        return $result;
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -692,9 +772,9 @@ class ShopSettlementService
     /**
      * Resolve target allocation categories configured inside a given settlement relation.
      *
-     * @return \Illuminate\Support\Collection<int, array{id: int, name: string, category: string, role: string, setting_id: int, entry_type_id: int}>
+     * @return Collection<int, array{id: int, name: string, category: string, role: string, setting_id: int, entry_type_id: int}>
      */
-    public function resolveSettlementAllocationTargets(?ShopCashbookRelation $relation): \Illuminate\Support\Collection
+    public function resolveSettlementAllocationTargets(?ShopCashbookRelation $relation): Collection
     {
         if (! $relation) {
             return collect();
@@ -752,9 +832,9 @@ class ShopSettlementService
     /**
      * Resolve the active Auto Allocation target categories configured under PAYABLE for a shop.
      *
-     * @return \Illuminate\Support\Collection<int, array{id: int, name: string, category: string, role: string, setting_id: int, entry_type_id: int}>
+     * @return Collection<int, array{id: int, name: string, category: string, role: string, setting_id: int, entry_type_id: int}>
      */
-    public function resolvePayableAllocationTargets(ShopLedgerProfile|Shop|int $shop): \Illuminate\Support\Collection
+    public function resolvePayableAllocationTargets(ShopLedgerProfile|Shop|int $shop): Collection
     {
         $shopId = $shop instanceof Shop ? (int) $shop->id : ($shop instanceof ShopLedgerProfile ? (int) $shop->shop_id : (int) $shop);
         $profile = $shop instanceof ShopLedgerProfile ? $shop : ShopLedgerProfile::query()->where('shop_id', $shopId)->first();
@@ -844,9 +924,9 @@ class ShopSettlementService
     /**
      * Resolve expense categories that manual and automatic payment allocation may clear.
      *
-     * @return \Illuminate\Support\Collection<int, array{id: int, name: string, category: string, role: string, setting_id: int, entry_type_id: int}>
+     * @return Collection<int, array{id: int, name: string, category: string, role: string, setting_id: int, entry_type_id: int}>
      */
-    public function resolveExpenseAllocationTargets(ShopLedgerProfile|Shop|int $shop): \Illuminate\Support\Collection
+    public function resolveExpenseAllocationTargets(ShopLedgerProfile|Shop|int $shop): Collection
     {
         $shopId = $shop instanceof Shop ? (int) $shop->id : ($shop instanceof ShopLedgerProfile ? (int) $shop->shop_id : (int) $shop);
         $configuration = $this->expenseAllocationConfiguration($shop);
@@ -986,11 +1066,11 @@ class ShopSettlementService
      *     sales_collections: array{total_sales: float, direct_to_company: float, cash_in_shop: float, items: array<int, array<string, mixed>>},
      *     sales_collection_items: array<int, array<string, mixed>>,
      *     cash_collection_items: array<int, array<string, mixed>>,
-     *     manual_payments: array{total: float, received: float, pending: float, requests: \Illuminate\Support\Collection<int, ShopInvoicePaymentRequest>},
+     *     manual_payments: array{total: float, received: float, pending: float, requests: Collection<int, ShopInvoicePaymentRequest>},
      *     manual_total: float,
      *     manual_received: float,
      *     manual_pending: float,
-     *     manual_requests: \Illuminate\Support\Collection<int, ShopInvoicePaymentRequest>,
+     *     manual_requests: Collection<int, ShopInvoicePaymentRequest>,
      *     shop_balance: float,
      *     payable_source: string,
      *     sales_source: string,

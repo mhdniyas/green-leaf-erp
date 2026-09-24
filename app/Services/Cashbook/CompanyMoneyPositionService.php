@@ -614,6 +614,7 @@ class CompanyMoneyPositionService
         // Reconciled shop payment allocations applied to this business date
         $reconciledAllocationsForDay = (float) ShopPaymentLedgerAllocation::query()
             ->where('shop_id', $shopId)
+            ->where('status', 'active')
             ->whereHas('paymentRequest', fn ($q) => $q->where('reconciliation_status', 'reconciled')->whereNotIn('status', ['rejected', 'cancelled']))
             ->whereHas('ledgerTransaction', fn ($q) => $q->whereDate('business_date', $businessDate))
             ->sum('amount');
@@ -825,6 +826,7 @@ class CompanyMoneyPositionService
 
         $reconciledAllocationsByDate = ShopPaymentLedgerAllocation::query()
             ->where('shop_id', $shopId)
+            ->where('status', 'active')
             ->whereHas('paymentRequest', fn ($q) => $q->where('reconciliation_status', 'reconciled')->whereNotIn('status', ['rejected', 'cancelled']))
             ->whereHas('ledgerTransaction', fn ($q) => $q->whereBetween('business_date', [$monthStart, $monthEnd]))
             ->with('ledgerTransaction')

@@ -527,13 +527,194 @@ class CompanyPayableDynamicSettlementAndPaymentsTest extends TestCase
             ->assertOk()
             ->assertSee('Company Payable');
 
-        // 2. Main Cashbook shop page (where summary.blade.php renders calculated values)
+        // 2. Main Cashbook shop overview page (where calculated settlement values are rendered)
         $this->actingAs($this->admin)
-            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'date' => '2026-09-06']))
+            ->get(route('admin.cashbook.shop.overview', ['shop' => $this->profile->slug, 'date' => '2026-09-06']))
             ->assertOk()
             ->assertSee('Company Payable')
             ->assertSee('302,646.00')
             ->assertSee('10,000.00')
             ->assertSee('292,646.00');
+    }
+
+    public function test_nested_settlement_resolution_income_minus_rent(): void
+    {
+        $sales = $this->getCategory('cash_sales');
+        $rent = $this->getCategory('salary'); // Use salary as expense setting
+
+        // 1. Create Income Relation (Cash Sales)
+        $incomeRelation = $this->settlementService->save($this->profile, [
+            'name' => 'Income',
+            'is_company_payable' => false,
+            'enabled' => true,
+            'items' => [
+                ['setting_id' => $sales->id, 'role' => 'add'],
+            ],
+        ], null, $this->admin->id);
+
+        // 2. Create Company Payable Relation (Income - Rent)
+        $this->settlementService->save($this->profile, [
+            'name' => 'Company Payable',
+            'is_company_payable' => true,
+            'enabled' => true,
+            'items' => [
+                ['source_settlement_id' => $incomeRelation->id, 'role' => 'add'],
+                ['setting_id' => $rent->id, 'role' => 'subtract'],
+            ],
+        ], null, $this->admin->id);
+
+        // Record transactions
+        $this->recordLedgerEntry($sales, '2026-09-10', 1520087.00);
+        $this->recordLedgerEntry($rent, '2026-09-10', 197668.00);
+
+        $result = $this->settlementService->calculateCompanyPayable($this->shop->id, '2026-09-01', '2026-09-30');
+
+        $this->assertEquals(1520087.00, $result['grossAdditions']);
+        $this->assertEquals(197668.00, $result['grossDeductions']);
+        $this->assertEquals(1322419.00, $result['formula_net']);
+        $this->assertEquals(1322419.00, $result['netSettlement']);
+        $this->assertCount(2, $result['items']);
+        $this->assertEquals('Settlement: Income', $result['items'][0]['name']);
+        $this->assertEquals(1520087.00, $result['items'][0]['amount']);
+        $this->assertEquals('add', $result['items'][0]['role']);
+    }
+
+    public function test_multilevel_nested_settlement_resolution(): void
+    {
+        $sales = $this->getCategory('cash_sales');
+        $rent = $this->getCategory('salary');
+
+        // Level 3: Base Sales Relation
+        $baseSales = $this->settlementService->save($this->profile, [
+            'name' => 'Base Sales',
+            'is_company_payable' => false,
+            'enabled' => true,
+            'items' => [
+                ['setting_id' => $sales->id, 'role' => 'add'],
+            ],
+        ], null, $this->admin->id);
+
+        // Level 2: Income Relation referencing Base Sales
+        $income = $this->settlementService->save($this->profile, [
+            'name' => 'Income',
+            'is_company_payable' => false,
+            'enabled' => true,
+            'items' => [
+                ['source_settlement_id' => $baseSales->id, 'role' => 'add'],
+            ],
+        ], null, $this->admin->id);
+
+        // Level 1: Company Payable referencing Income minus Rent
+        $this->settlementService->save($this->profile, [
+            'name' => 'Company Payable',
+            'is_company_payable' => true,
+            'enabled' => true,
+            'items' => [
+                ['source_settlement_id' => $income->id, 'role' => 'add'],
+                ['setting_id' => $rent->id, 'role' => 'subtract'],
+            ],
+        ], null, $this->admin->id);
+
+        $this->recordLedgerEntry($sales, '2026-09-10', 100000.00);
+        $this->recordLedgerEntry($rent, '2026-09-10', 20000.00);
+
+        $result = $this->settlementService->calculateCompanyPayable($this->shop->id, '2026-09-01', '2026-09-30');
+
+        $this->assertEquals(100000.00, $result['grossAdditions']);
+        $this->assertEquals(20000.00, $result['grossDeductions']);
+        $this->assertEquals(80000.00, $result['formula_net']);
+    }
+
+    public function test_mixed_direct_and_nested_settlement_resolution(): void
+    {
+        $cashSales = $this->getCategory('cash_sales');
+        $card = $this->getCategory('card');
+        $salary = $this->getCategory('salary');
+
+        // Nested Income
+        $income = $this->settlementService->save($this->profile, [
+            'name' => 'Income',
+            'is_company_payable' => false,
+            'enabled' => true,
+            'items' => [
+                ['setting_id' => $cashSales->id, 'role' => 'add'],
+            ],
+        ], null, $this->admin->id);
+
+        // Nested Expenses
+        $expenses = $this->settlementService->save($this->profile, [
+            'name' => 'Expenses',
+            'is_company_payable' => false,
+            'enabled' => true,
+            'items' => [
+                ['setting_id' => $salary->id, 'role' => 'add'],
+            ],
+        ], null, $this->admin->id);
+
+        // Company Payable = Income (nested) + Card (direct) - Expenses (nested)
+        $this->settlementService->save($this->profile, [
+            'name' => 'Company Payable',
+            'is_company_payable' => true,
+            'enabled' => true,
+            'items' => [
+                ['source_settlement_id' => $income->id, 'role' => 'add'],
+                ['setting_id' => $card->id, 'role' => 'add'],
+                ['source_settlement_id' => $expenses->id, 'role' => 'subtract'],
+            ],
+        ], null, $this->admin->id);
+
+        $this->recordLedgerEntry($cashSales, '2026-09-10', 50000.00);
+        $this->recordLedgerEntry($card, '2026-09-10', 15000.00);
+        $this->recordLedgerEntry($salary, '2026-09-10', 10000.00);
+
+        $result = $this->settlementService->calculateCompanyPayable($this->shop->id, '2026-09-01', '2026-09-30');
+
+        $this->assertEquals(65000.00, $result['grossAdditions']);
+        $this->assertEquals(10000.00, $result['grossDeductions']);
+        $this->assertEquals(55000.00, $result['formula_net']);
+    }
+
+    public function test_circular_nested_settlement_cycle_detection(): void
+    {
+        $sales = $this->getCategory('cash_sales');
+
+        // Relation A
+        $relationA = $this->settlementService->save($this->profile, [
+            'name' => 'Relation A',
+            'is_company_payable' => true,
+            'enabled' => true,
+            'items' => [
+                ['setting_id' => $sales->id, 'role' => 'add'],
+            ],
+        ], null, $this->admin->id);
+
+        // Relation B referencing A
+        $relationB = $this->settlementService->save($this->profile, [
+            'name' => 'Relation B',
+            'is_company_payable' => false,
+            'enabled' => true,
+            'items' => [
+                ['source_settlement_id' => $relationA->id, 'role' => 'add'],
+            ],
+        ], null, $this->admin->id);
+
+        // Update Relation A to also reference B (creating cycle A -> B -> A)
+        $this->settlementService->save($this->profile, [
+            'name' => 'Relation A',
+            'is_company_payable' => true,
+            'enabled' => true,
+            'items' => [
+                ['setting_id' => $sales->id, 'role' => 'add'],
+                ['source_settlement_id' => $relationB->id, 'role' => 'add'],
+            ],
+        ], $relationA, $this->admin->id);
+
+        $this->recordLedgerEntry($sales, '2026-09-10', 50000.00);
+
+        // Should resolve safely without infinite loop or crash
+        $result = $this->settlementService->calculateCompanyPayable($this->shop->id, '2026-09-01', '2026-09-30');
+
+        $this->assertIsArray($result);
+        $this->assertEquals(50000.00, $result['formula_net']);
     }
 }

@@ -93,8 +93,16 @@
                 `;
             } else {
                 // Render Normal Heading Breakdown Popup
-                const sources = breakdownData.sources || [];
+                const allSources = breakdownData.sources || [];
                 const grandTotal = parseFloat(breakdownData.total || 0);
+
+                // Filter out sources that have zero total and no non-zero categories/products
+                const sources = allSources.filter(source => {
+                    const sourceTotal = Math.abs(parseFloat(source.total || 0));
+                    const hasActiveCategories = (source.categories || []).some(cat => Math.abs(parseFloat(cat.total || 0)) > 0.001);
+                    const hasActiveProducts = (source.products || []).some(prod => Math.abs(parseFloat(prod.total || 0)) > 0.001);
+                    return sourceTotal > 0.001 || hasActiveCategories || hasActiveProducts;
+                });
 
                 let html = '<div class="space-y-4">';
 
@@ -107,8 +115,8 @@
                 } else {
                     sources.forEach(source => {
                         const sourceTotal = parseFloat(source.total || 0);
-                        const categories = source.categories || [];
-                        const products = source.products || [];
+                        const categories = (source.categories || []).filter(cat => Math.abs(parseFloat(cat.total || 0)) > 0.001);
+                        const products = (source.products || []).filter(prod => Math.abs(parseFloat(prod.total || 0)) > 0.001);
 
                         html += `
                             <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-2">

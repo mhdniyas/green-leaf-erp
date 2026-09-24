@@ -21,19 +21,23 @@
 
         <!-- TAB NAVIGATION -->
         <div class="inline-flex rounded-xl bg-slate-100 p-1 text-xs font-bold text-slate-600">
-            <a href="{{ route('admin.cashbook.monthly-report.overview', request()->query()) }}"
+            <a href="{{ route('admin.cashbook.monthly-report.overview', array_merge(['month' => $period['month'] ?? request('month')], request()->query())) }}"
                class="rounded-lg px-3 py-1.5 transition {{ request()->routeIs('admin.cashbook.monthly-report.overview') ? 'bg-white text-slate-900 shadow-xs' : 'hover:text-slate-900' }}">
                 Overview
             </a>
-            <a href="{{ route('admin.cashbook.monthly-report.sale-split', request()->query()) }}"
+            <a href="{{ route('admin.cashbook.monthly-report.sale-split', array_merge(['month' => $period['month'] ?? request('month')], request()->query())) }}"
                class="rounded-lg px-3 py-1.5 transition {{ request()->routeIs('admin.cashbook.monthly-report.sale-split') ? 'bg-white text-slate-900 shadow-xs' : 'hover:text-slate-900' }}">
                 Sale Split
             </a>
-            <a href="{{ route('admin.cashbook.monthly-report.other-expenses', request()->query()) }}"
+            <a href="{{ route('admin.cashbook.monthly-report.section-reports', array_merge(['month' => $period['month'] ?? request('month')], request()->query())) }}"
+               class="rounded-lg px-3 py-1.5 transition {{ request()->routeIs('admin.cashbook.monthly-report.section-reports*') ? 'bg-white text-slate-900 shadow-xs' : 'hover:text-slate-900' }}">
+                Section Reports
+            </a>
+            <a href="{{ route('admin.cashbook.monthly-report.other-expenses', array_merge(['month' => $period['month'] ?? request('month')], request()->query())) }}"
                class="rounded-lg px-3 py-1.5 transition {{ request()->routeIs('admin.cashbook.monthly-report.other-expenses') ? 'bg-white text-slate-900 shadow-xs' : 'hover:text-slate-900' }}">
                 Other Expense
             </a>
-            <a href="{{ route('admin.cashbook.monthly-report.expense-report', request()->query()) }}"
+            <a href="{{ route('admin.cashbook.monthly-report.expense-report', array_merge(['month' => $period['month'] ?? request('month')], request()->query())) }}"
                class="rounded-lg px-3 py-1.5 transition {{ request()->routeIs('admin.cashbook.monthly-report.expense-report') ? 'bg-white text-slate-900 shadow-xs' : 'hover:text-slate-900' }}">
                 Expense Report
             </a>

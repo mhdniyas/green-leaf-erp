@@ -193,7 +193,11 @@ class ShopLedgerEntrySetting extends Model
             return 'rent';
         }
 
-        if ($this->is_vendor_purchase || in_array($code, ['vendor_purchase', 'vendor_purchase_cash', 'vendor_purchase_credit', 'cash_purchase', 'purchase_bill'], true)) {
+        if ($this->is_vendor_purchase || in_array($code, [
+            'vendor_purchase', 'vendor_purchase_cash', 'vendor_purchase_credit',
+            'cash_purchase', 'cash_purchase_2', 'purchase_bill',
+            'tomatto', 'banana', 'flower', 'onion', 'kuri',
+        ], true) || ($code === 'tomato' && ($this->include_in_expense || $category === 'expense'))) {
             return 'purchase';
         }
 

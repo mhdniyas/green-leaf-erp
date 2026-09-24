@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\MonthlyReportDrilldownRequest;
 use App\Http\Requests\Admin\MonthlyReportPeriodRequest;
 use App\Models\User;
+use App\Services\Cashbook\MonthlyReport\DynamicSectionReportService;
 use App\Services\Cashbook\MonthlyReport\GreenLeafMonthlyReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,7 +18,24 @@ class GreenLeafMonthlyReportController extends Controller
 {
     public function __construct(
         private readonly GreenLeafMonthlyReportService $reportService,
+        private readonly DynamicSectionReportService $dynamicSectionReportService,
     ) {}
+
+    public function sectionReports(MonthlyReportPeriodRequest $request): View
+    {
+        $this->ensureAuthorized($request);
+
+        $sectionKey = $request->query('section');
+        $report = $this->dynamicSectionReportService->buildReport(
+            $request->validated(),
+            is_string($sectionKey) ? $sectionKey : null
+        );
+
+        return view('admin.cashbook.monthly-report.section-reports', [
+            ...$report,
+            'currentRoute' => 'admin.cashbook.monthly-report.section-reports',
+        ]);
+    }
 
     public function overview(MonthlyReportPeriodRequest $request): View
     {
@@ -86,9 +104,13 @@ class GreenLeafMonthlyReportController extends Controller
                 || $user->hasRole('accounts')
                 || $user->hasRole('accountant')
                 || $user->hasRole('account')
+                || $user->hasRole('manager')
+                || (isset($user->is_admin) && $user->is_admin)
                 || $user->can('cashbook.monthly-report.view')
                 || $user->can('accounting.report.view')
                 || $user->can('finance.dashboard.view')
+                || $user->can('accounting.dashboard.view')
+                || $user->can('accounting.ledger.view')
             ),
             403,
             'Unauthorized access to Green Leaf Monthly Report.'
