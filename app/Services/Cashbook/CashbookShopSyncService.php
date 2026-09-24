@@ -61,7 +61,9 @@ class CashbookShopSyncService
             ?? ShopConfigPreset::where('is_default', true)->first();
         $grandcityPreset = ShopConfigPreset::where('slug', 'grandcity-extended')->first();
 
-        DB::transaction(function () use ($erpShops, $standardPreset, $grandcityPreset): void {
+        $existingProfiles = ShopLedgerProfile::query()->get()->keyBy('shop_id');
+
+        DB::transaction(function () use ($erpShops, $standardPreset, $grandcityPreset, $existingProfiles): void {
             $eligibleShopIds = $erpShops->modelKeys();
 
             ShopLedgerProfile::query()
@@ -73,30 +75,33 @@ class CashbookShopSyncService
                 $isGrandcity = Str::contains(strtoupper($erpShop->code), 'GRANDCITY')
                     || Str::contains(strtoupper($erpShop->name), 'GRANDCITY');
                 $preset = $isGrandcity ? ($grandcityPreset ?? $standardPreset) : $standardPreset;
-                $ledgerClient = $erpShop->client instanceof Client
-                    ? $this->syncClient($erpShop->client)
-                    : null;
 
-                $profile = ShopLedgerProfile::firstOrNew(['shop_id' => $erpShop->id]);
-                $isNewProfile = ! $profile->exists;
-                $profile->fill([
-                    'code' => $erpShop->code,
-                    'name' => $erpShop->name,
-                    'profile_template' => $ledgerClient ? 'owned_standard' : 'direct_buyer',
-                    'enabled' => true,
-                    'client_id' => $ledgerClient?->id,
-                ]);
-                $profile->uuid ??= (string) Str::uuid();
-                $profile->slug ??= Str::slug($erpShop->code.'-'.$erpShop->name);
-                $profile->closing_mode ??= 'manual';
-                $profile->preset_id ??= $preset?->id;
-                $profile->save();
+                $profile = $existingProfiles->get($erpShop->id);
+                $isNewProfile = $profile === null;
 
-                $this->syncPresetSettingsToShop($profile, $preset);
-                $this->ensureOtherEntriesForShop($erpShop->id);
-                $this->ensureVendorPurchaseForShop($erpShop->id);
-                $this->ensurePaymentsHeaderAndCategory($erpShop->id);
                 if ($isNewProfile) {
+                    $ledgerClient = $erpShop->client instanceof Client
+                        ? $this->syncClient($erpShop->client)
+                        : null;
+
+                    $profile = new ShopLedgerProfile([
+                        'shop_id' => $erpShop->id,
+                        'code' => $erpShop->code,
+                        'name' => $erpShop->name,
+                        'profile_template' => $ledgerClient ? 'owned_standard' : 'direct_buyer',
+                        'enabled' => true,
+                        'client_id' => $ledgerClient?->id,
+                        'uuid' => (string) Str::uuid(),
+                        'slug' => Str::slug($erpShop->code.'-'.$erpShop->name),
+                        'closing_mode' => 'manual',
+                        'preset_id' => $preset?->id,
+                    ]);
+                    $profile->save();
+
+                    $this->syncPresetSettingsToShop($profile, $preset);
+                    $this->ensureOtherEntriesForShop($erpShop->id);
+                    $this->ensureVendorPurchaseForShop($erpShop->id);
+                    $this->ensurePaymentsHeaderAndCategory($erpShop->id);
                     $this->settlements->ensureDefaults($profile);
                 }
             }

@@ -32,10 +32,44 @@
     let productRowsState = JSON.parse(JSON.stringify(initialProductRows || {}));
 
     let settlementCardCollapseState = {};
+    let subHeaderCollapseState = {};
 
     function toggleSettlementCardSplit(sId) {
         settlementCardCollapseState[sId] = !settlementCardCollapseState[sId];
         recalculateOwnerCashbook();
+    }
+
+    function toggleSubHeaderAccordion(subId, event) {
+        if (event) {
+            event.stopPropagation();
+        }
+        subHeaderCollapseState[subId] = !subHeaderCollapseState[subId];
+        renderMainBillSections();
+    }
+
+    function findHeaderOrSubHeader(hId) {
+        const idStr = String(hId);
+        for (const h of headers) {
+            if (String(h.id) === idStr) return h;
+            if (h.sub_headers) {
+                for (const sub of h.sub_headers) {
+                    if (String(sub.id) === idStr) return sub;
+                }
+            }
+        }
+        return null;
+    }
+
+    function findParentHeaderOf(hId) {
+        const idStr = String(hId);
+        for (const h of headers) {
+            if (h.sub_headers) {
+                for (const sub of h.sub_headers) {
+                    if (String(sub.id) === idStr) return h;
+                }
+            }
+        }
+        return null;
     }
 
     function renderSettlementCardsHtml(settlementList) {
@@ -119,6 +153,11 @@
             if (h.product_tagging_enabled) {
                 renderOwnerProductRows(h.id);
             }
+            (h.sub_headers || []).forEach(sub => {
+                if (sub.product_tagging_enabled) {
+                    renderOwnerProductRows(sub.id);
+                }
+            });
         });
 
         recalculateOwnerCashbook();
@@ -267,23 +306,58 @@
         syncModalOpenState();
     }
 
+    let activeParentHeaderId = null;
+
+    function navigateBackToParentHeader() {
+        if (activeParentHeaderId) {
+            selectHeaderForEntry(activeParentHeaderId);
+        } else {
+            closeHeaderEntrySheet();
+        }
+    }
+
     // HEADER ENTRY SHEET
-    function selectHeaderForEntry(headerId) {
+    function selectHeaderForEntry(headerId, parentId = null) {
         closeInHeaderModal();
         closeOutHeaderModal();
 
         activeHeaderId = String(headerId);
-        const header = headers.find(h => String(h.id) === activeHeaderId);
+        const header = findHeaderOrSubHeader(activeHeaderId);
         if (!header) return;
 
+        if (parentId !== null && parentId !== undefined) {
+            activeParentHeaderId = String(parentId);
+        } else {
+            const parent = findParentHeaderOf(activeHeaderId);
+            activeParentHeaderId = parent ? String(parent.id) : null;
+        }
+
         // Hide all header form sections and show only the selected one
-        headers.forEach(h => {
-            const sec = document.getElementById('header-form-section-' + h.id);
-            if (sec) sec.classList.add('hidden');
+        document.querySelectorAll('[id^="header-form-section-"]').forEach(sec => {
+            sec.classList.add('hidden');
         });
 
         const activeSec = document.getElementById('header-form-section-' + activeHeaderId);
         if (activeSec) activeSec.classList.remove('hidden');
+
+        // Navigation UI Elements (Back button, Logo, Parent Title)
+        const backBtn = document.getElementById('entry-sheet-back-btn');
+        const logoWrap = document.getElementById('entry-sheet-logo-wrap');
+        const parentBadge = document.getElementById('entry-sheet-parent-badge');
+
+        if (activeParentHeaderId) {
+            const parentHeader = findHeaderOrSubHeader(activeParentHeaderId);
+            if (backBtn) backBtn.classList.remove('hidden');
+            if (logoWrap) logoWrap.classList.add('hidden');
+            if (parentBadge) {
+                parentBadge.textContent = parentHeader ? (parentHeader.display_name || parentHeader.name) : 'Back';
+                parentBadge.classList.remove('hidden');
+            }
+        } else {
+            if (backBtn) backBtn.classList.add('hidden');
+            if (logoWrap) logoWrap.classList.remove('hidden');
+            if (parentBadge) parentBadge.classList.add('hidden');
+        }
 
         document.getElementById('entry-sheet-title').textContent = header.name;
         document.getElementById('save-active-header-text').textContent = 'Save ' + header.name;
@@ -301,12 +375,13 @@
     function closeHeaderEntrySheet() {
         document.getElementById('header-entry-sheet').classList.add('hidden');
         activeHeaderId = null;
+        activeParentHeaderId = null;
         syncModalOpenState();
     }
 
     function updateActiveHeaderSubtotal() {
         if (!activeHeaderId) return;
-        const header = headers.find(h => String(h.id) === activeHeaderId);
+        const header = findHeaderOrSubHeader(activeHeaderId);
         if (!header) return;
 
         const isExpense = (header.type || '').toLowerCase() === 'expense';
@@ -426,11 +501,11 @@
         const headerTotals = {};
         const headerActiveCounts = {};
 
-        headers.forEach(h => {
+        function processHeaderItems(h) {
             const isIncome = (h.type || '').toLowerCase() === 'income';
             const isExpenseHeader = !isIncome;
-            let headerTotal = 0;
-            let headerCount = 0;
+            let total = 0;
+            let count = 0;
 
             (h.setting_ids || []).forEach(sId => {
                 const s = settings.find(item => item.id === sId);
@@ -446,7 +521,6 @@
                     if (paymentType === 'cash') {
                         amt = typeof vpSum.cash_amount === 'number' ? vpSum.cash_amount : (typeof vpSum.total_amount === 'number' ? vpSum.total_amount : 0);
                     } else if (paymentType === 'credit') {
-                        // Credit VP: no cash impact, tracked as liability only
                         amt = 0;
                     } else {
                         amt = typeof vpSum.total_amount === 'number' ? vpSum.total_amount : 0;
@@ -456,17 +530,15 @@
                 const isMinus = isExpenseHeader || (s && (s.is_sales_deduction || s.payable_direction === 'minus'));
 
                 if (isMinus) {
-                    headerTotal -= amt;
+                    total -= amt;
                 } else {
-                    headerTotal += amt;
+                    total += amt;
                 }
 
                 if (s && amt > 0) {
-                    headerCount++;
+                    count++;
                     activeEntryCount++;
                     if (isVp) {
-                        // Cash VP: deducted from shop cash (it's a cash expense)
-                        // Credit VP: amt is already 0, so no cash impact
                         totalExpense += amt;
                         expensesPaidFromShopCash += amt;
                     } else if (s.is_sales_deduction) {
@@ -499,11 +571,11 @@
                 const pAmt = parseFloat(pr.amount) || 0;
                 if (pAmt > 0) {
                     if (isExpenseHeader) {
-                        headerTotal -= pAmt;
+                        total -= pAmt;
                     } else {
-                        headerTotal += pAmt;
+                        total += pAmt;
                     }
-                    headerCount++;
+                    count++;
                     activeEntryCount++;
                     if (isExpenseHeader) {
                         totalExpense += pAmt;
@@ -515,16 +587,40 @@
                 }
             });
 
-            headerTotals[h.id] = headerTotal;
-            headerActiveCounts[h.id] = headerCount;
+            return { total, count };
+        }
+
+        headers.forEach(h => {
+            let rootTotal = 0;
+            let rootCount = 0;
+
+            const rootDirect = processHeaderItems(h);
+            rootTotal += rootDirect.total;
+            rootCount += rootDirect.count;
+
+            (h.sub_headers || []).forEach(sub => {
+                const subRes = processHeaderItems(sub);
+                headerTotals[sub.id] = subRes.total;
+                headerActiveCounts[sub.id] = subRes.count;
+
+                rootTotal += subRes.total;
+                rootCount += subRes.count;
+
+                const inTotalSubEl = document.getElementById('in-modal-total-' + sub.id);
+                if (inTotalSubEl) inTotalSubEl.textContent = formatCurrency(subRes.total);
+                const outTotalSubEl = document.getElementById('out-modal-total-' + sub.id);
+                if (outTotalSubEl) outTotalSubEl.textContent = formatCurrency(subRes.total);
+            });
+
+            headerTotals[h.id] = rootTotal;
+            headerActiveCounts[h.id] = rootCount;
 
             // Update modal badges
             const inTotalEl = document.getElementById('in-modal-total-' + h.id);
-            if (inTotalEl) inTotalEl.textContent = formatCurrency(headerTotal);
+            if (inTotalEl) inTotalEl.textContent = formatCurrency(rootTotal);
             const outTotalEl = document.getElementById('out-modal-total-' + h.id);
-            if (outTotalEl) outTotalEl.textContent = formatCurrency(headerTotal);
+            if (outTotalEl) outTotalEl.textContent = formatCurrency(rootTotal);
         });
-
 
         // Calculate Header Add-Backs for headers with show_both_sides enabled & cash purchase settings
         let headerAddBacks = [];
@@ -584,7 +680,7 @@
 
         activeDayData.headerAddBacks = headerAddBacks;
 
-        // Compute tagged product sums per header for settlement calculations
+        // Compute tagged product sums per header and sub-header for settlement calculations
         headers.forEach(h => {
             const pRows = productRowsState[h.id] || [];
             let hTaggedSum = 0;
@@ -592,12 +688,18 @@
                 hTaggedSum += parseFloat(pr.amount) || 0;
             });
             activeDayData['header_tagged_product_' + h.id] = hTaggedSum;
+
+            (h.sub_headers || []).forEach(sub => {
+                const subPRows = productRowsState[sub.id] || [];
+                let subTaggedSum = 0;
+                subPRows.forEach(pr => {
+                    subTaggedSum += parseFloat(pr.amount) || 0;
+                });
+                activeDayData['header_tagged_product_' + sub.id] = subTaggedSum;
+            });
         });
 
         // Inject VP amounts into activeDayData for settlement calculations.
-        // VP settings have no ShopLedgerTransaction so activeDayData[sId] is 0.
-        // We use vendor_purchase_summary so both Cash and Credit VP appear correctly
-        // in the settlement breakdown (Expense section).
         settings.forEach(s => {
             if (!s.is_vendor_purchase) return;
             const isMirrorEnabled = s.mirror_to_cashbook !== false && s.mirror_to_cashbook !== 0 && s.mirror_to_cashbook !== '0';
@@ -621,7 +723,6 @@
         const settlementResult = (typeof CashbookSettlementSummary !== 'undefined' && relations && relations.length > 0)
             ? CashbookSettlementSummary.calculate(relations, activeDayData, 0)
             : { settlements: [], netBalance: totalIncome - totalExpense, netLabel: 'Net Activity' };
-
 
         const todayNetActivity = settlementResult.netBalance;
 
@@ -714,9 +815,7 @@
             return;
         }
 
-        const incomeHeaders = headers.filter(h => h.type === 'income');
-        const expenseHeaders = headers.filter(h => h.type === 'expense');
-        const orderedHeaders = [...incomeHeaders, ...expenseHeaders];
+        const orderedHeaders = headers;
 
         container.innerHTML = orderedHeaders.map(h => {
             const isIncome = (h.type || '').toLowerCase() === 'income';
@@ -774,6 +873,49 @@
                 }
             });
 
+            (h.sub_headers || []).forEach(sub => {
+                (sub.setting_ids || []).forEach(sId => {
+                    const amt = parseFloat(activeDayData[sId]) || 0;
+                    const s = settings.find(item => item.id === sId);
+                    if (!s) return;
+                    const isMinus = !isIncome || s.is_sales_deduction || s.payable_direction === 'minus';
+                    if (isMinus) hTotal -= amt; else hTotal += amt;
+                    if (amt > 0) {
+                        const name = s.name || 'Item';
+                        const signPrefix = isMinus ? '−' : '+';
+                        const signClass = isMinus ? 'text-rose-600 font-bold' : 'text-slate-900 font-bold';
+                        childItems.push(`
+                            <div class="flex items-center justify-between py-1 text-xs text-slate-600 pl-2">
+                                <span class="truncate pr-2"><span class="text-slate-400 font-semibold">[${escapeHtml(sub.name)}]</span> ${escapeHtml(name)}</span>
+                                <span class="font-mono ${signClass} shrink-0">
+                                    ${signPrefix} ${formatCurrency(amt, false)}
+                                </span>
+                            </div>
+                        `);
+                    }
+                });
+
+                const subPRows = productRowsState[sub.id] || [];
+                subPRows.forEach(pr => {
+                    const pAmt = parseFloat(pr.amount) || 0;
+                    const pQty = parseFloat(pr.qty);
+                    const hasQty = !isNaN(pQty) && pQty > 0;
+                    if (!isIncome) hTotal -= pAmt; else hTotal += pAmt;
+                    if (pAmt > 0 || hasQty) {
+                        const avgStr = (hasQty && pAmt > 0) ? ` @ ₹${(pAmt / pQty).toFixed(2)}/${escapeHtml(pr.unit || 'unit')}` : '';
+                        const detailStr = hasQty ? ` <span class="text-[10px] font-semibold text-slate-400">(${pQty} ${escapeHtml(pr.unit || '')}${avgStr})</span>` : '';
+                        const itemSign = isIncome ? '+ ' : '− ';
+                        const itemClass = isIncome ? 'text-slate-900' : 'text-rose-600 font-bold';
+                        childItems.push(`
+                            <div class="flex items-center justify-between py-1 text-xs text-slate-600 pl-2">
+                                <span class="truncate pr-2"><span class="text-slate-400 font-semibold">[${escapeHtml(sub.name)}]</span> ${escapeHtml(pr.productName)}${detailStr}</span>
+                                <span class="font-mono font-bold ${itemClass} shrink-0">${itemSign}${formatCurrency(pAmt, false)}</span>
+                            </div>
+                        `);
+                    }
+                });
+            });
+
             const signTextClass = isIncome ? 'text-emerald-700' : 'text-rose-700 font-black';
             const formattedTotal = formatCurrency(Math.abs(hTotal));
 
@@ -822,15 +964,13 @@
 
         if (emptyState) emptyState.classList.add('hidden');
 
-        // Order: Income headers first, then Expense headers
-        const incomeHeaders = headers.filter(h => h.type === 'income');
-        const expenseHeaders = headers.filter(h => h.type === 'expense');
-        const orderedHeaders = [...incomeHeaders, ...expenseHeaders];
+        const orderedHeaders = headers;
 
         const normalCardsHtml = orderedHeaders.map(h => {
             const isIncome = (h.type || '').toLowerCase() === 'income';
             let hTotal = 0;
 
+            // 1. Direct Settings in Root Header
             const childLines = (h.setting_ids || []).map(sId => {
                 const s = settings.find(item => item.id === sId);
                 if (!s) return '';
@@ -842,7 +982,6 @@
                 let effectiveAmt = amt;
 
                 if (isVp) {
-                    // VP amounts come from vendor_purchase_summary (not ShopLedgerTransaction)
                     const vpSum = (s.vendor_purchase_summary) || {};
                     const paymentType = s.vendor_purchase_payment_type || vpSum.payment_type || '';
                     if (paymentType === 'cash') {
@@ -861,15 +1000,7 @@
                     hTotal += effectiveAmt;
                 }
 
-                // VP settings are rendered server-side in the Blade vendor-purchase-section partial.
-                // We still count their amount in hTotal above (so the header group total is correct),
-                // but we do NOT render a duplicate JS card here.
-                if (isVp) {
-                    return '';
-                }
-
-                // Non-VP settings: If mirroring disabled just skip
-                if (!isMirrorEnabled) {
+                if (isVp || !isMirrorEnabled) {
                     return '';
                 }
 
@@ -905,6 +1036,7 @@
                 `;
             }).filter(Boolean).join('');
 
+            // 2. Direct Products in Root Header
             const pRows = productRowsState[h.id] || [];
             const productLines = pRows.map(pr => {
                 const pAmt = parseFloat(pr.amount) || 0;
@@ -940,7 +1072,158 @@
                 `;
             }).join('');
 
-            const noProductsPrompt = (h.product_tagging_enabled && pRows.length === 0 && (h.setting_ids || []).length === 0)
+            // 3. Sub-Headers inside this card (Expandable Rows)
+            const subHeadersHtml = (h.sub_headers || []).map(sub => {
+                const subIsIncome = (sub.type || '').toLowerCase() === 'income';
+                let subTotal = 0;
+
+                const subSettingLines = (sub.setting_ids || []).map(sId => {
+                    const s = settings.find(item => item.id === sId);
+                    if (!s) return '';
+
+                    const isVp = Boolean(s.is_vendor_purchase);
+                    const isMirrorEnabled = s.mirror_to_cashbook !== false && s.mirror_to_cashbook !== 0 && s.mirror_to_cashbook !== '0';
+
+                    const amt = parseFloat(activeDayData[sId]) || 0;
+                    let effectiveAmt = amt;
+
+                    if (isVp) {
+                        const vpSum = (s.vendor_purchase_summary) || {};
+                        const paymentType = s.vendor_purchase_payment_type || vpSum.payment_type || '';
+                        if (paymentType === 'cash') {
+                            effectiveAmt = typeof vpSum.cash_amount === 'number' ? vpSum.cash_amount : (typeof vpSum.total_amount === 'number' ? vpSum.total_amount : amt);
+                        } else if (paymentType === 'credit') {
+                            effectiveAmt = typeof vpSum.credit_amount === 'number' ? vpSum.credit_amount : (typeof vpSum.total_amount === 'number' ? vpSum.total_amount : amt);
+                        } else {
+                            effectiveAmt = typeof vpSum.total_amount === 'number' ? vpSum.total_amount : amt;
+                        }
+                    }
+
+                    const isMinus = !subIsIncome || s.is_sales_deduction || s.payable_direction === 'minus';
+                    if (isMinus) {
+                        subTotal -= effectiveAmt;
+                        hTotal -= effectiveAmt;
+                    } else {
+                        subTotal += effectiveAmt;
+                        hTotal += effectiveAmt;
+                    }
+
+                    if (isVp || !isMirrorEnabled) return '';
+
+                    const name = s.name || 'Item';
+                    let subText = '';
+                    if (name.toLowerCase() === 'cash' || name.toLowerCase() === 'cash sales') {
+                        subText = 'Remaining cash in shop';
+                    } else if (s.company_account_name) {
+                        subText = s.company_account_name;
+                    } else if (s.destination_label) {
+                        subText = s.destination_label;
+                    }
+                    const note = (activeDayData.notes && activeDayData.notes[sId]) ? activeDayData.notes[sId].trim() : '';
+
+                    const signPrefix = isMinus ? '−' : '+';
+                    const signBadgeClass = isMinus ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700';
+                    const signTextClass = isMinus ? 'text-rose-600' : 'text-emerald-700';
+
+                    return `
+                        <div class="flex items-start justify-between gap-2 py-1 pl-2">
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <span class="inline-flex items-center justify-center w-3 h-3 rounded-xs text-[8px] font-black ${signBadgeClass} shrink-0">${signPrefix}</span>
+                                    <span class="text-xs font-semibold text-slate-700 leading-tight truncate">${escapeHtml(name)}</span>
+                                </div>
+                                ${subText ? `<span class="text-[10px] text-slate-400 font-medium block leading-tight mt-0.5 ml-4.5 truncate">${escapeHtml(subText)}</span>` : ''}
+                                ${note ? `<span class="text-[10px] text-emerald-600 font-medium block leading-tight mt-0.5 ml-4.5 truncate">${escapeHtml(note)}</span>` : ''}
+                            </div>
+                            <span class="font-mono text-xs font-black shrink-0 ${amt > 0 ? (isMinus ? 'text-rose-600' : 'text-slate-900') : 'text-slate-400'}">
+                                ${amt > 0 ? `<span class="${signTextClass} mr-0.5 font-bold">${signPrefix}</span>${formatCurrency(amt, false)}` : formatCurrency(amt, false)}
+                            </span>
+                        </div>
+                    `;
+                }).filter(Boolean).join('');
+
+                const subPRows = productRowsState[sub.id] || [];
+                const subProductLines = subPRows.map(pr => {
+                    const pAmt = parseFloat(pr.amount) || 0;
+                    const pQty = parseFloat(pr.qty);
+                    const hasQty = !isNaN(pQty) && pQty > 0;
+                    if (!subIsIncome) {
+                        subTotal -= pAmt;
+                        hTotal -= pAmt;
+                    } else {
+                        subTotal += pAmt;
+                        hTotal += pAmt;
+                    }
+                    const avgStr = (hasQty && pAmt > 0) ? ` @ ₹${(pAmt / pQty).toFixed(2)}/${escapeHtml(pr.unit || 'unit')}` : '';
+                    const qtySubtitle = hasQty ? `${pQty} ${escapeHtml(pr.unit || '')}${avgStr}` : (pr.sku || '');
+                    const itemBadge = subIsIncome
+                        ? '<span class="inline-flex items-center justify-center w-3 h-3 rounded-xs text-[8px] font-black bg-emerald-100 text-emerald-700 shrink-0">+</span>'
+                        : '<span class="inline-flex items-center justify-center w-3 h-3 rounded-xs text-[8px] font-black bg-rose-100 text-rose-700 shrink-0">−</span>';
+                    const signSpan = subIsIncome
+                        ? `<span class="text-emerald-700 mr-0.5 font-bold">+</span>`
+                        : `<span class="text-rose-600 mr-0.5 font-bold">−</span>`;
+                    const amtTextClass = subIsIncome ? 'text-slate-900' : 'text-rose-600 font-bold';
+                    return `
+                        <div class="flex items-start justify-between gap-2 py-1 pl-2">
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-1.5">
+                                    ${itemBadge}
+                                    <span class="text-xs font-semibold text-slate-700 leading-tight truncate">${escapeHtml(pr.productName)}</span>
+                                </div>
+                                ${qtySubtitle ? `<span class="text-[10px] text-slate-400 font-medium block leading-tight mt-0.5 ml-4.5 truncate">${escapeHtml(qtySubtitle)}</span>` : ''}
+                            </div>
+                            <span class="font-mono text-xs font-black shrink-0 ${pAmt > 0 ? amtTextClass : 'text-slate-400'}">
+                                ${pAmt > 0 ? `${signSpan}${formatCurrency(pAmt, false)}` : formatCurrency(pAmt, false)}
+                            </span>
+                        </div>
+                    `;
+                }).join('');
+
+                const isExpanded = !!subHeaderCollapseState[sub.id];
+                const subTotalFormatted = formatCurrency(Math.abs(subTotal));
+                const subSignPrefix = subIsIncome ? '+' : '−';
+                const subSignTextClass = subIsIncome ? 'text-emerald-700' : 'text-rose-600';
+                const subTotalClass = subIsIncome ? 'text-emerald-700' : 'text-rose-700 font-black';
+
+                const subNoItems = (!subSettingLines && !subProductLines)
+                    ? '<div class="py-1 pl-5 text-[11px] text-slate-400 italic">No entries in this sub-header</div>'
+                    : '';
+
+                return `
+                    <div class="border-t border-slate-100/90 pt-1.5 mt-1.5">
+                        <!-- Sub-Header Accordion Toggle Row -->
+                        <div class="flex items-center justify-between gap-2 py-1 cursor-pointer hover:bg-slate-50/90 rounded-lg px-1 transition select-none"
+                             onclick="toggleSubHeaderAccordion('${sub.id}', event)">
+                            <div class="min-w-0 flex-1 flex items-center gap-2">
+                                <span class="inline-flex items-center justify-center w-4 h-4 rounded-xs text-[10px] font-black ${isExpanded ? 'bg-slate-200 text-slate-900 border border-slate-300' : 'bg-slate-100 text-slate-700 border border-slate-200'} shrink-0">
+                                    ${isExpanded ? '−' : '+'}
+                                </span>
+                                <span class="text-xs font-black uppercase text-slate-900 tracking-tight truncate">${escapeHtml(sub.name)}</span>
+                            </div>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <span class="font-mono text-xs font-black ${subTotal !== 0 ? subTotalClass : 'text-slate-400'}">
+                                    ${subTotal !== 0 ? `<span class="${subSignTextClass} mr-0.5 font-bold">${subSignPrefix}</span>${subTotalFormatted}` : formatCurrency(0, false)}
+                                </span>
+                                <button type="button" onclick="event.stopPropagation(); selectHeaderForEntry('${sub.id}', '${h.id}')"
+                                        class="text-[9px] font-bold text-slate-400 hover:text-emerald-700 px-1.5 py-0.5 rounded bg-slate-50 hover:bg-emerald-50 transition border border-slate-200/50">
+                                    Edit
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Sub-Header Expanded Children -->
+                        ${isExpanded ? `
+                            <div class="pl-3 pr-1 pt-1 pb-1 space-y-0.5 border-l-2 border-slate-200/80 ml-2 mt-1">
+                                ${subSettingLines}
+                                ${subProductLines}
+                                ${subNoItems}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            const noProductsPrompt = (h.product_tagging_enabled && pRows.length === 0 && (h.setting_ids || []).length === 0 && (!h.sub_headers || h.sub_headers.length === 0))
                 ? `<div class="py-1 text-[11px] text-slate-400 italic">No products recorded yet (tap to add)</div>`
                 : '';
 
@@ -970,6 +1253,7 @@
                     <div class="space-y-0.5 divide-y divide-slate-50">
                         ${childLines}
                         ${productLines}
+                        ${subHeadersHtml}
                         ${noProductsPrompt}
                     </div>
 
@@ -1031,7 +1315,6 @@
             let hTotal = 0;
 
             const settingLines = (h.setting_ids || []).map(sId => {
-                // Skip settings owned by the SALARY section — they appear in their own section.
                 if (salarySectionSettingIds.includes(sId)) return '';
                 const amt = parseFloat(activeDayData[sId]) || 0;
                 if (amt <= 0) return '';
@@ -1088,7 +1371,88 @@
                 `;
             }).filter(Boolean).join('');
 
-            if (!settingLines && !productLines) {
+            const subSections = (h.sub_headers || []).map(sub => {
+                const subIsIncome = (sub.type || '').toLowerCase() === 'income';
+                let subTotal = 0;
+
+                const subSettingLines = (sub.setting_ids || []).map(sId => {
+                    if (salarySectionSettingIds.includes(sId)) return '';
+                    const amt = parseFloat(activeDayData[sId]) || 0;
+                    if (amt <= 0) return '';
+                    const s = settings.find(item => item.id === sId);
+                    const name = s ? s.name : 'Item';
+                    const isMinus = !subIsIncome || (s && (s.is_sales_deduction || s.payable_direction === 'minus'));
+
+                    if (isMinus) {
+                        subTotal -= amt;
+                        hTotal -= amt;
+                    } else {
+                        subTotal += amt;
+                        hTotal += amt;
+                    }
+
+                    const signPrefix = isMinus ? '−' : '+';
+                    const signBadgeClass = isMinus ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700';
+
+                    return `
+                        <div class="flex justify-between py-1 text-slate-700 font-medium pl-3">
+                            <div class="flex items-center gap-1.5 min-w-0">
+                                <span class="inline-flex items-center justify-center w-3 h-3 rounded-xs text-[8px] font-black ${signBadgeClass} shrink-0">${signPrefix}</span>
+                                <span class="truncate">${escapeHtml(name)}</span>
+                            </div>
+                            <span class="font-mono font-bold ${isMinus ? 'text-rose-600' : 'text-slate-900'}">${isMinus ? '− ' : '+ '}${formatCurrency(amt, false)}</span>
+                        </div>
+                    `;
+                }).filter(Boolean).join('');
+
+                const subPRows = productRowsState[sub.id] || [];
+                const subProductLines = subPRows.map(pr => {
+                    const pAmt = parseFloat(pr.amount) || 0;
+                    const pQty = parseFloat(pr.qty);
+                    const hasQty = !isNaN(pQty) && pQty > 0;
+                    if (pAmt <= 0 && !hasQty) return '';
+                    if (!subIsIncome) {
+                        subTotal -= pAmt;
+                        hTotal -= pAmt;
+                    } else {
+                        subTotal += pAmt;
+                        hTotal += pAmt;
+                    }
+                    const avgStr = (hasQty && pAmt > 0) ? ` @ ₹${(pAmt / pQty).toFixed(2)}/${escapeHtml(pr.unit || 'unit')}` : '';
+                    const qtySubtitle = hasQty ? ` <span class="text-[10px] text-slate-400 font-normal">(${pQty} ${escapeHtml(pr.unit || '')}${avgStr})</span>` : '';
+                    const itemBadge = subIsIncome
+                        ? '<span class="inline-flex items-center justify-center w-3 h-3 rounded-xs text-[8px] font-black bg-emerald-100 text-emerald-700 shrink-0">+</span>'
+                        : '<span class="inline-flex items-center justify-center w-3 h-3 rounded-xs text-[8px] font-black bg-rose-100 text-rose-700 shrink-0">−</span>';
+                    const itemSign = subIsIncome ? '+ ' : '− ';
+                    const itemClass = subIsIncome ? 'text-slate-900' : 'text-rose-600 font-bold';
+                    return `
+                        <div class="flex justify-between py-1 text-slate-700 font-medium pl-3">
+                            <div class="flex items-center gap-1.5 min-w-0">
+                                ${itemBadge}
+                                <span class="truncate">${escapeHtml(pr.productName)}${qtySubtitle}</span>
+                            </div>
+                            <span class="font-mono font-bold ${itemClass}">${itemSign}${formatCurrency(pAmt, false)}</span>
+                        </div>
+                    `;
+                }).filter(Boolean).join('');
+
+                if (!subSettingLines && !subProductLines) return '';
+
+                return `
+                    <div class="pt-2">
+                        <div class="flex justify-between text-xs font-black uppercase text-slate-700 border-b border-slate-100 pb-1">
+                            <span>${escapeHtml(sub.name)}</span>
+                            <span class="font-mono">${formatCurrency(subTotal)}</span>
+                        </div>
+                        <div class="space-y-0.5">
+                            ${subSettingLines}
+                            ${subProductLines}
+                        </div>
+                    </div>
+                `;
+            }).filter(Boolean).join('');
+
+            if (!settingLines && !productLines && !subSections) {
                 return '';
             }
 
@@ -1104,6 +1468,7 @@
                     <div class="space-y-0.5 text-xs">
                         ${settingLines}
                         ${productLines}
+                        ${subSections}
                     </div>
                     <div class="flex justify-between border-t border-slate-100 pt-1.5 text-[11px] font-bold text-slate-500">
                         <span>Subtotal</span>
@@ -1163,7 +1528,7 @@
     async function saveActiveHeaderEntries() {
         if (isSubmitting || !activeHeaderId) return;
 
-        const header = headers.find(h => String(h.id) === activeHeaderId);
+        const header = findHeaderOrSubHeader(activeHeaderId);
         if (!header) return;
 
         if (!validateOwnerNotes(header.setting_ids)) {
@@ -1204,7 +1569,7 @@
 
         const requestPayload = {
             business_date: '{{ $selectedDate->toDateString() }}',
-            header_group_id: parseInt(activeHeaderId),
+            header_group_id: parseInt(header.source_id || activeHeaderId),
             entries: entriesPayload
         };
 
@@ -1349,7 +1714,7 @@
 
     function changeOwnerProductRow(hId, oldProductId) {
         replacingProductId = oldProductId;
-        const h = headers.find(header => String(header.id) === String(hId));
+        const h = findHeaderOrSubHeader(hId);
         openOwnerProductModal(hId, h ? h.name : 'Header');
         const titleEl = document.getElementById('owner-product-modal-title');
         if (titleEl) {
@@ -1434,7 +1799,7 @@
         const container = document.getElementById('product-rows-container-' + hId);
         if (!container) return;
 
-        const header = headers.find(h => String(h.id) === String(hId));
+        const header = findHeaderOrSubHeader(hId);
         const isExpense = header && (header.type || '').toLowerCase() === 'expense';
 
         const rows = productRowsState[hId] || [];
@@ -1575,7 +1940,7 @@
         const pId = Number(productId);
         const badgeEl = document.getElementById(`avg-price-badge-${hId}-${pId}`);
         if (!badgeEl) return;
-        const header = headers.find(h => String(h.id) === String(hId));
+        const header = findHeaderOrSubHeader(hId);
         const isExpense = header && (header.type || '').toLowerCase() === 'expense';
         const qty = parseFloat(row.qty !== undefined && row.qty !== '' ? row.qty : (row.quantity || 0));
         const amt = parseFloat(row.amount) || 0;

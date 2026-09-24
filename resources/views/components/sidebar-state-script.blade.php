@@ -55,11 +55,15 @@
         const openSidebar = () => {
             sidebar.classList.remove('-translate-x-full');
             overlay.classList.remove('hidden');
+            if (window.innerWidth < 1024) {
+                document.body.classList.add('overflow-hidden');
+            }
         };
 
         const closeSidebar = () => {
             sidebar.classList.add('-translate-x-full');
             overlay.classList.add('hidden');
+            document.body.classList.remove('overflow-hidden');
         };
 
         openButton.addEventListener('click', () => {

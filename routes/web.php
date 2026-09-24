@@ -916,8 +916,9 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/export/csv', [CashbookController::class, 'exportReportsCsv'])->name('reports.export.csv');
             Route::get('reports/export/excel', [CashbookController::class, 'exportReportsExcel'])->name('reports.export.excel');
             Route::get('reports/export/pdf', [CashbookController::class, 'exportReportsPdf'])->name('reports.export.pdf');
-            Route::get('payables', [CashbookController::class, 'payables'])->name('payables');
             Route::get('money-flow', [CashbookController::class, 'moneyFlow'])->name('money-flow');
+            Route::get('money-flow/clients/{client}', [CashbookController::class, 'moneyFlowClient'])->name('money-flow.client');
+            Route::get('money-flow/direct-shops', [CashbookController::class, 'moneyFlowDirectShops'])->name('money-flow.direct-shops');
             Route::get('transactions/{transaction}', [CashbookController::class, 'showTransaction'])->name('transaction.show');
             Route::get('transactions/{transaction}/edit', [CashbookController::class, 'editTransaction'])->name('transaction.edit');
             Route::put('transactions/{transaction}', [CashbookController::class, 'updateTransaction'])->name('transaction.update');
@@ -1050,6 +1051,11 @@ Route::middleware('auth')->group(function () {
             Route::get('shops/{shop}/financial-ledger', [CashbookController::class, 'financialLedger'])->name('shop.financial-ledger');
             Route::post('shops/{shop}/financial-ledger/update', [CashbookController::class, 'updateFinancialLedgerEntry'])->name('shop.financial-ledger.update');
             Route::post('shops/{shop}/financial-ledger/delete', [CashbookController::class, 'deleteFinancialLedgerEntry'])->name('shop.financial-ledger.delete');
+            Route::get('shops/{shop}/cashbook-layout', [CashbookController::class, 'shopCashbookLayout'])->name('shop.cashbook-layout');
+            Route::post('shops/{shop}/cashbook-layout/save', [CashbookController::class, 'saveShopCashbookLayout'])->name('shop.cashbook-layout.save');
+            Route::post('shops/{shop}/cashbook-layout/reset', [CashbookController::class, 'resetShopCashbookLayout'])->name('shop.cashbook-layout.reset');
+            Route::get('shops/{shop}/cashbook-view', [CashbookController::class, 'shopCashbookLayout'])->name('shop.cashbook-view');
+            Route::post('shops/{shop}/cashbook-view/save-layout', [CashbookController::class, 'saveShopCashbookLayout'])->name('shop.cashbook-view.save-layout');
             Route::get('shops/{shop}/sales-report/pdf', [CashbookController::class, 'exportSalesReportPdf'])->name('shop.sales-report.pdf');
             Route::get('shops/{shop}/sales-report/excel', [CashbookController::class, 'exportSalesReportExcel'])->name('shop.sales-report.excel');
             Route::get('shops/{shop}/sales-report/csv', [CashbookController::class, 'exportSalesReportCsv'])->name('shop.sales-report.csv');

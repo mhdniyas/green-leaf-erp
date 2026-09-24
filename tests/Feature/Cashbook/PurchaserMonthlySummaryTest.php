@@ -415,15 +415,17 @@ class PurchaserMonthlySummaryTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.monthly-summary.index'));
         $response->assertOk();
 
-        // Must see Monthly Reports parent
-        $response->assertSee('Monthly Reports');
+        // Must see Reports parent and sub-hierarchy
+        $response->assertSee('Reports');
+        $response->assertSee('1. Monthly Financials');
         $response->assertSee('Shop Monthly Closing');
         $response->assertSee('Purchase Month');
 
-        // Verify Shop Monthly Closing page also shows Monthly Reports
+        // Verify Shop Monthly Closing page also shows Reports and sub-hierarchy
         $shopResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.monthly-closing-summary.index'));
         $shopResponse->assertOk();
-        $shopResponse->assertSee('Monthly Reports');
+        $shopResponse->assertSee('Reports');
+        $shopResponse->assertSee('1. Monthly Financials');
         $shopResponse->assertSee('Shop Monthly Closing');
         $shopResponse->assertSee('Purchase Month');
     }

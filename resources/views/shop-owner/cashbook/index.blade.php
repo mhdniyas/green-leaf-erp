@@ -18,126 +18,17 @@
     $accountsList = $companyAccounts ?? collect();
     $headerGroupList = $headerGroups ?? collect();
 
-    // Sort settings by header_display_order or display_order
-    $sortedSettings = $settings->sortBy(fn ($s) => (int) ($s->header_display_order ?? $s->entryType?->display_order ?? $s->display_order))->values();
+    // Group settings by header
+    $settingsByHeader = $settings->groupBy(fn ($s) => (int) ($s->header_group_id ?? 0));
 
-    // Group settings by header_group_id
-    $settingsByHeader = $sortedSettings->groupBy(fn ($s) => (int) ($s->header_group_id ?? 0));
-
-    $ownerHeaderSections = collect();
-
-    // 1. Process explicit saved headers in display_order
-    foreach ($headerGroupList->sortBy('display_order') as $hg) {
-        $hgId = (int) $hg->id;
-        $headerSettings = $settingsByHeader->get($hgId, collect())->values();
-
-        if ($headerSettings->isNotEmpty() || $hg->product_tagging_enabled) {
-            $ownerHeaderSections->push([
-                'id' => (string) $hgId,
-                'name' => $hg->name,
-                'type' => strtolower((string) ($hg->type ?? 'income')),
-                'display_order' => (int) ($hg->display_order ?? 0),
-                'product_tagging_enabled' => (bool) ($hg->product_tagging_enabled ?? false),
-                'show_both_sides' => (bool) ($hg->show_both_sides ?? false),
-                'settings' => $headerSettings,
-            ]);
-        }
-    }
-
-    // 2. Process unassigned settings (header_group_id == 0 or not matching any saved header)
-    $assignedHeaderIds = $headerGroupList->pluck('id')->map(fn($id) => (int) $id)->all();
-    $unassignedSettings = $sortedSettings->reject(function ($s) use ($assignedHeaderIds) {
-        return $s->header_group_id && in_array((int) $s->header_group_id, $assignedHeaderIds, true);
-    })->values();
-
-    if ($unassignedSettings->isNotEmpty()) {
-        $unassignedTransfers = $unassignedSettings->filter(function ($s) {
-            $cat = strtolower((string) ($s->entryType?->category ?? ''));
-            return $cat === 'transfer' || $cat === 'settlement';
-        })->values();
-
-        $unassignedIncome = $unassignedSettings->filter(function ($s) use ($unassignedTransfers) {
-            if ($unassignedTransfers->contains('id', $s->id)) return false;
-            $cat = strtolower((string) ($s->entryType?->category ?? ''));
-            return $cat === 'income' || $s->include_in_sales || $s->include_in_income;
-        })->values();
-
-        $unassignedExpense = $unassignedSettings->reject(function ($s) use ($unassignedIncome, $unassignedTransfers) {
-            return $unassignedIncome->contains('id', $s->id) || $unassignedTransfers->contains('id', $s->id);
-        })->values();
-
-        if ($unassignedIncome->isNotEmpty()) {
-            $ownerHeaderSections->push([
-                'id' => 'unassigned_income',
-                'name' => 'OTHER INCOME',
-                'type' => 'income',
-                'display_order' => 9998,
-                'product_tagging_enabled' => false,
-                'show_both_sides' => false,
-                'settings' => $unassignedIncome,
-            ]);
-        }
-
-        if ($unassignedExpense->isNotEmpty()) {
-            $ownerHeaderSections->push([
-                'id' => 'unassigned_expense',
-                'name' => 'OTHER EXPENSES',
-                'type' => 'expense',
-                'display_order' => 9999,
-                'product_tagging_enabled' => false,
-                'show_both_sides' => false,
-                'settings' => $unassignedExpense,
-            ]);
-        }
-
-        if ($unassignedTransfers->isNotEmpty()) {
-            $ownerHeaderSections->push([
-                'id' => 'unassigned_transfers',
-                'name' => 'TRANSFERS & SETTLEMENTS',
-                'type' => 'expense',
-                'display_order' => 10000,
-                'product_tagging_enabled' => false,
-                'show_both_sides' => false,
-                'settings' => $unassignedTransfers,
-            ]);
-        }
-    }
-
-    // Fallback: If no headers produced, wrap all settings in default headers
-    if ($ownerHeaderSections->isEmpty() && $sortedSettings->isNotEmpty()) {
-        $incomeSet = $sortedSettings->filter(function ($s) {
-            $cat = strtolower((string) ($s->entryType?->category ?? ''));
-            return $cat === 'income' || $s->include_in_sales || $s->include_in_income;
-        })->values();
-        $expenseSet = $sortedSettings->reject(fn($s) => $incomeSet->contains('id', $s->id))->values();
-
-        if ($incomeSet->isNotEmpty()) {
-            $ownerHeaderSections->push([
-                'id' => 'default_sales',
-                'name' => 'SALES',
-                'type' => 'income',
-                'display_order' => 1,
-                'product_tagging_enabled' => false,
-                'show_both_sides' => false,
-                'settings' => $incomeSet,
-            ]);
-        }
-        if ($expenseSet->isNotEmpty()) {
-            $ownerHeaderSections->push([
-                'id' => 'default_expense',
-                'name' => 'SHOP EXPENSES',
-                'type' => 'expense',
-                'display_order' => 2,
-                'product_tagging_enabled' => false,
-                'show_both_sides' => false,
-                'settings' => $expenseSet,
-            ]);
-        }
-    }
+    // Use ShopCashbookUiLayoutService to resolve visual UI layout (display names, custom ordering, sub-headers)
+    $uiLayoutService = app(\App\Services\Cashbook\ShopCashbookUiLayoutService::class);
+    $resolvedLayout = $uiLayoutService->getResolvedLayout((int) $shop->id, $headerGroupList, $settings);
+    $ownerHeaderSections = collect($resolvedLayout['headers']);
 
     // Priority Sort: Income headers first, then Expense headers (include show_both_sides in both)
-    $incomeHeaders = $ownerHeaderSections->filter(fn($h) => $h['type'] === 'income' || ! empty($h['show_both_sides']))->sortBy('display_order')->values();
-    $expenseHeaders = $ownerHeaderSections->filter(fn($h) => $h['type'] === 'expense' || ! empty($h['show_both_sides']))->sortBy('display_order')->values();
+    $incomeHeaders = $ownerHeaderSections->filter(fn($h) => $h['type'] === 'income' || ! empty($h['show_both_sides']))->values();
+    $expenseHeaders = $ownerHeaderSections->filter(fn($h) => $h['type'] === 'expense' || ! empty($h['show_both_sides']))->values();
 
     // Serialize metadata for JS calculation engine
     $settingsJson = $settings->map(function ($s) use ($vendorPurchaseSummaries) {
@@ -260,13 +151,34 @@
     })->values()->all();
 
     $headersJson = $ownerHeaderSections->map(function ($hs) {
+        $subHeadersJson = collect($hs['sub_headers'] ?? [])->map(function ($sub) {
+            return [
+                'id' => (string) $sub['id'],
+                'source_id' => $sub['source_id'] ?? null,
+                'name' => (string) ($sub['display_name'] ?? $sub['original_name'] ?? ''),
+                'display_name' => (string) ($sub['display_name'] ?? $sub['original_name'] ?? ''),
+                'original_name' => (string) ($sub['original_name'] ?? ''),
+                'type' => $sub['type'] ?? 'income',
+                'product_tagging_enabled' => (bool) ($sub['product_tagging_enabled'] ?? false),
+                'setting_ids' => collect($sub['settings'])->pluck('id')->map(fn($id) => (int)$id)->all(),
+                'products' => $sub['products'] ?? [],
+                'product_ids' => collect($sub['products'] ?? [])->pluck('id')->map(fn($id) => (int)$id)->all(),
+            ];
+        })->values()->all();
+
         return [
             'id' => (string) $hs['id'],
-            'name' => $hs['name'],
+            'source_id' => $hs['source_id'] ?? null,
+            'name' => (string) ($hs['display_name'] ?? $hs['original_name'] ?? ''),
+            'display_name' => (string) ($hs['display_name'] ?? $hs['original_name'] ?? ''),
+            'original_name' => (string) ($hs['original_name'] ?? ''),
             'type' => $hs['type'],
             'product_tagging_enabled' => (bool) ($hs['product_tagging_enabled'] ?? false),
             'show_both_sides' => (bool) ($hs['show_both_sides'] ?? false),
-            'setting_ids' => $hs['settings']->pluck('id')->map(fn($id) => (int)$id)->all(),
+            'sub_headers' => $subHeadersJson,
+            'setting_ids' => collect($hs['settings'])->pluck('id')->map(fn($id) => (int)$id)->all(),
+            'products' => $hs['products'] ?? [],
+            'product_ids' => collect($hs['products'] ?? [])->pluck('id')->map(fn($id) => (int)$id)->all(),
         ];
     })->values()->all();
 

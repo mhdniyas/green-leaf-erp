@@ -4,16 +4,26 @@
         {{-- Header Top Bar --}}
         <div class="flex items-center justify-between border-b border-slate-100 pb-2.5 gap-2 shrink-0">
             <div class="flex items-center gap-2 min-w-0 flex-1">
-                <button type="button" aria-label="Back" onclick="closeHeaderEntrySheet()"
-                        class="h-8 w-8 min-h-[32px] min-w-[32px] inline-flex items-center justify-center rounded-full bg-slate-100 border border-slate-200/80 active:scale-95 transition cursor-pointer shrink-0 sm:hidden">
-                    <img src="{{ asset('images/greenleaf-logo.png') }}" alt="GL" class="h-4 w-4 object-contain">
+                {{-- In-Sheet Back Button (Visible when focused on a nested sub-header) --}}
+                <button type="button" aria-label="Back to parent header" id="entry-sheet-back-btn" onclick="navigateBackToParentHeader()"
+                        class="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 active:scale-95 transition cursor-pointer shrink-0 hidden">
+                    <i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>
+                    <span class="text-xs font-bold">Back</span>
                 </button>
-                <div class="w-7 h-7 rounded-full bg-white border border-slate-200/80 shadow-2xs flex items-center justify-center shrink-0 hidden sm:flex">
+
+                {{-- Shop/Header Logo --}}
+                <div id="entry-sheet-logo-wrap" class="w-7 h-7 rounded-full bg-white border border-slate-200/80 shadow-2xs flex items-center justify-center shrink-0">
                     <img src="{{ asset('images/greenleaf-logo.png') }}" alt="GL" class="h-4 w-4 object-contain">
                 </div>
-                <h3 class="text-xs sm:text-sm font-black uppercase tracking-wide text-slate-900 truncate" id="entry-sheet-title">
-                    HEADER TITLE
-                </h3>
+
+                <div class="min-w-0 flex-1">
+                    <div id="entry-sheet-parent-badge" class="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-wider truncate hidden leading-tight">
+                        PARENT HEADER
+                    </div>
+                    <h3 class="text-xs sm:text-sm font-black uppercase tracking-wide text-slate-900 truncate" id="entry-sheet-title">
+                        HEADER TITLE
+                    </h3>
+                </div>
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
                 <span class="font-mono text-xs font-black text-slate-950 px-2.5 py-1 bg-slate-100 rounded-full border border-slate-200/60" id="entry-sheet-subtotal">
@@ -28,8 +38,46 @@
 
         {{-- Entry Form Scrollable Body --}}
         <div class="space-y-2 overflow-y-auto flex-1 pr-0.5 py-0.5" id="entry-sheet-body">
-            @foreach($ownerHeaderSections as $hSec)
+            @php
+                $allEntrySections = collect();
+                foreach ($ownerHeaderSections as $hSec) {
+                    $allEntrySections->push($hSec);
+                    if (! empty($hSec['sub_headers'])) {
+                        foreach ($hSec['sub_headers'] as $sub) {
+                            $allEntrySections->push($sub);
+                        }
+                    }
+                }
+            @endphp
+
+            @foreach($allEntrySections as $hSec)
                 <div id="header-form-section-{{ $hSec['id'] }}" class="space-y-1.5 hidden">
+                    @if(!empty($hSec['sub_headers']))
+                        <div class="space-y-1.5 mb-2">
+                            @foreach($hSec['sub_headers'] as $sub)
+                                @php
+                                    $subDisplayName = $sub['display_name'] ?? $sub['name'];
+                                    $subFirstLetter = strtoupper(substr($subDisplayName, 0, 1));
+                                @endphp
+                                <div onclick="selectHeaderForEntry('{{ $sub['id'] }}', '{{ $hSec['id'] }}')"
+                                     class="p-2 sm:p-2.5 rounded-xl bg-slate-50/80 hover:bg-emerald-50/40 border border-slate-200/80 hover:border-emerald-300 flex items-center justify-between gap-2 transition cursor-pointer group shadow-2xs">
+                                    <div class="min-w-0 flex-1 flex items-center gap-2">
+                                        <div class="w-6 h-6 rounded-full bg-white text-slate-700 border border-slate-200 shadow-2xs flex items-center justify-center font-black text-[11px] uppercase shrink-0">
+                                            {{ $subFirstLetter }}
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <span class="text-xs font-bold text-slate-900 group-hover:text-emerald-700 transition truncate block">{{ $subDisplayName }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-1 shrink-0 text-slate-400 group-hover:text-emerald-700 transition font-bold text-xs">
+                                        <span>Open</span>
+                                        <i data-lucide="arrow-right" class="h-3.5 w-3.5"></i>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+
                     @foreach($hSec['settings'] as $s)
                         @php
                             $cat = strtolower((string) ($s->entryType?->category ?? ''));
@@ -179,7 +227,7 @@
                         <div class="pt-2 border-t border-slate-100 space-y-1.5">
                             <div class="flex items-center justify-between">
                                 <span class="text-[10px] font-black uppercase text-slate-400 tracking-wider">Product Items</span>
-                                <button type="button" onclick='openOwnerProductModal(@json($hSec["id"]), @json($hSec["name"]))'
+                                <button type="button" onclick="openOwnerProductModal('{{ $hSec['id'] }}', '{{ addslashes($hSec['display_name'] ?? $hSec['name']) }}')"
                                         class="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 hover:bg-emerald-100 transition cursor-pointer active:scale-95">
                                     <i data-lucide="plus" class="h-3 w-3"></i> Add Product
                                 </button>

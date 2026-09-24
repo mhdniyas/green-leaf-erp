@@ -209,20 +209,29 @@
         window.addEventListener('beforeprint', cashbookPageLoader.hide);
         window.addEventListener('afterprint', cashbookPageLoader.hide);
 
-        function toggleMobileSidebar() {
+        function toggleMobileSidebar(forcedState = null) {
             const sidebar = document.getElementById('main-sidebar');
             const backdrop = document.getElementById('sidebar-backdrop');
             if (sidebar && backdrop) {
-                const isHidden = sidebar.classList.contains('-translate-x-full');
-                if (isHidden) {
+                const isCurrentlyHidden = sidebar.classList.contains('-translate-x-full');
+                const shouldOpen = forcedState !== null ? forcedState : isCurrentlyHidden;
+                if (shouldOpen) {
                     sidebar.classList.remove('-translate-x-full');
                     backdrop.classList.remove('hidden');
+                    document.body.classList.add('overflow-hidden');
                 } else {
                     sidebar.classList.add('-translate-x-full');
                     backdrop.classList.add('hidden');
+                    document.body.classList.remove('overflow-hidden');
                 }
             }
         }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                toggleMobileSidebar(false);
+            }
+        });
 
         document.addEventListener('DOMContentLoaded', () => {
             const shell = document.getElementById('cashbook-layout-shell');

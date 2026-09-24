@@ -53,6 +53,7 @@ use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Cashbook\ShopPaymentCompanyPayableMatch;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use App\Models\Category;
+use App\Models\Client;
 use App\Models\CompanyAccountingCategory;
 use App\Models\CompanyAccountingEntry;
 use App\Models\CompanyPayableSettlement;
@@ -102,6 +103,7 @@ use App\Services\Cashbook\ReconciliationTransactionQuery;
 use App\Services\Cashbook\RelationSettlementCalculator;
 use App\Services\Cashbook\ShopCashbookMonthConfigService;
 use App\Services\Cashbook\ShopCashbookMonthRecalculationService;
+use App\Services\Cashbook\ShopCashbookUiLayoutService;
 use App\Services\Cashbook\ShopCollectionAutoMatchService;
 use App\Services\Cashbook\ShopFinancialReportService;
 use App\Services\Cashbook\ShopPaymentLedgerReconciliationService;
@@ -1064,6 +1066,114 @@ final class CashbookController extends Controller
                 'message' => $exception->getMessage(),
             ], 422);
         }
+    }
+
+    public function shopCashbookLayout(
+        Request $request,
+        int|string $shop,
+        ShopCashbookUiLayoutService $uiLayoutService
+    ): View {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $currentShop = $this->resolveShop($shop);
+        $currentShop->load('client', 'preset', 'shop');
+        $shopModel = $currentShop->shop ?: Shop::findOrFail($currentShop->shop_id);
+
+        $settings = ShopLedgerEntrySetting::query()
+            ->with(['entryType:id,name,code,category', 'companyAccount:id,name,bank_name,account_number', 'headerGroup:id,name,type,cash_flow_mode,company_account_id,note_enabled,show_both_sides,product_tagging_enabled', 'vendorSettlementRelation:id,name', 'definedShopSuppliers.supplier'])
+            ->where('shop_id', (int) $shopModel->id)
+            ->where('enabled', true)
+            ->orderBy('display_order')
+            ->get();
+
+        $headerGroups = ShopLedgerHeaderGroup::query()
+            ->where('shop_id', (int) $shopModel->id)
+            ->where('enabled', true)
+            ->orderBy('display_order')
+            ->get();
+
+        $resolvedLayout = $uiLayoutService->getResolvedLayout((int) $shopModel->id, $headerGroups, $settings);
+
+        return view('admin.cashbook.shops.cashbook-layout', [
+            'shops' => $shops,
+            'currentShop' => $currentShop,
+            'shopModel' => $shopModel,
+            'resolvedHeaders' => $resolvedLayout['headers'],
+            'isCustomLayout' => $resolvedLayout['is_custom_layout'],
+            'headerGroups' => $headerGroups,
+            'settings' => $settings,
+        ]);
+    }
+
+    public function saveShopCashbookLayout(
+        Request $request,
+        int|string $shop,
+        ShopCashbookUiLayoutService $uiLayoutService
+    ): JsonResponse|RedirectResponse {
+        $this->ensureMainAdmin($request);
+
+        $currentShop = $this->resolveShop($shop);
+        $shopModel = $currentShop->shop ?: Shop::findOrFail($currentShop->shop_id);
+
+        $validated = $request->validate([
+            'layout' => ['nullable', 'array'],
+            'headers' => ['nullable', 'array'],
+            'sections' => ['nullable', 'array'],
+        ]);
+
+        try {
+            $headersPayload = $validated['headers'] ?? $validated['layout']['headers'] ?? $validated['sections'] ?? [];
+
+            // Save visual UI layout tree (with custom display names, sub-headers, and item positions)
+            $uiLayoutService->saveLayout((int) $shopModel->id, ['headers' => $headersPayload]);
+
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Shop Cashbook layout updated successfully.',
+                ]);
+            }
+
+            return redirect()
+                ->route('admin.cashbook.shop.cashbook-layout', $currentShop->slug ?: $currentShop->shop_id)
+                ->with('success', 'Shop Cashbook layout updated successfully.');
+        } catch (Throwable $exception) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $exception->getMessage(),
+                ], 422);
+            }
+
+            return redirect()
+                ->back()
+                ->with('error', $exception->getMessage());
+        }
+    }
+
+    public function resetShopCashbookLayout(
+        Request $request,
+        int|string $shop,
+        ShopCashbookUiLayoutService $uiLayoutService
+    ): JsonResponse|RedirectResponse {
+        $this->ensureMainAdmin($request);
+
+        $currentShop = $this->resolveShop($shop);
+        $shopModel = $currentShop->shop ?: Shop::findOrFail($currentShop->shop_id);
+
+        $uiLayoutService->resetLayout((int) $shopModel->id);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Shop Cashbook layout reset to default successfully.',
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.cashbook.shop.cashbook-layout', $currentShop->slug ?: $currentShop->shop_id)
+            ->with('success', 'Shop Cashbook layout reset to default successfully.');
     }
 
     public function salesReport(
@@ -5531,7 +5641,34 @@ final class CashbookController extends Controller
     /**
      * Money Flow Landing Page.
      */
+    /**
+     * Money Flow Landing Page (All Shops).
+     */
     public function moneyFlow(Request $request): View
+    {
+        return $this->renderMoneyFlowView($request, scope: 'all');
+    }
+
+    /**
+     * Money Flow Client Page (scoped to a specific dynamic client).
+     */
+    public function moneyFlowClient(Request $request, Client $client): View
+    {
+        return $this->renderMoneyFlowView($request, scope: 'client', client: $client);
+    }
+
+    /**
+     * Money Flow Direct Shops Page (scoped to shops without a client).
+     */
+    public function moneyFlowDirectShops(Request $request): View
+    {
+        return $this->renderMoneyFlowView($request, scope: 'direct');
+    }
+
+    /**
+     * Shared render handler for Money Flow views.
+     */
+    private function renderMoneyFlowView(Request $request, string $scope = 'all', ?Client $client = null): View
     {
         $this->ensureMainAdmin($request);
 
@@ -5542,10 +5679,109 @@ final class CashbookController extends Controller
         $shopId = $request->query('shop_id') ? (int) $request->query('shop_id') : null;
         $statusFilter = $request->query('status', 'all');
 
-        $moneySummary = $this->moneyPositionService->getMoneyPositionSummary($businessDate);
-        $moneyFlowItems = $this->moneyPositionService->getUnifiedMoneyFlowList($businessDate, $shopId, $statusFilter);
-        $shops = $this->shopSyncService->syncAndGetProfiles();
-        $shopCards = $this->moneyPositionService->getShopMoneyFlowCards($startDate, $endDate, $shopId, $statusFilter, $businessDate, $shops);
+        $allProfiles = ShopLedgerProfile::query()
+            ->where('enabled', true)
+            ->whereHas('shop', function ($query): void {
+                $query->where('status', 'active');
+            })
+            ->with(['shop.client', 'client'])
+            ->orderBy('name')
+            ->get();
+
+        if ($allProfiles->isEmpty()) {
+            $allProfiles = Shop::query()
+                ->where('status', 'active')
+                ->with('client')
+                ->orderBy('name')
+                ->get();
+        }
+
+        if ($scope === 'client' && $client !== null) {
+            $scopedShops = $allProfiles->filter(function ($p) use ($client) {
+                $shopClientId = (int) ($p->shop?->client_id ?? 0);
+                $erpClientId = (int) ($p->shop?->client?->id ?? ($p->client?->erp_client_id ?? 0));
+                $directClientId = (int) ($p->client_id ?? 0);
+
+                return $shopClientId === (int) $client->id || $erpClientId === (int) $client->id || $directClientId === (int) $client->id;
+            })->values();
+            $scopeTitle = $client->name;
+            $scopeSubtitle = 'Client-level shop financial & money flow overview';
+            $formRoute = route('admin.cashbook.money-flow.client', $client);
+            $currentRouteName = 'admin.cashbook.money-flow.client';
+            $routeParams = ['client' => $client->id];
+        } elseif ($scope === 'direct') {
+            $scopedShops = $allProfiles->filter(function ($p) {
+                $shopClientId = $p->shop?->client_id ?? null;
+                $erpClientId = $p->shop?->client?->id ?? ($p->client?->erp_client_id ?? null);
+                $directClientId = $p->client_id ?? null;
+
+                return empty($shopClientId) && empty($erpClientId) && empty($directClientId);
+            })->values();
+            $scopeTitle = 'Direct Shops';
+            $scopeSubtitle = 'Shops without a client relationship overview';
+            $formRoute = route('admin.cashbook.money-flow.direct-shops');
+            $currentRouteName = 'admin.cashbook.money-flow.direct-shops';
+            $routeParams = [];
+        } else {
+            $scopedShops = $allProfiles;
+            $scopeTitle = 'All Shops';
+            $scopeSubtitle = 'Unified real-time company money position & retail collection flows';
+            $formRoute = route('admin.cashbook.money-flow');
+            $currentRouteName = 'admin.cashbook.money-flow';
+            $routeParams = [];
+        }
+
+        $scopedShopIds = $scopedShops->map(fn ($p) => (int) ($p->shop_id ?? $p->id))->filter()->unique()->values()->all();
+
+        $precomputedCash = null;
+        $precomputedCheques = null;
+
+        if ($scope === 'all' && ! $shopId) {
+            $moneySummary = $this->moneyPositionService->getMoneyPositionSummary($businessDate);
+            $precomputedCash = $moneySummary['cash_with_shops'] ?? null;
+            $precomputedCheques = $moneySummary['floating_cheques'] ?? null;
+        }
+
+        $shopCards = $this->moneyPositionService->getShopMoneyFlowCards(
+            $startDate,
+            $endDate,
+            $shopId,
+            $statusFilter,
+            $businessDate,
+            $scopedShops,
+            $precomputedCash,
+            $precomputedCheques
+        );
+
+        if (! isset($moneySummary)) {
+            // Calculate scoped totals directly from the underlying shop data
+            $companyReceivedTotal = round((float) array_sum(array_column($shopCards, 'company_received')), 2);
+            $needsAttentionTotal = round((float) array_sum(array_column($shopCards, 'pending_verification')) + array_sum(array_column($shopCards, 'pending_acceptance')), 2);
+            $needsAttentionCount = (int) array_sum(array_column($shopCards, 'pending_operation_count'));
+            $cashWithShopsTotal = round((float) array_sum(array_column($shopCards, 'cash_with_shop')), 2);
+            $floatingChequesTotal = round((float) array_sum(array_column($shopCards, 'floating_cheques')), 2);
+            $floatingChequesCount = (int) array_sum(array_column($shopCards, 'floating_cheques_count'));
+
+            $moneySummary = [
+                'verified_company_money' => $companyReceivedTotal,
+                'pending_verification_total' => $needsAttentionTotal,
+                'pending_verification_count' => $needsAttentionCount,
+                'cash_with_shops' => [
+                    'total_cash_with_shops' => $cashWithShopsTotal,
+                ],
+                'floating_cheques' => [
+                    'total_floating' => $floatingChequesTotal,
+                    'floating_count' => $floatingChequesCount,
+                ],
+            ];
+        }
+
+        $moneyFlowItems = $this->moneyPositionService->getUnifiedMoneyFlowList(
+            $businessDate,
+            $shopId,
+            $statusFilter,
+            $scopedShopIds
+        );
 
         $page = LengthAwarePaginator::resolveCurrentPage();
         $perPage = 25;
@@ -5558,9 +5794,21 @@ final class CashbookController extends Controller
             ['path' => LengthAwarePaginator::resolveCurrentPath(), 'query' => $request->query()]
         );
 
-        $calendarData = $this->moneyPositionService->getMonthlyCalendarData($businessDate, $calendarMonth, $shopId);
+        $calendarData = $this->moneyPositionService->getMonthlyCalendarData(
+            $businessDate,
+            $calendarMonth,
+            $shopId,
+            $scopedShopIds
+        );
 
         return view('admin.cashbook.money-flow.index', [
+            'scope' => $scope,
+            'client' => $client,
+            'scopeTitle' => $scopeTitle,
+            'scopeSubtitle' => $scopeSubtitle,
+            'formRoute' => $formRoute,
+            'currentRouteName' => $currentRouteName,
+            'routeParams' => $routeParams,
             'businessDate' => $businessDate,
             'startDate' => $startDate,
             'endDate' => $endDate,
@@ -5570,7 +5818,8 @@ final class CashbookController extends Controller
             'shopCards' => $shopCards,
             'items' => $paginatedItems,
             'calendarData' => $calendarData,
-            'shops' => $shops,
+            'shops' => $scopedShops,
+            'allShops' => $allProfiles,
         ]);
     }
 

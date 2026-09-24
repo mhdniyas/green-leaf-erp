@@ -180,12 +180,17 @@ class CompanyMoneyPositionService
     /**
      * Calculate physical cash retained at shops not yet verified/handed over to company.
      *
+     * @param  array<int, int>|null  $shopIds
      * @return array{total_cash_with_shops: float, shops: array<int, array<string, mixed>>}
      */
-    public function getCashWithShopsBreakdown(?string $businessDate = null): array
+    public function getCashWithShopsBreakdown(?string $businessDate = null, ?array $shopIds = null): array
     {
         $businessDate = $businessDate ?? today()->toDateString();
-        $shops = Shop::query()->where('status', 'active')->orderBy('name')->get();
+        $shopsQuery = Shop::query()->where('status', 'active')->orderBy('name');
+        if ($shopIds !== null) {
+            $shopsQuery->whereIn('id', $shopIds);
+        }
+        $shops = $shopsQuery->get();
 
         // 1. Get latest closing shop positions from daily snapshots
         $snapshots = ShopDailyLedgerSnapshot::query()
@@ -201,10 +206,26 @@ class CompanyMoneyPositionService
             ->where('source_type', ShopLedgerTransaction::class)
             ->where('is_finalized', false)
             ->whereNotIn('status', ['superseded', 'duplicate_flagged'])
-            ->with(['sourceRecord.entryType', 'companyAccount'])
-            ->get()
-            ->filter(fn (CompanyAccountStatementEntry $stmt) => $stmt->companyAccount?->account_type === 'cash' || str_contains(strtolower((string) $stmt->sourceRecord?->entryType?->code), 'cash'))
-            ->groupBy(fn (CompanyAccountStatementEntry $stmt) => (int) ($stmt->sourceRecord?->shop_id ?? 0));
+            ->with('companyAccount')
+            ->get();
+
+        $sourceIds = $pendingCashStatements->pluck('source_id')->filter()->unique()->values();
+        $sourceTxs = $sourceIds->isEmpty()
+            ? collect()
+            : ShopLedgerTransaction::query()
+                ->whereIn('id', $sourceIds)
+                ->with('entryType')
+                ->get()
+                ->keyBy('id');
+
+        $pendingCashStatementsGrouped = $pendingCashStatements
+            ->filter(function (CompanyAccountStatementEntry $stmt) use ($sourceTxs) {
+                $tx = $sourceTxs->get($stmt->source_id);
+
+                return $stmt->companyAccount?->account_type === 'cash'
+                    || str_contains(strtolower((string) $tx?->entryType?->code), 'cash');
+            })
+            ->groupBy(fn (CompanyAccountStatementEntry $stmt) => (int) ($sourceTxs->get($stmt->source_id)?->shop_id ?? 0));
 
         $shopBreakdowns = [];
         $totalCashWithShops = 0.0;
@@ -213,7 +234,7 @@ class CompanyMoneyPositionService
             $snapshot = $snapshots->get($shop->id);
             $closingPosition = round((float) ($snapshot?->closing_shop_position ?? 0), 2);
 
-            $pendingStatementsForShop = $pendingCashStatements->get($shop->id, collect());
+            $pendingStatementsForShop = $pendingCashStatementsGrouped->get($shop->id, collect());
             $pendingHandoverAmount = round((float) $pendingStatementsForShop->sum('amount'), 2);
 
             // Cash with shop is the physical unremitted cash collected at the shop
@@ -241,13 +262,14 @@ class CompanyMoneyPositionService
     /**
      * Get active floating cheques summary and segregated status.
      *
+     * @param  array<int, int>|null  $shopIds
      * @return array{total_floating: float, cleared_today: float, rejected_total: float, floating_count: int, cheques: Collection}
      */
-    public function getFloatingChequesSummary(?string $businessDate = null): array
+    public function getFloatingChequesSummary(?string $businessDate = null, ?array $shopIds = null): array
     {
         $businessDate = $businessDate ?? today()->toDateString();
 
-        $floatingCheques = ShopInvoicePaymentRequest::query()
+        $floatingChequesQuery = ShopInvoicePaymentRequest::query()
             ->with(['shop', 'invoice', 'requestedBy'])
             ->where(function ($query): void {
                 $query->where('payment_method', 'cheque')
@@ -258,11 +280,15 @@ class CompanyMoneyPositionService
                 $query->whereNull('cheque_status')
                     ->orWhere('cheque_status', 'pending')
                     ->orWhereIn('reconciliation_status', ['pending', 'floating']);
-            })
-            ->latest('id')
-            ->get();
+            });
 
-        $clearedToday = (float) ShopInvoicePaymentRequest::query()
+        if ($shopIds !== null) {
+            $floatingChequesQuery->whereIn('shop_id', $shopIds);
+        }
+
+        $floatingCheques = $floatingChequesQuery->latest('id')->get();
+
+        $clearedTodayQuery = ShopInvoicePaymentRequest::query()
             ->where(function ($query): void {
                 $query->where('payment_method', 'cheque')
                     ->orWhere('payment_method', 'Cheque');
@@ -271,10 +297,15 @@ class CompanyMoneyPositionService
             ->where(function ($query) use ($businessDate): void {
                 $query->whereDate('updated_at', $businessDate)
                     ->orWhereDate('payment_date', $businessDate);
-            })
-            ->sum('reconciled_amount');
+            });
 
-        $rejectedTotal = (float) ShopInvoicePaymentRequest::query()
+        if ($shopIds !== null) {
+            $clearedTodayQuery->whereIn('shop_id', $shopIds);
+        }
+
+        $clearedToday = (float) $clearedTodayQuery->sum('reconciled_amount');
+
+        $rejectedTotalQuery = ShopInvoicePaymentRequest::query()
             ->where(function ($query): void {
                 $query->where('payment_method', 'cheque')
                     ->orWhere('payment_method', 'Cheque');
@@ -282,8 +313,13 @@ class CompanyMoneyPositionService
             ->where(function ($query): void {
                 $query->where('status', 'rejected')
                     ->orWhere('cheque_status', 'rejected');
-            })
-            ->sum('requested_amount');
+            });
+
+        if ($shopIds !== null) {
+            $rejectedTotalQuery->whereIn('shop_id', $shopIds);
+        }
+
+        $rejectedTotal = (float) $rejectedTotalQuery->sum('requested_amount');
 
         $totalFloating = round((float) $floatingCheques->sum(
             fn (ShopInvoicePaymentRequest $req): float => (float) $req->floating_amount > 0 ? (float) $req->floating_amount : (float) ($req->approved_amount ?: $req->requested_amount)
@@ -1002,13 +1038,20 @@ class CompanyMoneyPositionService
      *
      * @return array<int, array<string, mixed>>
      */
+    /**
+     * Get presentation-ready Shop Money Flow summary cards.
+     *
+     * @return array<int, array<string, mixed>>
+     */
     public function getShopMoneyFlowCards(
         ?string $startDate = null,
         ?string $endDate = null,
         ?int $shopId = null,
         ?string $statusFilter = null,
         ?string $businessDate = null,
-        mixed $shops = null
+        mixed $shops = null,
+        ?array $cashBreakdown = null,
+        ?array $floatingSummary = null
     ): array {
         if ($startDate === null && $endDate === null) {
             $startDate = $businessDate ?? today()->toDateString();
@@ -1045,6 +1088,7 @@ class CompanyMoneyPositionService
             ->whereIn('shop_id', $targetShopIds)
             ->whereBetween('business_date', [$startDate, $endDate])
             ->whereNotIn('status', ['void', 'voided', 'reversed'])
+            ->with('entryType')
             ->where(function ($q): void {
                 $q->where('direction', 'income')
                     ->orWhere('affects_income', true)
@@ -1079,6 +1123,13 @@ class CompanyMoneyPositionService
             ->map(fn ($group) => (float) $group->sum('amount'));
 
         $txByShop = $incomeTransactions->groupBy('shop_id');
+
+        $cashBreakdown = $cashBreakdown ?? $this->getCashWithShopsBreakdown($businessDate ?? $endDate, $targetShopIds);
+        $cashWithShopsMap = collect($cashBreakdown['shops'] ?? [])->keyBy('shop_id');
+        $floatingSummary = $floatingSummary ?? $this->getFloatingChequesSummary($businessDate ?? $endDate, $targetShopIds);
+        $floatingChequesCollection = $floatingSummary['cheques'] ?? collect();
+        $floatingChequesByShop = $floatingChequesCollection instanceof Collection ? $floatingChequesCollection->groupBy('shop_id') : collect($floatingChequesCollection)->groupBy('shop_id');
+
         $cards = [];
 
         foreach ($shops as $shop) {
@@ -1137,14 +1188,22 @@ class CompanyMoneyPositionService
             }
 
             $shopSlug = $shop->slug ?: ($shop->code ? strtolower($shop->code) : (string) $shopIdVal);
+            $shopCashWithShop = (float) ($cashWithShopsMap->get($shopIdVal)['cash_with_shop'] ?? 0.0);
+            $shopFloatingCheques = (float) ($floatingChequesByShop->get($shopIdVal)?->sum(fn ($req) => (float) ($req->floating_amount > 0 ? $req->floating_amount : ($req->approved_amount ?: $req->requested_amount))) ?? 0.0);
+            $shopFloatingCount = (int) ($floatingChequesByShop->get($shopIdVal)?->count() ?? 0);
 
             $cards[] = [
                 'shop_id' => $shopIdVal,
                 'shop_name' => (string) $shop->name,
                 'shop_code' => (string) ($shop->code ?? ''),
                 'shop_slug' => (string) $shopSlug,
+                'client_id' => $shop->client_id ?? ($shop->shop?->client_id ?? null),
+                'client_name' => $shop->client?->name ?? ($shop->shop?->client?->name ?? null),
                 'total_collection' => round($totalCollection, 2),
                 'company_received' => round($companyReceived, 2),
+                'cash_with_shop' => round($shopCashWithShop, 2),
+                'floating_cheques' => round($shopFloatingCheques, 2),
+                'floating_cheques_count' => $shopFloatingCount,
                 'pending_acceptance' => round($pendingAcceptance, 2),
                 'pending_verification' => round($pendingVerification, 2),
                 'current_outstanding' => $currentOutstanding,
@@ -1178,9 +1237,10 @@ class CompanyMoneyPositionService
     /**
      * Get a normalized, unified list of daily money flow items across all shops and channels.
      *
+     * @param  array<int, int>|null  $shopIds
      * @return array<int, array<string, mixed>>
      */
-    public function getUnifiedMoneyFlowList(string $businessDate, ?int $shopId = null, ?string $statusFilter = null): array
+    public function getUnifiedMoneyFlowList(string $businessDate, ?int $shopId = null, ?string $statusFilter = null, ?array $shopIds = null): array
     {
         $txQuery = ShopLedgerTransaction::query()
             ->with(['entryType', 'shop', 'companyAccount'])
@@ -1193,6 +1253,8 @@ class CompanyMoneyPositionService
 
         if ($shopId) {
             $txQuery->where('shop_id', $shopId);
+        } elseif ($shopIds !== null) {
+            $txQuery->whereIn('shop_id', $shopIds);
         }
 
         $transactions = $txQuery->orderBy('id', 'desc')->get();
@@ -1210,6 +1272,8 @@ class CompanyMoneyPositionService
 
         if ($shopId) {
             $settingsQuery->where('shop_id', $shopId);
+        } elseif ($shopIds !== null) {
+            $settingsQuery->whereIn('shop_id', $shopIds);
         }
 
         $settings = $settingsQuery->get();
@@ -1223,6 +1287,8 @@ class CompanyMoneyPositionService
 
         if ($shopId) {
             $chequeQuery->where('shop_id', $shopId);
+        } elseif ($shopIds !== null) {
+            $chequeQuery->whereIn('shop_id', $shopIds);
         }
 
         $cheques = $chequeQuery->where(function ($q) use ($businessDate): void {
@@ -1356,15 +1422,16 @@ class CompanyMoneyPositionService
     /**
      * Get monthly aggregated pending transaction counts grouped by date.
      *
+     * @param  array<int, int>|null  $shopIds
      * @return array<string, int>
      */
-    public function getMonthlyPendingCounts(string $yearMonth, ?int $shopId = null): array
+    public function getMonthlyPendingCounts(string $yearMonth, ?int $shopId = null, ?array $shopIds = null): array
     {
         $monthCarbon = Carbon::parse($yearMonth.'-01');
         $startDate = $monthCarbon->copy()->startOfMonth()->toDateString();
         $endDate = $monthCarbon->copy()->endOfMonth()->toDateString();
 
-        $txCounts = ShopLedgerTransaction::query()
+        $txCountsQuery = ShopLedgerTransaction::query()
             ->leftJoin('cashbook_company_account_statement_entries as s', function ($join): void {
                 $join->on('s.source_id', '=', 'shop_ledger_transactions.id')
                     ->where('s.source_type', '=', ShopLedgerTransaction::class);
@@ -1381,14 +1448,21 @@ class CompanyMoneyPositionService
                     ->orWhere('s.is_finalized', false)
                     ->orWhere('s.status', '!=', 'reconciled')
                     ->orWhere('s.duplicate_status', 'possible_duplicate');
-            })
-            ->when($shopId, fn ($q) => $q->where('shop_ledger_transactions.shop_id', $shopId))
+            });
+
+        if ($shopId) {
+            $txCountsQuery->where('shop_ledger_transactions.shop_id', $shopId);
+        } elseif ($shopIds !== null) {
+            $txCountsQuery->whereIn('shop_ledger_transactions.shop_id', $shopIds);
+        }
+
+        $txCounts = $txCountsQuery
             ->selectRaw('DATE(shop_ledger_transactions.business_date) as b_date, COUNT(DISTINCT shop_ledger_transactions.id) as total')
             ->groupByRaw('DATE(shop_ledger_transactions.business_date)')
             ->pluck('total', 'b_date')
             ->all();
 
-        $chCounts = ShopInvoicePaymentRequest::query()
+        $chCountsQuery = ShopInvoicePaymentRequest::query()
             ->where(function ($q): void {
                 $q->where('payment_method', 'cheque')
                     ->orWhere('payment_method', 'Cheque');
@@ -1399,8 +1473,15 @@ class CompanyMoneyPositionService
                     ->orWhere('cheque_status', 'pending')
                     ->orWhereIn('reconciliation_status', ['pending', 'floating']);
             })
-            ->whereBetween(DB::raw('DATE(COALESCE(payment_date, cheque_date, created_at))'), [$startDate, $endDate])
-            ->when($shopId, fn ($q) => $q->where('shop_id', $shopId))
+            ->whereBetween(DB::raw('DATE(COALESCE(payment_date, cheque_date, created_at))'), [$startDate, $endDate]);
+
+        if ($shopId) {
+            $chCountsQuery->where('shop_id', $shopId);
+        } elseif ($shopIds !== null) {
+            $chCountsQuery->whereIn('shop_id', $shopIds);
+        }
+
+        $chCounts = $chCountsQuery
             ->selectRaw('DATE(COALESCE(payment_date, cheque_date, created_at)) as b_date, COUNT(*) as total')
             ->groupByRaw('DATE(COALESCE(payment_date, cheque_date, created_at))')
             ->pluck('total', 'b_date')
@@ -1421,6 +1502,7 @@ class CompanyMoneyPositionService
     /**
      * Build structured monthly calendar data for Money Flow.
      *
+     * @param  array<int, int>|null  $shopIds
      * @return array{
      *     calendar_month: string,
      *     month_title: string,
@@ -1431,7 +1513,7 @@ class CompanyMoneyPositionService
      *     today: string
      * }
      */
-    public function getMonthlyCalendarData(string $selectedBusinessDate, ?string $calendarMonth = null, ?int $shopId = null): array
+    public function getMonthlyCalendarData(string $selectedBusinessDate, ?string $calendarMonth = null, ?int $shopId = null, ?array $shopIds = null): array
     {
         $calendarMonth = $calendarMonth ?: Carbon::parse($selectedBusinessDate)->format('Y-m');
         $monthCarbon = Carbon::parse($calendarMonth.'-01');
@@ -1439,7 +1521,7 @@ class CompanyMoneyPositionService
         $nextMonth = $monthCarbon->copy()->addMonth()->format('Y-m');
         $todayStr = today()->toDateString();
 
-        $pendingCounts = $this->getMonthlyPendingCounts($calendarMonth, $shopId);
+        $pendingCounts = $this->getMonthlyPendingCounts($calendarMonth, $shopId, $shopIds);
 
         $startOfMonth = $monthCarbon->copy()->startOfMonth();
         $endOfMonth = $monthCarbon->copy()->endOfMonth();

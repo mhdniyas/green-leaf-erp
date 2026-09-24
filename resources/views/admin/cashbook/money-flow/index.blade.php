@@ -1,6 +1,15 @@
 @extends('admin.cashbook.layouts.app')
 
-@section('title', 'Money Flow — Cashbook')
+@php
+    $scope = $scope ?? 'all';
+    $scopeTitle = $scopeTitle ?? 'All Shops';
+    $scopeSubtitle = $scopeSubtitle ?? 'Unified real-time company money position & retail collection flows';
+    $formRoute = $formRoute ?? route('admin.cashbook.money-flow');
+    $currentRouteName = $currentRouteName ?? 'admin.cashbook.money-flow';
+    $routeParams = $routeParams ?? [];
+@endphp
+
+@section('title', $scopeTitle.' — Money Flow')
 
 @section('content')
 <div class="mx-auto max-w-7xl space-y-6 pb-12">
@@ -10,29 +19,38 @@
         <div>
             <div class="flex items-center gap-2">
                 <span class="p-2 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    <i data-lucide="activity" class="w-5 h-5"></i>
+                    <i data-lucide="{{ $scope === 'client' ? 'building-2' : ($scope === 'direct' ? 'store' : 'activity') }}" class="w-5 h-5"></i>
                 </span>
-                <h1 class="text-2xl font-extrabold tracking-tight text-slate-900">Money Flow</h1>
+                <h1 class="text-2xl font-extrabold tracking-tight text-slate-900">{{ $scopeTitle }}</h1>
+                @if($scope === 'client')
+                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        Client Scope
+                    </span>
+                @elseif($scope === 'direct')
+                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-sky-100 text-sky-800 border border-sky-200">
+                        Direct Shops
+                    </span>
+                @endif
             </div>
             <p class="text-xs text-slate-500 font-medium mt-1">
-                Unified real-time company money position &amp; retail collection flows for 
+                {{ $scopeSubtitle }} for 
                 <span class="font-bold text-slate-800 font-mono">{{ \Carbon\Carbon::parse($businessDate)->format('d M Y') }}</span>
             </p>
         </div>
 
         <!-- Date & Filter Controls -->
-        <form method="GET" action="{{ route('admin.cashbook.money-flow') }}" id="money-flow-filter-form" class="flex items-center gap-2 flex-wrap">
+        <form method="GET" action="{{ $formRoute }}" id="money-flow-filter-form" class="flex items-center gap-2 flex-wrap">
             <input type="hidden" name="status" value="{{ $selectedStatus }}">
             <input type="hidden" name="shop_id" value="{{ $selectedShopId }}">
             <input type="hidden" name="calendar_month" value="{{ $calendarData['calendar_month'] ?? '' }}">
 
             <!-- Quick Day Buttons -->
             <div class="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs font-bold">
-                <a href="{{ route('admin.cashbook.money-flow', ['date' => today()->toDateString(), 'shop_id' => $selectedShopId, 'status' => $selectedStatus, 'calendar_month' => $calendarData['calendar_month'] ?? null]) }}"
+                <a href="{{ route($currentRouteName, array_merge($routeParams, ['date' => today()->toDateString(), 'shop_id' => $selectedShopId, 'status' => $selectedStatus, 'calendar_month' => $calendarData['calendar_month'] ?? null])) }}"
                    class="px-3 py-1.5 rounded-lg transition {{ $businessDate === today()->toDateString() ? 'bg-white text-emerald-800 shadow-xs font-extrabold' : 'text-slate-600 hover:text-slate-900' }}">
                     Today
                 </a>
-                <a href="{{ route('admin.cashbook.money-flow', ['date' => today()->subDay()->toDateString(), 'shop_id' => $selectedShopId, 'status' => $selectedStatus, 'calendar_month' => $calendarData['calendar_month'] ?? null]) }}"
+                <a href="{{ route($currentRouteName, array_merge($routeParams, ['date' => today()->subDay()->toDateString(), 'shop_id' => $selectedShopId, 'status' => $selectedStatus, 'calendar_month' => $calendarData['calendar_month'] ?? null])) }}"
                    class="px-3 py-1.5 rounded-lg transition {{ $businessDate === today()->subDay()->toDateString() ? 'bg-white text-emerald-800 shadow-xs font-extrabold' : 'text-slate-600 hover:text-slate-900' }}">
                     Yesterday
                 </a>
@@ -137,12 +155,12 @@
 
     <!-- Shop Tabs Filter -->
     <div class="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar">
-        <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'shop_id' => null, 'status' => $selectedStatus, 'calendar_month' => $calendarData['calendar_month'] ?? null]) }}"
+        <a href="{{ route($currentRouteName, array_merge($routeParams, ['date' => $businessDate, 'shop_id' => null, 'status' => $selectedStatus, 'calendar_month' => $calendarData['calendar_month'] ?? null])) }}"
            class="px-4 py-2 rounded-2xl text-xs font-extrabold transition-all whitespace-nowrap {{ is_null($selectedShopId) ? 'bg-slate-900 text-white shadow-xs' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50' }}">
-            All Shops
+            All {{ $scopeTitle }}
         </a>
         @foreach($shops as $sh)
-            <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'shop_id' => $sh->shop_id, 'status' => $selectedStatus, 'calendar_month' => $calendarData['calendar_month'] ?? null]) }}"
+            <a href="{{ route($currentRouteName, array_merge($routeParams, ['date' => $businessDate, 'shop_id' => $sh->shop_id, 'status' => $selectedStatus, 'calendar_month' => $calendarData['calendar_month'] ?? null])) }}"
                class="px-4 py-2 rounded-2xl text-xs font-extrabold transition-all whitespace-nowrap {{ (int) $selectedShopId === (int) $sh->shop_id ? 'bg-slate-900 text-white shadow-xs' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50' }}">
                 {{ $sh->name }}
             </a>
@@ -161,109 +179,195 @@
             ];
         @endphp
         @foreach($statusTabs as $k => $label)
-            <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'shop_id' => $selectedShopId, 'status' => $k, 'calendar_month' => $calendarData['calendar_month'] ?? null]) }}"
+            <a href="{{ route($currentRouteName, array_merge($routeParams, ['date' => $businessDate, 'shop_id' => $selectedShopId, 'status' => $k, 'calendar_month' => $calendarData['calendar_month'] ?? null])) }}"
                class="px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all whitespace-nowrap {{ $selectedStatus === $k ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
                 {{ $label }}
             </a>
         @endforeach
     </div>
 
-    <!-- ── SHOP MONEY FLOW SUMMARY CARDS ────────────────────────────────── -->
-    <div class="space-y-3">
-        <div class="flex items-center justify-between">
-            <h2 class="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                <i data-lucide="store" class="w-4 h-4 text-emerald-600"></i>
-                <span>Shop Summary Positions</span>
-                <span class="text-xs text-slate-400 font-mono font-normal">({{ count($shopCards) }} {{ Str::plural('shop', count($shopCards)) }})</span>
-            </h2>
+    <!-- ── SHOP MONEY FLOW TABLE-BASED OVERVIEW ────────────────────────── -->
+    <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden space-y-0">
+        <div class="p-5 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50">
+            <div>
+                <h2 class="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                    <i data-lucide="store" class="w-4 h-4 text-emerald-600"></i>
+                    <span>{{ $scopeTitle }} Overview</span>
+                    <span class="text-xs text-slate-400 font-mono font-normal">({{ count($shopCards) }} {{ Str::plural('shop', count($shopCards)) }})</span>
+                    <span class="sr-only">Shop Summary Positions</span>
+                </h2>
+                <p class="text-xs text-slate-500 font-medium mt-0.5">
+                    Shop Summary Positions &amp; real-time collection breakdown, physical cash positions, floating cheques, and attention statuses.
+                </p>
+            </div>
+            @if($scope === 'all' && count($shopCards) > 0)
+                <div class="flex items-center gap-2 text-xs font-bold text-slate-500">
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        {{ count(array_filter($shopCards, fn($c) => !empty($c['client_name']))) }} Client Shops
+                    </span>
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700">
+                        <span class="w-2 h-2 rounded-full bg-sky-500"></span>
+                        {{ count(array_filter($shopCards, fn($c) => empty($c['client_name']))) }} Direct Shops
+                    </span>
+                </div>
+            @endif
         </div>
 
         @if(empty($shopCards))
-            <div class="p-8 text-center bg-white rounded-3xl border border-slate-200 shadow-sm">
-                <p class="text-xs text-slate-400 font-bold">No active shops found matching the selected filter.</p>
+            <div class="p-12 text-center">
+                <div class="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
+                    <i data-lucide="store" class="w-6 h-6"></i>
+                </div>
+                <p class="text-sm text-slate-700 font-bold">No active shops found matching the selected filter.</p>
+                <p class="text-xs text-slate-400 mt-1">Try resetting the status filter or choosing another day.</p>
             </div>
         @else
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                @foreach($shopCards as $card)
-                    @php
-                        $statusBadgeClass = match($card['status_key']) {
-                            'needs_attention' => 'bg-rose-50 text-rose-800 border-rose-200',
-                            'needs_acceptance' => 'bg-amber-50 text-amber-800 border-amber-200',
-                            'pending_verification' => 'bg-sky-50 text-sky-800 border-sky-200',
-                            default => 'bg-emerald-50 text-emerald-800 border-emerald-200',
-                        };
-                    @endphp
-                    <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-4">
+            <div class="overflow-x-auto custom-scrollbar">
+                <table class="w-full text-left text-xs">
+                    <thead>
+                        <tr class="border-b border-slate-200 bg-slate-50/80 text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
+                            <th scope="col" class="py-3.5 pl-6 pr-4">Shop</th>
+                            <th scope="col" class="py-3.5 px-4 text-right">Received</th>
+                            <th scope="col" class="py-3.5 px-4 text-right">Cash</th>
+                            <th scope="col" class="py-3.5 px-4 text-right">Cheques</th>
+                            <th scope="col" class="py-3.5 px-4 text-center">Attention</th>
+                            <th scope="col" class="py-3.5 px-4 text-right">Outstanding</th>
+                            <th scope="col" class="py-3.5 pl-4 pr-6 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach($shopCards as $card)
+                            @php
+                                $statusBadgeClass = match($card['status_key']) {
+                                    'needs_attention' => 'bg-rose-50 text-rose-800 border-rose-200',
+                                    'needs_acceptance' => 'bg-amber-50 text-amber-800 border-amber-200',
+                                    'pending_verification' => 'bg-sky-50 text-sky-800 border-sky-200',
+                                    default => 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                                };
+                            @endphp
+                            <tr class="hover:bg-slate-50/70 transition-colors">
+                                <!-- 1. Shop Column -->
+                                <td class="py-3.5 pl-6 pr-4">
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-black text-sm text-slate-900">{{ $card['shop_name'] }}</span>
+                                        @if(!empty($card['shop_code']))
+                                            <span class="px-1.5 py-0.5 rounded-md bg-slate-100 text-[10px] font-bold text-slate-600 border border-slate-200 font-mono">
+                                                {{ $card['shop_code'] }}
+                                            </span>
+                                        @endif
+                                        @if($scope === 'all' && !empty($card['client_name']))
+                                            <span class="px-1.5 py-0.5 rounded-md bg-emerald-50 text-[10px] font-extrabold text-emerald-700 border border-emerald-200">
+                                                {{ $card['client_name'] }}
+                                            </span>
+                                        @endif
+                                    </div>
+                                    <div class="text-[11px] text-slate-400 font-mono mt-0.5">
+                                        Total Collection: ₹{{ number_format($card['total_collection'], 2) }}
+                                    </div>
+                                </td>
 
-                        <!-- Top: Shop Name, Status & Open Action -->
-                        <div class="flex items-start justify-between gap-2">
-                            <div>
-                                <div class="flex items-center gap-2">
-                                    <h3 class="font-black text-base text-slate-900">{{ $card['shop_name'] }}</h3>
-                                    @if(!empty($card['shop_code']))
-                                        <span class="px-1.5 py-0.5 rounded-md bg-slate-100 text-[10px] font-bold text-slate-600 border border-slate-200 font-mono">
-                                            {{ $card['shop_code'] }}
+                                <!-- 2. Received Column -->
+                                <td class="py-3.5 px-4 text-right">
+                                    <div class="font-mono font-bold text-sm {{ $card['company_received'] > 0 ? 'text-emerald-700' : 'text-slate-800' }}">
+                                        ₹{{ number_format($card['company_received'], 2) }}
+                                    </div>
+                                    <div class="text-[10px] text-slate-400 font-medium">Verified in bank/box</div>
+                                </td>
+
+                                <!-- 3. Cash Column -->
+                                <td class="py-3.5 px-4 text-right">
+                                    <div class="font-mono font-bold text-sm {{ $card['cash_with_shop'] > 0 ? 'text-sky-700' : 'text-slate-800' }}">
+                                        ₹{{ number_format($card['cash_with_shop'], 2) }}
+                                    </div>
+                                    <div class="text-[10px] text-slate-400 font-medium">With shop</div>
+                                </td>
+
+                                <!-- 4. Cheques Column -->
+                                <td class="py-3.5 px-4 text-right">
+                                    <div class="font-mono font-bold text-sm {{ $card['floating_cheques'] > 0 ? 'text-purple-700' : 'text-slate-800' }}">
+                                        ₹{{ number_format($card['floating_cheques'], 2) }}
+                                    </div>
+                                    <div class="text-[10px] text-slate-400 font-medium">
+                                        {{ $card['floating_cheques_count'] > 0 ? $card['floating_cheques_count'].' uncleared' : '0 floating' }}
+                                    </div>
+                                </td>
+
+                                <!-- 5. Attention Column -->
+                                <td class="py-3.5 px-4 text-center">
+                                    <div class="inline-flex flex-col items-center gap-1">
+                                        <span class="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg border {{ $statusBadgeClass }}">
+                                            {{ $card['status'] }}
                                         </span>
-                                    @endif
+                                        @if($card['pending_operation_count'] > 0)
+                                            <span class="text-[10px] font-bold text-amber-700 font-mono">
+                                                {{ $card['pending_operation_count'] }} pending
+                                            </span>
+                                        @endif
+                                    </div>
+                                </td>
+
+                                <!-- 6. Outstanding Column -->
+                                <td class="py-3.5 px-4 text-right">
+                                    <div class="font-mono font-black text-sm text-slate-900">
+                                        ₹{{ number_format($card['current_outstanding'], 2) }}
+                                    </div>
+                                    <div class="text-[10px] text-slate-400 font-medium">Settlement delta</div>
+                                </td>
+
+                                <!-- 7. Action Column -->
+                                <td class="py-3.5 pl-4 pr-6 text-right">
+                                    <a href="{{ $card['open_shop_url'] }}"
+                                       class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-emerald-700 text-white text-xs font-extrabold transition-all shadow-xs flex-shrink-0 cursor-pointer"
+                                       title="Open {{ $card['shop_name'] }} Cashbook">
+                                        <span>Open Shop</span>
+                                        <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                    <tfoot class="bg-slate-50 font-black border-t-2 border-slate-200">
+                        <tr>
+                            <td class="py-4 pl-6 pr-4">
+                                <div class="text-xs font-black uppercase tracking-wider text-slate-900">
+                                    Total ({{ count($shopCards) }} {{ Str::plural('Shop', count($shopCards)) }})
                                 </div>
-                                <div class="flex items-center gap-2 mt-1">
-                                    <span class="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg border {{ $statusBadgeClass }}">
-                                        {{ $card['status'] }}
+                                <div class="text-[11px] text-slate-500 font-mono font-medium">
+                                    Sum: ₹{{ number_format(array_sum(array_column($shopCards, 'total_collection')), 2) }}
+                                </div>
+                            </td>
+                            <td class="py-4 px-4 text-right font-mono text-sm font-black text-emerald-700">
+                                ₹{{ number_format(array_sum(array_column($shopCards, 'company_received')), 2) }}
+                            </td>
+                            <td class="py-4 px-4 text-right font-mono text-sm font-black text-sky-700">
+                                ₹{{ number_format(array_sum(array_column($shopCards, 'cash_with_shop')), 2) }}
+                            </td>
+                            <td class="py-4 px-4 text-right font-mono text-sm font-black text-purple-700">
+                                ₹{{ number_format(array_sum(array_column($shopCards, 'floating_cheques')), 2) }}
+                            </td>
+                            <td class="py-4 px-4 text-center">
+                                @php
+                                    $totPending = array_sum(array_column($shopCards, 'pending_operation_count'));
+                                @endphp
+                                @if($totPending > 0)
+                                    <span class="inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 border border-amber-300">
+                                        <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                                        {{ $totPending }} Pending
                                     </span>
-                                    @if($card['pending_operation_count'] > 0)
-                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white shadow-xs" title="{{ $card['pending_operation_count'] }} pending operations">
-                                            {{ $card['pending_operation_count'] }} pending
-                                        </span>
-                                    @endif
-                                </div>
-                            </div>
-
-                            <a href="{{ $card['open_shop_url'] }}"
-                               class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-emerald-700 text-white text-xs font-extrabold transition-all shadow-xs flex-shrink-0 cursor-pointer"
-                               title="Open {{ $card['shop_name'] }} Cashbook">
-                                <span>Open Shop</span>
-                                <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
-                            </a>
-                        </div>
-
-                        <!-- Mid: Detailed Breakdown Metrics -->
-                        <div class="grid grid-cols-2 gap-2.5 p-3 rounded-2xl bg-slate-50 border border-slate-100 text-xs">
-                            <div>
-                                <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Total Collection</span>
-                                <div class="font-mono font-bold text-slate-800 text-sm mt-0.5">
-                                    ₹{{ number_format($card['total_collection'], 2) }}
-                                </div>
-                            </div>
-                            <div>
-                                <span class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700">Company Received</span>
-                                <div class="font-mono font-bold text-emerald-800 text-sm mt-0.5">
-                                    ₹{{ number_format($card['company_received'], 2) }}
-                                </div>
-                            </div>
-                            <div>
-                                <span class="text-[10px] font-extrabold uppercase tracking-wider text-amber-700">Pending Acceptance</span>
-                                <div class="font-mono font-bold text-amber-800 text-sm mt-0.5">
-                                    ₹{{ number_format($card['pending_acceptance'], 2) }}
-                                </div>
-                            </div>
-                            <div>
-                                <span class="text-[10px] font-extrabold uppercase tracking-wider text-sky-700">Pending Verification</span>
-                                <div class="font-mono font-bold text-sky-800 text-sm mt-0.5">
-                                    ₹{{ number_format($card['pending_verification'], 2) }}
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Bottom: Current Outstanding -->
-                        <div class="pt-3 border-t border-slate-100 flex items-center justify-between">
-                            <span class="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Current Outstanding</span>
-                            <span class="font-mono text-base font-black text-slate-900">
-                                ₹{{ number_format($card['current_outstanding'], 2) }}
-                            </span>
-                        </div>
-
-                    </div>
-                @endforeach
+                                @else
+                                    <span class="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300">
+                                        <i data-lucide="check" class="w-3 h-3"></i> Clear
+                                    </span>
+                                @endif
+                            </td>
+                            <td class="py-4 px-4 text-right font-mono text-sm font-black text-slate-900">
+                                ₹{{ number_format(array_sum(array_column($shopCards, 'current_outstanding')), 2) }}
+                            </td>
+                            <td class="py-4 pl-4 pr-6 text-right"></td>
+                        </tr>
+                    </tfoot>
+                </table>
             </div>
         @endif
     </div>
@@ -401,19 +505,19 @@
 
             <!-- Month Switcher (‹ Month ›) -->
             <div class="flex items-center gap-1.5">
-                <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'calendar_month' => $calendarData['prev_month'], 'shop_id' => $selectedShopId, 'status' => $selectedStatus]) }}"
+                <a href="{{ route($currentRouteName, array_merge($routeParams, ['date' => $businessDate, 'calendar_month' => $calendarData['prev_month'], 'shop_id' => $selectedShopId, 'status' => $selectedStatus])) }}"
                    class="inline-flex items-center justify-center p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-xs transition"
                    title="Previous Month"
                    aria-label="Previous Month">
                     <i data-lucide="chevron-left" class="w-4 h-4"></i>
                 </a>
 
-                <a href="{{ route('admin.cashbook.money-flow', ['date' => today()->toDateString(), 'calendar_month' => today()->format('Y-m'), 'shop_id' => $selectedShopId]) }}"
+                <a href="{{ route($currentRouteName, array_merge($routeParams, ['date' => today()->toDateString(), 'calendar_month' => today()->format('Y-m'), 'shop_id' => $selectedShopId])) }}"
                    class="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-black text-slate-700 shadow-xs transition">
                     Current
                 </a>
 
-                <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'calendar_month' => $calendarData['next_month'], 'shop_id' => $selectedShopId, 'status' => $selectedStatus]) }}"
+                <a href="{{ route($currentRouteName, array_merge($routeParams, ['date' => $businessDate, 'calendar_month' => $calendarData['next_month'], 'shop_id' => $selectedShopId, 'status' => $selectedStatus])) }}"
                    class="inline-flex items-center justify-center p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-xs transition"
                    title="Next Month"
                    aria-label="Next Month">
@@ -441,17 +545,17 @@
                         <div class="h-11 sm:h-12 rounded-2xl bg-slate-50/40"></div>
                     @else
                         @php
-                            $dateUrl = route('admin.cashbook.money-flow', [
+                            $dateUrl = route($currentRouteName, array_merge($routeParams, [
                                 'date' => $day['date'],
                                 'calendar_month' => $calendarData['calendar_month'],
                                 'shop_id' => $selectedShopId,
-                            ]);
-                            $pendingUrl = route('admin.cashbook.money-flow', [
+                            ]));
+                            $pendingUrl = route($currentRouteName, array_merge($routeParams, [
                                 'date' => $day['date'],
                                 'status' => 'pending',
                                 'calendar_month' => $calendarData['calendar_month'],
                                 'shop_id' => $selectedShopId,
-                            ]);
+                            ]));
                         @endphp
                         <div class="h-11 sm:h-12 p-1 rounded-2xl flex flex-col items-center justify-between transition-all relative border {{ $day['is_selected'] ? 'bg-slate-900 border-slate-900 text-white shadow-xs' : ($day['is_today'] ? 'bg-emerald-50/60 border-emerald-300 text-emerald-950 ring-2 ring-emerald-500/20' : 'bg-slate-50/80 border-slate-100 hover:border-slate-300 text-slate-700') }}">
                             

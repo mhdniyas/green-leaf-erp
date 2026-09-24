@@ -186,6 +186,13 @@
             </div>
 
             <div class="flex items-center gap-2 flex-wrap">
+                <a href="{{ route('admin.cashbook.shop.cashbook-layout', $currentShopSlugOrId) }}"
+                   class="inline-flex items-center gap-2 rounded-2xl border border-sky-300 bg-sky-50 px-4 py-2 text-xs font-black uppercase tracking-wider text-sky-900 shadow-xs hover:bg-sky-100 transition cursor-pointer">
+                    <svg class="w-4 h-4 text-sky-700 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                    </svg>
+                    <span>Manage Shop Cashbook Layout</span>
+                </a>
                 <a href="{{ route('admin.cashbook.shop.overview', $currentShopSlugOrId) }}?month={{ $month }}&period_mode=day&date={{ $businessDate }}"
                    class="inline-flex items-center gap-2 rounded-2xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-xs font-black uppercase tracking-wider text-indigo-900 shadow-xs hover:bg-indigo-100 transition cursor-pointer">
                     <svg class="w-4 h-4 text-indigo-700 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -402,6 +409,95 @@
                         <tr>
                             <td colspan="10" class="py-10 text-center text-slate-400 text-xs">
                                 No canonical ledger entries recorded for {{ $formattedBusinessDate }}.
+                            </td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 4. PRODUCT LEDGER DAILY BREAKDOWN -->
+    @php
+        $hasProductEntries = !empty($productEntries) && $productEntries->isNotEmpty();
+    @endphp
+    <div class="rounded-3xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2">
+            <div>
+                <h2 class="text-sm font-black uppercase tracking-wide text-slate-900">
+                    Product Ledger Daily Breakdown ({{ $formattedBusinessDate }})
+                </h2>
+                <p class="text-xs text-slate-500 font-medium">
+                    Showing {{ $productEntries->count() }} product entries tagged to cashbook headers
+                </p>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200">
+                    <svg class="w-3.5 h-3.5 text-emerald-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                    </svg>
+                    Product Tagging
+                </span>
+            </div>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs border-collapse">
+                <thead>
+                    <tr class="bg-slate-100/70 border-b border-slate-200 text-[11px] font-black uppercase text-slate-600 tracking-wider">
+                        <th class="py-3 px-4"># ID</th>
+                        <th class="py-3 px-4">Header Group</th>
+                        <th class="py-3 px-4">Product Name</th>
+                        <th class="py-3 px-4">SKU / Code</th>
+                        <th class="py-3 px-4 text-right">Quantity</th>
+                        <th class="py-3 px-4">Unit</th>
+                        <th class="py-3 px-4 text-right">Avg Rate</th>
+                        <th class="py-3 px-4 text-right">Total Amount</th>
+                        <th class="py-3 px-4">Recorded By</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @forelse($productEntries as $pe)
+                        @php
+                            $qty = (float) ($pe->quantity ?? 0);
+                            $amt = (float) ($pe->amount ?? 0);
+                            $rate = ($qty > 0 && $amt > 0) ? ($amt / $qty) : null;
+                        @endphp
+                        <tr class="hover:bg-slate-50/80 transition">
+                            <td class="py-3 px-4 font-mono font-bold text-slate-500">
+                                #{{ $pe->id }}
+                            </td>
+                            <td class="py-3 px-4">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-indigo-50 text-indigo-800 border border-indigo-200">
+                                    {{ $pe->headerGroup?->name ?: ('Header #'.$pe->header_group_id) }}
+                                </span>
+                            </td>
+                            <td class="py-3 px-4 font-bold text-slate-900">
+                                {{ $pe->product?->name ?: ('Product #'.$pe->product_id) }}
+                            </td>
+                            <td class="py-3 px-4 font-mono text-[11px] text-slate-500">
+                                {{ $pe->product?->sku ?: '—' }}
+                            </td>
+                            <td class="py-3 px-4 text-right font-mono font-bold text-slate-800">
+                                {{ $qty > 0 ? number_format($qty, 2) : '—' }}
+                            </td>
+                            <td class="py-3 px-4 uppercase text-[11px] font-bold text-slate-600">
+                                {{ $pe->unit ?: ($pe->product?->unit ?: 'unit') }}
+                            </td>
+                            <td class="py-3 px-4 text-right font-mono text-slate-600">
+                                {{ $rate !== null ? '₹'.number_format($rate, 2) : '—' }}
+                            </td>
+                            <td class="py-3 px-4 text-right font-mono font-black text-sm text-slate-900">
+                                ₹{{ number_format($amt, 2) }}
+                            </td>
+                            <td class="py-3 px-4 text-[11px] text-slate-500">
+                                {{ $pe->enteredBy?->name ?: 'Shop Owner' }} &bull; {{ $pe->created_at?->format('H:i') }}
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="9" class="py-10 text-center text-slate-400 text-xs">
+                                No product entries recorded for {{ $formattedBusinessDate }}.
                             </td>
                         </tr>
                     @endforelse

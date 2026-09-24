@@ -24,7 +24,7 @@
                 @php
                     $firstLetter = strtoupper(substr($hSec['name'], 0, 1));
                 @endphp
-                <div onclick='selectHeaderForEntry(@json($hSec["id"]))'
+                <div onclick="selectHeaderForEntry('{{ $hSec['id'] }}')"
                      class="p-2.5 sm:p-3 rounded-xl bg-slate-50/70 hover:bg-emerald-50/60 border border-slate-100 hover:border-emerald-200/80 transition cursor-pointer group flex items-center justify-between gap-2.5 active:scale-[0.99]">
                     <div class="flex items-center gap-2.5 min-w-0 flex-1">
                         <div class="w-7 h-7 rounded-full bg-white border border-slate-200/60 shadow-2xs flex items-center justify-center text-emerald-700 font-black text-xs uppercase shrink-0 group-hover:scale-105 transition">
