@@ -498,9 +498,8 @@ class AdminExactCashbookService
     }
 
     /**
-     * Clear all non-protected Shop Cashbook entries for a specific shop and business date.
-     * Preserves Salary and GL Bill entries.
-     * Deletes all other entries (including existing Voided entries) and recalculates balances.
+     * Clear manual Shop Cashbook entries and product tags for a specific shop and business date.
+     * Source-backed records, Salary, and GL Bill entries are preserved.
      *
      * @return array{deleted_count: int, snapshot: ShopDailyLedgerSnapshot, message: string}
      */
@@ -509,6 +508,12 @@ class AdminExactCashbookService
         return DB::transaction(function () use ($adminUser, $shop, $businessDate): array {
             $date = Carbon::parse($businessDate)->toDateString();
             $month = substr($date, 0, 7);
+
+            $deletedProductCount = ShopLedgerProductEntry::query()
+                ->where('shop_id', (int) $shop->id)
+                ->where('business_date', $date)
+                ->lockForUpdate()
+                ->delete();
 
             // Fetch all transactions for this shop and date
             $transactions = ShopLedgerTransaction::query()
@@ -524,7 +529,7 @@ class AdminExactCashbookService
             $rootTransactions = $transactions->whereNull('parent_transaction_id');
 
             foreach ($rootTransactions as $tx) {
-                if ($tx->isProtectedSalaryOrGlBill()) {
+                if (! $tx->isManualCashbookEntry()) {
                     continue;
                 }
 
@@ -543,7 +548,6 @@ class AdminExactCashbookService
                     $child->delete();
                 }
 
-                $this->syncCanonicalSourceRecord($tx, 0.0, $date, FundingSource::None, $tx->notes, TransactionStatus::Void->value);
                 $tx->delete();
                 $deletedCount++;
             }
@@ -557,7 +561,7 @@ class AdminExactCashbookService
                 ->get();
 
             foreach ($remaining as $remTx) {
-                if ($remTx->isProtectedSalaryOrGlBill()) {
+                if (! $remTx->isManualCashbookEntry()) {
                     continue;
                 }
 
@@ -567,7 +571,6 @@ class AdminExactCashbookService
                     ->where('is_finalized', false)
                     ->delete();
 
-                $this->syncCanonicalSourceRecord($remTx, 0.0, $date, FundingSource::None, $remTx->notes, TransactionStatus::Void->value);
                 $remTx->delete();
                 $deletedCount++;
             }
@@ -588,6 +591,7 @@ class AdminExactCashbookService
                         'shop_id' => (int) $shop->id,
                         'business_date' => $date,
                         'deleted_count' => $deletedCount,
+                        'deleted_product_count' => $deletedProductCount,
                     ])
                     ->log("Admin {$adminUser->name} cleared {$deletedCount} cashbook entries for {$shop->name} on {$date}");
             }
@@ -595,7 +599,46 @@ class AdminExactCashbookService
             return [
                 'deleted_count' => $deletedCount,
                 'snapshot' => $snapshot,
-                'message' => "Cleared {$deletedCount} cashbook entries for {$date}. Salary and GL Bill entries were preserved.",
+                'message' => "Cleared {$deletedCount} cashbook entries and {$deletedProductCount} product-tagged purchases for {$date}. Salary and GL Bill entries were preserved.",
+            ];
+        });
+    }
+
+    /**
+     * Delete one manually tagged product row from the selected shop and day.
+     * Product rows have no transaction foreign key, so no cashbook transaction is inferred or deleted.
+     *
+     * @return array{snapshot: ShopDailyLedgerSnapshot, message: string}
+     */
+    public function deleteProductEntry(User $adminUser, Shop $shop, int $productEntryId, string $businessDate): array
+    {
+        return DB::transaction(function () use ($adminUser, $shop, $productEntryId, $businessDate): array {
+            $date = Carbon::parse($businessDate)->toDateString();
+
+            $productEntry = ShopLedgerProductEntry::query()
+                ->where('shop_id', (int) $shop->id)
+                ->where('business_date', $date)
+                ->lockForUpdate()
+                ->findOrFail($productEntryId);
+
+            $productEntry->delete();
+            $snapshot = $this->balanceCalculator->recalculate((int) $shop->id, $date);
+
+            if (function_exists('activity')) {
+                activity('exact_cashbook_edit')
+                    ->causedBy($adminUser)
+                    ->withProperties([
+                        'shop_id' => (int) $shop->id,
+                        'business_date' => $date,
+                        'product_entry_id' => $productEntryId,
+                        'action' => 'delete_product_entry',
+                    ])
+                    ->log("Admin {$adminUser->name} deleted product ledger entry #{$productEntryId} for {$shop->name}");
+            }
+
+            return [
+                'snapshot' => $snapshot,
+                'message' => 'Product ledger entry deleted successfully.',
             ];
         });
     }

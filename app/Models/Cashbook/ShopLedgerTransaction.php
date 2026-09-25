@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models\Cashbook;
 
 use App\Enums\Cashbook\TransactionStatus;
+use App\Models\PurchaseInvoice;
 use App\Models\Shop;
 use App\Models\ShopInvoice;
 use App\Models\ShopStaffPayment;
@@ -168,6 +169,10 @@ class ShopLedgerTransaction extends Model
 
     public function isGlBill(): bool
     {
+        if ($this->reference_type === PurchaseInvoice::class) {
+            return true;
+        }
+
         if (
             $this->reference_type === 'App\Models\ShopInvoice' ||
             $this->reference_type === ShopInvoice::class ||
@@ -209,5 +214,13 @@ class ShopLedgerTransaction extends Model
     public function isProtectedSalaryOrGlBill(): bool
     {
         return $this->isGlBill() || $this->isSalary();
+    }
+
+    public function isManualCashbookEntry(): bool
+    {
+        return ! $this->generated_by_rule
+            && $this->reference_type === null
+            && $this->reference_id === null
+            && ! $this->isProtectedSalaryOrGlBill();
     }
 }

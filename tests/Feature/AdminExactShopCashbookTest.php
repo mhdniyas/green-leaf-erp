@@ -8,8 +8,12 @@ use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
+use App\Models\Cashbook\ShopLedgerHeaderGroup;
+use App\Models\Cashbook\ShopLedgerProductEntry;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
+use App\Models\Product;
+use App\Models\PurchaseInvoice;
 use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\User;
@@ -610,6 +614,97 @@ class AdminExactShopCashbookTest extends TestCase
         $this->assertDatabaseHas('shop_ledger_transactions', ['id' => $salaryTx->id]);
         $this->assertDatabaseHas('shop_ledger_transactions', ['id' => $diffDateTx->id]);
         $this->assertDatabaseHas('shop_ledger_transactions', ['id' => $otherShopTx->id]);
+    }
+
+    public function test_admin_clear_day_deletes_tagged_products_but_preserves_source_backed_purchase_records(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop->id,
+            'name' => 'Daily Cash Expenditure',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+            'enabled' => true,
+        ]);
+        $product = Product::factory()->create(['unit' => 'kg']);
+        $productEntry = ShopLedgerProductEntry::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-09-15',
+            'header_group_id' => $header->id,
+            'product_id' => $product->id,
+            'product_name' => $product->name,
+            'quantity' => 2,
+            'unit' => 'kg',
+            'amount' => 120,
+            'entered_by' => $this->adminUser->id,
+        ]);
+        $manual = ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => LedgerEntryType::where('code', 'cash_sales')->firstOrFail()->id,
+            'amount' => 500,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'status' => 'posted',
+        ]);
+        $purchaseBill = ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => LedgerEntryType::where('code', 'cash_sales')->firstOrFail()->id,
+            'amount' => 900,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'reference_type' => PurchaseInvoice::class,
+            'reference_id' => 999999,
+            'status' => 'posted',
+        ]);
+
+        $this->actingAs($this->adminUser)->postJson(
+            route('admin.cashbook.shop.financial-ledger.clear-day', $this->shop->code),
+            ['business_date' => '2026-09-15']
+        )->assertOk();
+
+        $this->assertDatabaseMissing('shop_ledger_product_entries', ['id' => $productEntry->id]);
+        $this->assertDatabaseMissing('shop_ledger_transactions', ['id' => $manual->id]);
+        $this->assertDatabaseHas('shop_ledger_transactions', ['id' => $purchaseBill->id]);
+    }
+
+    public function test_admin_can_delete_only_the_selected_product_ledger_entry_for_its_shop_and_date(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop->id,
+            'name' => 'Daily Cash Expenditure',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+            'enabled' => true,
+        ]);
+        $firstProduct = Product::factory()->create(['unit' => 'kg']);
+        $secondProduct = Product::factory()->create(['unit' => 'kg']);
+        $firstEntry = ShopLedgerProductEntry::create([
+            'shop_id' => $this->shop->id, 'business_date' => '2026-09-15', 'header_group_id' => $header->id,
+            'product_id' => $firstProduct->id, 'product_name' => $firstProduct->name, 'quantity' => 1,
+            'unit' => 'kg', 'amount' => 60, 'entered_by' => $this->adminUser->id,
+        ]);
+        $secondEntry = ShopLedgerProductEntry::create([
+            'shop_id' => $this->shop->id, 'business_date' => '2026-09-15', 'header_group_id' => $header->id,
+            'product_id' => $secondProduct->id, 'product_name' => $secondProduct->name, 'quantity' => 1,
+            'unit' => 'kg', 'amount' => 75, 'entered_by' => $this->adminUser->id,
+        ]);
+
+        $this->actingAs($this->adminUser)->postJson(
+            route('admin.cashbook.shop.financial-ledger.product-entries.delete', [$this->shop->code, $firstEntry->id]),
+            ['business_date' => '2026-09-15']
+        )->assertOk();
+
+        $this->assertDatabaseMissing('shop_ledger_product_entries', ['id' => $firstEntry->id]);
+        $this->assertDatabaseHas('shop_ledger_product_entries', ['id' => $secondEntry->id]);
+
+        $wrongShop = Shop::create(['name' => 'Wrong Shop', 'code' => 'WRONG-SHOP', 'is_active' => true]);
+        $this->actingAs($this->adminUser)->postJson(
+            route('admin.cashbook.shop.financial-ledger.product-entries.delete', [$wrongShop->code, $secondEntry->id]),
+            ['business_date' => '2026-09-15']
+        )->assertStatus(422);
+
+        $this->assertDatabaseHas('shop_ledger_product_entries', ['id' => $secondEntry->id]);
     }
 
     public function test_admin_can_change_category_from_income_to_expense(): void

@@ -1096,7 +1096,43 @@ final class CashbookController extends Controller
                 'deleted_count' => $result['deleted_count'],
                 'snapshot' => $result['snapshot'],
             ]);
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function deleteFinancialLedgerProductEntry(
+        Request $request,
+        int|string $shop,
+        int $productEntry,
+        AdminExactCashbookService $exactCashbookService
+    ): JsonResponse {
+        $this->ensureMainAdmin($request);
+
+        $currentShop = $this->resolveShop($shop);
+        $shopModel = $currentShop->shop ?: Shop::findOrFail($currentShop->shop_id);
+
+        $validated = $request->validate([
+            'business_date' => ['required', 'date_format:Y-m-d'],
+        ]);
+
+        try {
+            $result = $exactCashbookService->deleteProductEntry(
+                $request->user(),
+                $shopModel,
+                $productEntry,
+                (string) $validated['business_date']
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => $result['message'],
+                'snapshot' => $result['snapshot'],
+            ]);
+        } catch (Throwable $exception) {
             return response()->json([
                 'success' => false,
                 'message' => $exception->getMessage(),

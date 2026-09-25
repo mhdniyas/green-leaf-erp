@@ -75,6 +75,33 @@
             amount: 0,
             reason: ''
         },
+        async deleteProductEntry(productEntryId) {
+            if (this.isSubmitting || !confirm('Delete this manually tagged product purchase?')) return;
+            this.isSubmitting = true;
+            try {
+                const response = await fetch('{{ route('admin.cashbook.shop.financial-ledger.product-entries.delete', [$currentShopSlugOrId, '__product_entry__']) }}'.replace('__product_entry__', productEntryId), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ business_date: '{{ $businessDate }}' })
+                });
+
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    alert(data.message || 'Error deleting product entry.');
+                    this.isSubmitting = false;
+                    return;
+                }
+
+                window.location.reload();
+            } catch (err) {
+                alert('An unexpected error occurred: ' + err.message);
+                this.isSubmitting = false;
+            }
+        },
         openEdit(tx) {
             this.editTx.id = tx.id;
             this.editTx.business_date = tx.business_date ? tx.business_date.substring(0, 10) : '{{ $businessDate }}';
@@ -499,6 +526,7 @@
                         <th class="py-3 px-4 text-right">Avg Rate</th>
                         <th class="py-3 px-4 text-right">Total Amount</th>
                         <th class="py-3 px-4">Recorded By</th>
+                        <th class="py-3 px-4 text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -538,10 +566,18 @@
                             <td class="py-3 px-4 text-[11px] text-slate-500">
                                 {{ $pe->enteredBy?->name ?: 'Shop Owner' }} &bull; {{ $pe->created_at?->format('H:i') }}
                             </td>
+                            <td class="py-3 px-4 text-right">
+                                <button type="button"
+                                        @click="deleteProductEntry({{ $pe->id }})"
+                                        :disabled="isSubmitting"
+                                        class="text-xs font-black text-rose-700 hover:text-rose-900 disabled:opacity-50 cursor-pointer">
+                                    Delete
+                                </button>
+                            </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="9" class="py-10 text-center text-slate-400 text-xs">
+                            <td colspan="10" class="py-10 text-center text-slate-400 text-xs">
                                 No product entries recorded for {{ $formattedBusinessDate }}.
                             </td>
                         </tr>
@@ -774,11 +810,11 @@
             <form @submit.prevent="submitClearDay()" class="p-6 space-y-4">
                 <div>
                     <h4 class="text-sm font-black text-slate-900 leading-snug">
-                        Clear all Shop Cashbook entries for {{ $formattedBusinessDate }}?
+                        Clear all manually entered cashbook entries for {{ $formattedBusinessDate }}?
                     </h4>
                     <p class="mt-2 text-xs font-semibold text-slate-500 rounded-xl bg-slate-50 border border-slate-200 p-3">
                         <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1.5"></span>
-                        Salary and GL Bill will remain.
+                        Sales, expenses, cash purchases and product-tagged purchases will be deleted. Salary and GL Bill entries will be kept.
                     </p>
                 </div>
 
