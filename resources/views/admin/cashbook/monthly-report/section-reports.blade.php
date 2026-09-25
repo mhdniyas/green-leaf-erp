@@ -47,9 +47,6 @@
     <!-- SHARED PERIOD FILTER -->
     @include('admin.cashbook.monthly-report.partials.period-filter', ['reportType' => 'section-reports'])
 
-    <!-- RECONCILIATION & READINESS STATUS -->
-    @include('admin.cashbook.monthly-report.partials.reconciliation-badge')
-
     <!-- TOP-LEVEL EXPORTS & ACTIONS -->
     <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white px-5 py-3 shadow-xs">
         <div class="flex items-center gap-2">

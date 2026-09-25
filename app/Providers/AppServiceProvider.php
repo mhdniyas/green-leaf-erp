@@ -36,6 +36,7 @@ use App\Policies\UserPolicy;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\PurchaserCartBatchStateResolver;
 use App\Services\Purchasing\PurchaserReadCacheService;
+use App\Support\CashbookAccess;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -69,15 +70,15 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(SalesInvoice::class, SalesInvoicePolicy::class);
         Gate::policy(User::class, UserPolicy::class);
 
-        // The new Cashbook is intentionally restricted to the configured main
-        // administrator while it is being introduced. It must never inherit the
-        // broader Shop Owner cashbook access rules.
-        Gate::define('cashbook.admin.access', fn (User $user): bool => $user->isMainAdmin()
-            || $user->hasRole('admin')
-            || $user->hasRole('accounts')
-            || $user->hasRole('accountant')
-            || $user->hasRole('account')
-            || $user->hasRole('manager'));
+        Gate::before(function (User $user, string $ability): ?bool {
+            if ($user->hasRole('admin') || $user->isMainAdmin()) {
+                return true;
+            }
+
+            return null;
+        });
+
+        Gate::define('cashbook.admin.access', fn (User $user): bool => CashbookAccess::canAccessCashbook($user) || $user->hasRole('shop'));
 
         RateLimiter::for('login', function ($request) {
             $email = Str::lower((string) $request->input('email'));

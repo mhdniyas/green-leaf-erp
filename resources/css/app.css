@@ -42,6 +42,8 @@
 }
 
 /* Smooth transitions */
+[x-cloak] { display: none !important; }
+
 body, header, .main-content-wrapper, .bg-white {
     transition: background-color 0.25s ease-in-out, border-color 0.25s ease-in-out, color 0.25s ease-in-out;
 }

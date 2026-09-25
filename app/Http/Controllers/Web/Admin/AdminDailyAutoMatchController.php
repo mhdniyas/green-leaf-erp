@@ -11,6 +11,7 @@ use App\Models\Warehouse;
 use App\Services\Purchasing\DailyAdvanceMatchExecutionService;
 use App\Services\Purchasing\DailyAdvanceMatchPlanningService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
+use App\Support\CashbookAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -255,6 +256,7 @@ class AdminDailyAutoMatchController extends Controller
             $user instanceof User && (
                 $user->isMainAdmin()
                 || $user->hasRole('admin')
+                || CashbookAccess::canAccessCashbook($user)
                 || $user->hasRole('accounts')
                 || $user->hasRole('accountant')
                 || $user->hasRole('account')

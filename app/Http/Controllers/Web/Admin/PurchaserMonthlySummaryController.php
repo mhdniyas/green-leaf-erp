@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\Cashbook\PurchaserMonthlySummaryService;
+use App\Support\CashbookAccess;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
@@ -122,20 +123,7 @@ final class PurchaserMonthlySummaryController extends Controller
             abort(401);
         }
 
-        if (
-            $user->isMainAdmin()
-            || $user->hasRole('admin')
-            || $user->hasRole('accounts')
-            || $user->hasRole('accountant')
-            || $user->hasRole('account')
-            || $user->hasRole('manager')
-            || (property_exists($user, 'is_admin') && $user->is_admin)
-            || $user->hasAnyPermission([
-                'accounting.report.view',
-                'accounting.dashboard.view',
-                'accounting.ledger.view',
-            ])
-        ) {
+        if (CashbookAccess::allows($user, CashbookAccess::ReconciliationView)) {
             return;
         }
 

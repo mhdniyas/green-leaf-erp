@@ -125,6 +125,7 @@ use App\Services\Purchasing\PurchaseReportingService;
 use App\Services\Purchasing\PurchaserExpenseReportService;
 use App\Services\Purchasing\PurchaserVendorSummaryService;
 use App\Services\Purchasing\ShopVendorPurchaseReportService;
+use App\Support\CashbookAccess;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -13063,21 +13064,7 @@ final class CashbookController extends Controller
             abort(401);
         }
 
-        if (
-            $user->isMainAdmin()
-            || $user->hasRole('admin')
-            || $user->hasRole('accounts')
-            || $user->hasRole('accountant')
-            || $user->hasRole('account')
-            || $user->hasRole('manager')
-            || (property_exists($user, 'is_admin') && $user->is_admin)
-            || $user->hasAnyPermission([
-                'accounting.report.view',
-                'accounting.dashboard.view',
-                'accounting.ledger.view',
-                'finance.dashboard.view',
-            ])
-        ) {
+        if (CashbookAccess::canAccessCashbook($user)) {
             return;
         }
 
@@ -13091,7 +13078,7 @@ final class CashbookController extends Controller
             abort(401);
         }
 
-        if ($user->isMainAdmin() || $user->hasRole('admin')) {
+        if (CashbookAccess::allows($user, CashbookAccess::SettingsManage)) {
             return;
         }
 

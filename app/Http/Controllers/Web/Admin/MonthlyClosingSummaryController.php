@@ -10,6 +10,7 @@ use App\Models\Shop;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\MonthlyClosingSummaryService;
+use App\Support\CashbookAccess;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
@@ -145,20 +146,7 @@ final class MonthlyClosingSummaryController extends Controller
             abort(401);
         }
 
-        if (
-            $user->isMainAdmin()
-            || $user->hasRole('admin')
-            || $user->hasRole('accounts')
-            || $user->hasRole('accountant')
-            || $user->hasRole('account')
-            || $user->hasRole('manager')
-            || (property_exists($user, 'is_admin') && $user->is_admin)
-            || $user->hasAnyPermission([
-                'accounting.report.view',
-                'accounting.dashboard.view',
-                'accounting.ledger.view',
-            ])
-        ) {
+        if (CashbookAccess::allows($user, CashbookAccess::ReportsView)) {
             return;
         }
 

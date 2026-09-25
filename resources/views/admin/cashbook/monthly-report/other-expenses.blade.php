@@ -47,9 +47,6 @@
     <!-- SHARED PERIOD FILTER -->
     @include('admin.cashbook.monthly-report.partials.period-filter', ['reportType' => 'other-expenses'])
 
-    <!-- RECONCILIATION & READINESS STATUS -->
-    @include('admin.cashbook.monthly-report.partials.reconciliation-badge')
-
     <!-- CATEGORY-WISE SUMMARY TABLE -->
     <div class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs">
         <div class="border-b border-slate-100 bg-slate-50/80 px-5 py-4 sm:px-6 flex items-center justify-between">

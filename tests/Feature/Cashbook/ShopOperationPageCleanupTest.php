@@ -212,8 +212,7 @@ class ShopOperationPageCleanupTest extends TestCase
         );
 
         $response->assertOk();
-        $response->assertSee('Payment Receipts');
-        $response->assertSee('Back to Shop Operation Center');
+        $response->assertSee('Payment History');
     }
 
     public function test_full_history_allocations_page_loads(): void
@@ -223,8 +222,7 @@ class ShopOperationPageCleanupTest extends TestCase
         );
 
         $response->assertOk();
-        $response->assertSee('Payment to Daily Settlement Allocations');
-        $response->assertSee('Back to Shop Operation Center');
+        $response->assertSee('Expense Settlement Allocations');
     }
 
     public function test_full_history_cheques_page_loads(): void

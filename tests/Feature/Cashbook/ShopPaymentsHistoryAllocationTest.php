@@ -11,6 +11,7 @@ use App\Models\Cashbook\CompanyExpenseLedgerAllocation;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
+use App\Models\Cashbook\ShopPaymentCompanyPayableMatch;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
@@ -124,6 +125,16 @@ class ShopPaymentsHistoryAllocationTest extends TestCase
             'status' => 'active',
             'reconciled_by' => $this->admin->id,
             'batch_uuid' => null,
+        ]);
+
+        ShopPaymentCompanyPayableMatch::query()->create([
+            'payment_request_id' => $payment->id,
+            'shop_id' => $this->shop->id,
+            'payable_business_date' => '2026-08-14',
+            'amount' => 25000.00,
+            'status' => 'active',
+            'matched_by' => $this->admin->id,
+            'matched_at' => now(),
         ]);
 
         // Snapshot DB count before GET
@@ -267,8 +278,7 @@ class ShopPaymentsHistoryAllocationTest extends TestCase
 
     public function test_payment_history_filters_by_month(): void
     {
-        // 1. Create 2 payments
-        ShopInvoicePaymentRequest::query()->create([
+        $p1 = ShopInvoicePaymentRequest::query()->create([
             'shop_id' => $this->shop->id,
             'requested_by' => $this->admin->id,
             'submission_uuid' => (string) Str::uuid(),
@@ -282,6 +292,16 @@ class ShopPaymentsHistoryAllocationTest extends TestCase
             'shop_note' => 'Main bank collection',
             'status' => 'approved',
             'reconciliation_status' => 'reconciled',
+        ]);
+
+        ShopPaymentCompanyPayableMatch::query()->create([
+            'payment_request_id' => $p1->id,
+            'shop_id' => $this->shop->id,
+            'payable_business_date' => '2026-08-10',
+            'amount' => 15000.00,
+            'status' => 'active',
+            'matched_by' => $this->admin->id,
+            'matched_at' => now(),
         ]);
 
         $response = $this->actingAs($this->admin)

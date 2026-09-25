@@ -47,9 +47,6 @@
     <!-- SHARED PERIOD FILTER -->
     @include('admin.cashbook.monthly-report.partials.period-filter', ['reportType' => 'expense-report'])
 
-    <!-- RECONCILIATION & READINESS STATUS -->
-    @include('admin.cashbook.monthly-report.partials.reconciliation-badge')
-
     <!-- EXPENSE TILES SUMMARY -->
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">

@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\PurchaseProductFilter;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
+use App\Support\CashbookAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -155,21 +156,11 @@ class PurchaseProductFilterController extends Controller
             abort(401);
         }
 
-        if (
-            $user->isMainAdmin()
-            || $user->hasRole('admin')
-            || $user->hasRole('accounts')
-            || $user->hasRole('accountant')
-            || $user->hasRole('account')
-            || $user->hasRole('manager')
-            || (property_exists($user, 'is_admin') && $user->is_admin)
-            || $user->hasAnyPermission([
-                'accounting.report.view',
-                'accounting.dashboard.view',
-                'accounting.ledger.view',
-                'finance.dashboard.view',
-            ])
-        ) {
+        $permission = in_array($request->method(), ['POST', 'PUT', 'PATCH', 'DELETE'], true)
+            ? CashbookAccess::SettingsManage
+            : CashbookAccess::SettingsView;
+
+        if (CashbookAccess::allows($user, $permission)) {
             return;
         }
 

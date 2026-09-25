@@ -3,11 +3,15 @@
 
     $isPurchaseActive = (request()->routeIs('admin.cashbook.finance.purchase*')
         || request()->routeIs('admin.cashbook.finance.purchasers*')
-        || request()->routeIs('admin.cashbook.purchaser-business-days.*'))
+        || request()->routeIs('admin.cashbook.purchaser-business-days.*')
+        || request()->routeIs('admin.cashbook.inventory*')
+        || request()->routeIs('admin.cashbook.auto-match*'))
         && ! request()->routeIs('admin.cashbook.finance.purchase.monthly-summary*');
 
     $isReportsActive = request()->routeIs('admin.cashbook.finance.purchase.reports*')
-        || request()->routeIs('admin.cashbook.finance.purchase.purchaser-expenses*');
+        || request()->routeIs('admin.cashbook.finance.purchase.purchaser-expenses*')
+        || request()->routeIs('admin.cashbook.inventory*')
+        || request()->routeIs('admin.cashbook.auto-match*');
 
     $purchaseSidebarItem = [
         'label' => 'Purchase',
@@ -19,6 +23,16 @@
                 'label' => 'Dashboard',
                 'href' => route('admin.cashbook.finance.purchase'),
                 'active' => request()->routeIs('admin.cashbook.finance.purchase') && !request()->routeIs('admin.cashbook.finance.purchase.*'),
+            ],
+            [
+                'label' => 'Daily Inventory',
+                'href' => route('admin.cashbook.inventory'),
+                'active' => request()->routeIs('admin.cashbook.inventory*'),
+            ],
+            [
+                'label' => 'Auto Match',
+                'href' => route('admin.cashbook.auto-match'),
+                'active' => request()->routeIs('admin.cashbook.auto-match*'),
             ],
             [
                 'label' => 'Reports',
@@ -34,6 +48,16 @@
                         'label' => 'Daily Purchases',
                         'href' => route('admin.cashbook.finance.purchase.reports.daily'),
                         'active' => request()->routeIs('admin.cashbook.finance.purchase.reports.daily'),
+                    ],
+                    [
+                        'label' => 'Daily Inventory',
+                        'href' => route('admin.cashbook.inventory'),
+                        'active' => request()->routeIs('admin.cashbook.inventory*'),
+                    ],
+                    [
+                        'label' => 'Auto Match',
+                        'href' => route('admin.cashbook.auto-match'),
+                        'active' => request()->routeIs('admin.cashbook.auto-match*'),
                     ],
                     [
                         'label' => 'Purchaser Expenses',
@@ -310,14 +334,16 @@
         ],
     ];
 
-    $allShopProfiles = \App\Models\Cashbook\ShopLedgerProfile::query()
-        ->where('enabled', true)
-        ->whereHas('shop', function ($query): void {
-            $query->where('status', 'active');
-        })
-        ->with(['shop.client', 'client'])
-        ->orderBy('name')
-        ->get();
+    $allShopProfiles = $cashbookSidebarShops->isNotEmpty()
+        ? $cashbookSidebarShops
+        : \App\Models\Cashbook\ShopLedgerProfile::query()
+            ->where('enabled', true)
+            ->whereHas('shop', function ($query): void {
+                $query->where('status', 'active');
+            })
+            ->with(['shop.client', 'client'])
+            ->orderBy('name')
+            ->get();
 
     if ($allShopProfiles->isEmpty()) {
         $allShopProfiles = \App\Models\Shop::query()
@@ -579,39 +605,59 @@
                 <span data-cashbook-sidebar-label>Back to Admin</span>
             </a>
 
-            <!-- OVERVIEW -->
-            <div class="space-y-1">
-                <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">OVERVIEW</span>
-                <a href="{{ route('admin.cashbook.cash-flow-tree.index') }}" class="sidebar-link min-h-[44px] {{ request()->routeIs('admin.cashbook.cash-flow-tree*') ? 'active-sidebar' : '' }}">
-                    <i data-lucide="git-fork" class="w-4 h-4 text-indigo-600"></i>
-                    <span data-cashbook-sidebar-label>Cash Flow Tree</span>
-                </a>
-            </div>
-
             <!-- CORE MODULES (NESTED HIERARCHIES) -->
             <div class="space-y-2">
                 <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">MODULES</span>
 
+                @php
+                    $sidebarUser = auth()->user();
+                    $userAccessSidebarItem = [
+                        'label' => 'User Access',
+                        'href' => route('admin.cashbook.user-access.index'),
+                        'active' => request()->routeIs('admin.cashbook.user-access.*'),
+                        'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25A3.75 3.75 0 1 1 12 1.5a3.75 3.75 0 0 1 3.75 3.75Zm-9 13.5a5.25 5.25 0 0 1 10.5 0v.75H6.75v-.75Zm12.75-6.75H21m0 0h2.25M21 12V9.75M21 12v2.25" /></svg>',
+                    ];
+                @endphp
+
                 <!-- SHOPS -->
-                <x-sidebar-link :item="$shopSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @if (\App\Support\CashbookAccess::allows($sidebarUser, \App\Support\CashbookAccess::ShopsView) || \App\Support\CashbookAccess::allows($sidebarUser, \App\Support\CashbookAccess::MoneyFlowView))
+                    <x-sidebar-link :item="$shopSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @endif
 
                 <!-- PURCHASE -->
-                <x-sidebar-link :item="$purchaseSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @if (\App\Support\CashbookAccess::allows($sidebarUser, \App\Support\CashbookAccess::InventoryView))
+                    <x-sidebar-link :item="$purchaseSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @endif
 
                 <!-- ACCOUNT BALANCE -->
-                <x-sidebar-link :item="$accountBalanceSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @if (\App\Support\CashbookAccess::allows($sidebarUser, \App\Support\CashbookAccess::AccountBalanceView))
+                    <x-sidebar-link :item="$accountBalanceSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @endif
 
                 <!-- REPORTS -->
-                <x-sidebar-link :item="$monthlyReportsSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @if (\App\Support\CashbookAccess::allows($sidebarUser, \App\Support\CashbookAccess::ReportsView))
+                    <x-sidebar-link :item="$monthlyReportsSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @endif
 
                 <!-- FINANCE -->
-                <x-sidebar-link :item="$financeSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @if (\App\Support\CashbookAccess::allows($sidebarUser, \App\Support\CashbookAccess::ReconciliationView))
+                    <x-sidebar-link :item="$financeSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @endif
 
                 <!-- SETTINGS & ASSETS -->
-                <x-sidebar-link :item="$settingsSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @if (\App\Support\CashbookAccess::allows($sidebarUser, \App\Support\CashbookAccess::SettingsView))
+                    <x-sidebar-link :item="$settingsSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @endif
+
+                <!-- USER ACCESS -->
+                @if (\App\Support\CashbookAccess::allows($sidebarUser, \App\Support\CashbookAccess::UserAccessManage))
+                    <x-sidebar-link :item="$userAccessSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @endif
 
                 <!-- OTHERS -->
-                <x-sidebar-link :item="$othersSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @if (\App\Support\CashbookAccess::allows($sidebarUser, \App\Support\CashbookAccess::DashboardView))
+                    <x-sidebar-link :item="$othersSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @endif
             </div>
 
         </nav>

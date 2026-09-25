@@ -47,9 +47,6 @@
     <!-- SHARED PERIOD FILTER -->
     @include('admin.cashbook.monthly-report.partials.period-filter', ['reportType' => 'overview'])
 
-    <!-- RECONCILIATION & READINESS STATUS -->
-    @include('admin.cashbook.monthly-report.partials.reconciliation-badge')
-
     <!-- OVERVIEW METRIC CARDS -->
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <!-- TOTAL SALES CARD -->

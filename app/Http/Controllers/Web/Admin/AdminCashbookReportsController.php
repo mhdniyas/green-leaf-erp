@@ -45,6 +45,7 @@ use App\Services\Purchasing\GoodsReceivedService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
 use App\Services\Purchasing\WarehouseReceiptStateResolver;
 use App\Services\Reports\ShopProfitIntelligenceService;
+use App\Support\CashbookAccess;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -814,6 +815,7 @@ class AdminCashbookReportsController extends Controller
             $user instanceof User && (
                 $user->isMainAdmin()
                 || $user->hasRole('admin')
+                || CashbookAccess::canAccessCashbook($user)
                 || $user->hasRole('accounts')
                 || $user->hasRole('accountant')
                 || $user->hasRole('account')

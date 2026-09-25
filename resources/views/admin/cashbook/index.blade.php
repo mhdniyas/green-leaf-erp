@@ -38,9 +38,11 @@
             }
         }
     </script>
-    <!-- Lucide Icons -->
+    <!-- Alpine.js & Lucide Icons -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
+        [x-cloak] { display: none !important; }
         .white-card {
             background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(12px);
@@ -292,17 +294,32 @@
                             <i data-lucide="menu" class="w-5 h-5"></i>
                         </button>
                         <div>
-                            <h1 id="top-header-title" class="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-2">
-                                <i data-lucide="layout-grid" class="w-5 h-5 text-brand-600"></i> All Shops Daily Overview
-                            </h1>
+                            <div class="flex items-center gap-2">
+                                <h1 id="top-header-title" class="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-2">
+                                    <i data-lucide="layout-grid" class="w-5 h-5 text-brand-600"></i> All Shops Daily Overview
+                                </h1>
+                                @php
+                                    $currentUser = auth()->user();
+                                    $accessMode = $currentUser ? \App\Support\CashbookAccess::userAccessMode($currentUser) : 'no_access';
+                                @endphp
+                                @if ($accessMode === 'full_access')
+                                    <span class="inline-flex rounded-lg bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-800">Full Access</span>
+                                @elseif ($accessMode === 'read_only')
+                                    <span class="inline-flex rounded-lg bg-blue-100 px-2 py-0.5 text-[10px] font-black uppercase text-blue-800">Read Only Access</span>
+                                @elseif ($accessMode === 'custom')
+                                    <span class="inline-flex rounded-lg bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase text-amber-800">Custom Access</span>
+                                @endif
+                            </div>
                             <p id="top-header-subtitle" class="text-[11px] sm:text-xs text-slate-500">Real-time daily accounting metrics across all owned shops.</p>
                         </div>
                     </div>
 
                     <div class="flex items-center gap-3 ml-auto">
-                        <button id="global-toggle-day-btn" onclick="handleToggleDay()" class="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm">
-                            <i data-lucide="lock" class="w-3.5 h-3.5"></i> Close Day
-                        </button>
+                        @can('cashbook.shops.manage')
+                            <button id="global-toggle-day-btn" onclick="handleToggleDay()" class="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm">
+                                <i data-lucide="lock" class="w-3.5 h-3.5"></i> Close Day
+                            </button>
+                        @endcan
                     </div>
                 </div>
 
@@ -349,6 +366,25 @@
 
             <!-- MAIN DYNAMIC SECTION BODY -->
             <main class="flex-1 p-3 sm:p-6 md:p-8 space-y-6 sm:space-y-8">
+
+                {{-- AVAILABLE MODULES BAR --}}
+                @php
+                    $accessibleModules = $currentUser ? \App\Support\CashbookAccess::accessibleSections($currentUser) : [];
+                @endphp
+                @if (count($accessibleModules) > 1)
+                    <div class="white-card rounded-2xl border border-slate-200/90 p-4 shadow-xs">
+                        <p class="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">Available Modules</p>
+                        <div class="flex flex-wrap gap-2">
+                            @foreach ($accessibleModules as $secKey => $secData)
+                                @if ($secKey !== 'dashboard')
+                                    <a href="{{ route($secData['route']) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50/80 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-900 transition shadow-2xs">
+                                        <span>{{ $secData['label'] }}</span>
+                                    </a>
+                                @endif
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
                 
                 <!-- ========================================================================= -->
                 <!-- TAB 1: ALL SHOPS OVERVIEW -->

@@ -51,9 +51,6 @@
     <!-- SHARED PERIOD FILTER -->
     @include('admin.cashbook.monthly-report.partials.period-filter', ['reportType' => 'sale-split'])
 
-    <!-- RECONCILIATION & READINESS STATUS -->
-    @include('admin.cashbook.monthly-report.partials.reconciliation-badge')
-
     <!-- CATEGORY PERFORMANCE SUMMARY TILES -->
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <!-- FRUITS TILE -->

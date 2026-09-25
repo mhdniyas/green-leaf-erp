@@ -18,6 +18,7 @@
             ? ['resources/css/app.css', 'resources/js/app.js']
             : ['resources/css/shop-owner/app.css', 'resources/js/shop-owner/app.js'];
     @endphp
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     @vite($shopOwnerAssets)
     <style>
         [x-cloak] { display: none !important; }
