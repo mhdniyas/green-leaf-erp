@@ -135,7 +135,7 @@ class AdminCashbookReportsController extends Controller
         $timeframe = (string) $request->input('timeframe', 'today');
         $dateRange = $this->resolveDateRange($timeframe, $request);
 
-        $metrics = $this->calculateSingleShopDetail($shop->shop_id, $dateRange['start'], $dateRange['end']);
+        $metrics = $this->calculateNormalizedSingleShopDetail($shop, $dateRange['start'], $dateRange['end']);
 
         return view('admin.cashbook.reports.detail', [
             'shops' => $shops,
@@ -1135,6 +1135,73 @@ class AdminCashbookReportsController extends Controller
     }
 
     /**
+     * Build legacy view data from the authoritative Shop Sales Report output.
+     */
+    private function calculateNormalizedSingleShopDetail(ShopLedgerProfile $shop, string $startDate, string $endDate): array
+    {
+        $report = $this->shopSalesReportService->generate($shop, $startDate, $endDate, 'custom', substr($startDate, 0, 7));
+        $summary = $report['summary'];
+        $categories = collect($report['summary_breakdowns'])
+            ->reject(fn (array $breakdown, string $key): bool => $key === 'net_operating_balance')
+            ->flatMap(function (array $breakdown, string $key): array {
+                $direction = $key === 'total_sales' ? 'income' : 'expense';
+
+                return collect($breakdown['sources'] ?? [])->map(fn (array $source): array => [
+                    'category_key' => $key.'___'.$source['name'],
+                    'category' => $source['name'],
+                    'direction' => $direction,
+                    'amount' => (float) $source['total'],
+                    'count' => count($source['categories'] ?? []) + count($source['products'] ?? []),
+                    'is_gl_bill' => false,
+                    'items' => [],
+                ])->all();
+            })
+            ->filter(fn (array $category): bool => $category['amount'] !== 0.0)
+            ->values();
+
+        $transactions = collect($report['daily_rows'])->flatMap(fn (array $row): array => array_map(
+            fn (array $detail): array => [
+                ...$detail,
+                'business_date' => $row['date'],
+                'formatted_date' => $row['formatted_date'],
+                'category_name' => $detail['name'],
+                'direction' => $detail['bucket'] === 'sales' ? 'income' : 'expense',
+                'status' => 'posted',
+                'reference_type' => null,
+                'reference_id' => null,
+                'is_gl_bill' => false,
+            ],
+            $row['details']
+        ))->values();
+
+        $sales = (float) $summary['total_sales'];
+        $glBills = (float) $summary['gl_bills_total'];
+        $glBillsCount = ShopInvoice::query()
+            ->where('shop_id', (int) $shop->shop_id)
+            ->where('status', '!=', 'cancelled')
+            ->whereBetween('business_date', [$startDate, $endDate])
+            ->count();
+
+        return [
+            'sales' => $sales,
+            'expense' => (float) $summary['total_expenses'],
+            'net' => (float) $summary['net_total'],
+            'gl_bills' => $glBills,
+            'gl_bills_count' => $glBillsCount,
+            'gl_bills_pct' => $sales > 0 ? round(($glBills / $sales) * 100, 1) : 0.0,
+            'petty' => 0.0,
+            'settled_amount' => 0.0,
+            'margin_pct' => $sales > 0 ? round(((float) $summary['net_total'] / $sales) * 100, 1) : 0.0,
+            'categories' => $categories,
+            'transactions' => $transactions,
+            'total_entries' => $transactions->count(),
+            'pending_days_count' => 0,
+            'pending_dates' => [],
+            'skip_gl_only_days' => false,
+        ];
+    }
+
+    /**
      * Generate Category Chart Breakdown data.
      */
     private function generateCategoryChartData(Collection $shops, string $startDate, string $endDate, ?int $selectedShopId): array
@@ -1464,7 +1531,7 @@ class AdminCashbookReportsController extends Controller
         $dateRange = $this->resolveDateRange($timeframe, $request);
         $skipGlOnlyDays = $request->boolean('skip_gl_only_days');
 
-        $metrics = $this->calculateSingleShopDetail($shop->shop_id, $dateRange['start'], $dateRange['end'], $skipGlOnlyDays);
+        $metrics = $this->calculateNormalizedSingleShopDetail($shop, $dateRange['start'], $dateRange['end']);
 
         return view('admin.cashbook.reports.mobile_ledger', [
             'shops' => $shops,
