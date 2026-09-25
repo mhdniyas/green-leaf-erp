@@ -41,6 +41,14 @@ class ShopPaymentsReportConfigService
 
     public const SOURCE_VENDOR_PURCHASE_CREDIT = 'vendor_purchase_credit';
 
+    /** @var array<string, string> */
+    private const DEFAULT_BALANCE_FORMULA = [
+        self::HEADING_TOTAL_SALES => 'add',
+        self::HEADING_RENT_EXPENSE => 'subtract',
+        self::HEADING_CASH_PURCHASE => 'subtract',
+        self::HEADING_OTHER_EXPENSE => 'subtract',
+    ];
+
     /**
      * Get default report headings structure for a shop.
      *
@@ -137,6 +145,7 @@ class ShopPaymentsReportConfigService
                 'is_computed' => true,
                 'is_informational' => false,
                 'sources' => [],
+                'formula' => self::DEFAULT_BALANCE_FORMULA,
             ],
             self::HEADING_GL_BILLS_REF => [
                 'key' => self::HEADING_GL_BILLS_REF,
@@ -220,6 +229,10 @@ class ShopPaymentsReportConfigService
                     'is_informational' => $defaultHeading['is_informational'],
                     'sources' => $cleanSources,
                 ];
+
+                if ($key === self::HEADING_NET_OPERATING_BALANCE) {
+                    $validatedHeadings[$key]['formula'] = $this->normaliseBalanceFormula($inputHeading['formula'] ?? $defaultHeading['formula']);
+                }
             }
 
             // Save under specific month only
@@ -240,6 +253,41 @@ class ShopPaymentsReportConfigService
 
             return $validatedHeadings;
         });
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function normaliseBalanceFormula(mixed $formula): array
+    {
+        $formula = is_array($formula) ? $formula : [];
+        $normalised = [];
+
+        foreach (self::DEFAULT_BALANCE_FORMULA as $headingKey => $defaultOperation) {
+            $operation = (string) ($formula[$headingKey] ?? $defaultOperation);
+            $normalised[$headingKey] = in_array($operation, ['add', 'subtract', 'ignore'], true) ? $operation : $defaultOperation;
+        }
+
+        return $normalised;
+    }
+
+    /** @param array<string, float> $totals
+     * @param  array<string, string>  $formula
+     */
+    private function calculateBalanceFromFormula(array $totals, array $formula): float
+    {
+        $balance = 0.0;
+
+        foreach ($this->normaliseBalanceFormula($formula) as $headingKey => $operation) {
+            $amount = (float) ($totals[$headingKey] ?? 0.0);
+            $balance += match ($operation) {
+                'add' => $amount,
+                'subtract' => -$amount,
+                default => 0.0,
+            };
+        }
+
+        return round($balance, 2);
     }
 
     /** @param array{type: mixed, id: mixed, name?: mixed} $source */
@@ -397,6 +445,7 @@ class ShopPaymentsReportConfigService
 
         $monthStr = $month ?: Carbon::parse($startDate)->format('Y-m');
         $headings = $this->getConfigurationForMonth($shopId, $monthStr);
+        $balanceFormula = $this->normaliseBalanceFormula($headings[self::HEADING_NET_OPERATING_BALANCE]['formula'] ?? []);
 
         $settings = ShopLedgerEntrySetting::query()
             ->with(['entryType', 'headerGroup'])
@@ -456,7 +505,7 @@ class ShopPaymentsReportConfigService
             ];
 
             // Compute daily Net Operating Balance
-            $dayNetBalance = round($dayTotals[self::HEADING_TOTAL_SALES] - ($dayTotals[self::HEADING_RENT_EXPENSE] + $dayTotals[self::HEADING_CASH_PURCHASE] + $dayTotals[self::HEADING_OTHER_EXPENSE]), 2);
+            $dayNetBalance = $this->calculateBalanceFromFormula($dayTotals, $balanceFormula);
             $dayTotalExpenses = round($dayTotals[self::HEADING_RENT_EXPENSE] + $dayTotals[self::HEADING_CASH_PURCHASE] + $dayTotals[self::HEADING_OTHER_EXPENSE], 2);
 
             foreach ([self::HEADING_TOTAL_SALES, self::HEADING_RENT_EXPENSE, self::HEADING_CASH_PURCHASE, self::HEADING_OTHER_EXPENSE] as $hKey) {
@@ -492,14 +541,7 @@ class ShopPaymentsReportConfigService
             $headingMonthlyTotals[$hKey] = round($headingMonthlyTotals[$hKey], 2);
         }
 
-        $headingMonthlyTotals[self::HEADING_NET_OPERATING_BALANCE] = round(
-            $headingMonthlyTotals[self::HEADING_TOTAL_SALES] - (
-                $headingMonthlyTotals[self::HEADING_RENT_EXPENSE] +
-                $headingMonthlyTotals[self::HEADING_CASH_PURCHASE] +
-                $headingMonthlyTotals[self::HEADING_OTHER_EXPENSE]
-            ),
-            2
-        );
+        $headingMonthlyTotals[self::HEADING_NET_OPERATING_BALANCE] = $this->calculateBalanceFromFormula($headingMonthlyTotals, $balanceFormula);
 
         $summaryBreakdowns = $this->buildPeriodBreakdowns($shopId, $headings, $transactions, $startDate, $endDate, $headers, $settings);
 
@@ -761,18 +803,14 @@ class ShopPaymentsReportConfigService
             ];
         }
 
-        $netBalance = round(
-            ($headingTotalsMap[self::HEADING_TOTAL_SALES] ?? 0.0) - (
-                ($headingTotalsMap[self::HEADING_RENT_EXPENSE] ?? 0.0) +
-                ($headingTotalsMap[self::HEADING_CASH_PURCHASE] ?? 0.0) +
-                ($headingTotalsMap[self::HEADING_OTHER_EXPENSE] ?? 0.0)
-            ),
-            2
+        $netBalance = $this->calculateBalanceFromFormula(
+            $headingTotalsMap,
+            $headings[self::HEADING_NET_OPERATING_BALANCE]['formula'] ?? [],
         );
 
         $breakdowns[self::HEADING_NET_OPERATING_BALANCE] = [
             'heading_key' => self::HEADING_NET_OPERATING_BALANCE,
-            'title' => 'BALANCE CALCULATION',
+            'title' => 'NET OPERATING BALANCE',
             'is_balance' => true,
             'total' => $netBalance,
             'sales' => $headingTotalsMap[self::HEADING_TOTAL_SALES] ?? 0.0,

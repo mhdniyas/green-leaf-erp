@@ -80,7 +80,16 @@
 
                             <div class="text-xs text-slate-500 mt-2">
                                 @if($heading['is_computed'])
-                                    <span class="italic text-slate-400 text-[11px]">Calculated: Total Sales – (Rent + Purchase + Other Expenses)</span>
+                                    @php
+                                        $balanceTerms = [
+                                            'total_sales' => 'Total Sales',
+                                            'rent_expense' => 'Rent',
+                                            'cash_purchase' => 'Purchase',
+                                            'other_expense' => 'Other Expenses',
+                                        ];
+                                        $balanceFormula = $heading['formula'] ?? ['total_sales' => 'add', 'rent_expense' => 'subtract', 'cash_purchase' => 'subtract', 'other_expense' => 'subtract'];
+                                    @endphp
+                                    <span class="italic text-slate-400 text-[11px]">Formula: {{ collect($balanceTerms)->map(fn ($label, $key) => match ($balanceFormula[$key] ?? 'ignore') { 'add' => '+ '.$label, 'subtract' => '− '.$label, default => null })->filter()->implode(' ') }}</span>
                                 @elseif($heading['is_informational'])
                                     <span class="italic text-slate-400 text-[11px]">Reference: Green Leaf ERP Invoices final total</span>
                                 @else
@@ -143,7 +152,7 @@
                 <div class="text-sm font-black text-slate-800 mt-1">₹{{ number_format($reportHeadingsData['summary']['total_other_expense'], 2) }}</div>
             </div>
             <div class="rounded-xl border border-rose-200 bg-rose-50/50 p-3">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-rose-800">Balance</span>
+                <span class="text-[10px] font-extrabold uppercase tracking-wider text-rose-800">Net Operating Balance</span>
                 <div class="text-sm font-black text-rose-900 mt-1">₹{{ number_format($reportHeadingsData['summary']['net_total'], 2) }}</div>
             </div>
             <div class="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
@@ -190,6 +199,7 @@
                 'rent_expense' => ['title' => '2. Rent', 'role' => 'subtract', 'desc' => 'Shop premises rent outflows'],
                 'cash_purchase' => ['title' => '3. Purchase', 'role' => 'subtract', 'desc' => 'Direct cash procurement & purchases'],
                 'other_expense' => ['title' => '4. Other Expenses', 'role' => 'subtract', 'desc' => 'Operational and sundry expenses'],
+                'net_operating_balance' => ['title' => '5. Net Operating Balance', 'role' => 'balance', 'desc' => 'Choose the formula terms and signs'],
             ];
 
             $headingSelectOptions = collect($editableHeadings)->map(fn($h, $k) => [
@@ -232,8 +242,16 @@
             </div>
         </div>
 
+        <div id="reports-modal-balance-formula" class="hidden rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4 space-y-3">
+            <div>
+                <span class="text-xs font-black text-indigo-950 block">Net Operating Balance Formula</span>
+                <span class="text-[11px] text-indigo-700">Choose whether each heading is added, subtracted, or ignored.</span>
+            </div>
+            <div id="reports-modal-balance-formula-terms" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+        </div>
+
         {{-- Add New Source to Heading --}}
-        <div class="rounded-2xl border border-rose-200 bg-rose-50/30 p-4 space-y-3">
+        <div id="report-source-editor" class="rounded-2xl border border-rose-200 bg-rose-50/30 p-4 space-y-3">
             <span class="text-xs font-black text-rose-950 block">Add Source to Heading</span>
 
             <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
@@ -279,8 +297,8 @@
             <span class="font-black text-slate-800 uppercase tracking-wider text-[10px] block">Shop Sales Report Calculated & Reference Headings</span>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-slate-600">
                 <div class="p-2.5 rounded-xl bg-white border border-slate-200">
-                    <span class="font-bold text-slate-900 block">5. Balance</span>
-                    <span class="text-[11px] text-slate-500">Calculated: Total Sales – (Rent + Purchase + Other Expenses). No direct source editor.</span>
+                    <span class="font-bold text-slate-900 block">5. Net Operating Balance</span>
+                    <span class="text-[11px] text-slate-500">Editable formula: choose Add, Subtract, or Ignore for each report heading.</span>
                 </div>
                 <div class="p-2.5 rounded-xl bg-white border border-slate-200">
                     <span class="font-bold text-slate-900 block">6. GL Bills Ref</span>
@@ -295,6 +313,18 @@
 let reportsWorkingHeadings = @json($reportHeadingsData['headings']);
 const reportsAvailableHeaders = @json($settlementData['headers'] ?? []);
 const reportsAvailableSettings = @json($entrySettings ?? []);
+const balanceFormulaTerms = {
+    total_sales: 'Total Sales',
+    rent_expense: 'Rent',
+    cash_purchase: 'Purchase',
+    other_expense: 'Other Expenses'
+};
+const defaultBalanceFormula = {
+    total_sales: 'add',
+    rent_expense: 'subtract',
+    cash_purchase: 'subtract',
+    other_expense: 'subtract'
+};
 
 function getActiveReportHeadingKey() {
     const input = document.getElementById('modal_active_report_heading');
@@ -309,6 +339,25 @@ function renderReportsModalSources() {
 
     const heading = reportsWorkingHeadings[headingKey] || { sources: [] };
     const sources = heading.sources || [];
+    const formulaEditor = document.getElementById('reports-modal-balance-formula');
+    const sourceEditor = document.getElementById('report-source-editor');
+
+    if (headingKey === 'net_operating_balance') {
+        if (!reportsWorkingHeadings[headingKey]) {
+            reportsWorkingHeadings[headingKey] = { formula: { ...defaultBalanceFormula }, sources: [] };
+        }
+        reportsWorkingHeadings[headingKey].formula = { ...defaultBalanceFormula, ...(reportsWorkingHeadings[headingKey].formula || {}) };
+        countBadge.textContent = 'Formula';
+        container.innerHTML = '<div class="py-4 text-center text-xs text-slate-500">This calculated heading has no sources. Configure its formula below.</div>';
+        formulaEditor?.classList.remove('hidden');
+        sourceEditor?.classList.add('hidden');
+        renderBalanceFormulaTerms();
+        checkReportsDuplicates(headingKey);
+        return;
+    }
+
+    formulaEditor?.classList.add('hidden');
+    sourceEditor?.classList.remove('hidden');
 
     countBadge.textContent = sources.length + ' source' + (sources.length === 1 ? '' : 's');
 
@@ -342,6 +391,32 @@ function renderReportsModalSources() {
     container.innerHTML = html;
     if (window.lucide) window.lucide.createIcons();
     checkReportsDuplicates(headingKey);
+}
+
+function renderBalanceFormulaTerms() {
+    const container = document.getElementById('reports-modal-balance-formula-terms');
+    const formula = reportsWorkingHeadings.net_operating_balance?.formula || defaultBalanceFormula;
+    if (!container) return;
+
+    container.innerHTML = Object.entries(balanceFormulaTerms).map(([key, label]) => `
+        <label class="flex items-center justify-between gap-3 rounded-xl border border-indigo-100 bg-white px-3 py-2.5 text-xs font-bold text-slate-800">
+            <span>${label}</span>
+            <select class="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold text-slate-800 focus:border-indigo-500 focus:outline-none" onchange="setBalanceFormulaOperation('${key}', this.value)">
+                <option value="add" ${formula[key] === 'add' ? 'selected' : ''}>Add (+)</option>
+                <option value="subtract" ${formula[key] === 'subtract' ? 'selected' : ''}>Subtract (−)</option>
+                <option value="ignore" ${formula[key] === 'ignore' ? 'selected' : ''}>Ignore</option>
+            </select>
+        </label>
+    `).join('');
+}
+
+function setBalanceFormulaOperation(key, operation) {
+    reportsWorkingHeadings.net_operating_balance = reportsWorkingHeadings.net_operating_balance || { sources: [], formula: { ...defaultBalanceFormula } };
+    reportsWorkingHeadings.net_operating_balance.formula = {
+        ...defaultBalanceFormula,
+        ...(reportsWorkingHeadings.net_operating_balance.formula || {}),
+        [key]: operation
+    };
 }
 
 function removeReportModalSource(headingKey, index) {

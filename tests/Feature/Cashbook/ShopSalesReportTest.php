@@ -124,6 +124,42 @@ class ShopSalesReportTest extends TestCase
         $this->assertEquals(-800.00, $report['summary']['net_total']);
     }
 
+    public function test_net_operating_balance_formula_can_be_configured_per_month(): void
+    {
+        $salesType = LedgerEntryType::create(['code' => 'formula_sales', 'name' => 'Formula Sales', 'category' => 'income']);
+        $rentType = LedgerEntryType::create(['code' => 'formula_rent', 'name' => 'Formula Rent', 'category' => 'expense']);
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id, 'entry_type_id' => $salesType->id, 'version' => 1,
+            'effective_from' => '2026-01-01', 'enabled' => true, 'sales_report_bucket' => 'sales',
+        ]);
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id, 'entry_type_id' => $rentType->id, 'version' => 1,
+            'effective_from' => '2026-01-01', 'enabled' => true, 'sales_report_bucket' => 'rent',
+        ]);
+        foreach ([[$salesType, 1000.0, 'income'], [$rentType, 200.0, 'expense']] as [$type, $amount, $direction]) {
+            ShopLedgerTransaction::create([
+                'shop_id' => $this->shop1->shop_id, 'business_date' => '2026-09-15', 'entry_type_id' => $type->id,
+                'amount' => $amount, 'direction' => $direction, 'funding_source' => 'sales', 'status' => 'approved',
+            ]);
+        }
+
+        $service = app(ShopPaymentsReportConfigService::class);
+        $headings = $service->getDefaultHeadings($this->shop1->shop_id);
+        $headings[ShopPaymentsReportConfigService::HEADING_NET_OPERATING_BALANCE]['formula'] = [
+            ShopPaymentsReportConfigService::HEADING_TOTAL_SALES => 'add',
+            ShopPaymentsReportConfigService::HEADING_RENT_EXPENSE => 'add',
+            ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE => 'ignore',
+            ShopPaymentsReportConfigService::HEADING_OTHER_EXPENSE => 'ignore',
+        ];
+        ShopLedgerProfile::firstOrCreate(['shop_id' => $this->shop1->shop_id]);
+        $service->saveConfigurationForMonth($this->shop1->shop_id, '2026-09', $headings, $this->admin->id);
+
+        $report = $service->calculateReport($this->shop1->shop_id, '2026-09-15', '2026-09-15', '2026-09');
+
+        $this->assertSame(1200.0, $report['summary']['net_total']);
+        $this->assertSame(1200.0, $report['daily_rows'][0]['net_balance']);
+    }
+
     public function test_payment_setting_to_purchase_mapping(): void
     {
         $purchaseType = LedgerEntryType::create([
