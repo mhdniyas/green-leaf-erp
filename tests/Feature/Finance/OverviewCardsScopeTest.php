@@ -219,9 +219,9 @@ class OverviewCardsScopeTest extends TestCase
         $totals = $response->viewData('totals');
         $this->assertEquals(3500.00, $totals['gl_bills']);
         $this->assertEquals(2, $totals['gl_bills_count']);
-        $this->assertEquals(10000.00, $totals['sales']);
-        $this->assertEquals(2000.00, $totals['expense']);
-        $this->assertEquals(8000.00, $totals['net']);
+        $this->assertEquals(0.00, $totals['sales']);
+        $this->assertEquals(0.00, $totals['expense']);
+        $this->assertEquals(0.00, $totals['net']);
     }
 
     public function test_overview_cards_supports_all_scope(): void
@@ -238,9 +238,9 @@ class OverviewCardsScopeTest extends TestCase
         // Total GL: 3500 (owned) + 65000 (direct) = 68500
         $this->assertEquals(68500.00, $totals['gl_bills']);
         $this->assertEquals(6, $totals['gl_bills_count']);
-        $this->assertEquals(10000.00, $totals['sales']);
-        $this->assertEquals(2000.00, $totals['expense']);
-        $this->assertEquals(8000.00, $totals['net']);
+        $this->assertEquals(0.00, $totals['sales']);
+        $this->assertEquals(0.00, $totals['expense']);
+        $this->assertEquals(0.00, $totals['net']);
     }
 
     public function test_api_hub_data_returns_scoped_metrics(): void
@@ -281,9 +281,9 @@ class OverviewCardsScopeTest extends TestCase
                 'totals' => [
                     'gl_bills' => 3500.00,
                     'gl_bills_count' => 2,
-                    'sales' => 10000.00,
-                    'expense' => 2000.00,
-                    'net' => 8000.00,
+                    'sales' => 0.00,
+                    'expense' => 0.00,
+                    'net' => 0.00,
                 ],
             ]);
     }

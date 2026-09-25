@@ -6,6 +6,7 @@ namespace App\Services\Reports;
 
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\ShopInvoice;
+use App\Services\Cashbook\ShopSalesReportService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
@@ -27,6 +28,8 @@ use Illuminate\Support\Collection;
  */
 final class ShopProfitIntelligenceService
 {
+    public function __construct(private readonly ShopSalesReportService $shopSalesReportService) {}
+
     /** Statuses counted as confirmed / posted entries for the profit banner. */
     private const CONFIRMED_STATUSES = ['posted', 'approved', 'closed'];
 
@@ -66,6 +69,16 @@ final class ShopProfitIntelligenceService
     {
         $historicalStart = $startDate ?? today()->subDays(30)->toDateString();
         $historicalEnd = $endDate ?? today()->toDateString();
+
+        $report = $this->shopSalesReportService->generate(
+            $shopId,
+            $historicalStart,
+            $historicalEnd,
+            'custom',
+            substr($historicalStart, 0, 7)
+        );
+
+        return $this->analyseNormalizedRows($report['daily_rows'], $report['summary'], $minSampleDays);
 
         $transactions = ShopLedgerTransaction::query()
             ->where('shop_id', $shopId)
@@ -149,6 +162,68 @@ final class ShopProfitIntelligenceService
             'pending_dates' => $pendingGlOnlyDates,
             'excluded_gl_bill_total' => round($excludedGlBillTotal, 2),
             'has_data' => true,
+        ];
+    }
+
+    /**
+     * Derive analytics from the same normalized rows used by the Shop Sales Report.
+     *
+     * @param  array<int, array{date: string, sales: float, purchase: float, total_expenses: float, net_balance: float}>  $dailyRows
+     * @param  array{total_sales: float, total_expenses: float, net_total: float, gl_bills_total: float}  $summary
+     * @return array<string, mixed>
+     */
+    private function analyseNormalizedRows(array $dailyRows, array $summary, int $minSampleDays): array
+    {
+        if ($dailyRows === []) {
+            return $this->emptyResult();
+        }
+
+        $rows = collect($dailyRows);
+        $weekdayAnalysis = [];
+        foreach (['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as $dayName) {
+            $dayRows = $rows->filter(fn (array $row): bool => Carbon::parse($row['date'])->format('l') === $dayName);
+            $sampleDays = max(1, $dayRows->count());
+            $sales = (float) $dayRows->sum('sales');
+            $expenses = (float) $dayRows->sum('total_expenses');
+            $net = (float) $dayRows->sum('net_balance');
+            $purchase = (float) $dayRows->sum('purchase');
+            $weekdayAnalysis[$dayName] = [
+                'day' => $dayName,
+                'avg_sales' => round($sales / $sampleDays, 2),
+                'avg_expense' => round($expenses / $sampleDays, 2),
+                'avg_gl_bills' => round($purchase / $sampleDays, 2),
+                'avg_net' => round($net / $sampleDays, 2),
+                'purchase_ratio' => $sales > 0 ? round(($purchase / $sales) * 100, 1) : 0.0,
+                'margin_pct' => $sales > 0 ? round(($net / $sales) * 100, 1) : 0.0,
+                'sample_days' => $sampleDays,
+                'has_data' => $dayRows->isNotEmpty(),
+            ];
+        }
+
+        $weekdayCollection = collect($weekdayAnalysis);
+        $eligible = $weekdayCollection->filter(fn (array $row): bool => $row['sample_days'] >= $minSampleDays);
+        $bestProfitDay = $eligible->sortByDesc('avg_net')->first();
+        $highSalesDay = $eligible->sortByDesc('avg_sales')->first();
+        $leakageResult = $this->calculateLeakage($weekdayAnalysis);
+        $riskDay = collect($leakageResult['flagged_days'])->sortByDesc('excess_ratio')->first();
+        $capturedProfit = max(0.0, (float) $summary['net_total']);
+        $totalLeakage = (float) $leakageResult['total_leakage'];
+        $potentialProfit = $capturedProfit + $totalLeakage;
+        $capturedPct = $potentialProfit > 0 ? round(($capturedProfit / $potentialProfit) * 100, 1) : 0.0;
+        [$healthBadge, $healthTone] = $this->healthBadge($capturedPct);
+
+        return [
+            'captured_profit' => round($capturedProfit, 2), 'potential_profit' => round($potentialProfit, 2),
+            'captured_pct' => $capturedPct, 'total_leakage' => round($totalLeakage, 2),
+            'health_badge' => $healthBadge, 'health_tone' => $healthTone,
+            'period_sales' => round((float) $summary['total_sales'], 2),
+            'period_expense' => round((float) $summary['total_expenses'], 2),
+            'period_net' => round((float) $summary['net_total'], 2),
+            'weekday_analysis' => $weekdayAnalysis, 'best_profit_day' => $bestProfitDay,
+            'risk_day' => $riskDay, 'high_sales_day' => $highSalesDay,
+            'leak_warnings' => $leakageResult['flagged_days'], 'pending_days_count' => 0,
+            'pending_dates' => [], 'excluded_gl_bill_total' => round((float) $summary['gl_bills_total'], 2),
+            'has_data' => $rows->contains(fn (array $row): bool => (float) $row['sales'] !== 0 || (float) $row['total_expenses'] !== 0),
         ];
     }
 

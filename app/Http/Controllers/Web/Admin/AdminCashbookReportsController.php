@@ -33,6 +33,7 @@ use App\Models\WarehouseCustomer;
 use App\Models\WarehouseSale;
 use App\Repositories\Inventory\StockMovementRepository;
 use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Cashbook\ShopSalesReportService;
 use App\Services\Inventory\WastageService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\AdvanceAvailableBalanceCalculator;
@@ -69,6 +70,7 @@ class AdminCashbookReportsController extends Controller
         private readonly CashbookShopSyncService $shopSyncService,
         private readonly ShopProfitIntelligenceService $profitIntelligence,
         private readonly PriceBoardService $priceBoardService,
+        private readonly ShopSalesReportService $shopSalesReportService,
     ) {}
 
     /**
@@ -897,14 +899,6 @@ class AdminCashbookReportsController extends Controller
         }
 
         $shopIds = $shops->pluck('shop_id')->all();
-
-        $transactions = ShopLedgerTransaction::query()
-            ->whereIn('shop_id', $shopIds)
-            ->whereBetween('business_date', [$startDate, $endDate])
-            ->where('status', '!=', 'void')
-            ->with('entryType')
-            ->get();
-
         $invoicesByShop = ShopInvoice::query()
             ->whereIn('shop_id', $shopIds)
             ->where('status', '!=', 'cancelled')
@@ -916,50 +910,19 @@ class AdminCashbookReportsController extends Controller
             ->get()
             ->keyBy('shop_id');
 
-        return $shops->map(function (ShopLedgerProfile $shop) use ($transactions, $invoicesByShop) {
+        return $shops->map(function (ShopLedgerProfile $shop) use ($startDate, $endDate, $invoicesByShop) {
             $isClientOwned = $shop->client_id !== null;
-            $shopTx = $transactions->where('shop_id', $shop->shop_id);
-
-            $pendingGlOnlyDates = [];
-            $activeTx = collect();
-            $pendingGlBillTotal = 0.0;
-
-            if ($isClientOwned) {
-                // For client-owned shops, identify GL-bill-only dates (pending daily shop owner entry)
-                $txByDate = $shopTx->groupBy(
-                    fn ($tx) => Carbon::parse($tx->business_date)->toDateString()
-                );
-
-                foreach ($txByDate as $dateStr => $dayTxs) {
-                    $hasNonGlBill = $dayTxs->contains(function ($t) {
-                        $code = $t->entryType?->code ?: $t->entry_type_code;
-
-                        return $t->reference_type !== 'App\Models\ShopInvoice'
-                            && $t->reference_type !== ShopInvoice::class
-                            && ! in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true);
-                    });
-
-                    if (! $hasNonGlBill) {
-                        $pendingGlOnlyDates[] = $dateStr;
-                        $pendingGlBillTotal += (float) $dayTxs->sum('amount');
-                    } else {
-                        $activeTx = $activeTx->concat($dayTxs);
-                    }
-                }
-            } else {
-                // Direct buyer shops do not have retail cashbook entries; their transactions are direct
-                $activeTx = $shopTx;
-            }
-
-            $sales = (float) $activeTx
-                ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
-                ->sum('amount');
-
-            $expense = (float) $activeTx
-                ->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))
-                ->sum('amount');
-
-            $net = round($sales - $expense, 2);
+            $report = $this->shopSalesReportService->generate(
+                $shop,
+                $startDate,
+                $endDate,
+                'custom',
+                substr($startDate, 0, 7)
+            );
+            $summary = $report['summary'];
+            $sales = (float) $summary['total_sales'];
+            $expense = (float) $summary['total_expenses'];
+            $net = (float) $summary['net_total'];
 
             // GL bills from ShopInvoice canonical source
             $invData = $invoicesByShop->get($shop->shop_id);
@@ -968,9 +931,7 @@ class AdminCashbookReportsController extends Controller
 
             $marginPct = $sales > 0 ? round(($net / $sales) * 100, 1) : 0;
 
-            $status = ($isClientOwned && $activeTx->isEmpty() && count($pendingGlOnlyDates) > 0)
-                ? 'pending'
-                : ($net >= 0 ? 'profit' : 'loss');
+            $status = $net >= 0 ? 'profit' : 'loss';
 
             return [
                 'shop_id' => $shop->shop_id,
@@ -984,11 +945,11 @@ class AdminCashbookReportsController extends Controller
                 'net' => $net,
                 'gl_bills' => round($glBills, 2),
                 'gl_bills_count' => $glBillsCount,
-                'pending_gl_bills' => round($pendingGlBillTotal, 2),
+                'pending_gl_bills' => 0.0,
                 'margin_pct' => $marginPct,
-                'entries_count' => $activeTx->count(),
-                'pending_days_count' => count($pendingGlOnlyDates),
-                'pending_dates' => $pendingGlOnlyDates,
+                'entries_count' => count($report['daily_rows']),
+                'pending_days_count' => 0,
+                'pending_dates' => [],
                 'status' => $status,
             ];
         });
@@ -1178,6 +1139,64 @@ class AdminCashbookReportsController extends Controller
      */
     private function generateCategoryChartData(Collection $shops, string $startDate, string $endDate, ?int $selectedShopId): array
     {
+        $reportShops = $selectedShopId
+            ? $shops->where('shop_id', $selectedShopId)
+            : $shops;
+
+        $income = collect();
+        $expense = collect();
+        $daily = collect();
+
+        foreach ($reportShops as $shop) {
+            $report = $this->shopSalesReportService->generate($shop, $startDate, $endDate, 'custom', substr($startDate, 0, 7));
+            $breakdowns = $report['summary_breakdowns'];
+
+            foreach (($breakdowns['total_sales']['sources'] ?? []) as $source) {
+                $income[$source['name']] = ($income[$source['name']] ?? 0) + (float) $source['total'];
+            }
+            foreach (['rent_expense', 'cash_purchase', 'other_expense'] as $heading) {
+                foreach (($breakdowns[$heading]['sources'] ?? []) as $source) {
+                    $expense[$source['name']] = ($expense[$source['name']] ?? 0) + (float) $source['total'];
+                }
+            }
+            foreach ($report['daily_rows'] as $row) {
+                $date = $row['date'];
+                $daily[$date] = [
+                    'date' => Carbon::parse($date)->format('d M'),
+                    'sales' => ($daily[$date]['sales'] ?? 0) + (float) $row['sales'],
+                    'expense' => ($daily[$date]['expense'] ?? 0) + (float) $row['total_expenses'],
+                    'net' => ($daily[$date]['net'] ?? 0) + (float) $row['net_balance'],
+                ];
+            }
+        }
+
+        $expense = $expense->sortDesc();
+        $income = $income->sortDesc();
+        $totalExpense = round((float) $expense->sum(), 2);
+        $totalSales = round((float) $income->sum(), 2);
+
+        return [
+            'expense_categories' => [
+                'labels' => $expense->keys()->values(),
+                'data' => $expense->values(),
+                'detailed' => $expense->map(fn (float $amount, string $name): array => [
+                    'name' => $name,
+                    'amount' => round($amount, 2),
+                    'pct' => $totalExpense > 0 ? round(($amount / $totalExpense) * 100, 1) : 0,
+                    'inflow_pct' => $totalSales > 0 ? round(($amount / $totalSales) * 100, 1) : null,
+                    'count' => 1,
+                    'avg' => round($amount, 2),
+                ])->values(),
+            ],
+            'income_categories' => ['labels' => $income->keys()->values(), 'data' => $income->values()],
+            'daily_trend' => $daily->sortKeys()->values(),
+            'total_sales' => $totalSales,
+            'total_expense' => $totalExpense,
+            'net_profit' => round($totalSales - $totalExpense, 2),
+            'pending_days_count' => 0,
+            'pending_dates' => [],
+        ];
+
         $query = ShopLedgerTransaction::query()
             ->whereBetween('business_date', [$startDate, $endDate])
             ->where('status', '!=', 'void')
