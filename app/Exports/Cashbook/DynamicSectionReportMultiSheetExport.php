@@ -39,7 +39,7 @@ final class DynamicSectionReportMultiSheetExport implements WithMultipleSheets
         }
 
         // Full report: 1. Summary Sheet
-        $summaryHeadings = ['Section', 'Type', 'Sales (₹)', 'Purchases / Direct Exp (₹)', 'Other Expenses (₹)', 'Total Expenses (₹)', 'Balance (₹)'];
+        $summaryHeadings = ['Section', 'Type', 'Sales (₹)', 'Purchases (₹)', 'Balance (₹)'];
         $summaryRows = [];
 
         foreach ($sections as $sec) {
@@ -49,8 +49,6 @@ final class DynamicSectionReportMultiSheetExport implements WithMultipleSheets
                 $isTrading ? 'Trading / Product' : 'Operating Overhead',
                 $isTrading ? number_format($sec['summary']['sales'], 2, '.', '') : '—',
                 $isTrading ? number_format($sec['summary']['purchases'], 2, '.', '') : '—',
-                $isTrading ? number_format($sec['summary']['other_expenses'], 2, '.', '') : number_format($sec['summary']['total_expenses'], 2, '.', ''),
-                number_format($sec['summary']['total_expenses'], 2, '.', ''),
                 $isTrading ? number_format($sec['summary']['balance'], 2, '.', '') : '—',
             ];
         }
@@ -60,8 +58,6 @@ final class DynamicSectionReportMultiSheetExport implements WithMultipleSheets
             'All Sections',
             number_format($overallSummary['total_sales'] ?? 0, 2, '.', ''),
             number_format($overallSummary['total_purchases'] ?? 0, 2, '.', ''),
-            number_format($overallSummary['total_operating_expenses'] ?? 0, 2, '.', ''),
-            number_format($overallSummary['total_expenses'] ?? 0, 2, '.', ''),
             number_format($overallSummary['balance'] ?? 0, 2, '.', ''),
         ];
 
@@ -85,14 +81,12 @@ final class DynamicSectionReportMultiSheetExport implements WithMultipleSheets
         $rows = [];
 
         if ($isTrading) {
-            $headings = ['Date', 'Sale (₹)', 'Purchase (₹)', 'Other Expense (₹)', 'Total Expense (₹)', 'Balance (₹)'];
+            $headings = ['Date', 'Sale (₹)', 'Purchase (₹)', 'Balance (₹)'];
             foreach ($sec['daily_rows'] as $d) {
                 $rows[] = [
                     $d['formatted_date'],
                     number_format($d['sale'], 2, '.', ''),
                     number_format($d['purchase'], 2, '.', ''),
-                    number_format($d['other_expense'], 2, '.', ''),
-                    number_format($d['total_expense'], 2, '.', ''),
                     number_format($d['balance'], 2, '.', ''),
                 ];
             }
@@ -100,8 +94,6 @@ final class DynamicSectionReportMultiSheetExport implements WithMultipleSheets
                 'MONTHLY TOTAL',
                 number_format($sec['summary']['sales'], 2, '.', ''),
                 number_format($sec['summary']['purchases'], 2, '.', ''),
-                number_format($sec['summary']['other_expenses'], 2, '.', ''),
-                number_format($sec['summary']['total_expenses'], 2, '.', ''),
                 number_format($sec['summary']['balance'], 2, '.', ''),
             ];
         } else {

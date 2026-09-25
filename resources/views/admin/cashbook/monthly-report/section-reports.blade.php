@@ -60,6 +60,12 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
+            <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses', array_merge(['month' => $period['month'] ?? request('month')], request()->query())) }}"
+               class="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 shadow-2xs transition hover:bg-indigo-100 hover:text-indigo-900">
+                <i data-lucide="users" class="h-3.5 w-3.5 text-indigo-600"></i>
+                Purchaser Wise Report
+            </a>
+            <div class="h-4 w-px bg-slate-200"></div>
             <a href="{{ route('admin.cashbook.monthly-report.section-reports.export.csv', array_merge(['section' => request('section')], request()->query())) }}"
                class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs transition hover:bg-slate-50 hover:text-emerald-700">
                 <i data-lucide="file-spreadsheet" class="h-3.5 w-3.5 text-emerald-600"></i>
@@ -107,9 +113,9 @@
                         ₹{{ number_format($sec['summary']['sales'], 2) }}
                         <span class="text-[10px] font-normal text-slate-400">Sale</span>
                     </div>
-                    <div class="mt-0.5 text-xs font-semibold text-rose-700 font-mono">
-                        ₹{{ number_format($sec['summary']['total_expenses'], 2) }}
-                        <span class="text-[10px] font-normal text-slate-400">Exp</span>
+                    <div class="mt-0.5 text-xs font-semibold text-amber-700 font-mono">
+                        ₹{{ number_format($sec['summary']['purchases'], 2) }}
+                        <span class="text-[10px] font-normal text-slate-400">Purchase</span>
                     </div>
                     <div class="mt-1 text-xs font-bold font-mono {{ $isPos ? 'text-emerald-700' : 'text-rose-600' }}">
                         {{ $sec['summary']['balance'] < 0 ? '-' : '' }}₹{{ number_format(abs($sec['summary']['balance']), 2) }}
@@ -177,8 +183,8 @@
                                 </div>
                                 <div class="h-3 w-px bg-slate-200"></div>
                                 <div>
-                                    <span class="text-[10px] font-sans font-semibold text-slate-400">Exp:</span>
-                                    <span class="font-bold text-rose-700">₹{{ number_format($sec['summary']['total_expenses'], 2) }}</span>
+                                    <span class="text-[10px] font-sans font-semibold text-slate-400">Purchases:</span>
+                                    <span class="font-bold text-amber-800">₹{{ number_format($sec['summary']['purchases'], 2) }}</span>
                                 </div>
                                 <div class="h-3 w-px bg-slate-200"></div>
                                 <div>
@@ -261,11 +267,6 @@
                         }
                     }" class="w-full text-left text-xs text-slate-600">
                         @if($isTrading)
-                            @php
-                                $hasOtherExp = ($sec['summary']['other_expenses'] > 0);
-                                $totExpCol = $hasOtherExp ? 4 : 3;
-                                $balCol = $hasOtherExp ? 5 : 4;
-                            @endphp
                             <thead class="border-b border-slate-200 bg-slate-50/90 text-center text-[10px] font-black uppercase tracking-wider text-slate-600">
                                 <tr>
                                     <th @click="sortTable(0, 'date')" class="border-r border-slate-200 px-4 py-2.5 text-left text-xs text-slate-900 cursor-pointer hover:bg-slate-100 transition select-none" title="Click to sort by Date">
@@ -286,24 +287,10 @@
                                             <span class="text-[10px]" :class="sortCol === 2 ? 'text-amber-800 font-black' : 'text-amber-300'" x-text="sortCol === 2 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
                                         </div>
                                     </th>
-                                    @if($hasOtherExp)
-                                        <th @click="sortTable(3, 'num')" class="border-r border-slate-200 px-3 py-2.5 text-right text-purple-900 cursor-pointer hover:bg-purple-50 transition select-none" title="Click to sort by Other Expenses">
-                                            <div class="flex items-center justify-end gap-1">
-                                                <span>Other Exp (₹)</span>
-                                                <span class="text-[10px]" :class="sortCol === 3 ? 'text-purple-700 font-black' : 'text-purple-300'" x-text="sortCol === 3 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
-                                            </div>
-                                        </th>
-                                    @endif
-                                    <th @click="sortTable({{ $totExpCol }}, 'num')" class="border-r border-slate-200 px-3 py-2.5 text-right font-black text-rose-700 cursor-pointer hover:bg-rose-50 transition select-none" title="Click to sort by Total Expenses">
-                                        <div class="flex items-center justify-end gap-1">
-                                            <span>Total Exp (₹)</span>
-                                            <span class="text-[10px]" :class="sortCol === {{ $totExpCol }} ? 'text-rose-600 font-black' : 'text-slate-300'" x-text="sortCol === {{ $totExpCol }} ? (sortAsc ? '▲' : '▼') : '↕'"></span>
-                                        </div>
-                                    </th>
-                                    <th @click="sortTable({{ $balCol }}, 'num')" class="px-4 py-2.5 text-right font-black text-slate-900 cursor-pointer hover:bg-slate-100 transition select-none" title="Click to sort by Net Balance">
+                                    <th @click="sortTable(3, 'num')" class="px-4 py-2.5 text-right font-black text-slate-900 cursor-pointer hover:bg-slate-100 transition select-none" title="Click to sort by Net Balance">
                                         <div class="flex items-center justify-end gap-1">
                                             <span>Balance (₹)</span>
-                                            <span class="text-[10px]" :class="sortCol === {{ $balCol }} ? 'text-indigo-600 font-black' : 'text-slate-300'" x-text="sortCol === {{ $balCol }} ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                            <span class="text-[10px]" :class="sortCol === 3 ? 'text-indigo-600 font-black' : 'text-slate-300'" x-text="sortCol === 3 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
                                         </div>
                                     </th>
                                 </tr>
@@ -321,21 +308,13 @@
                                         <td data-value="{{ $d['purchase'] }}" class="border-r border-slate-100 px-3 py-2.5 text-right text-amber-800">
                                             {{ number_format($d['purchase'], 2) }}
                                         </td>
-                                        @if($hasOtherExp)
-                                            <td data-value="{{ $d['other_expense'] }}" class="border-r border-slate-100 px-3 py-2.5 text-right text-purple-900 font-semibold">
-                                                {{ number_format($d['other_expense'], 2) }}
-                                            </td>
-                                        @endif
-                                        <td data-value="{{ $d['total_expense'] }}" class="border-r border-slate-200 px-3 py-2.5 text-right font-bold text-rose-700">
-                                            {{ number_format($d['total_expense'], 2) }}
-                                        </td>
                                         <td data-value="{{ $d['balance'] }}" class="px-4 py-2.5 text-right font-black {{ $isPos ? 'text-emerald-700' : 'text-rose-600' }}">
                                             {{ $d['balance'] < 0 ? '-' : '' }}{{ number_format(abs($d['balance']), 2) }}
                                         </td>
                                     </tr>
                                 @empty
                                     <tr class="no-sort">
-                                        <td colspan="{{ $hasOtherExp ? 6 : 5 }}" class="px-5 py-8 text-center text-xs text-slate-400 font-sans">
+                                        <td colspan="4" class="px-5 py-8 text-center text-xs text-slate-400 font-sans">
                                             No daily records found for this period.
                                         </td>
                                     </tr>
@@ -349,14 +328,6 @@
                                     </td>
                                     <td class="border-r border-slate-100 px-3 py-3 text-right text-amber-900">
                                         {{ number_format($sec['summary']['purchases'], 2) }}
-                                    </td>
-                                    @if($hasOtherExp)
-                                        <td class="border-r border-slate-100 px-3 py-3 text-right text-purple-900">
-                                            {{ number_format($sec['summary']['other_expenses'], 2) }}
-                                        </td>
-                                    @endif
-                                    <td class="border-r border-slate-200 px-3 py-3 text-right text-rose-800">
-                                        {{ number_format($sec['summary']['total_expenses'], 2) }}
                                     </td>
                                     <td class="px-4 py-3 text-right font-black {{ $sec['summary']['balance'] >= 0 ? 'text-emerald-800' : 'text-rose-700' }}">
                                         {{ $sec['summary']['balance'] < 0 ? '-' : '' }}₹{{ number_format(abs($sec['summary']['balance']), 2) }}

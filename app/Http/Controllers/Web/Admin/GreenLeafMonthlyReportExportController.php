@@ -65,14 +65,12 @@ class GreenLeafMonthlyReportExportController extends Controller
                 fputcsv($file, []);
 
                 if ($isTrading) {
-                    fputcsv($file, ['Date', 'Sale (₹)', 'Purchase (₹)', 'Other Expense (₹)', 'Total Expense (₹)', 'Balance (₹)']);
+                    fputcsv($file, ['Date', 'Sale (₹)', 'Purchase (₹)', 'Balance (₹)']);
                     foreach ($sec['daily_rows'] as $d) {
                         fputcsv($file, $sanitize([
                             $d['formatted_date'],
                             number_format($d['sale'], 2, '.', ''),
                             number_format($d['purchase'], 2, '.', ''),
-                            number_format($d['other_expense'], 2, '.', ''),
-                            number_format($d['total_expense'], 2, '.', ''),
                             number_format($d['balance'], 2, '.', ''),
                         ]));
                     }
@@ -80,8 +78,6 @@ class GreenLeafMonthlyReportExportController extends Controller
                         'MONTHLY TOTAL',
                         number_format($sec['summary']['sales'], 2, '.', ''),
                         number_format($sec['summary']['purchases'], 2, '.', ''),
-                        number_format($sec['summary']['other_expenses'], 2, '.', ''),
-                        number_format($sec['summary']['total_expenses'], 2, '.', ''),
                         number_format($sec['summary']['balance'], 2, '.', ''),
                     ]));
                 } else {
@@ -104,7 +100,7 @@ class GreenLeafMonthlyReportExportController extends Controller
 
                 // Summary Section
                 fputcsv($file, ['--- OVERALL SUMMARY ---']);
-                fputcsv($file, ['Section', 'Type', 'Sales (₹)', 'Purchases / Direct Exp (₹)', 'Other Expenses (₹)', 'Total Expenses (₹)', 'Balance (₹)']);
+                fputcsv($file, ['Section', 'Type', 'Sales (₹)', 'Purchases (₹)', 'Balance (₹)']);
                 foreach ($sections as $sec) {
                     $isTrading = ($sec['type'] === 'trading');
                     fputcsv($file, $sanitize([
@@ -112,8 +108,6 @@ class GreenLeafMonthlyReportExportController extends Controller
                         $isTrading ? 'Trading / Product' : 'Operating Overhead',
                         $isTrading ? number_format($sec['summary']['sales'], 2, '.', '') : '—',
                         $isTrading ? number_format($sec['summary']['purchases'], 2, '.', '') : '—',
-                        $isTrading ? number_format($sec['summary']['other_expenses'], 2, '.', '') : number_format($sec['summary']['total_expenses'], 2, '.', ''),
-                        number_format($sec['summary']['total_expenses'], 2, '.', ''),
                         $isTrading ? number_format($sec['summary']['balance'], 2, '.', '') : '—',
                     ]));
                 }
@@ -123,8 +117,6 @@ class GreenLeafMonthlyReportExportController extends Controller
                     'All Sections',
                     number_format($overall['total_sales'] ?? 0, 2, '.', ''),
                     number_format($overall['total_purchases'] ?? 0, 2, '.', ''),
-                    number_format($overall['total_operating_expenses'] ?? 0, 2, '.', ''),
-                    number_format($overall['total_expenses'] ?? 0, 2, '.', ''),
                     number_format($overall['balance'] ?? 0, 2, '.', ''),
                 ]));
 
@@ -134,14 +126,12 @@ class GreenLeafMonthlyReportExportController extends Controller
                     fputcsv($file, ['--- '.$sec['name'].' ---']);
                     $isTrading = ($sec['type'] === 'trading');
                     if ($isTrading) {
-                        fputcsv($file, ['Date', 'Sale (₹)', 'Purchase (₹)', 'Other Expense (₹)', 'Total Expense (₹)', 'Balance (₹)']);
+                        fputcsv($file, ['Date', 'Sale (₹)', 'Purchase (₹)', 'Balance (₹)']);
                         foreach ($sec['daily_rows'] as $d) {
                             fputcsv($file, $sanitize([
                                 $d['formatted_date'],
                                 number_format($d['sale'], 2, '.', ''),
                                 number_format($d['purchase'], 2, '.', ''),
-                                number_format($d['other_expense'], 2, '.', ''),
-                                number_format($d['total_expense'], 2, '.', ''),
                                 number_format($d['balance'], 2, '.', ''),
                             ]));
                         }
@@ -149,8 +139,6 @@ class GreenLeafMonthlyReportExportController extends Controller
                             'MONTHLY TOTAL',
                             number_format($sec['summary']['sales'], 2, '.', ''),
                             number_format($sec['summary']['purchases'], 2, '.', ''),
-                            number_format($sec['summary']['other_expenses'], 2, '.', ''),
-                            number_format($sec['summary']['total_expenses'], 2, '.', ''),
                             number_format($sec['summary']['balance'], 2, '.', ''),
                         ]));
                     } else {

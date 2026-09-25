@@ -366,13 +366,10 @@ final class DynamicSectionReportService
                 if ($secDef->isTrading()) {
                     $dSale = round($sectionDailyData[$secKey][$d]['sale'], 2);
                     $dPurchase = round($sectionDailyData[$secKey][$d]['purchase'], 2);
-                    $dOtherExp = round($sectionDailyData[$secKey][$d]['other_expense'], 2);
-                    $dTotalExp = round($dPurchase + $dOtherExp, 2);
-                    $dBalance = round($dSale - $dTotalExp, 2);
+                    $dBalance = round($dSale - $dPurchase, 2);
 
                     $secSaleTotal = round($secSaleTotal + $dSale, 2);
                     $secPurchaseTotal = round($secPurchaseTotal + $dPurchase, 2);
-                    $secOtherExpTotal = round($secOtherExpTotal + $dOtherExp, 2);
 
                     $dailyRows[] = [
                         'date' => $d,
@@ -380,8 +377,6 @@ final class DynamicSectionReportService
                         'day_name' => Carbon::parse($d)->format('D'),
                         'sale' => $dSale,
                         'purchase' => $dPurchase,
-                        'other_expense' => $dOtherExp,
-                        'total_expense' => $dTotalExp,
                         'balance' => $dBalance,
                     ];
                 } else {
@@ -399,8 +394,7 @@ final class DynamicSectionReportService
             }
 
             if ($secDef->isTrading()) {
-                $secTotalExpenses = round($secPurchaseTotal + $secOtherExpTotal, 2);
-                $secBalance = round($secSaleTotal - $secTotalExpenses, 2);
+                $secBalance = round($secSaleTotal - $secPurchaseTotal, 2);
 
                 $overallTotalSales = round($overallTotalSales + $secSaleTotal, 2);
                 $overallTotalPurchases = round($overallTotalPurchases + $secPurchaseTotal, 2);
@@ -408,8 +402,6 @@ final class DynamicSectionReportService
                 $summary = [
                     'sales' => $secSaleTotal,
                     'purchases' => $secPurchaseTotal,
-                    'other_expenses' => $secOtherExpTotal,
-                    'total_expenses' => $secTotalExpenses,
                     'balance' => $secBalance,
                 ];
             } else {
@@ -436,14 +428,11 @@ final class DynamicSectionReportService
             ];
         }
 
-        $overallTotalExpenses = round($overallTotalPurchases + $overallTotalOperatingExpenses, 2);
-        $overallBalance = round($overallTotalSales - $overallTotalExpenses, 2);
+        $overallBalance = round($overallTotalSales - $overallTotalPurchases, 2);
 
         $overallSummary = [
             'total_sales' => $overallTotalSales,
             'total_purchases' => $overallTotalPurchases,
-            'total_operating_expenses' => $overallTotalOperatingExpenses,
-            'total_expenses' => $overallTotalExpenses,
             'balance' => $overallBalance,
             'section_count' => count($sectionsReport),
         ];

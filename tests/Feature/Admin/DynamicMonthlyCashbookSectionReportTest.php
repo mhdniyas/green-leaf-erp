@@ -90,7 +90,8 @@ class DynamicMonthlyCashbookSectionReportTest extends TestCase
         $response->assertOk();
         $response->assertViewIs('admin.cashbook.monthly-report.section-reports');
         $response->assertSee('Monthly Section Reports');
-        $response->assertSee('Operating Expense');
+        $response->assertSee('Purchaser Wise Report');
+        $response->assertSee(route('admin.cashbook.finance.purchase.purchaser-expenses', ['month' => '2026-09']));
     }
 
     public function test_authenticated_authorized_admin_can_access_section_reports_without_redirect_to_admin(): void
@@ -290,16 +291,19 @@ class DynamicMonthlyCashbookSectionReportTest extends TestCase
         $this->assertArrayNotHasKey($sectionKey, $report['sections']);
     }
 
-    public function test_expense_only_section_does_not_show_sales_columns(): void
+    public function test_trading_section_shows_sales_purchases_and_balance_columns(): void
     {
+        $filter = PurchaseProductFilter::create(['name' => 'Fruit Trading Test', 'is_active' => true]);
+        $sectionKey = 'filter_'.$filter->id;
+
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.monthly-report.section-reports', [
             'month' => '2026-09',
-            'section' => 'operating_expense',
+            'section' => $sectionKey,
         ]));
 
         $response->assertOk();
-        $response->assertSee('Operating Expense');
-        $response->assertSee('Operating Overhead');
+        $response->assertSee('Fruit Trading Test');
+        $response->assertSee('Product & Trading', false);
     }
 
     public function test_daily_totals_equal_monthly_totals_for_every_section(): void
@@ -311,12 +315,10 @@ class DynamicMonthlyCashbookSectionReportTest extends TestCase
             if ($sec['type'] === 'trading') {
                 $sumDailySales = round(array_sum(array_column($sec['daily_rows'], 'sale')), 2);
                 $sumDailyPurchases = round(array_sum(array_column($sec['daily_rows'], 'purchase')), 2);
-                $sumDailyOtherExp = round(array_sum(array_column($sec['daily_rows'], 'other_expense')), 2);
 
                 $this->assertEquals($sec['summary']['sales'], $sumDailySales);
                 $this->assertEquals($sec['summary']['purchases'], $sumDailyPurchases);
-                $this->assertEquals($sec['summary']['other_expenses'], $sumDailyOtherExp);
-                $this->assertEquals($sec['summary']['balance'], round($sumDailySales - $sumDailyPurchases - $sumDailyOtherExp, 2));
+                $this->assertEquals($sec['summary']['balance'], round($sumDailySales - $sumDailyPurchases, 2));
             } else {
                 $sumDailyExp = round(array_sum(array_column($sec['daily_rows'], 'expense')), 2);
                 $this->assertEquals($sec['summary']['total_expenses'], $sumDailyExp);

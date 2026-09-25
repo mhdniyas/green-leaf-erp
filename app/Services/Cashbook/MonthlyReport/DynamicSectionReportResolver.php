@@ -41,19 +41,6 @@ final class DynamicSectionReportResolver
             ));
         }
 
-        // 2. Dynamic Operating Expense section
-        $sections->put('operating_expense', new SectionReportDefinition(
-            id: 'operating_expense',
-            key: 'operating_expense',
-            name: 'Operating Expense',
-            type: 'expense',
-            productIds: [],
-            monthlyReportGroup: null,
-            enabled: true,
-            sortOrder: 9999,
-            description: 'Consolidated overhead and operating expenses'
-        ));
-
         return $sections;
     }
 

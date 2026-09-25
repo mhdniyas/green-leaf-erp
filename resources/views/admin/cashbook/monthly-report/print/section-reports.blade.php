@@ -183,12 +183,10 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th class="th-left" style="width: 25%;">Section Name</th>
-                            <th class="th-left" style="width: 15%;">Type</th>
-                            <th class="th-right" style="width: 12%;">Sales (₹)</th>
-                            <th class="th-right" style="width: 12%;">Purchases (₹)</th>
-                            <th class="th-right" style="width: 12%;">Other Exp (₹)</th>
-                            <th class="th-right" style="width: 12%;">Total Exp (₹)</th>
+                            <th class="th-left" style="width: 40%;">Section Name</th>
+                            <th class="th-left" style="width: 20%;">Type</th>
+                            <th class="th-right" style="width: 14%;">Sales (₹)</th>
+                            <th class="th-right" style="width: 14%;">Purchases (₹)</th>
                             <th class="th-right" style="width: 12%;">Balance (₹)</th>
                         </tr>
                     </thead>
@@ -200,8 +198,6 @@
                                 <td>{{ $isTrading ? 'Product & Trading' : 'Operating Overhead' }}</td>
                                 <td class="text-right font-mono">{{ $isTrading ? number_format($sec['summary']['sales'], 2) : '—' }}</td>
                                 <td class="text-right font-mono">{{ $isTrading ? number_format($sec['summary']['purchases'], 2) : '—' }}</td>
-                                <td class="text-right font-mono">{{ $isTrading ? number_format($sec['summary']['other_expenses'], 2) : number_format($sec['summary']['total_expenses'], 2) }}</td>
-                                <td class="text-right font-mono text-rose">{{ number_format($sec['summary']['total_expenses'], 2) }}</td>
                                 <td class="text-right font-mono font-bold {{ ($isTrading && $sec['summary']['balance'] >= 0) ? 'text-emerald' : 'text-rose' }}">
                                     {{ $isTrading ? ($sec['summary']['balance'] < 0 ? '-' : '').number_format(abs($sec['summary']['balance']), 2) : '—' }}
                                 </td>
@@ -213,8 +209,6 @@
                             <td colspan="2">TOTAL (ALL SECTIONS)</td>
                             <td class="text-right font-mono">{{ number_format($overall_summary['total_sales'], 2) }}</td>
                             <td class="text-right font-mono">{{ number_format($overall_summary['total_purchases'], 2) }}</td>
-                            <td class="text-right font-mono">{{ number_format($overall_summary['total_operating_expenses'], 2) }}</td>
-                            <td class="text-right font-mono text-rose">{{ number_format($overall_summary['total_expenses'], 2) }}</td>
                             <td class="text-right font-mono {{ $overall_summary['balance'] >= 0 ? 'text-emerald' : 'text-rose' }}">
                                 {{ $overall_summary['balance'] < 0 ? '-' : '' }}₹{{ number_format(abs($overall_summary['balance']), 2) }}
                             </td>
@@ -241,14 +235,10 @@
                         @if($isTrading)
                             <thead>
                                 <tr>
-                                    <th class="th-left" style="width: 15%;">Date</th>
-                                    <th class="th-right" style="width: 17%;">Sale (₹)</th>
-                                    <th class="th-right" style="width: 17%;">Purchase (₹)</th>
-                                    @if($sec['summary']['other_expenses'] > 0)
-                                        <th class="th-right" style="width: 17%;">Other Exp (₹)</th>
-                                    @endif
-                                    <th class="th-right" style="width: 17%;">Total Exp (₹)</th>
-                                    <th class="th-right" style="width: 17%;">Balance (₹)</th>
+                                    <th class="th-left" style="width: 25%;">Date</th>
+                                    <th class="th-right" style="width: 25%;">Sale (₹)</th>
+                                    <th class="th-right" style="width: 25%;">Purchase (₹)</th>
+                                    <th class="th-right" style="width: 25%;">Balance (₹)</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -257,10 +247,6 @@
                                         <td class="font-mono"><strong>{{ \Carbon\Carbon::parse($row['date'])->format('d M') }}</strong> ({{ \Carbon\Carbon::parse($row['date'])->format('D') }})</td>
                                         <td class="text-right font-mono">{{ number_format($row['sale'], 2) }}</td>
                                         <td class="text-right font-mono">{{ number_format($row['purchase'], 2) }}</td>
-                                        @if($sec['summary']['other_expenses'] > 0)
-                                            <td class="text-right font-mono">{{ number_format($row['other_expense'], 2) }}</td>
-                                        @endif
-                                        <td class="text-right font-mono text-rose">{{ number_format($row['total_expense'], 2) }}</td>
                                         <td class="text-right font-mono font-bold {{ $row['balance'] >= 0 ? 'text-emerald' : 'text-rose' }}">
                                             {{ $row['balance'] < 0 ? '-' : '' }}{{ number_format(abs($row['balance']), 2) }}
                                         </td>
@@ -272,10 +258,6 @@
                                     <td>MONTHLY TOTAL</td>
                                     <td class="text-right font-mono">{{ number_format($sec['summary']['sales'], 2) }}</td>
                                     <td class="text-right font-mono">{{ number_format($sec['summary']['purchases'], 2) }}</td>
-                                    @if($sec['summary']['other_expenses'] > 0)
-                                        <td class="text-right font-mono">{{ number_format($sec['summary']['other_expenses'], 2) }}</td>
-                                    @endif
-                                    <td class="text-right font-mono text-rose">{{ number_format($sec['summary']['total_expenses'], 2) }}</td>
                                     <td class="text-right font-mono {{ $sec['summary']['balance'] >= 0 ? 'text-emerald' : 'text-rose' }}">
                                         {{ $sec['summary']['balance'] < 0 ? '-' : '' }}₹{{ number_format(abs($sec['summary']['balance']), 2) }}
                                     </td>

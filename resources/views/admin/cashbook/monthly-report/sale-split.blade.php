@@ -152,9 +152,9 @@
                 <button type="button" @click="$dispatch('open-drilldown', { metric: 'other_expense', title: 'Operating Expenses Breakdown' })" class="text-purple-800 hover:text-purple-950 font-semibold">
                     Breakdown
                 </button>
-                <a href="{{ route('admin.cashbook.monthly-report.section-reports', array_merge(['month' => $period['month'] ?? request('month'), 'section' => 'operating_expense'], request()->query())) }}"
+                <a href="{{ route('admin.cashbook.monthly-report.other-expenses', array_merge(['month' => $period['month'] ?? request('month')], request()->query())) }}"
                    class="inline-flex items-center gap-1 font-bold text-purple-900 hover:text-purple-700">
-                    <span>Section Report</span>
+                    <span>Detailed Report</span>
                     <i data-lucide="arrow-right" class="h-3 w-3"></i>
                 </a>
             </div>
