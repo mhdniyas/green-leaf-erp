@@ -77,6 +77,9 @@ class CashbookPaymentsSettingsRedesignTest extends TestCase
         $response->assertSee('PAYMENT ALLOCATION SETTINGS');
         $response->assertSee('SHOP SALES REPORT');
         $response->assertSee('ADVANCED SETTINGS');
+        $response->assertSee('data-payment-modal="petty"', false);
+        $response->assertSee('Current Settings', false);
+        $response->assertSee('document.body.appendChild(modal)', false);
     }
 
     /**

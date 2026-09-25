@@ -206,6 +206,11 @@ function openPaymentModal(modalId) {
     const modal = document.querySelector(`[data-payment-modal="${modalId}"]`);
     if (!modal) return;
 
+    // Modals are declared inside tab panels. Move the requested modal out of a hidden panel before opening it.
+    if (modal.parentElement !== document.body) {
+        document.body.appendChild(modal);
+    }
+
     lastFocusedElement = document.activeElement;
     activeModalId = modalId;
 

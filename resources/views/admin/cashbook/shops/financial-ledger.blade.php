@@ -48,6 +48,11 @@
     $closingShopPosition = (float) ($snapshot->closing_shop_position ?? 0);
     $closingPetty = (float) ($snapshot->closing_petty ?? 0);
     $closingCompanyPending = (float) ($snapshot->closing_company_pending ?? 0);
+    $editableEntryTypes = $allEntryTypes->map(fn ($entryType): array => [
+        'id' => (int) $entryType->id,
+        'name' => (string) $entryType->name,
+        'category' => strtoupper((string) $entryType->category),
+    ])->values();
 @endphp
 
 <div class="mx-auto max-w-7xl space-y-6 pb-20"
@@ -56,6 +61,9 @@
         showDeleteModal: false,
         showClearDayModal: false,
         isSubmitting: false,
+        editCategoryOpen: false,
+        editCategorySearch: '',
+        editCategories: @json($editableEntryTypes),
         editTx: {
             id: null,
             business_date: '{{ $businessDate }}',
@@ -114,7 +122,18 @@
             this.editTx.reason = '';
             this.editTx.reference_tag = tx.reference_type ? (tx.reference_type.split('\\').pop() + ' #' + (tx.reference_id || '')) : '';
             this.editTx.allocated_amount = (tx.payment_ledger_allocations || []).reduce((acc, a) => acc + Number(a.amount || 0), 0);
+            this.editCategoryOpen = false;
+            this.editCategorySearch = '';
             this.showEditModal = true;
+        },
+        filteredEditCategories() {
+            const query = this.editCategorySearch.trim().toLowerCase();
+            if (!query) return this.editCategories;
+            return this.editCategories.filter(category => `${category.name} ${category.category}`.toLowerCase().includes(query));
+        },
+        editCategoryLabel() {
+            const selected = this.editCategories.find(category => String(category.id) === String(this.editTx.entry_type_id));
+            return selected ? `${selected.name} (${selected.category})` : 'Choose a shop category';
         },
         openDelete(tx) {
             this.deleteTx.id = tx.id;
@@ -647,12 +666,38 @@
                     <!-- Category / Entry Type -->
                     <div>
                         <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Category / Entry Type</label>
-                        <select x-model="editTx.entry_type_id" required
-                                class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-900 shadow-2xs focus:border-sky-500 focus:outline-hidden">
-                            @foreach($allEntryTypes as $et)
-                                <option value="{{ $et->id }}">{{ $et->name }} ({{ strtoupper($et->category) }})</option>
-                            @endforeach
-                        </select>
+                        <div class="relative" @click.outside="editCategoryOpen = false">
+                            <input type="hidden" x-model="editTx.entry_type_id" required>
+                            <button type="button"
+                                    @click="editCategoryOpen = !editCategoryOpen; editCategorySearch = ''"
+                                    class="flex w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-3 py-2 text-left text-xs font-bold text-slate-900 shadow-2xs transition hover:border-slate-400 focus-visible:border-sky-500 focus-visible:outline-2 focus-visible:outline-sky-200">
+                                <span class="truncate" x-text="editCategoryLabel()"></span>
+                                <svg class="h-4 w-4 shrink-0 text-slate-400 transition" :class="editCategoryOpen && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m6 9 6 6 6-6" />
+                                </svg>
+                            </button>
+                            <div x-show="editCategoryOpen" x-transition x-cloak
+                                 class="absolute z-30 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                                <div class="border-b border-slate-100 p-2">
+                                    <input type="search" x-model="editCategorySearch" x-ref="editCategorySearch"
+                                           @keydown.escape="editCategoryOpen = false"
+                                           placeholder="Search shop categories..."
+                                           class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-sky-500 focus:bg-white focus:outline-hidden">
+                                </div>
+                                <div class="max-h-52 overflow-y-auto p-1.5">
+                                    <template x-for="category in filteredEditCategories()" :key="category.id">
+                                        <button type="button"
+                                                @click="editTx.entry_type_id = String(category.id); editCategoryOpen = false"
+                                                class="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-xs transition hover:bg-sky-50"
+                                                :class="String(category.id) === String(editTx.entry_type_id) ? 'bg-sky-50 text-sky-900' : 'text-slate-700'">
+                                            <span class="font-bold" x-text="category.name"></span>
+                                            <span class="shrink-0 text-[10px] font-black uppercase text-slate-400" x-text="category.category"></span>
+                                        </button>
+                                    </template>
+                                    <p x-show="filteredEditCategories().length === 0" class="px-3 py-5 text-center text-xs text-slate-400">No shop categories found.</p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Funding Source -->

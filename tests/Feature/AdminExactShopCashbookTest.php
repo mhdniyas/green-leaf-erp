@@ -120,6 +120,8 @@ class AdminExactShopCashbookTest extends TestCase
         $response->assertSee('Shop Financial Ledger');
         $response->assertSee('12,500.00');
         $response->assertSee('Cash Sales');
+        $response->assertSee('Search shop categories...', false);
+        $response->assertDontSee('<select x-model="editTx.entry_type_id"', false);
     }
 
     public function test_admin_can_edit_canonical_entry_amount_and_recalculate_day(): void

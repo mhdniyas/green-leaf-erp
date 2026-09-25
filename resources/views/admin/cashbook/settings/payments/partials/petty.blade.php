@@ -187,6 +187,14 @@
 
     <div class="space-y-4">
         <form id="petty-modal-form" class="space-y-3">
+            <div class="rounded-2xl border border-amber-200 bg-amber-50/60 p-3">
+                <span class="text-[10px] font-black uppercase tracking-wider text-amber-800">Current Settings</span>
+                <div class="mt-2 flex flex-wrap gap-1.5 text-[10px] font-bold">
+                    <span class="rounded-lg bg-white px-2 py-1 text-slate-700">Tracking: {{ ($pettyData['config']['enabled'] ?? false) ? 'Enabled' : 'Disabled' }}</span>
+                    <span class="rounded-lg bg-white px-2 py-1 text-slate-700">Company Imprest: {{ ($pettyData['config']['allow_company_to_petty'] ?? false) ? 'Allowed' : 'Blocked' }}</span>
+                    <span class="rounded-lg bg-white px-2 py-1 text-slate-700">Petty Expenses: {{ ($pettyData['config']['allow_expenses_from_petty'] ?? true) ? 'Allowed' : 'Restricted' }}</span>
+                </div>
+            </div>
             <div class="space-y-2.5">
                 <label class="flex items-start gap-3 p-3.5 rounded-2xl border border-slate-200 bg-white hover:border-amber-300 has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50/30 transition cursor-pointer">
                     <input type="checkbox"

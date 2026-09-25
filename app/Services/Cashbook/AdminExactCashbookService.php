@@ -175,13 +175,17 @@ class AdminExactCashbookService
         $salarySectionData = $this->shopCashbookSalarySectionService->getSalarySection($shop, $date, $date);
         $collectionGroups = $this->collectionGroupPostingService->groupsForShop((int) $shop->id);
 
-        // 8. Available Entry Types for Admin edit picker
-        $allEntryTypes = LedgerEntryType::query()
-            ->where('active', true)
-            ->orderBy('category')
-            ->orderBy('display_order')
-            ->orderBy('name')
-            ->get();
+        // 8. Available Entry Types for Admin edit picker: only enabled categories configured for this shop.
+        $allEntryTypes = $settings
+            ->pluck('entryType')
+            ->filter(fn (?LedgerEntryType $entryType): bool => $entryType?->active ?? false)
+            ->unique('id')
+            ->sortBy([
+                ['category', 'asc'],
+                ['display_order', 'asc'],
+                ['name', 'asc'],
+            ])
+            ->values();
 
         $profile = ShopLedgerProfile::query()->where('shop_id', (int) $shop->id)->first();
         $pettyConfig = $profile?->getPaymentConfiguration()['petty'] ?? [
