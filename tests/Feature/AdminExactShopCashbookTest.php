@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\Cashbook\TransactionStatus;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\Cashbook\LedgerEntryType;
@@ -433,17 +432,184 @@ class AdminExactShopCashbookTest extends TestCase
         );
 
         $response->assertOk();
-        $tx->refresh();
-        $this->assertEquals(TransactionStatus::Void->value, $tx->status);
-        $this->assertEquals('Duplicate sale entry', $tx->void_reason);
+        $this->assertDatabaseMissing('shop_ledger_transactions', [
+            'id' => $tx->id,
+        ]);
+
+        $snapshot = ShopDailyLedgerSnapshot::where('shop_id', $this->shop->id)
+            ->where('business_date', '2026-09-15')
+            ->first();
+        $this->assertEquals(0.00, (float) $snapshot->total_sales);
 
         // Verify activity log
         $activity = Activity::where('log_name', 'exact_cashbook_edit')
-            ->where('subject_id', $tx->id)
+            ->where('properties->transaction_id', $tx->id)
             ->latest('id')
             ->first();
         $this->assertNotNull($activity);
         $this->assertEquals($this->adminUser->id, $activity->causer_id);
+    }
+
+    public function test_admin_cannot_delete_salary_or_gl_bill_entry(): void
+    {
+        $glBillType = LedgerEntryType::firstOrCreate(['code' => 'purchase_bill'], [
+            'name' => 'GL Bill',
+            'category' => 'expense',
+        ]);
+        $salaryType = LedgerEntryType::firstOrCreate(['code' => 'salary'], [
+            'name' => 'Salary',
+            'category' => 'expense',
+        ]);
+
+        $glTx = ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $glBillType->id,
+            'amount' => 5000.00,
+            'direction' => 'expense',
+            'funding_source' => 'company',
+            'status' => 'posted',
+        ]);
+
+        $salaryTx = ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $salaryType->id,
+            'amount' => 12000.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'status' => 'posted',
+        ]);
+
+        // Attempt to delete GL Bill
+        $response1 = $this->actingAs($this->adminUser)->postJson(
+            route('admin.cashbook.shop.financial-ledger.delete', $this->shop->code),
+            ['transaction_id' => $glTx->id]
+        );
+        $response1->assertStatus(422);
+        $this->assertDatabaseHas('shop_ledger_transactions', ['id' => $glTx->id]);
+
+        // Attempt to delete Salary
+        $response2 = $this->actingAs($this->adminUser)->postJson(
+            route('admin.cashbook.shop.financial-ledger.delete', $this->shop->code),
+            ['transaction_id' => $salaryTx->id]
+        );
+        $response2->assertStatus(422);
+        $this->assertDatabaseHas('shop_ledger_transactions', ['id' => $salaryTx->id]);
+    }
+
+    public function test_admin_clear_day_deletes_all_eligible_entries_and_preserves_salary_and_gl_bill(): void
+    {
+        $salesType = LedgerEntryType::where('code', 'cash_sales')->firstOrFail();
+        $expenseType = LedgerEntryType::where('category', 'expense')->whereNotIn('code', ['purchase_bill', 'salary'])->firstOrFail();
+        $glBillType = LedgerEntryType::firstOrCreate(['code' => 'purchase_bill'], ['name' => 'GL Bill', 'category' => 'expense']);
+        $salaryType = LedgerEntryType::firstOrCreate(['code' => 'salary'], ['name' => 'Salary', 'category' => 'expense']);
+
+        // Other shop to test scoping
+        $otherShop = Shop::create([
+            'name' => 'Other Shop',
+            'code' => 'SH-OTHER-99',
+            'is_active' => true,
+        ]);
+
+        // 1. Current shop, current date entries
+        $salesTx = ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $salesType->id,
+            'amount' => 10000.00,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'affects_sales' => true,
+            'affects_income' => true,
+            'pl_delta' => 10000.00,
+            'settlement_delta' => 10000.00,
+            'status' => 'posted',
+        ]);
+
+        $voidedTx = ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $salesType->id,
+            'amount' => 11500.00,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'status' => 'void',
+        ]);
+
+        $expenseTx = ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $expenseType->id,
+            'amount' => 500.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'status' => 'posted',
+        ]);
+
+        $glTx = ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $glBillType->id,
+            'amount' => 8000.00,
+            'direction' => 'expense',
+            'funding_source' => 'company',
+            'status' => 'posted',
+        ]);
+
+        $salaryTx = ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $salaryType->id,
+            'amount' => 15000.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'status' => 'posted',
+        ]);
+
+        // 2. Current shop, different date entry (must NOT be touched)
+        $diffDateTx = ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-09-16',
+            'entry_type_id' => $salesType->id,
+            'amount' => 7000.00,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'status' => 'posted',
+        ]);
+
+        // 3. Other shop, same date entry (must NOT be touched)
+        $otherShopTx = ShopLedgerTransaction::create([
+            'shop_id' => $otherShop->id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $salesType->id,
+            'amount' => 9000.00,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'status' => 'posted',
+        ]);
+
+        app(BalanceCalculator::class)->recalculate($this->shop->id, '2026-09-15');
+
+        // Execute Clear Day
+        $response = $this->actingAs($this->adminUser)->postJson(
+            route('admin.cashbook.shop.financial-ledger.clear-day', $this->shop->code),
+            ['business_date' => '2026-09-15']
+        );
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+
+        // Assert deleted
+        $this->assertDatabaseMissing('shop_ledger_transactions', ['id' => $salesTx->id]);
+        $this->assertDatabaseMissing('shop_ledger_transactions', ['id' => $voidedTx->id]);
+        $this->assertDatabaseMissing('shop_ledger_transactions', ['id' => $expenseTx->id]);
+
+        // Assert preserved
+        $this->assertDatabaseHas('shop_ledger_transactions', ['id' => $glTx->id]);
+        $this->assertDatabaseHas('shop_ledger_transactions', ['id' => $salaryTx->id]);
+        $this->assertDatabaseHas('shop_ledger_transactions', ['id' => $diffDateTx->id]);
+        $this->assertDatabaseHas('shop_ledger_transactions', ['id' => $otherShopTx->id]);
     }
 
     public function test_admin_can_change_category_from_income_to_expense(): void

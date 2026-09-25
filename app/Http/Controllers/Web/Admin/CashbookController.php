@@ -1045,15 +1045,15 @@ final class CashbookController extends Controller
 
         $validated = $request->validate([
             'transaction_id' => ['required', 'integer', 'exists:shop_ledger_transactions,id'],
-            'reason' => ['required', 'string', 'min:3', 'max:255'],
+            'reason' => ['nullable', 'string', 'max:255'],
         ]);
 
         try {
-            $result = $exactCashbookService->voidEntry(
+            $result = $exactCashbookService->deleteEntry(
                 $request->user(),
                 $shopModel,
                 (int) $validated['transaction_id'],
-                $validated['reason']
+                $validated['reason'] ?? null
             );
 
             return response()->json([
@@ -1062,6 +1062,41 @@ final class CashbookController extends Controller
                 'snapshot' => $result['snapshot'],
             ]);
         } catch (Throwable $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function clearFinancialLedgerDay(
+        Request $request,
+        int|string $shop,
+        AdminExactCashbookService $exactCashbookService
+    ): JsonResponse {
+        $this->ensureMainAdmin($request);
+
+        $currentShop = $this->resolveShop($shop);
+        $shopModel = $currentShop->shop ?: Shop::findOrFail($currentShop->shop_id);
+
+        $validated = $request->validate([
+            'business_date' => ['required', 'date_format:Y-m-d'],
+        ]);
+
+        try {
+            $result = $exactCashbookService->clearDay(
+                $request->user(),
+                $shopModel,
+                (string) $validated['business_date']
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => $result['message'],
+                'deleted_count' => $result['deleted_count'],
+                'snapshot' => $result['snapshot'],
+            ]);
+        } catch (Throwable) {
             return response()->json([
                 'success' => false,
                 'message' => $exception->getMessage(),

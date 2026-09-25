@@ -7,6 +7,7 @@ namespace App\Models\Cashbook;
 use App\Enums\Cashbook\TransactionStatus;
 use App\Models\Shop;
 use App\Models\ShopInvoice;
+use App\Models\ShopStaffPayment;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -163,5 +164,50 @@ class ShopLedgerTransaction extends Model
         }
 
         return in_array($this->status, ['draft', 'submitted', 'posted'], true);
+    }
+
+    public function isGlBill(): bool
+    {
+        if (
+            $this->reference_type === 'App\Models\ShopInvoice' ||
+            $this->reference_type === ShopInvoice::class ||
+            $this->reference_type === 'ShopInvoice'
+        ) {
+            return true;
+        }
+
+        $code = $this->entryType?->code;
+        if (in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)) {
+            return true;
+        }
+
+        $name = strtolower((string) ($this->entryType?->name ?? ''));
+
+        return str_contains($name, 'gl bill');
+    }
+
+    public function isSalary(): bool
+    {
+        if (
+            $this->reference_type === 'App\Models\ShopStaffPayment' ||
+            $this->reference_type === ShopStaffPayment::class ||
+            $this->reference_type === 'ShopStaffPayment'
+        ) {
+            return true;
+        }
+
+        $code = $this->entryType?->code;
+        if (in_array($code, ['salary', 'staff_advance', 'salary_advance', 'salary_adjustment', 'advance_recovery'], true)) {
+            return true;
+        }
+
+        $name = strtolower((string) ($this->entryType?->name ?? ''));
+
+        return str_contains($name, 'salary') || str_contains($name, 'staff advance');
+    }
+
+    public function isProtectedSalaryOrGlBill(): bool
+    {
+        return $this->isGlBill() || $this->isSalary();
     }
 }

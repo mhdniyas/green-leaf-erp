@@ -413,6 +413,198 @@ class AdminExactCashbookService
      *
      * @return array{snapshot: ShopDailyLedgerSnapshot, message: string}
      */
+    /**
+     * Domain-safe Admin permanent deletion of a cashbook transaction.
+     * Reconciles balances and cascades month without leaving voided ghost rows.
+     * Salary and GL Bill entries are strictly protected.
+     *
+     * @return array{snapshot: ShopDailyLedgerSnapshot, message: string}
+     */
+    public function deleteEntry(User $adminUser, Shop $shop, int $transactionId, ?string $reason = null): array
+    {
+        return DB::transaction(function () use ($adminUser, $shop, $transactionId, $reason): array {
+            /** @var ShopLedgerTransaction $tx */
+            $tx = ShopLedgerTransaction::query()
+                ->where('shop_id', (int) $shop->id)
+                ->with(['entryType', 'children'])
+                ->lockForUpdate()
+                ->findOrFail($transactionId);
+
+            if ($tx->isProtectedSalaryOrGlBill()) {
+                throw ValidationException::withMessages([
+                    'transaction_id' => 'Salary and GL Bill entries cannot be deleted from the financial ledger.',
+                ]);
+            }
+
+            if ($tx->generated_by_rule && $tx->parent_transaction_id) {
+                throw ValidationException::withMessages([
+                    'transaction_id' => "This is an auto-generated secondary entry linked to Parent #{$tx->parent_transaction_id}. Please delete the parent transaction directly.",
+                ]);
+            }
+
+            $businessDate = $tx->business_date->toDateString();
+            $month = substr($businessDate, 0, 7);
+
+            // Delete unfinalized statement entries
+            CompanyAccountStatementEntry::query()
+                ->where('source_type', ShopLedgerTransaction::class)
+                ->where('source_id', $tx->id)
+                ->where('is_finalized', false)
+                ->delete();
+
+            // Delete child rule-generated transactions and their statement entries
+            foreach ($tx->children as $child) {
+                CompanyAccountStatementEntry::query()
+                    ->where('source_type', ShopLedgerTransaction::class)
+                    ->where('source_id', $child->id)
+                    ->where('is_finalized', false)
+                    ->delete();
+                $child->delete();
+            }
+
+            // Sync underlying source record if applicable
+            $this->syncCanonicalSourceRecord($tx, 0.0, $businessDate, FundingSource::None, $tx->notes, TransactionStatus::Void->value);
+
+            // Delete the transaction itself
+            $tx->delete();
+
+            // Recalculate day snapshot & cascade month
+            $snapshot = $this->balanceCalculator->recalculate((int) $shop->id, $businessDate);
+
+            try {
+                $this->monthRecalculationService->recalculateMonth((int) $shop->id, $month, (int) $adminUser->id);
+            } catch (Throwable) {
+                // Fallback to day recalculation
+            }
+
+            // Log activity
+            if (function_exists('activity')) {
+                activity('exact_cashbook_edit')
+                    ->causedBy($adminUser)
+                    ->withProperties([
+                        'shop_id' => (int) $shop->id,
+                        'transaction_id' => $tx->id,
+                        'action' => 'delete',
+                        'reason' => $reason ?: 'Deleted by Admin',
+                    ])
+                    ->log("Admin {$adminUser->name} deleted Cashbook Transaction #{$tx->id} for {$shop->name}");
+            }
+
+            return [
+                'snapshot' => $snapshot,
+                'message' => 'Cashbook transaction deleted successfully.',
+            ];
+        });
+    }
+
+    /**
+     * Clear all non-protected Shop Cashbook entries for a specific shop and business date.
+     * Preserves Salary and GL Bill entries.
+     * Deletes all other entries (including existing Voided entries) and recalculates balances.
+     *
+     * @return array{deleted_count: int, snapshot: ShopDailyLedgerSnapshot, message: string}
+     */
+    public function clearDay(User $adminUser, Shop $shop, string $businessDate): array
+    {
+        return DB::transaction(function () use ($adminUser, $shop, $businessDate): array {
+            $date = Carbon::parse($businessDate)->toDateString();
+            $month = substr($date, 0, 7);
+
+            // Fetch all transactions for this shop and date
+            $transactions = ShopLedgerTransaction::query()
+                ->where('shop_id', (int) $shop->id)
+                ->where('business_date', $date)
+                ->with(['entryType', 'children'])
+                ->lockForUpdate()
+                ->get();
+
+            $deletedCount = 0;
+
+            // First delete non-protected root transactions and their children
+            $rootTransactions = $transactions->whereNull('parent_transaction_id');
+
+            foreach ($rootTransactions as $tx) {
+                if ($tx->isProtectedSalaryOrGlBill()) {
+                    continue;
+                }
+
+                CompanyAccountStatementEntry::query()
+                    ->where('source_type', ShopLedgerTransaction::class)
+                    ->where('source_id', $tx->id)
+                    ->where('is_finalized', false)
+                    ->delete();
+
+                foreach ($tx->children as $child) {
+                    CompanyAccountStatementEntry::query()
+                        ->where('source_type', ShopLedgerTransaction::class)
+                        ->where('source_id', $child->id)
+                        ->where('is_finalized', false)
+                        ->delete();
+                    $child->delete();
+                }
+
+                $this->syncCanonicalSourceRecord($tx, 0.0, $date, FundingSource::None, $tx->notes, TransactionStatus::Void->value);
+                $tx->delete();
+                $deletedCount++;
+            }
+
+            // Clean up any remaining non-protected standalone or child transactions for the day
+            $remaining = ShopLedgerTransaction::query()
+                ->where('shop_id', (int) $shop->id)
+                ->where('business_date', $date)
+                ->with(['entryType'])
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($remaining as $remTx) {
+                if ($remTx->isProtectedSalaryOrGlBill()) {
+                    continue;
+                }
+
+                CompanyAccountStatementEntry::query()
+                    ->where('source_type', ShopLedgerTransaction::class)
+                    ->where('source_id', $remTx->id)
+                    ->where('is_finalized', false)
+                    ->delete();
+
+                $this->syncCanonicalSourceRecord($remTx, 0.0, $date, FundingSource::None, $remTx->notes, TransactionStatus::Void->value);
+                $remTx->delete();
+                $deletedCount++;
+            }
+
+            // Recalculate day snapshot & cascade month
+            $snapshot = $this->balanceCalculator->recalculate((int) $shop->id, $date);
+
+            try {
+                $this->monthRecalculationService->recalculateMonth((int) $shop->id, $month, (int) $adminUser->id);
+            } catch (Throwable) {
+                // Fallback to day recalculation
+            }
+
+            if (function_exists('activity')) {
+                activity('exact_cashbook_clear_day')
+                    ->causedBy($adminUser)
+                    ->withProperties([
+                        'shop_id' => (int) $shop->id,
+                        'business_date' => $date,
+                        'deleted_count' => $deletedCount,
+                    ])
+                    ->log("Admin {$adminUser->name} cleared {$deletedCount} cashbook entries for {$shop->name} on {$date}");
+            }
+
+            return [
+                'deleted_count' => $deletedCount,
+                'snapshot' => $snapshot,
+                'message' => "Cleared {$deletedCount} cashbook entries for {$date}. Salary and GL Bill entries were preserved.",
+            ];
+        });
+    }
+
+    /**
+     * Domain-safe Admin void/reversal of a cashbook transaction.
+     *
+     * @return array{snapshot: ShopDailyLedgerSnapshot, message: string}
+     */
     public function voidEntry(User $adminUser, Shop $shop, int $transactionId, string $reason): array
     {
         return DB::transaction(function () use ($adminUser, $shop, $transactionId, $reason): array {

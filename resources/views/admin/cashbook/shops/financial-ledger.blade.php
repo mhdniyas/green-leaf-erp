@@ -53,7 +53,8 @@
 <div class="mx-auto max-w-7xl space-y-6 pb-20"
      x-data="{
         showEditModal: false,
-        showVoidModal: false,
+        showDeleteModal: false,
+        showClearDayModal: false,
         isSubmitting: false,
         editTx: {
             id: null,
@@ -68,7 +69,7 @@
             reference_tag: '',
             allocated_amount: 0
         },
-        voidTx: {
+        deleteTx: {
             id: null,
             name: '',
             amount: 0,
@@ -88,12 +89,12 @@
             this.editTx.allocated_amount = (tx.payment_ledger_allocations || []).reduce((acc, a) => acc + Number(a.amount || 0), 0);
             this.showEditModal = true;
         },
-        openVoid(tx) {
-            this.voidTx.id = tx.id;
-            this.voidTx.name = (tx.entry_type ? tx.entry_type.name : 'Entry #' + tx.id);
-            this.voidTx.amount = Number(tx.amount || 0);
-            this.voidTx.reason = '';
-            this.showVoidModal = true;
+        openDelete(tx) {
+            this.deleteTx.id = tx.id;
+            this.deleteTx.name = (tx.entry_type ? tx.entry_type.name : (tx.entry_type_code || 'Entry #' + tx.id));
+            this.deleteTx.amount = Number(tx.amount || 0);
+            this.deleteTx.reason = '';
+            this.showDeleteModal = true;
         },
         async submitEdit() {
             if (this.isSubmitting) return;
@@ -132,12 +133,8 @@
                 this.isSubmitting = false;
             }
         },
-        async submitVoid() {
+        async submitDelete() {
             if (this.isSubmitting) return;
-            if (!this.voidTx.reason.trim()) {
-                alert('Please provide a reason for voiding this transaction.');
-                return;
-            }
             this.isSubmitting = true;
             try {
                 const response = await fetch('{{ route('admin.cashbook.shop.financial-ledger.delete', $currentShopSlugOrId) }}', {
@@ -148,14 +145,43 @@
                         'Accept': 'application/json'
                     },
                     body: JSON.stringify({
-                        transaction_id: this.voidTx.id,
-                        reason: this.voidTx.reason
+                        transaction_id: this.deleteTx.id,
+                        reason: this.deleteTx.reason || 'Deleted by Admin'
                     })
                 });
 
                 const data = await response.json();
                 if (!response.ok || !data.success) {
-                    alert(data.message || 'Error voiding transaction.');
+                    alert(data.message || 'Error deleting transaction.');
+                    this.isSubmitting = false;
+                    return;
+                }
+
+                window.location.reload();
+            } catch (err) {
+                alert('An unexpected error occurred: ' + err.message);
+                this.isSubmitting = false;
+            }
+        },
+        async submitClearDay() {
+            if (this.isSubmitting) return;
+            this.isSubmitting = true;
+            try {
+                const response = await fetch('{{ route('admin.cashbook.shop.financial-ledger.clear-day', $currentShopSlugOrId) }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        business_date: '{{ $businessDate }}'
+                    })
+                });
+
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    alert(data.message || 'Error clearing day entries.');
                     this.isSubmitting = false;
                     return;
                 }
@@ -227,12 +253,23 @@
                 </a>
             </div>
 
-            <form method="GET" action="{{ route('admin.cashbook.shop.financial-ledger', $currentShopSlugOrId) }}" class="flex items-center gap-2">
-                <label for="date_picker" class="text-xs font-bold text-slate-600 uppercase">Business Date:</label>
-                <input type="date" id="date_picker" name="date" value="{{ $businessDate }}"
-                       onchange="this.form.submit()"
-                       class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-900 shadow-2xs focus:border-sky-500 focus:outline-hidden">
-            </form>
+            <div class="flex items-center gap-3">
+                <button type="button"
+                        @click="showClearDayModal = true"
+                        class="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-800 px-3.5 py-1.5 text-xs font-black uppercase tracking-wider transition shadow-2xs cursor-pointer">
+                    <svg class="w-3.5 h-3.5 text-rose-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    <span>Clear Day</span>
+                </button>
+
+                <form method="GET" action="{{ route('admin.cashbook.shop.financial-ledger', $currentShopSlugOrId) }}" class="flex items-center gap-2">
+                    <label for="date_picker" class="text-xs font-bold text-slate-600 uppercase">Business Date:</label>
+                    <input type="date" id="date_picker" name="date" value="{{ $businessDate }}"
+                           onchange="this.form.submit()"
+                           class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-900 shadow-2xs focus:border-sky-500 focus:outline-hidden">
+                </form>
+            </div>
         </div>
     </header>
 
@@ -303,6 +340,7 @@
                     @forelse($transactions as $tx)
                         @php
                             $isVoid = in_array($tx->status, ['void', \App\Enums\Cashbook\TransactionStatus::Void->value], true);
+                            $isProtected = $tx->isProtectedSalaryOrGlBill();
                             $dirTone = match($tx->direction) {
                                 'income' => 'text-emerald-700 bg-emerald-50 border-emerald-200',
                                 'expense' => 'text-red-700 bg-red-50 border-red-200',
@@ -386,21 +424,28 @@
                             </td>
                             <td class="py-3 px-4 text-center">
                                 <div class="inline-flex items-center gap-1.5">
-                                    @if(!$isVoid && !$tx->generated_by_rule)
+                                    @if(!$tx->generated_by_rule && !$isProtected)
                                         <button type="button"
                                                 @click="openEdit(@js($tx))"
                                                 class="px-2.5 py-1 rounded-xl bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 font-bold text-xs transition cursor-pointer">
                                             Edit
                                         </button>
                                         <button type="button"
-                                                @click="openVoid(@js($tx))"
+                                                @click="openDelete(@js($tx))"
                                                 class="px-2 py-1 rounded-xl bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 font-bold text-xs transition cursor-pointer">
-                                            Void
+                                            Delete
                                         </button>
                                     @elseif($tx->generated_by_rule)
                                         <span class="text-[10px] text-slate-400 italic">Edit Parent #{{ $tx->parent_transaction_id }}</span>
-                                    @else
-                                        <span class="text-[10px] text-slate-400 italic">Voided</span>
+                                    @elseif($isProtected)
+                                        @if(!$tx->generated_by_rule)
+                                            <button type="button"
+                                                    @click="openEdit(@js($tx))"
+                                                    class="px-2.5 py-1 rounded-xl bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 font-bold text-xs transition cursor-pointer">
+                                                Edit
+                                            </button>
+                                        @endif
+                                        <span class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Protected</span>
                                     @endif
                                 </div>
                             </td>
@@ -645,13 +690,13 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════ -->
-    <!-- ── MODAL: ADMIN VOID TRANSACTION ────────────────────────────── -->
+    <!-- ── MODAL: ADMIN DELETE TRANSACTION ──────────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════ -->
-    <div x-show="showVoidModal"
+    <div x-show="showDeleteModal"
          x-cloak
-         @keydown.escape.window="showVoidModal = false"
+         @keydown.escape.window="showDeleteModal = false"
          class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-        <div @click.away="showVoidModal = false"
+        <div @click.away="showDeleteModal = false"
              class="bg-white rounded-3xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div class="px-6 py-5 bg-red-800 text-white flex items-center justify-between">
                 <div class="flex items-center gap-2.5">
@@ -661,37 +706,91 @@
                         </svg>
                     </div>
                     <div>
-                        <h3 class="text-sm font-black uppercase tracking-wide">Void Ledger Transaction</h3>
-                        <p class="text-[11px] text-red-200 font-medium">Reverses financial effects safely</p>
+                        <h3 class="text-sm font-black uppercase tracking-wide">Delete Ledger Transaction</h3>
+                        <p class="text-[11px] text-red-200 font-medium">Permanently removes entry and recalculates</p>
                     </div>
                 </div>
-                <button type="button" @click="showVoidModal = false" class="p-1 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition">
+                <button type="button" @click="showDeleteModal = false" class="p-1 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition">
                     <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
             </div>
 
-            <form @submit.prevent="submitVoid()" class="p-6 space-y-4">
+            <form @submit.prevent="submitDelete()" class="p-6 space-y-4">
                 <p class="text-xs text-slate-700 leading-relaxed">
-                    Are you sure you want to void <strong class="text-slate-950" x-text="voidTx.name"></strong> (₹<span class="font-mono" x-text="voidTx.amount.toFixed(2)"></span>)? This will reverse all ledger balances, invalidate linked pending statement entries, and preserve the transaction in the audit trail.
+                    Are you sure you want to permanently delete <strong class="text-slate-950" x-text="deleteTx.name"></strong> (₹<span class="font-mono font-bold" x-text="deleteTx.amount.toFixed(2)"></span>)? This will completely remove the entry and recalculate all daily balances.
                 </p>
 
                 <div>
-                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Reason for Voiding (Mandatory)</label>
-                    <input type="text" x-model="voidTx.reason" required placeholder="e.g. Duplicate entry posted by cashier"
+                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Reason (Optional)</label>
+                    <input type="text" x-model="deleteTx.reason" placeholder="e.g. Duplicate entry posted by mistake"
                            class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 shadow-2xs focus:border-red-500 focus:outline-hidden">
                 </div>
 
                 <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
-                    <button type="button" @click="showVoidModal = false"
+                    <button type="button" @click="showDeleteModal = false"
                             class="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer">
                         Cancel
                     </button>
                     <button type="submit"
                             :disabled="isSubmitting"
                             class="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black uppercase tracking-wider shadow-xs transition cursor-pointer disabled:opacity-50">
-                        <span x-text="isSubmitting ? 'Voiding...' : 'Confirm Void'"></span>
+                        <span x-text="isSubmitting ? 'Deleting...' : 'Delete'"></span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- ── MODAL: ADMIN CLEAR DAY ────────────────────────────────────── -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <div x-show="showClearDayModal"
+         x-cloak
+         @keydown.escape.window="showClearDayModal = false"
+         class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div @click.away="showClearDayModal = false"
+             class="bg-white rounded-3xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div class="px-6 py-5 bg-rose-900 text-white flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-white/10">
+                        <svg class="w-5 h-5 text-rose-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-black uppercase tracking-wide">Clear Day Entries</h3>
+                        <p class="text-[11px] text-rose-200 font-medium">{{ $formattedBusinessDate }}</p>
+                    </div>
+                </div>
+                <button type="button" @click="showClearDayModal = false" class="p-1 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <form @submit.prevent="submitClearDay()" class="p-6 space-y-4">
+                <div>
+                    <h4 class="text-sm font-black text-slate-900 leading-snug">
+                        Clear all Shop Cashbook entries for {{ $formattedBusinessDate }}?
+                    </h4>
+                    <p class="mt-2 text-xs font-semibold text-slate-500 rounded-xl bg-slate-50 border border-slate-200 p-3">
+                        <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1.5"></span>
+                        Salary and GL Bill will remain.
+                    </p>
+                </div>
+
+                <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                    <button type="button" @click="showClearDayModal = false"
+                            class="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                            :disabled="isSubmitting"
+                            class="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black uppercase tracking-wider shadow-xs transition cursor-pointer disabled:opacity-50">
+                        <span x-text="isSubmitting ? 'Clearing Day...' : 'Clear Day'"></span>
                     </button>
                 </div>
             </form>

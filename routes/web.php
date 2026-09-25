@@ -835,6 +835,7 @@ Route::middleware('auth')->group(function () {
             Route::get('shops/{shop}/financial-ledger', [CashbookController::class, 'financialLedger'])->name('shop.financial-ledger')->middleware('can:cashbook.shops.view');
             Route::post('shops/{shop}/financial-ledger/update', [CashbookController::class, 'updateFinancialLedgerEntry'])->name('shop.financial-ledger.update')->middleware('can:cashbook.shops.manage');
             Route::post('shops/{shop}/financial-ledger/delete', [CashbookController::class, 'deleteFinancialLedgerEntry'])->name('shop.financial-ledger.delete')->middleware('can:cashbook.shops.manage');
+            Route::post('shops/{shop}/financial-ledger/clear-day', [CashbookController::class, 'clearFinancialLedgerDay'])->name('shop.financial-ledger.clear-day')->middleware('can:cashbook.shops.manage');
             Route::get('shops/{shop}/cashbook-layout', [CashbookController::class, 'shopCashbookLayout'])->name('shop.cashbook-layout')->middleware('can:cashbook.shops.view');
             Route::post('shops/{shop}/cashbook-layout/save', [CashbookController::class, 'saveShopCashbookLayout'])->name('shop.cashbook-layout.save')->middleware('can:cashbook.shops.manage');
             Route::post('shops/{shop}/cashbook-layout/reset', [CashbookController::class, 'resetShopCashbookLayout'])->name('shop.cashbook-layout.reset')->middleware('can:cashbook.shops.manage');
