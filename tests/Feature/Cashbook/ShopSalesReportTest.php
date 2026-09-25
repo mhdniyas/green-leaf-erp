@@ -7,6 +7,8 @@ namespace Tests\Feature\Cashbook;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerHeaderGroup;
+use App\Models\Cashbook\ShopLedgerProductEntry;
+use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Product;
 use App\Models\PurchaseInvoice;
@@ -730,6 +732,87 @@ class ShopSalesReportTest extends TestCase
         $onion = collect($productSource['products'])->firstWhere('name', 'Onion');
         $this->assertNotNull($onion);
         $this->assertEquals(1800.00, $onion['total']);
+    }
+
+    public function test_tagged_header_product_total_is_scoped_to_its_header_and_lists_products(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop1->shop_id,
+            'name' => 'Fresh Produce',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+        ]);
+        $product = Product::factory()->create(['name' => 'Cucumber', 'unit' => 'kg']);
+        $expenseType = LedgerEntryType::create(['code' => 'fresh_produce_expense', 'name' => 'Fresh Produce Expense', 'category' => 'expense']);
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $expenseType->id,
+            'header_group_id' => $header->id,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+        ]);
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $expenseType->id,
+            'amount' => 280,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'status' => 'approved',
+        ]);
+
+        ShopLedgerProductEntry::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-15',
+            'header_group_id' => $header->id,
+            'product_id' => $product->id,
+            'product_name' => 'Cucumber',
+            'quantity' => 12,
+            'unit' => 'kg',
+            'amount' => 720,
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $service = app(ShopPaymentsReportConfigService::class);
+        $headings = $service->getDefaultHeadings($this->shop1->shop_id);
+        $headings[ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE]['sources'] = [[
+            'type' => ShopPaymentsReportConfigService::SOURCE_PRODUCT_TOTAL,
+            'id' => $header->id,
+            'name' => 'Fresh Produce Product Total',
+        ]];
+        ShopLedgerProfile::firstOrCreate(['shop_id' => $this->shop1->shop_id])->update([
+            'payment_configuration' => ['reports' => ['monthly_sales' => ['2026-09' => $headings]]],
+        ]);
+
+        $report = $service->calculateReport($this->shop1->shop_id, '2026-09-01', '2026-09-30', '2026-09');
+        $source = $report['summary_breakdowns'][ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE]['sources'][0];
+
+        $this->assertSame(720.0, $source['total']);
+        $this->assertSame('Cucumber', $source['products'][0]['name']);
+        $this->assertSame(720.0, $source['products'][0]['total']);
+
+        $headings[ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE]['sources'] = [[
+            'type' => ShopPaymentsReportConfigService::SOURCE_HEADER_WITH_PRODUCT_TOTAL,
+            'id' => $header->id,
+            'name' => 'Fresh Produce + Product Total (Full)',
+        ]];
+        ShopLedgerProfile::query()->where('shop_id', $this->shop1->shop_id)->firstOrFail()->update([
+            'payment_configuration' => ['reports' => ['monthly_sales' => ['2026-09' => $headings]]],
+        ]);
+        $fullReport = $service->calculateReport($this->shop1->shop_id, '2026-09-01', '2026-09-30', '2026-09');
+        $this->assertSame(1000.0, $fullReport['summary']['total_purchase']);
+
+        $headings[ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE]['sources'] = [[
+            'type' => 'header',
+            'id' => $header->id,
+            'name' => 'Fresh Produce — Other Totals (Skip Products)',
+        ]];
+        ShopLedgerProfile::query()->where('shop_id', $this->shop1->shop_id)->firstOrFail()->update([
+            'payment_configuration' => ['reports' => ['monthly_sales' => ['2026-09' => $headings]]],
+        ]);
+        $withoutProductsReport = $service->calculateReport($this->shop1->shop_id, '2026-09-01', '2026-09-30', '2026-09');
+        $this->assertSame(280.0, $withoutProductsReport['summary']['total_purchase']);
     }
 
     public function test_shop_without_product_tagging_does_not_show_fake_product_rows(): void

@@ -7,6 +7,7 @@ namespace App\Services\Cashbook\PaymentsSettings;
 use App\Models\Cashbook\ShopCashbookMonthConfigSnapshot;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerHeaderGroup;
+use App\Models\Cashbook\ShopLedgerProductEntry;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Shop;
@@ -16,6 +17,7 @@ use Carbon\CarbonPeriod;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class ShopPaymentsReportConfigService
 {
@@ -30,6 +32,14 @@ class ShopPaymentsReportConfigService
     public const HEADING_NET_OPERATING_BALANCE = 'net_operating_balance';
 
     public const HEADING_GL_BILLS_REF = 'gl_bills_ref';
+
+    public const SOURCE_PRODUCT_TOTAL = 'product_total';
+
+    public const SOURCE_HEADER_WITH_PRODUCT_TOTAL = 'header_with_product_total';
+
+    public const SOURCE_VENDOR_PURCHASE_CASH = 'vendor_purchase_cash';
+
+    public const SOURCE_VENDOR_PURCHASE_CREDIT = 'vendor_purchase_credit';
 
     /**
      * Get default report headings structure for a shop.
@@ -192,18 +202,15 @@ class ShopPaymentsReportConfigService
                 $inputHeading = $headings[$key] ?? [];
                 $sources = (array) ($inputHeading['sources'] ?? $defaultHeading['sources']);
 
-                // Filter valid sources
                 $cleanSources = [];
                 foreach ($sources as $source) {
                     if (! is_array($source) || empty($source['type']) || ! isset($source['id'])) {
                         continue;
                     }
-                    $cleanSources[] = [
-                        'type' => (string) $source['type'],
-                        'id' => is_numeric($source['id']) ? (int) $source['id'] : (string) $source['id'],
-                        'name' => (string) ($source['name'] ?? ''),
-                    ];
+                    $cleanSources[] = $this->validateSource($shopId, $source);
                 }
+
+                $this->ensureSourcesDoNotOverlap($shopId, $cleanSources);
 
                 $validatedHeadings[$key] = [
                     'key' => $key,
@@ -233,6 +240,99 @@ class ShopPaymentsReportConfigService
 
             return $validatedHeadings;
         });
+    }
+
+    /** @param array{type: mixed, id: mixed, name?: mixed} $source */
+    private function validateSource(int $shopId, array $source): array
+    {
+        $type = (string) $source['type'];
+        $id = $source['id'];
+
+        if ($type === 'system' && (string) $id === 'gl_invoices') {
+            return ['type' => 'system', 'id' => 'gl_invoices', 'name' => 'System GL Invoices'];
+        }
+
+        if ($type === 'header') {
+            $header = ShopLedgerHeaderGroup::query()->where('shop_id', $shopId)->find($id);
+            if (! $header) {
+                throw ValidationException::withMessages(['headings' => ['The selected header does not belong to this shop.']]);
+            }
+
+            return [
+                'type' => $type,
+                'id' => (int) $header->id,
+                'name' => $header->product_tagging_enabled ? $header->name.' — Other Totals (Skip Products)' : $header->name,
+            ];
+        }
+
+        if ($type === 'category') {
+            $setting = ShopLedgerEntrySetting::query()->where('shop_id', $shopId)->find($id);
+            if (! $setting || $setting->headerGroup?->product_tagging_enabled) {
+                throw ValidationException::withMessages(['headings' => ['A category under a product-tagged header must be reported through its product total.']]);
+            }
+
+            return ['type' => $type, 'id' => (int) $setting->id, 'name' => $setting->displayName()];
+        }
+
+        if ($type === self::SOURCE_PRODUCT_TOTAL) {
+            if ((string) $id === 'direct_vendor_purchases') {
+                return ['type' => $type, 'id' => 'direct_vendor_purchases', 'name' => 'Direct Vendor Purchases'];
+            }
+            $header = ShopLedgerHeaderGroup::query()->where('shop_id', $shopId)->find($id);
+            if (! $header || ! $header->product_tagging_enabled) {
+                throw ValidationException::withMessages(['headings' => ['Product Total is available only for a product-tagged header in this shop.']]);
+            }
+
+            return ['type' => $type, 'id' => (int) $header->id, 'name' => $header->name.' — Product Total Only'];
+        }
+
+        if ($type === self::SOURCE_HEADER_WITH_PRODUCT_TOTAL) {
+            $header = ShopLedgerHeaderGroup::query()->where('shop_id', $shopId)->find($id);
+            if (! $header || ! $header->product_tagging_enabled) {
+                throw ValidationException::withMessages(['headings' => ['The full header and product total option requires a product-tagged header.']]);
+            }
+
+            return ['type' => $type, 'id' => (int) $header->id, 'name' => $header->name.' + Product Total (Full)'];
+        }
+
+        if (in_array($type, [self::SOURCE_VENDOR_PURCHASE_CASH, self::SOURCE_VENDOR_PURCHASE_CREDIT], true)) {
+            $paymentType = $type === self::SOURCE_VENDOR_PURCHASE_CASH ? 'cash' : 'credit';
+            $exists = ShopLedgerEntrySetting::query()
+                ->where('shop_id', $shopId)
+                ->where('enabled', true)
+                ->where('is_vendor_purchase', true)
+                ->where(function ($query) use ($paymentType): void {
+                    $query->where('vendor_purchase_payment_type', $paymentType)
+                        ->orWhereHas('entryType', fn ($entryTypeQuery) => $entryTypeQuery->where('code', 'vendor_purchase_'.$paymentType));
+                })
+                ->exists();
+            if (! $exists) {
+                throw ValidationException::withMessages(['headings' => ["Vendor {$paymentType} purchases are not enabled for this shop."]]);
+            }
+
+            return [
+                'type' => $type,
+                'id' => $paymentType,
+                'name' => $paymentType === 'cash' ? 'Vendor Cash / Debit Purchases' : 'Vendor Credit Purchases',
+            ];
+        }
+
+        throw ValidationException::withMessages(['headings' => ['The selected report source is not supported.']]);
+    }
+
+    /** @param array<int, array{type: string, id: int|string, name: string}> $sources */
+    private function ensureSourcesDoNotOverlap(int $shopId, array $sources): void
+    {
+        $headerIds = collect($sources)
+            ->whereIn('type', ['header', self::SOURCE_HEADER_WITH_PRODUCT_TOTAL])
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id);
+        $categoryIds = collect($sources)->where('type', 'category')->pluck('id')->map(fn ($id): int => (int) $id);
+
+        if ($headerIds->isNotEmpty() && ShopLedgerEntrySetting::query()->where('shop_id', $shopId)->whereIn('header_group_id', $headerIds)->whereIn('id', $categoryIds)->exists()) {
+            throw ValidationException::withMessages(['headings' => ['A category cannot be added when its header group is already included.']]);
+        }
+
     }
 
     /**
@@ -459,7 +559,7 @@ class ShopPaymentsReportConfigService
         $settingsByEntryTypeId = $settings->keyBy('entry_type_id');
         $breakdowns = [];
 
-        // Pre-query product items for product_total sources (Direct Vendor Purchases ONLY) in this period for this shop
+        // Legacy direct-vendor product source. New product sources below are scoped to their selected header or payment type.
         $productItems = DB::table('purchaser_cart_items')
             ->join('purchaser_carts', 'purchaser_carts.id', '=', 'purchaser_cart_items.purchaser_cart_id')
             ->leftJoin('purchase_invoices', 'purchase_invoices.purchaser_cart_id', '=', 'purchaser_carts.id')
@@ -490,6 +590,17 @@ class ShopPaymentsReportConfigService
 
         $headingTotalsMap = [];
 
+        $taggedProductEntries = ShopLedgerProductEntry::query()
+            ->where('shop_id', $shopId)
+            ->whereBetween('business_date', [$startDate, $endDate])
+            ->get()
+            ->groupBy('header_group_id');
+
+        $vendorPurchaseSettingIds = [
+            'cash' => $settings->filter(fn (ShopLedgerEntrySetting $setting): bool => $setting->isVendorPurchaseCash())->pluck('id')->all(),
+            'credit' => $settings->filter(fn (ShopLedgerEntrySetting $setting): bool => $setting->isVendorPurchaseCredit())->pluck('id')->all(),
+        ];
+
         foreach ([self::HEADING_TOTAL_SALES, self::HEADING_RENT_EXPENSE, self::HEADING_CASH_PURCHASE, self::HEADING_OTHER_EXPENSE] as $hKey) {
             $headingConfig = $headings[$hKey] ?? null;
             $sourcesConfig = $headingConfig['sources'] ?? [];
@@ -507,7 +618,7 @@ class ShopPaymentsReportConfigService
                 $productsList = [];
                 $sourceTotal = 0.0;
 
-                if ($srcType === 'header') {
+                if (in_array($srcType, ['header', self::SOURCE_HEADER_WITH_PRODUCT_TOTAL], true)) {
                     $header = $headers->get($srcId);
                     if ($header) {
                         foreach ($header->entrySettings as $es) {
@@ -523,6 +634,22 @@ class ShopPaymentsReportConfigService
                                 'name' => $es->displayName(),
                                 'total' => $catSum,
                             ];
+                        }
+
+                        if ($srcType === self::SOURCE_HEADER_WITH_PRODUCT_TOTAL) {
+                            $entries = $taggedProductEntries->get((int) $srcId, collect());
+                            foreach ($entries->groupBy(fn (ShopLedgerProductEntry $entry): string => (string) ($entry->product_id ?: $entry->product_name)) as $productEntries) {
+                                /** @var ShopLedgerProductEntry $firstEntry */
+                                $firstEntry = $productEntries->first();
+                                $productsList[] = [
+                                    'id' => $firstEntry->product_id ?: $firstEntry->product_name,
+                                    'name' => $firstEntry->product_name,
+                                    'unit' => $firstEntry->unit ?: '',
+                                    'qty' => (float) $productEntries->sum('quantity'),
+                                    'total' => round((float) $productEntries->sum('amount'), 2),
+                                ];
+                            }
+                            $sourceTotal += round((float) $entries->sum('amount'), 2);
                         }
                     }
                 } elseif ($srcType === 'category') {
@@ -541,7 +668,25 @@ class ShopPaymentsReportConfigService
                             'total' => $catSum,
                         ];
                     }
-                } elseif ($srcType === 'product_total') {
+                } elseif ($srcType === self::SOURCE_PRODUCT_TOTAL && is_numeric($srcId)) {
+                    $entries = $taggedProductEntries->get((int) $srcId, collect());
+                    foreach ($entries->groupBy(fn (ShopLedgerProductEntry $entry): string => (string) ($entry->product_id ?: $entry->product_name)) as $productEntries) {
+                        /** @var ShopLedgerProductEntry $firstEntry */
+                        $firstEntry = $productEntries->first();
+                        $productsList[] = [
+                            'id' => $firstEntry->product_id ?: $firstEntry->product_name,
+                            'name' => $firstEntry->product_name,
+                            'unit' => $firstEntry->unit ?: '',
+                            'qty' => (float) $productEntries->sum('quantity'),
+                            'total' => round((float) $productEntries->sum('amount'), 2),
+                        ];
+                    }
+                    $sourceTotal = round((float) $entries->sum('amount'), 2);
+                } elseif (in_array($srcType, [self::SOURCE_VENDOR_PURCHASE_CASH, self::SOURCE_VENDOR_PURCHASE_CREDIT], true)) {
+                    $paymentType = $srcType === self::SOURCE_VENDOR_PURCHASE_CASH ? 'cash' : 'credit';
+                    $settingIds = $vendorPurchaseSettingIds[$paymentType];
+                    [$sourceTotal, $productsList] = $this->vendorPurchaseBreakdown($shopId, $startDate, $endDate, $settingIds);
+                } elseif ($srcType === self::SOURCE_PRODUCT_TOTAL) {
                     $vpTxs = $txs->filter(function ($t) use ($settingsByEntryTypeId, $claimedTxIds): bool {
                         if (isset($claimedTxIds[$t->id])) {
                             return false;
@@ -637,5 +782,49 @@ class ShopPaymentsReportConfigService
         ];
 
         return $breakdowns;
+    }
+
+    /**
+     * @param  array<int, int>  $settingIds
+     * @return array{0: float, 1: array<int, array{id: int|string, name: string, unit: string, qty: float, total: float}>}
+     */
+    private function vendorPurchaseBreakdown(int $shopId, string $startDate, string $endDate, array $settingIds): array
+    {
+        if ($settingIds === []) {
+            return [0.0, []];
+        }
+
+        $invoices = DB::table('purchase_invoices')
+            ->join('purchaser_carts', 'purchaser_carts.id', '=', 'purchase_invoices.purchaser_cart_id')
+            ->where('purchase_invoices.shop_id', $shopId)
+            ->whereNull('purchase_invoices.deleted_at')
+            ->where('purchase_invoices.status', '!=', 'cancelled')
+            ->where('purchase_invoices.purchase_source', 'shop')
+            ->whereIn('purchase_invoices.shop_ledger_entry_setting_id', $settingIds)
+            ->whereBetween('purchaser_carts.business_date', [$startDate, $endDate])
+            ->get(['purchase_invoices.id', 'purchase_invoices.amount', 'purchase_invoices.purchaser_cart_id']);
+
+        if ($invoices->isEmpty()) {
+            return [0.0, []];
+        }
+
+        $products = DB::table('purchaser_cart_items')
+            ->join('purchaser_carts', 'purchaser_carts.id', '=', 'purchaser_cart_items.purchaser_cart_id')
+            ->join('products', 'products.id', '=', 'purchaser_cart_items.product_id')
+            ->whereIn('purchaser_carts.id', $invoices->pluck('purchaser_cart_id'))
+            ->selectRaw("products.id as product_id, products.name as product_name, COALESCE(products.unit, '') as item_unit, SUM(purchaser_cart_items.quantity) as total_qty, SUM(purchaser_cart_items.line_total) as total_line")
+            ->groupBy('products.id', 'products.name', 'products.unit')
+            ->orderByDesc('total_line')
+            ->get()
+            ->map(fn ($product): array => [
+                'id' => $product->product_id,
+                'name' => $product->product_name,
+                'unit' => $product->item_unit,
+                'qty' => (float) $product->total_qty,
+                'total' => round((float) $product->total_line, 2),
+            ])
+            ->all();
+
+        return [round((float) $invoices->sum('amount'), 2), $products];
     }
 }

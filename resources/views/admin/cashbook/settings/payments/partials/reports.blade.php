@@ -1,3 +1,8 @@
+@php
+    $hasVendorCashPurchase = $entrySettings->contains(fn ($setting) => $setting->isVendorPurchaseCash());
+    $hasVendorCreditPurchase = $entrySettings->contains(fn ($setting) => $setting->isVendorPurchaseCredit());
+@endphp
+
 <div class="space-y-6">
     {{-- Section Header --}}
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4">
@@ -241,7 +246,8 @@
                         :options="[
                             ['value' => 'header', 'label' => 'Header Group'],
                             ['value' => 'category', 'label' => 'Single Category'],
-                            ['value' => 'product_total', 'label' => 'Product Total (System)']
+                            ...($hasVendorCashPurchase ? [['value' => 'vendor_purchase_cash', 'label' => 'Vendor Cash / Debit Total']] : []),
+                            ...($hasVendorCreditPurchase ? [['value' => 'vendor_purchase_credit', 'label' => 'Vendor Credit Total']] : [])
                         ]"
                         selected="header"
                         :searchable="false"
@@ -314,7 +320,7 @@ function renderReportsModalSources() {
 
     let html = '';
     sources.forEach((src, index) => {
-        const typeBadge = src.type === 'header' ? 'Header' : (src.type === 'product_total' ? 'Product Total' : 'Category');
+        const typeBadge = src.type === 'header' ? 'Header' : (src.type === 'category' ? 'Category' : (src.type === 'header_with_product_total' ? 'Header + Products' : 'Product Total'));
         html += `
             <div class="flex items-center justify-between p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 text-xs">
                 <div class="flex items-center gap-2.5">
@@ -352,18 +358,27 @@ function renderNewReportSourceSelectSlot(type) {
     let options = [];
 
     if (type === 'header') {
-        options = reportsAvailableHeaders.map(h => ({
-            id: h.id,
-            name: h.name,
-            subtitle: (h.code || '') + ' (Header Group)'
-        }));
-    } else if (type === 'product_total') {
-        options = [
-            { id: 'all_products', name: 'All Product Lines Total', subtitle: 'Aggregated product totals' }
-        ];
+        options = reportsAvailableHeaders.flatMap(h => {
+            if (!h.product_tagging_enabled) {
+                return [{ id: `header:${h.id}`, name: h.name, subtitle: 'Header total' }];
+            }
+
+            return [
+                { id: `product_total:${h.id}`, name: `${h.name} — Product Total Only`, subtitle: 'Count product-tagged rows only' },
+                { id: `header_with_product_total:${h.id}`, name: `${h.name} + Product Total (Full)`, subtitle: 'Count header categories and product rows' },
+                { id: `header:${h.id}`, name: `${h.name} — Other Totals (Skip Products)`, subtitle: 'Count header categories without product rows' }
+            ];
+        });
+    } else if (type === 'vendor_purchase_cash' || type === 'vendor_purchase_credit') {
+        const isCash = type === 'vendor_purchase_cash';
+        options = [{
+            id: isCash ? 'cash' : 'credit',
+            name: isCash ? 'Vendor Cash / Debit Purchases' : 'Vendor Credit Purchases',
+            subtitle: 'Shop purchase invoices with product breakdown'
+        }];
     } else {
         // Individual Categories (both with and without headers)
-        options = reportsAvailableSettings.map(s => ({
+        options = reportsAvailableSettings.filter(s => !(s.header_group && s.header_group.product_tagging_enabled)).map(s => ({
             id: s.id,
             name: s.entry_type ? s.entry_type.name : (s.display_name || s.entry_name),
             subtitle: (s.header_group ? s.header_group.name : 'Non-Header Category')
@@ -407,15 +422,27 @@ function addReportSourceFromModal() {
 
     if (!headingKey || !typeInput || !itemInput || !itemInput.value) return;
 
-    const type = typeInput.value;
-    const id = itemInput.value;
+    let type = typeInput.value;
+    let id = itemInput.value;
+
+    if (type === 'header' && String(id).includes(':')) {
+        [type, id] = String(id).split(':', 2);
+    }
 
     let name = 'Source #' + id;
     if (type === 'header') {
         const found = reportsAvailableHeaders.find(h => String(h.id) === String(id));
-        if (found) name = found.name;
+        if (found) name = found.product_tagging_enabled ? found.name + ' — Other Totals (Skip Products)' : found.name;
     } else if (type === 'product_total') {
-        name = 'All Product Lines Total';
+        const found = reportsAvailableHeaders.find(h => String(h.id) === String(id));
+        name = found ? found.name + ' — Product Total Only' : 'Tagged Header Product Total';
+    } else if (type === 'header_with_product_total') {
+        const found = reportsAvailableHeaders.find(h => String(h.id) === String(id));
+        name = found ? found.name + ' + Product Total (Full)' : 'Header + Product Total (Full)';
+    } else if (type === 'vendor_purchase_cash') {
+        name = 'Vendor Cash / Debit Purchases';
+    } else if (type === 'vendor_purchase_credit') {
+        name = 'Vendor Credit Purchases';
     } else {
         const found = reportsAvailableSettings.find(s => String(s.id) === String(id));
         if (found) name = found.entry_type ? found.entry_type.name : (found.display_name || found.entry_name);
@@ -437,7 +464,7 @@ function addReportSourceFromModal() {
 
     reportsWorkingHeadings[headingKey].sources.push({
         type: type,
-        id: type === 'product_total' ? id : parseInt(id, 10),
+        id: type === 'vendor_purchase_cash' || type === 'vendor_purchase_credit' ? id : parseInt(id, 10),
         name: name
     });
 
@@ -451,7 +478,7 @@ function checkReportsDuplicates(headingKey) {
     if (!warnBox || !warnMsg || !headingKey) return;
 
     const sources = reportsWorkingHeadings[headingKey]?.sources || [];
-    const headerIds = sources.filter(s => s.type === 'header').map(s => parseInt(s.id, 10));
+    const headerIds = sources.filter(s => s.type === 'header' || s.type === 'header_with_product_total').map(s => parseInt(s.id, 10));
     const categoryIds = sources.filter(s => s.type === 'category').map(s => parseInt(s.id, 10));
 
     let duplicates = [];
