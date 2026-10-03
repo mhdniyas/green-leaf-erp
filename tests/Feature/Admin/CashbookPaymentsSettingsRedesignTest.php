@@ -9,6 +9,7 @@ use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopCashbookRelation;
 use App\Models\Cashbook\ShopCashbookRelationItem;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
+use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Shop;
@@ -473,5 +474,87 @@ class CashbookPaymentsSettingsRedesignTest extends TestCase
         $pettyData = $response->viewData('pettyData');
         $this->assertEquals(0.00, $pettyData['output']['closing_petty']);
         $this->assertFalse($pettyData['output']['has_discrepancy']);
+    }
+
+    /**
+     * Test 13: Report headings API endpoint allows direct category under a product-tagged header.
+     */
+    public function test_report_headings_save_allows_direct_category_under_product_tagged_header(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop->id,
+            'name' => 'GRANDCITY PURCHASES',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+        ]);
+
+        $salaryType = LedgerEntryType::firstOrCreate(['code' => 'salary_gc'], ['name' => 'Grandcity Salary', 'category' => 'expense']);
+        $salarySetting = ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop->id,
+            'entry_type_id' => $salaryType->id,
+            'header_group_id' => $header->id,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+        ]);
+
+        $reportService = app(ShopPaymentsReportConfigService::class);
+        $headings = $reportService->getDefaultHeadings((int) $this->shop->id);
+
+        // Keep cash_purchase mapped to product_total only
+        $headings[ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE]['sources'] = [
+            ['type' => ShopPaymentsReportConfigService::SOURCE_PRODUCT_TOTAL, 'id' => $header->id, 'name' => $header->name.' — Product Total Only'],
+        ];
+
+        // Map Salary as direct category in other_expense
+        $headings[ShopPaymentsReportConfigService::HEADING_OTHER_EXPENSE]['sources'] = [
+            ['type' => 'category', 'id' => (int) $salarySetting->id, 'name' => $salarySetting->displayName()],
+        ];
+
+        $response = $this->actingAs($this->admin)->postJson(route('admin.cashbook.settings.shop.payments.report-headings.save', $this->shop->id), [
+            'month' => '2026-09',
+            'headings' => $headings,
+        ]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+    }
+
+    /**
+     * Test 14: Report headings API endpoint prevents saving duplicate categories or overlapping headers.
+     */
+    public function test_report_headings_save_blocks_overlapping_headers(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop->id,
+            'name' => 'OVERLAPPING HEADER',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+        ]);
+
+        $catType = LedgerEntryType::firstOrCreate(['code' => 'overlap_api_cat'], ['name' => 'Overlap API Cat', 'category' => 'expense']);
+        $catSetting = ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop->id,
+            'entry_type_id' => $catType->id,
+            'header_group_id' => $header->id,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+        ]);
+
+        $reportService = app(ShopPaymentsReportConfigService::class);
+        $headings = $reportService->getDefaultHeadings((int) $this->shop->id);
+
+        // Map full header and individual category together -> must be blocked
+        $headings[ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE]['sources'] = [
+            ['type' => 'header', 'id' => $header->id, 'name' => $header->name],
+            ['type' => 'category', 'id' => (int) $catSetting->id, 'name' => $catSetting->displayName()],
+        ];
+
+        $response = $this->actingAs($this->admin)->postJson(route('admin.cashbook.settings.shop.payments.report-headings.save', $this->shop->id), [
+            'month' => '2026-09',
+            'headings' => $headings,
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors(['headings']);
     }
 }

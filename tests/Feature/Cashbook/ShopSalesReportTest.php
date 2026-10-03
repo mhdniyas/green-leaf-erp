@@ -22,6 +22,7 @@ use App\Services\Cashbook\PaymentsSettings\ShopPaymentsReportConfigService;
 use App\Services\Cashbook\ShopSalesReportService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -1323,5 +1324,279 @@ class ShopSalesReportTest extends TestCase
         $this->assertNotContains('2026-09-30', $datesInDailyRows);
 
         Carbon::setTestNow();
+    }
+
+    public function test_category_under_product_tagged_header_can_be_selected_directly(): void
+    {
+        ShopLedgerProfile::firstOrCreate(['shop_id' => $this->shop1->shop_id]);
+
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop1->shop_id,
+            'name' => 'CASH PURCHASE',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+        ]);
+
+        $salaryType = LedgerEntryType::firstOrCreate(['code' => 'salary_direct'], ['name' => 'Salary Expense', 'category' => 'expense']);
+        $salarySetting = ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $salaryType->id,
+            'header_group_id' => $header->id,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+        ]);
+
+        $fuelType = LedgerEntryType::firstOrCreate(['code' => 'fuel_direct'], ['name' => 'Fuel Expense', 'category' => 'expense']);
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $fuelType->id,
+            'header_group_id' => $header->id,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+        ]);
+
+        // Create transaction for Salary (5000) and Fuel (2000)
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $salaryType->id,
+            'entry_type_code' => 'salary_direct',
+            'business_date' => '2026-09-15',
+            'amount' => 5000.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'status' => 'posted',
+        ]);
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $fuelType->id,
+            'entry_type_code' => 'fuel_direct',
+            'business_date' => '2026-09-15',
+            'amount' => 2000.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'status' => 'posted',
+        ]);
+
+        $product = Product::factory()->create(['name' => 'Tomatoes', 'unit' => 'kg']);
+        ShopLedgerProductEntry::create([
+            'shop_id' => $this->shop1->shop_id,
+            'header_group_id' => $header->id,
+            'product_id' => $product->id,
+            'business_date' => '2026-09-15',
+            'product_name' => 'Tomatoes',
+            'quantity' => 100,
+            'unit' => 'kg',
+            'amount' => 12000.00,
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $service = app(ShopPaymentsReportConfigService::class);
+        $headings = $service->getDefaultHeadings($this->shop1->shop_id);
+
+        // Clear purchase sources so CASH PURCHASE header is not including all categories as full header
+        $headings[ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE]['sources'] = [];
+
+        // Map Salary directly under other_expense
+        $headings[ShopPaymentsReportConfigService::HEADING_OTHER_EXPENSE]['sources'] = [
+            ['type' => 'category', 'id' => (int) $salarySetting->id, 'name' => $salarySetting->displayName()],
+        ];
+
+        // Should save without throwing ValidationException
+        $saved = $service->saveConfigurationForMonth($this->shop1->shop_id, '2026-09', $headings, (int) $this->admin->id);
+        $this->assertCount(1, $saved[ShopPaymentsReportConfigService::HEADING_OTHER_EXPENSE]['sources']);
+
+        // Calculate report: other_expense must be strictly 5000 (Salary only, ignoring Fuel and Tomatoes)
+        $report = $service->calculateReport($this->shop1->shop_id, '2026-09-01', '2026-09-30', '2026-09');
+        $this->assertEquals(5000.00, $report['summary']['total_other_expense']);
+    }
+
+    public function test_product_total_only_coexists_with_direct_category_from_same_header(): void
+    {
+        ShopLedgerProfile::firstOrCreate(['shop_id' => $this->shop1->shop_id]);
+
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop1->shop_id,
+            'name' => 'CASH PURCHASE COEXIST',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+        ]);
+
+        $salaryType = LedgerEntryType::firstOrCreate(['code' => 'salary_coexist'], ['name' => 'Salary Coexist', 'category' => 'expense']);
+        $salarySetting = ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $salaryType->id,
+            'header_group_id' => $header->id,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $salaryType->id,
+            'entry_type_code' => 'salary_coexist',
+            'business_date' => '2026-09-15',
+            'amount' => 4500.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'status' => 'posted',
+        ]);
+
+        $product2 = Product::factory()->create(['name' => 'Potatoes', 'unit' => 'kg']);
+        ShopLedgerProductEntry::create([
+            'shop_id' => $this->shop1->shop_id,
+            'header_group_id' => $header->id,
+            'product_id' => $product2->id,
+            'business_date' => '2026-09-15',
+            'product_name' => 'Potatoes',
+            'quantity' => 50,
+            'unit' => 'kg',
+            'amount' => 8000.00,
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $service = app(ShopPaymentsReportConfigService::class);
+        $headings = $service->getDefaultHeadings($this->shop1->shop_id);
+
+        // Map cash_purchase to Product Total Only, and other_expense to direct category Salary
+        $headings[ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE]['sources'] = [
+            ['type' => ShopPaymentsReportConfigService::SOURCE_PRODUCT_TOTAL, 'id' => $header->id, 'name' => $header->name.' — Product Total Only'],
+        ];
+        $headings[ShopPaymentsReportConfigService::HEADING_OTHER_EXPENSE]['sources'] = [
+            ['type' => 'category', 'id' => (int) $salarySetting->id, 'name' => $salarySetting->displayName()],
+        ];
+
+        // Saving succeeds because product_total only aggregates product entries, not category transactions
+        $service->saveConfigurationForMonth($this->shop1->shop_id, '2026-09', $headings, (int) $this->admin->id);
+
+        $report = $service->calculateReport($this->shop1->shop_id, '2026-09-01', '2026-09-30', '2026-09');
+        $this->assertEquals(8000.00, $report['summary']['total_purchase']);
+        $this->assertEquals(4500.00, $report['summary']['total_other_expense']);
+    }
+
+    public function test_duplicate_prevention_rejects_category_when_parent_header_is_included(): void
+    {
+        ShopLedgerProfile::firstOrCreate(['shop_id' => $this->shop1->shop_id]);
+
+        $this->expectException(ValidationException::class);
+
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop1->shop_id,
+            'name' => 'HEADER WITH OVERLAP',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+        ]);
+
+        $catType = LedgerEntryType::firstOrCreate(['code' => 'overlap_cat'], ['name' => 'Overlap Cat', 'category' => 'expense']);
+        $catSetting = ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $catType->id,
+            'header_group_id' => $header->id,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+        ]);
+
+        $service = app(ShopPaymentsReportConfigService::class);
+        $headings = $service->getDefaultHeadings($this->shop1->shop_id);
+
+        // cash_purchase includes header (skip products), which includes all categories under that header
+        // and other_expense includes the same category directly -> duplicate overlap!
+        $headings[ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE]['sources'] = [
+            ['type' => 'header', 'id' => $header->id, 'name' => $header->name],
+        ];
+        $headings[ShopPaymentsReportConfigService::HEADING_OTHER_EXPENSE]['sources'] = [
+            ['type' => 'category', 'id' => (int) $catSetting->id, 'name' => $catSetting->displayName()],
+        ];
+
+        $service->saveConfigurationForMonth($this->shop1->shop_id, '2026-09', $headings, (int) $this->admin->id);
+    }
+
+    public function test_duplicate_prevention_rejects_category_when_parent_header_has_full_product_total(): void
+    {
+        ShopLedgerProfile::firstOrCreate(['shop_id' => $this->shop1->shop_id]);
+
+        $this->expectException(ValidationException::class);
+
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop1->shop_id,
+            'name' => 'HEADER FULL OVERLAP',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+        ]);
+
+        $catType = LedgerEntryType::firstOrCreate(['code' => 'full_overlap_cat'], ['name' => 'Full Overlap Cat', 'category' => 'expense']);
+        $catSetting = ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $catType->id,
+            'header_group_id' => $header->id,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+        ]);
+
+        $service = app(ShopPaymentsReportConfigService::class);
+        $headings = $service->getDefaultHeadings($this->shop1->shop_id);
+
+        // Same heading contains both header_with_product_total and the direct category
+        $headings[ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE]['sources'] = [
+            ['type' => ShopPaymentsReportConfigService::SOURCE_HEADER_WITH_PRODUCT_TOTAL, 'id' => $header->id, 'name' => $header->name],
+            ['type' => 'category', 'id' => (int) $catSetting->id, 'name' => $catSetting->displayName()],
+        ];
+
+        $service->saveConfigurationForMonth($this->shop1->shop_id, '2026-09', $headings, (int) $this->admin->id);
+    }
+
+    public function test_duplicate_prevention_rejects_same_category_added_multiple_times(): void
+    {
+        ShopLedgerProfile::firstOrCreate(['shop_id' => $this->shop1->shop_id]);
+
+        $this->expectException(ValidationException::class);
+
+        $catType = LedgerEntryType::firstOrCreate(['code' => 'dup_cat'], ['name' => 'Duplicate Cat', 'category' => 'expense']);
+        $catSetting = ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $catType->id,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+        ]);
+
+        $service = app(ShopPaymentsReportConfigService::class);
+        $headings = $service->getDefaultHeadings($this->shop1->shop_id);
+
+        // Add same category twice in same heading
+        $headings[ShopPaymentsReportConfigService::HEADING_OTHER_EXPENSE]['sources'] = [
+            ['type' => 'category', 'id' => (int) $catSetting->id, 'name' => $catSetting->displayName()],
+            ['type' => 'category', 'id' => (int) $catSetting->id, 'name' => $catSetting->displayName()],
+        ];
+
+        $service->saveConfigurationForMonth($this->shop1->shop_id, '2026-09', $headings, (int) $this->admin->id);
+    }
+
+    public function test_detect_duplicates_identifies_header_conflicts(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop1->shop_id,
+            'name' => 'DETECT HEADER',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+        ]);
+
+        $catType = LedgerEntryType::firstOrCreate(['code' => 'detect_cat'], ['name' => 'Detect Cat', 'category' => 'expense']);
+        $catSetting = ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $catType->id,
+            'header_group_id' => $header->id,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+        ]);
+
+        $service = app(ShopPaymentsReportConfigService::class);
+
+        $duplicates = $service->detectDuplicates($this->shop1->shop_id, [
+            ['type' => ShopPaymentsReportConfigService::SOURCE_HEADER_WITH_PRODUCT_TOTAL, 'id' => $header->id],
+            ['type' => 'category', 'id' => $catSetting->id],
+        ]);
+
+        $this->assertCount(1, $duplicates);
+        $this->assertEquals($catSetting->id, $duplicates[0]['category_id']);
+        $this->assertStringContainsString('already included through Header', $duplicates[0]['reason']);
     }
 }

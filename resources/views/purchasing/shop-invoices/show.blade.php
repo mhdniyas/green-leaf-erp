@@ -80,200 +80,52 @@
             </div>
         @endif
 
-        <section class="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div class="mx-auto max-w-[46rem] px-3 py-5 sm:px-6 sm:py-7">
-                <div class="border-b-2 border-dashed border-slate-200 pb-4">
-                    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                            <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Shop Bill</p>
-                            <h2 class="mt-1 text-xl font-black text-slate-950 sm:text-2xl">{{ $invoice->shop?->name ?? 'Shop' }}</h2>
-                            <p class="mt-1 text-sm font-semibold text-slate-600">{{ $invoice->shop?->code ?? $invoice->shop?->warehouse_tag }}</p>
-                        </div>
-                        <div class="flex flex-col gap-2 sm:items-end">
-                            @if ($isFinalized)
-                                <span class="w-fit rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
-                                    FINALIZED BILL
-                                </span>
-                            @else
-                                <span class="w-fit rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-black uppercase tracking-[0.14em] text-slate-700">
-                                    {{ $invoiceStatus }}
-                                </span>
-                            @endif
-                            @if (! ($shopSubmitted ?? false) && ! $isFinalized)
-                                <span class="w-fit rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-black text-amber-800">
-                                    Shop not submitted
-                                </span>
-                            @endif
-                        </div>
-                    </div>
+        <div class="space-y-4">
+            @include('purchasing.shop-invoices.partials.invoice-card', [
+                'invoice' => $invoice,
+                'isFinalized' => $isFinalized,
+                'canEditBill' => $canEditBill,
+                'canEditDiscount' => $canEditDiscount,
+                'itemChanges' => $itemChanges,
+                'changeLines' => $changeLines,
+                'money' => $money,
+                'lineQuantity' => $lineQuantity,
+                'finalQuantity' => $finalQuantity,
+                'lineAmount' => $lineAmount,
+                'formatUnit' => $formatUnit,
+                'subtotal' => $subtotal,
+                'discountTotal' => $discountTotal,
+                'finalTotal' => $finalTotal,
+                'invoiceStatus' => $invoiceStatus,
+                'shopSubmitted' => $shopSubmitted ?? false,
+            ])
 
-                    <div class="mt-5 grid gap-3 text-sm sm:grid-cols-3">
-                        <div>
-                            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Invoice Number</p>
-                            <p class="mt-1 font-black text-slate-950">{{ $invoice->invoice_number }}</p>
-                        </div>
-                        <div>
-                            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Date</p>
-                            <p class="mt-1 font-black text-slate-950">{{ $invoice->business_date->format('d M Y') }}</p>
-                        </div>
-                        <div>
-                            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Status</p>
-                            <p class="mt-1 font-black text-slate-950">{{ $isFinalized ? 'Finalized' : 'Open' }}</p>
-                        </div>
-                    </div>
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <a href="{{ route('purchasing.shop-invoices.index', ['date' => $invoiceDate]) }}" class="inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 hover:bg-slate-50">
+                    Back to Bills
+                </a>
 
-                    @if ($isFinalized)
-                        <div class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-950">
-                            <p class="font-black uppercase tracking-[0.14em]">FINALIZED BILL</p>
-                            <div class="mt-3 grid gap-3 sm:grid-cols-3">
-                                <div>
-                                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Finalized By</p>
-                                    <p class="mt-1 font-black">{{ $invoice->finalizedBy?->name ?? 'System' }}</p>
-                                </div>
-                                <div>
-                                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Finalized At</p>
-                                    <p class="mt-1 font-black">{{ $invoice->finalized_at?->format('d M Y, h:i A') ?? 'Recorded' }}</p>
-                                </div>
-                                <div>
-                                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Final Amount</p>
-                                    <p class="mt-1 font-black">{{ $money($finalTotal) }}</p>
-                                </div>
-                            </div>
-                        </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <a href="{{ route('purchasing.shop-invoices.pdf', ['invoice' => $invoice, 'download' => 1]) }}" class="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-black text-emerald-800 hover:bg-emerald-100 transition">
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                        Download PDF
+                    </a>
+                    @if ($isFinalized && auth()->user()?->hasRole('admin'))
+                        <form method="POST" action="{{ route('purchasing.shop-invoices.reopen-for-edit', $invoice) }}" class="inline">
+                            @csrf
+                            <button type="submit" onclick="return confirm('Reopen this finalized invoice for editing? The cashbook entry will be updated.')" class="inline-flex h-11 items-center justify-center rounded-lg border border-amber-300 bg-amber-50 px-4 text-sm font-black text-amber-800 hover:bg-amber-100">
+                                Reopen for Editing
+                            </button>
+                        </form>
+
+                    @elseif (($canFinalize ?? false) && $reviewAction)
+                        <button type="button" class="inline-flex h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-black text-white hover:bg-slate-800 sm:w-auto" data-open-finalize>
+                            Finalize Invoice
+                        </button>
                     @endif
                 </div>
-
-                <div class="mt-4 overflow-hidden rounded-lg border border-slate-200">
-                    <div class="hidden grid-cols-[2.5rem_minmax(0,1fr)_5rem_4rem_6rem_7rem] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 sm:grid">
-                        <div>Sl No</div>
-                        <div>Product</div>
-                        <div class="text-right">Qty</div>
-                        <div>Unit</div>
-                        <div class="text-right">Price</div>
-                        <div class="text-right">Amount</div>
-                    </div>
-
-                    <div class="divide-y divide-slate-100">
-                        @foreach ($invoice->items as $item)
-                            @php
-                                $qty = $lineQuantity($item);
-                                $displayQty = rtrim(rtrim(number_format($qty, 4), '0'), '.');
-                                $originalQty = round((float) ($item->orderItem?->requested_qty ?: $item->approved_qty ?: $qty), 4);
-                                $loadedQty = round((float) ($item->orderItem?->loaded_qty ?: $item->delivered_qty ?: $qty), 4);
-                                $finalQty = $finalQuantity($item);
-                                $price = round((float) $item->unit_price, 2);
-                                $productName = $item->product?->name ?? $item->product_name;
-                                $lineTotal = $lineAmount($item);
-                                $itemChange = $itemChanges->get((int) $item->id);
-                                $itemChangeLines = $itemChange ? $changeLines($itemChange) : [];
-                            @endphp
-
-                            @if (! $invoice->isFinalized())
-                                <button
-                                    type="button"
-                                    class="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 py-3 text-left transition hover:bg-cyan-50 focus:bg-cyan-50 focus:outline-hidden sm:grid-cols-[2.5rem_minmax(0,1fr)_5rem_4rem_6rem_7rem] sm:gap-3"
-                                    data-item-edit
-                                    data-item-id="{{ $item->id }}"
-                                    data-order-item-id="{{ $item->shop_order_item_id }}"
-                                    data-action="{{ route('purchasing.shop-invoices.items.update', [$invoice, $item]) }}"
-                                    data-product-id="{{ $item->product_id }}"
-                                    data-product-name="{{ $productName }}"
-                                    data-unit="{{ $formatUnit($item->unit) }}"
-                                    data-price-unit="{{ $item->price_unit ?: $item->unit }}"
-                                    data-original-qty="{{ $originalQty }}"
-                                    data-loaded-qty="{{ $loadedQty }}"
-                                    data-final-qty="{{ $finalQty }}"
-                                    data-original-price="{{ $price }}"
-                                    data-final-price="{{ $price }}"
-                                    data-line-amount="{{ $lineTotal }}"
-                                >
-                                    <span class="hidden text-xs font-bold text-slate-500 sm:block">{{ $loop->iteration }}</span>
-                                    <span class="min-w-0">
-                                        <span class="block truncate text-sm font-black text-slate-950">{{ $productName }}</span>
-                                        <span class="mt-1 block text-xs font-semibold text-slate-500 sm:hidden">#{{ $loop->iteration }} · {{ $displayQty }} {{ $formatUnit($item->unit) }} at {{ $money($price) }}</span>
-                                        @if ($itemChangeLines !== [])
-                                            <span class="mt-1 block text-xs font-bold text-amber-700" data-change-product="{{ $productName }}">Changed: {{ implode(' | ', $itemChangeLines) }}</span>
-                                        @endif
-                                    </span>
-                                    <span class="text-right text-sm font-black text-slate-950 sm:hidden" data-row-amount>{{ $money($lineTotal) }}</span>
-                                    <span class="hidden text-right text-sm font-bold text-slate-800 sm:block" data-row-qty>{{ $displayQty }}</span>
-                                    <span class="hidden text-sm font-bold text-slate-600 sm:block">{{ $formatUnit($item->unit) }}</span>
-                                    <span class="hidden text-right text-sm font-bold text-slate-800 sm:block" data-row-price>{{ $money($price) }}</span>
-                                    <span class="hidden text-right text-sm font-black text-slate-950 sm:block" data-row-amount>{{ $money($lineTotal) }}</span>
-                                </button>
-                            @else
-                                <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 py-3 text-left sm:grid-cols-[2.5rem_minmax(0,1fr)_5rem_4rem_6rem_7rem] sm:gap-3">
-                                    <span class="hidden text-xs font-bold text-slate-500 sm:block">{{ $loop->iteration }}</span>
-                                    <span class="min-w-0">
-                                        <span class="block truncate text-sm font-black text-slate-950">{{ $productName }}</span>
-                                        <span class="mt-1 block text-xs font-semibold text-slate-500 sm:hidden">#{{ $loop->iteration }} · {{ $displayQty }} {{ $formatUnit($item->unit) }} at {{ $money($price) }}</span>
-                                        @if ($itemChangeLines !== [])
-                                            <span class="mt-1 block text-xs font-bold text-amber-700" data-change-product="{{ $productName }}">Changed: {{ implode(' | ', $itemChangeLines) }}</span>
-                                        @endif
-                                    </span>
-                                    <span class="text-right text-sm font-black text-slate-950 sm:hidden">{{ $money($lineTotal) }}</span>
-                                    <span class="hidden text-right text-sm font-bold text-slate-800 sm:block">{{ $displayQty }}</span>
-                                    <span class="hidden text-sm font-bold text-slate-600 sm:block">{{ $formatUnit($item->unit) }}</span>
-                                    <span class="hidden text-right text-sm font-bold text-slate-800 sm:block">{{ $money($price) }}</span>
-                                    <span class="hidden text-right text-sm font-black text-slate-950 sm:block">{{ $money($lineTotal) }}</span>
-                                </div>
-                            @endif
-                        @endforeach
-                    </div>
-                </div>
-
-                <div class="mt-5 border-t-2 border-dashed border-slate-200 pt-4">
-                    <div class="ml-auto max-w-sm space-y-2">
-                        <div class="flex items-center justify-between text-sm font-bold text-slate-700">
-                            <span>Subtotal</span>
-                            <span>{{ $money($subtotal) }}</span>
-                        </div>
-                        <div class="flex items-center justify-between text-sm font-bold text-slate-700">
-                            <span class="flex items-center gap-2">
-                                Discount
-                                @if ($canEditDiscount)
-                                    <button type="button" class="text-xs font-black text-cyan-700 hover:text-cyan-900" data-open-discount>
-                                        Edit Discount
-                                    </button>
-                                @endif
-                            </span>
-                            <span>{{ $money($discountTotal) }}</span>
-                        </div>
-                        <div class="border-t border-slate-200 pt-3">
-                            <div class="flex items-center justify-between text-lg font-black text-slate-950">
-                                <span>Final Total</span>
-                                <span>{{ $money($finalTotal) }}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <a href="{{ route('purchasing.shop-invoices.index', ['date' => $invoiceDate]) }}" class="inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 hover:bg-slate-50">
-                            Back to Bills
-                        </a>
-
-                        <div class="flex flex-col gap-2 sm:flex-row">
-                            <a href="{{ route('purchasing.shop-invoices.pdf', $invoice) }}" target="_blank" class="inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 hover:bg-slate-50">
-                                Print / PDF
-                            </a>
-                            @if ($isFinalized && auth()->user()?->hasRole('admin'))
-                                <form method="POST" action="{{ route('purchasing.shop-invoices.reopen-for-edit', $invoice) }}" class="inline">
-                                    @csrf
-                                    <button type="submit" onclick="return confirm('Reopen this finalized invoice for editing? The cashbook entry will be updated.')" class="inline-flex h-11 items-center justify-center rounded-lg border border-amber-300 bg-amber-50 px-4 text-sm font-black text-amber-800 hover:bg-amber-100">
-                                        Reopen for Editing
-                                    </button>
-                                </form>
-
-                            @elseif (($canFinalize ?? false) && $reviewAction)
-                                <button type="button" class="inline-flex h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-black text-white hover:bg-slate-800 sm:w-auto" data-open-finalize>
-                                    Finalize Invoice
-                                </button>
-                            @endif
-                        </div>
-                    </div>
-                </div>
             </div>
-        </section>
+        </div>
 
         @include('purchasing.shop-invoices.partials.credit-note', ['invoice' => $invoice])
 

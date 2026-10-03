@@ -84,6 +84,7 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::post('/{shopOrder}/move-to-partial-delivery', [ApiWarehouseLoadoutController::class, 'moveToPartialDelivery'])->name('move-to-partial-delivery');
             Route::post('/{shopOrder}/move-to-loadout', [ApiWarehouseLoadoutController::class, 'moveToLoadout'])->name('move-to-loadout');
             Route::post('/{shopOrder}/load-all', [ApiWarehouseLoadoutController::class, 'loadAll'])->name('load-all');
+            Route::get('/{shopOrder}/pdf', [ApiWarehouseLoadoutController::class, 'pdf'])->name('pdf');
             Route::get('/{shopOrder}/addons', [ApiWarehouseLoadoutController::class, 'addonProducts'])->name('addons');
             Route::post('/{shopOrder}/addon', [ApiWarehouseLoadoutController::class, 'storeAddon'])->name('addon.store');
         });

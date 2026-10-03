@@ -452,12 +452,18 @@ function renderNewReportSourceSelectSlot(type) {
             subtitle: 'Shop purchase invoices with product breakdown'
         }];
     } else {
-        // Individual Categories (both with and without headers)
-        options = reportsAvailableSettings.filter(s => !(s.header_group && s.header_group.product_tagging_enabled)).map(s => ({
-            id: s.id,
-            name: s.entry_type ? s.entry_type.name : (s.display_name || s.entry_name),
-            subtitle: (s.header_group ? s.header_group.name : 'Non-Header Category')
-        }));
+        // Individual Categories (including categories under product-tagged headers)
+        options = reportsAvailableSettings.map(s => {
+            const headerName = s.header_group ? s.header_group.name : 'Non-Header Category';
+            const isTagged = s.header_group && Boolean(s.header_group.product_tagging_enabled);
+            const categoryName = s.entry_type ? s.entry_type.name : (s.display_name || s.entry_name);
+
+            return {
+                id: s.id,
+                name: categoryName,
+                subtitle: isTagged ? `${headerName} (Product-Tagged Header)` : headerName
+            };
+        });
     }
 
     const defaultVal = options.length > 0 ? options[0].id : '';
@@ -550,20 +556,47 @@ function checkReportsDuplicates(headingKey) {
     const warnBox = document.getElementById('reports-modal-duplicate-warning');
     const warnMsg = document.getElementById('reports-modal-duplicate-msg');
     const saveBtn = document.getElementById('modal-save-reports-btn');
-    if (!warnBox || !warnMsg || !headingKey) return;
-
-    const sources = reportsWorkingHeadings[headingKey]?.sources || [];
-    const headerIds = sources.filter(s => s.type === 'header' || s.type === 'header_with_product_total').map(s => parseInt(s.id, 10));
-    const categoryIds = sources.filter(s => s.type === 'category').map(s => parseInt(s.id, 10));
+    if (!warnBox || !warnMsg) return;
 
     let duplicates = [];
-    categoryIds.forEach(catId => {
+    const allConsumingHeaders = [];
+    const allCategories = [];
+    const catCounts = {};
+
+    Object.entries(reportsWorkingHeadings).forEach(([hKey, hConfig]) => {
+        const sources = hConfig?.sources || [];
+        sources.forEach(s => {
+            if (s.type === 'header' || s.type === 'header_with_product_total') {
+                allConsumingHeaders.push({ headerId: parseInt(s.id, 10), headingKey: hKey });
+            } else if (s.type === 'category') {
+                const catId = parseInt(s.id, 10);
+                allCategories.push({ catId: catId, headingKey: hKey });
+                catCounts[catId] = (catCounts[catId] || 0) + 1;
+            }
+        });
+    });
+
+    Object.entries(catCounts).forEach(([catId, count]) => {
+        if (count > 1) {
+            const catSetting = reportsAvailableSettings.find(s => s.id === parseInt(catId, 10));
+            const catName = catSetting ? (catSetting.entry_type ? catSetting.entry_type.name : (catSetting.display_name || catSetting.entry_name)) : `Category #${catId}`;
+            duplicates.push(`"${catName}" is selected more than once.`);
+        }
+    });
+
+    allCategories.forEach(({ catId }) => {
         const catSetting = reportsAvailableSettings.find(s => s.id === catId);
-        if (catSetting && catSetting.header_group_id && headerIds.includes(catSetting.header_group_id)) {
-            const header = reportsAvailableHeaders.find(h => h.id === catSetting.header_group_id);
-            const catName = catSetting.entry_type ? catSetting.entry_type.name : (catSetting.display_name || catSetting.entry_name);
-            const headerName = header ? header.name : 'its Header';
-            duplicates.push(`"${catName}" is already included through Header "${headerName}".`);
+        if (catSetting && catSetting.header_group_id) {
+            const conflictingHeader = allConsumingHeaders.find(h => h.headerId === catSetting.header_group_id);
+            if (conflictingHeader) {
+                const header = reportsAvailableHeaders.find(h => h.id === catSetting.header_group_id);
+                const catName = catSetting.entry_type ? catSetting.entry_type.name : (catSetting.display_name || catSetting.entry_name);
+                const headerName = header ? header.name : 'its Header';
+                const msg = `"${catName}" is already included through Header "${headerName}".`;
+                if (!duplicates.includes(msg)) {
+                    duplicates.push(msg);
+                }
+            }
         }
     });
 

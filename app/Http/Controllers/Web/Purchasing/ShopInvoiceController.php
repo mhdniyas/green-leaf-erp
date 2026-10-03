@@ -13,11 +13,15 @@ use App\Models\ShopInvoiceItem;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Services\ShopInvoices\ShopInvoiceService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Spatie\Activitylog\Models\Activity;
@@ -125,6 +129,8 @@ class ShopInvoiceController extends Controller
             && ($invoice->delivery_status === 'awaiting_review' || in_array((string) $invoice->order?->delivery_status, ['pending_approval', 'delivered'], true))
         );
         $canFinalize = $canApprove && ! $isFinalized && $invoice->order !== null;
+        $shareUrl = URL::signedRoute('shop-invoices.shared', ['invoice' => $invoice->invoice_number]);
+        $pdfUrl = route('purchasing.shop-invoices.pdf', $invoice);
 
         return view('purchasing.shop-invoices.show', compact(
             'invoice',
@@ -136,6 +142,8 @@ class ShopInvoiceController extends Controller
             'isFinalized',
             'shopSubmitted',
             'deliveryReviewState',
+            'shareUrl',
+            'pdfUrl',
         ));
     }
 
@@ -191,13 +199,126 @@ class ShopInvoiceController extends Controller
             ->with('success', 'Shop invoice finalized by admin review.');
     }
 
-    public function pdf(Request $request, ShopInvoice $invoice): View
+    public function pdf(Request $request, ShopInvoice $invoice): View|Response
     {
         abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
 
-        $invoice->load(['shop', 'order', 'items.product', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy', 'finalizedBy']);
+        $invoice->load(['shop', 'order', 'items.product.category', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy', 'finalizedBy']);
 
-        return view('purchasing.shop-invoices.pdf', compact('invoice'));
+        $data = $this->resolveFilteredInvoiceItemsAndTotals($invoice, $request);
+        $items = $data['items'];
+        $subtotal = $data['subtotal'];
+        $discountTotal = $data['discountTotal'];
+        $finalTotal = $data['finalTotal'];
+
+        if ($request->boolean('download') || $request->query('format') === 'pdf') {
+            return Pdf::loadView('purchasing.shop-invoices.dompdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal'))
+                ->download("Shop-Invoice-{$invoice->invoice_number}.pdf");
+        }
+
+        $shareUrl = URL::signedRoute('shop-invoices.shared', ['invoice' => $invoice->invoice_number]);
+        $pdfUrl = route('purchasing.shop-invoices.pdf', array_merge(['invoice' => $invoice], $request->query()));
+
+        return view('purchasing.shop-invoices.pdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal', 'shareUrl', 'pdfUrl'));
+    }
+
+    public function shared(Request $request, ShopInvoice $invoice): View
+    {
+        abort_unless($request->hasValidSignature(), 403, 'Invalid or expired bill link.');
+
+        $invoice->load(['shop', 'order', 'items.product.category', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy', 'finalizedBy']);
+
+        $shareUrl = $request->fullUrl();
+        $pdfUrl = URL::signedRoute('shop-invoices.shared.pdf', ['invoice' => $invoice->invoice_number]);
+
+        return view('purchasing.shop-invoices.shared', compact('invoice', 'shareUrl', 'pdfUrl'));
+    }
+
+    public function sharedPdf(Request $request, ShopInvoice $invoice): View|Response
+    {
+        abort_unless($request->hasValidSignature(), 403, 'Invalid or expired bill link.');
+
+        $invoice->load(['shop', 'order', 'items.product.category', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy', 'finalizedBy']);
+
+        $data = $this->resolveFilteredInvoiceItemsAndTotals($invoice, $request);
+        $items = $data['items'];
+        $subtotal = $data['subtotal'];
+        $discountTotal = $data['discountTotal'];
+        $finalTotal = $data['finalTotal'];
+
+        if ($request->boolean('download') || $request->query('format') === 'pdf') {
+            return Pdf::loadView('purchasing.shop-invoices.dompdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal'))
+                ->download("Shop-Invoice-{$invoice->invoice_number}.pdf");
+        }
+
+        $shareUrl = URL::signedRoute('shop-invoices.shared', ['invoice' => $invoice->invoice_number]);
+        $pdfUrl = $request->fullUrl();
+
+        return view('purchasing.shop-invoices.pdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal', 'shareUrl', 'pdfUrl'));
+    }
+
+    /**
+     * @return array{items: Collection<int, ShopInvoiceItem>, subtotal: float, discountTotal: float, finalTotal: float}
+     */
+    private function resolveFilteredInvoiceItemsAndTotals(ShopInvoice $invoice, Request $request): array
+    {
+        $categoryIds = null;
+        if ($request->has('category_ids')) {
+            $raw = $request->get('category_ids');
+            if (is_array($raw)) {
+                $categoryIds = array_map('intval', $raw);
+            } elseif (is_string($raw) && strlen($raw) > 0) {
+                $categoryIds = array_map('intval', explode(',', $raw));
+            }
+        } elseif ($request->filled('category_id')) {
+            $categoryIds = [(int) $request->input('category_id')];
+        }
+
+        $categories = null;
+        if ($request->has('categories')) {
+            $rawCats = $request->get('categories');
+            if (is_array($rawCats)) {
+                $categories = array_map('strval', $rawCats);
+            } elseif (is_string($rawCats) && strlen($rawCats) > 0) {
+                $categories = array_map('trim', explode(',', $rawCats));
+            }
+        }
+
+        $items = $invoice->items;
+        if (! empty($categoryIds) || ! empty($categories)) {
+            $items = $items->filter(function (ShopInvoiceItem $item) use ($categoryIds, $categories): bool {
+                if (! empty($categoryIds) && in_array((int) $item->product?->category_id, $categoryIds, true)) {
+                    return true;
+                }
+                if (! empty($categories)) {
+                    $catName = strtolower(trim((string) ($item->product?->category?->name ?? '')));
+                    foreach ($categories as $cat) {
+                        if (strtolower(trim((string) $cat)) === $catName) {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            })->values();
+
+            $subtotal = round((float) $items->sum(function (ShopInvoiceItem $item): float {
+                return (float) ($item->final_line_total ?: $item->line_subtotal);
+            }), 2);
+            $discountTotal = 0.0;
+            $finalTotal = $subtotal;
+        } else {
+            $subtotal = round((float) $invoice->subtotal, 2);
+            $discountTotal = round((float) $invoice->discount_total, 2);
+            $finalTotal = round((float) $invoice->final_total, 2);
+        }
+
+        return [
+            'items' => $items,
+            'subtotal' => $subtotal,
+            'discountTotal' => $discountTotal,
+            'finalTotal' => $finalTotal,
+        ];
     }
 
     public function reprice(RepriceShopInvoiceRequest $request, ShopInvoice $invoice): RedirectResponse

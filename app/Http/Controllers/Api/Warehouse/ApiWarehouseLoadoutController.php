@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\Shop;
+use App\Models\ShopInvoiceItem;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\ShopOrderLoadoutState;
@@ -21,8 +22,10 @@ use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Support\PerformanceProbe;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -1321,6 +1324,92 @@ class ApiWarehouseLoadoutController extends Controller
             $invoiceVersion,
             $stateVersion,
         ]));
+    }
+
+    /**
+     * Download or stream PDF bill for the loadout shop order with optional category filtering.
+     */
+    public function pdf(ShopOrder $shopOrder, Request $request): Response
+    {
+        $this->authorizeAccess($request);
+
+        $userId = (int) $request->user()->id;
+        $shopOrder->loadMissing(['shop.priceGroup', 'items.product.category', 'invoice.items.product.category', 'invoice.items.orderItem', 'invoice.finalizedBy', 'invoice.discountApprovedBy', 'invoice.paymentApprovedBy', 'invoice.priceUpdatedBy']);
+
+        $invoice = $shopOrder->invoice;
+        if (! $invoice) {
+            $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
+            if ($invoice && ! $invoice->isFinalLocked()) {
+                $this->shopInvoiceService->repriceInvoice(
+                    $invoice,
+                    $userId,
+                    "Invoice generated for PDF view — order {$shopOrder->order_number}."
+                );
+            }
+            $invoice?->loadMissing(['shop', 'order', 'items.product.category', 'items.orderItem', 'finalizedBy', 'discountApprovedBy', 'paymentApprovedBy', 'priceUpdatedBy']);
+        }
+
+        if (! $invoice) {
+            abort(404, 'Invoice could not be generated for this shop order.');
+        }
+
+        $categoryIds = null;
+        if ($request->has('category_ids')) {
+            $raw = $request->get('category_ids');
+            if (is_array($raw)) {
+                $categoryIds = array_map('intval', $raw);
+            } elseif (is_string($raw) && strlen($raw) > 0) {
+                $categoryIds = array_map('intval', explode(',', $raw));
+            }
+        } elseif ($request->filled('category_id')) {
+            $categoryIds = [(int) $request->input('category_id')];
+        }
+
+        $categories = null;
+        if ($request->has('categories')) {
+            $rawCats = $request->get('categories');
+            if (is_array($rawCats)) {
+                $categories = array_map('strval', $rawCats);
+            } elseif (is_string($rawCats) && strlen($rawCats) > 0) {
+                $categories = array_map('trim', explode(',', $rawCats));
+            }
+        }
+
+        $items = $invoice->items;
+        if (! empty($categoryIds) || ! empty($categories)) {
+            $items = $items->filter(function (ShopInvoiceItem $item) use ($categoryIds, $categories): bool {
+                if (! empty($categoryIds) && in_array((int) $item->product?->category_id, $categoryIds, true)) {
+                    return true;
+                }
+                if (! empty($categories)) {
+                    $catName = strtolower(trim((string) ($item->product?->category?->name ?? '')));
+                    foreach ($categories as $cat) {
+                        if (strtolower(trim((string) $cat)) === $catName) {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            })->values();
+
+            $subtotal = round((float) $items->sum(function (ShopInvoiceItem $item): float {
+                return (float) ($item->final_line_total ?: $item->line_subtotal);
+            }), 2);
+            $discountTotal = 0.0;
+            $finalTotal = $subtotal;
+        } else {
+            $subtotal = round((float) $invoice->subtotal, 2);
+            $discountTotal = round((float) $invoice->discount_total, 2);
+            $finalTotal = round((float) $invoice->final_total, 2);
+        }
+
+        $pdf = Pdf::loadView('purchasing.shop-invoices.dompdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal'));
+
+        return response($pdf->output(), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => "inline; filename=\"Shop-Invoice-{$invoice->invoice_number}.pdf\"",
+        ]);
     }
 
     private function requestEtagsContain(Request $request, string $etag): bool

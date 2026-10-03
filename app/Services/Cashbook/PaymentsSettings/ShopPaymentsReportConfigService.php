@@ -207,6 +207,9 @@ class ShopPaymentsReportConfigService
             $validatedHeadings = [];
             $defaults = $this->getDefaultHeadings($shopId);
 
+            $allCategoryConsumingHeaderIds = [];
+            $allCategoryIds = [];
+
             foreach ($defaults as $key => $defaultHeading) {
                 $inputHeading = $headings[$key] ?? [];
                 $sources = (array) ($inputHeading['sources'] ?? $defaultHeading['sources']);
@@ -221,6 +224,14 @@ class ShopPaymentsReportConfigService
 
                 $this->ensureSourcesDoNotOverlap($shopId, $cleanSources);
 
+                foreach ($cleanSources as $s) {
+                    if (in_array($s['type'], ['header', self::SOURCE_HEADER_WITH_PRODUCT_TOTAL], true)) {
+                        $allCategoryConsumingHeaderIds[] = (int) $s['id'];
+                    } elseif ($s['type'] === 'category') {
+                        $allCategoryIds[] = (int) $s['id'];
+                    }
+                }
+
                 $validatedHeadings[$key] = [
                     'key' => $key,
                     'title' => $defaultHeading['title'],
@@ -232,6 +243,23 @@ class ShopPaymentsReportConfigService
 
                 if ($key === self::HEADING_NET_OPERATING_BALANCE) {
                     $validatedHeadings[$key]['formula'] = $this->normaliseBalanceFormula($inputHeading['formula'] ?? $defaultHeading['formula']);
+                }
+            }
+
+            // Cross-heading duplicate protection
+            if (! empty($allCategoryConsumingHeaderIds) && ! empty($allCategoryIds)) {
+                $crossOverlap = ShopLedgerEntrySetting::query()
+                    ->with('headerGroup')
+                    ->where('shop_id', $shopId)
+                    ->whereIn('header_group_id', array_unique($allCategoryConsumingHeaderIds))
+                    ->whereIn('id', array_unique($allCategoryIds))
+                    ->first();
+
+                if ($crossOverlap) {
+                    $headerName = $crossOverlap->headerGroup?->name ?? 'Header #'.$crossOverlap->header_group_id;
+                    throw ValidationException::withMessages([
+                        'headings' => ["A category cannot be added when its header group is already included. Category '{$crossOverlap->displayName()}' is already included through Header '{$headerName}'."],
+                    ]);
                 }
             }
 
@@ -315,8 +343,8 @@ class ShopPaymentsReportConfigService
 
         if ($type === 'category') {
             $setting = ShopLedgerEntrySetting::query()->where('shop_id', $shopId)->find($id);
-            if (! $setting || $setting->headerGroup?->product_tagging_enabled) {
-                throw ValidationException::withMessages(['headings' => ['A category under a product-tagged header must be reported through its product total.']]);
+            if (! $setting) {
+                throw ValidationException::withMessages(['headings' => ['The selected category does not belong to this shop.']]);
             }
 
             return ['type' => $type, 'id' => (int) $setting->id, 'name' => $setting->displayName()];
@@ -377,10 +405,30 @@ class ShopPaymentsReportConfigService
             ->map(fn ($id): int => (int) $id);
         $categoryIds = collect($sources)->where('type', 'category')->pluck('id')->map(fn ($id): int => (int) $id);
 
-        if ($headerIds->isNotEmpty() && ShopLedgerEntrySetting::query()->where('shop_id', $shopId)->whereIn('header_group_id', $headerIds)->whereIn('id', $categoryIds)->exists()) {
-            throw ValidationException::withMessages(['headings' => ['A category cannot be added when its header group is already included.']]);
+        $categoryCounts = array_count_values($categoryIds->all());
+        foreach ($categoryCounts as $catId => $count) {
+            if ($count > 1) {
+                $setting = ShopLedgerEntrySetting::query()->where('shop_id', $shopId)->find($catId);
+                $name = $setting?->displayName() ?? "Category #{$catId}";
+                throw ValidationException::withMessages(['headings' => ["Category '{$name}' cannot be added multiple times."]]);
+            }
         }
 
+        if ($headerIds->isNotEmpty() && $categoryIds->isNotEmpty()) {
+            $overlappingSetting = ShopLedgerEntrySetting::query()
+                ->with('headerGroup')
+                ->where('shop_id', $shopId)
+                ->whereIn('header_group_id', $headerIds)
+                ->whereIn('id', $categoryIds)
+                ->first();
+
+            if ($overlappingSetting) {
+                $headerName = $overlappingSetting->headerGroup?->name ?? 'Header #'.$overlappingSetting->header_group_id;
+                throw ValidationException::withMessages([
+                    'headings' => ["A category cannot be added when its header group is already included. Category '{$overlappingSetting->displayName()}' is already included through Header '{$headerName}'."],
+                ]);
+            }
+        }
     }
 
     /**
@@ -394,7 +442,7 @@ class ShopPaymentsReportConfigService
         $categoryIds = [];
 
         foreach ($sources as $src) {
-            if ($src['type'] === 'header') {
+            if ($src['type'] === 'header' || $src['type'] === self::SOURCE_HEADER_WITH_PRODUCT_TOTAL) {
                 $headerIds[] = (int) $src['id'];
             } elseif ($src['type'] === 'category') {
                 $categoryIds[] = (int) $src['id'];
@@ -408,7 +456,7 @@ class ShopPaymentsReportConfigService
         $headers = ShopLedgerHeaderGroup::query()
             ->with('entrySettings')
             ->where('shop_id', $shopId)
-            ->whereIn('id', $headerIds)
+            ->whereIn('id', array_unique($headerIds))
             ->get();
 
         $duplicates = [];

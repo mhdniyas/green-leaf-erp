@@ -240,6 +240,15 @@ Route::middleware('guest')->group(function () {
 // Stub: password reset (required by blade for the link to work)
 Route::get('/forgot-password', fn () => redirect()->route('login'))->name('password.request');
 
+// Public Signed Shop Invoice Routes
+Route::get('/shared-bills/{invoice:invoice_number}', [ShopInvoiceController::class, 'shared'])
+    ->name('shop-invoices.shared')
+    ->middleware('signed');
+
+Route::get('/shared-bills/{invoice:invoice_number}/pdf', [ShopInvoiceController::class, 'sharedPdf'])
+    ->name('shop-invoices.shared.pdf')
+    ->middleware('signed');
+
 // Authenticated routes
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
