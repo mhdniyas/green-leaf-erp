@@ -213,7 +213,17 @@
 
                                     <!-- Sub-Header Items List -->
                                     <div class="space-y-1">
-                                        <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 pl-1">Items in {{ $sub['display_name'] }}</div>
+                                        <div class="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400 pl-1">
+                                            <span>Items in {{ $sub['display_name'] }}</span>
+                                            @if(!empty($sub['product_tagging_enabled']))
+                                                <button type="button"
+                                                        onclick="openProductPicker('{{ $sub['id'] }}', '{{ addslashes($sub['display_name'] ?? $sub['name']) }}')"
+                                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-300 text-[9px] font-black uppercase tracking-wider text-emerald-800 hover:bg-emerald-100 transition cursor-pointer shadow-2xs">
+                                                    <i data-lucide="plus" class="w-2.5 h-2.5 text-emerald-600"></i>
+                                                    <span>Add Product</span>
+                                                </button>
+                                            @endif
+                                        </div>
                                         <div class="items-list space-y-1.5 p-2 bg-white/90 rounded-lg border border-indigo-100 min-h-[36px]"
                                              data-container-type="sub-header"
                                              data-sub-header-id="{{ $sub['id'] }}">
@@ -264,7 +274,15 @@
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                        <span class="text-[9px] font-extrabold text-emerald-700 bg-emerald-100/70 border border-emerald-200 px-1.5 py-0.5 rounded">Product</span>
+                                                        <div class="shrink-0 flex items-center gap-1">
+                                                            <span class="text-[9px] font-extrabold text-emerald-700 bg-emerald-100/70 border border-emerald-200 px-1.5 py-0.5 rounded">Product</span>
+                                                            <button type="button"
+                                                                    onclick="removeProductRow(this)"
+                                                                    class="p-0.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                                                                    title="Remove product from layout">
+                                                                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 @endforeach
                                             @endif
@@ -289,8 +307,20 @@
                     <!-- DIRECT ITEMS CONTAINER -->
                     <div class="space-y-2">
                         <div class="flex items-center justify-between text-[11px] font-black uppercase tracking-wider text-slate-400">
-                            <span>Direct Items in {{ $h['display_name'] }}</span>
-                            <span class="text-[10px] font-normal text-slate-400">Drag items to reorder or move</span>
+                            <div class="flex items-center gap-2">
+                                <span>Direct Items in {{ $h['display_name'] }}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                @if(!empty($h['product_tagging_enabled']))
+                                    <button type="button"
+                                            onclick="openProductPicker('{{ $h['id'] }}', '{{ addslashes($h['display_name'] ?? $h['name']) }}')"
+                                            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-300 text-[10px] font-black uppercase tracking-wider text-emerald-800 hover:bg-emerald-100 hover:border-emerald-400 transition cursor-pointer shadow-2xs">
+                                        <i data-lucide="plus" class="w-3 h-3 text-emerald-600"></i>
+                                        <span>Add Product</span>
+                                    </button>
+                                @endif
+                                <span class="text-[10px] font-normal text-slate-400 hidden sm:inline">Drag items to reorder or move</span>
+                            </div>
                         </div>
 
                         <div class="items-list space-y-1.5 p-2.5 bg-white rounded-xl border border-slate-200 min-h-[44px]"
@@ -351,8 +381,14 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        <div class="shrink-0 flex items-center gap-1">
+                                        <div class="shrink-0 flex items-center gap-1.5">
                                             <span class="text-[9px] font-extrabold text-emerald-700 bg-emerald-100/70 border border-emerald-200 px-1.5 py-0.5 rounded">Product</span>
+                                            <button type="button"
+                                                    onclick="removeProductRow(this)"
+                                                    class="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                                                    title="Remove product from layout">
+                                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                            </button>
                                         </div>
                                     </div>
                                 @endforeach
@@ -469,11 +505,68 @@
     </div>
 </div>
 
+{{-- 5. PRODUCT PICKER MODAL (LOAD & ADD PRODUCTS ON DEMAND) --}}
+<div id="product-picker-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs hidden p-4 transition-all duration-200">
+    <div class="w-full max-w-lg rounded-3xl bg-white shadow-2xl border border-slate-200 flex flex-col max-h-[85vh] overflow-hidden">
+        <!-- Modal Header -->
+        <div class="p-4 bg-white border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
+            <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-black">
+                    <i data-lucide="package" class="w-4 h-4"></i>
+                </div>
+                <div>
+                    <h3 class="text-sm font-black uppercase tracking-tight text-slate-950" id="product-picker-title">
+                        Add Products to Section
+                    </h3>
+                    <p class="text-[11px] font-semibold text-slate-500">
+                        Search and select products to pin to this Cashbook layout.
+                    </p>
+                </div>
+            </div>
+            <button type="button"
+                    onclick="closeProductPicker()"
+                    class="h-8 w-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900 flex items-center justify-center transition cursor-pointer">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="p-3.5 bg-slate-50 border-b border-slate-200 shrink-0">
+            <div class="relative">
+                <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                <input type="text"
+                       id="product-picker-search"
+                       placeholder="Search products by name or SKU..."
+                       oninput="onProductSearchInput()"
+                       class="w-full h-9 pl-9 pr-3 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition shadow-2xs">
+            </div>
+        </div>
+
+        <!-- Products List Container -->
+        <div class="p-4 space-y-2 overflow-y-auto flex-1 bg-slate-50/50" id="product-picker-list">
+            <!-- Rendered dynamically -->
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="p-3 bg-white border-t border-slate-200 flex items-center justify-between shrink-0">
+            <span class="text-[11px] font-bold text-slate-400">Click Add to attach product to layout</span>
+            <button type="button"
+                    onclick="closeProductPicker()"
+                    class="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-black uppercase tracking-wider hover:bg-slate-800 transition cursor-pointer">
+                Done
+            </button>
+        </div>
+    </div>
+</div>
+
 @push('scripts')
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script>
     let sortableInstances = [];
     let currentNestingSourceEl = null;
+    let activeTargetContainer = null;
+    let activeProductHeaderSourceId = null;
+    let productSearchTimer = null;
 
     document.addEventListener('DOMContentLoaded', () => {
         initSortable();
@@ -684,8 +777,20 @@
                 </div>
                 <div class="space-y-2">
                     <div class="flex items-center justify-between text-[11px] font-black uppercase tracking-wider text-slate-400">
-                        <span>Direct Items in ${escapeHtml(currentDisplayName)}</span>
-                        <span class="text-[10px] font-normal text-slate-400">Drag items to reorder or move</span>
+                        <div class="flex items-center gap-2">
+                            <span>Direct Items in ${escapeHtml(currentDisplayName)}</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            ${productTagging ? `
+                                <button type="button"
+                                        onclick="openProductPicker('${escapeHtml(subId)}', '${escapeJsString(currentDisplayName)}')"
+                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-300 text-[10px] font-black uppercase tracking-wider text-emerald-800 hover:bg-emerald-100 hover:border-emerald-400 transition cursor-pointer shadow-2xs">
+                                    <i data-lucide="plus" class="w-3 h-3 text-emerald-600"></i>
+                                    <span>Add Product</span>
+                                </button>
+                            ` : ''}
+                            <span class="text-[10px] font-normal text-slate-400 hidden sm:inline">Drag items to reorder or move</span>
+                        </div>
                     </div>
                     <div class="items-list space-y-1.5 p-2.5 bg-white rounded-xl border border-slate-200 min-h-[44px]"
                          data-container-type="root-header"
@@ -829,7 +934,17 @@
                 </button>
             </div>
             <div class="space-y-1">
-                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 pl-1">Items in ${escapeHtml(currentDisplayName)}</div>
+                <div class="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400 pl-1">
+                    <span>Items in ${escapeHtml(currentDisplayName)}</span>
+                    ${productTagging ? `
+                        <button type="button"
+                                onclick="openProductPicker('${escapeHtml(subId)}', '${escapeJsString(currentDisplayName)}')"
+                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-300 text-[9px] font-black uppercase tracking-wider text-emerald-800 hover:bg-emerald-100 transition cursor-pointer shadow-2xs">
+                            <i data-lucide="plus" class="w-2.5 h-2.5 text-emerald-600"></i>
+                            <span>Add Product</span>
+                        </button>
+                    ` : ''}
+                </div>
                 <div class="items-list space-y-1.5 p-2 bg-white/90 rounded-lg border border-indigo-100 min-h-[36px]"
                      data-container-type="sub-header"
                      data-sub-header-id="${escapeHtml(subId)}">
@@ -851,6 +966,174 @@
 
         initSortable();
         if (window.lucide) lucide.createIcons();
+    }
+
+    // PRODUCT PICKER LOGIC (ON-DEMAND PRODUCT LOADING & ADDING)
+    function openProductPicker(headerId, headerName) {
+        const rootContainer = document.querySelector(`.items-list[data-header-id="${headerId}"]`);
+        const subContainer = document.querySelector(`.items-list[data-sub-header-id="${headerId}"]`);
+        activeTargetContainer = rootContainer || subContainer;
+
+        const rootCard = activeTargetContainer?.closest('.root-header-card');
+        const subCard = activeTargetContainer?.closest('.sub-header-card');
+        activeProductHeaderSourceId = (subCard?.dataset.sourceId || rootCard?.dataset.sourceId || '');
+
+        const titleEl = document.getElementById('product-picker-title');
+        if (titleEl) {
+            titleEl.textContent = 'Add Products to ' + (headerName || 'Section');
+        }
+
+        const searchInput = document.getElementById('product-picker-search');
+        if (searchInput) searchInput.value = '';
+
+        document.getElementById('product-picker-modal').classList.remove('hidden');
+        fetchProductsForPicker('');
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function closeProductPicker() {
+        document.getElementById('product-picker-modal').classList.add('hidden');
+        activeTargetContainer = null;
+    }
+
+    function onProductSearchInput() {
+        if (productSearchTimer) clearTimeout(productSearchTimer);
+        productSearchTimer = setTimeout(() => {
+            const query = document.getElementById('product-picker-search')?.value.trim() || '';
+            fetchProductsForPicker(query);
+        }, 250);
+    }
+
+    async function fetchProductsForPicker(query = '') {
+        const listEl = document.getElementById('product-picker-list');
+        if (!listEl) return;
+        listEl.innerHTML = '<div class="p-6 text-center text-xs font-bold text-slate-400">Loading products...</div>';
+
+        try {
+            const url = new URL('{{ route('admin.cashbook.api.products.search') }}', window.location.origin);
+            if (query) url.searchParams.set('q', query);
+            if (activeProductHeaderSourceId) url.searchParams.set('header_id', activeProductHeaderSourceId);
+            url.searchParams.set('per_page', 50);
+
+            const res = await fetch(url.toString(), {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            const data = await res.json();
+
+            if (data.products && data.products.length > 0) {
+                const existingProductIds = [];
+                if (activeTargetContainer) {
+                    activeTargetContainer.querySelectorAll('.item-row[data-product-id]').forEach(row => {
+                        const pid = parseInt(row.dataset.productId);
+                        if (pid) existingProductIds.push(pid);
+                    });
+                }
+
+                listEl.innerHTML = data.products.map(p => {
+                    const isAdded = existingProductIds.includes(p.id);
+                    return `
+                        <div class="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between gap-3 shadow-2xs hover:border-emerald-300 transition">
+                            <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                                <div class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold text-xs shrink-0">
+                                    <i data-lucide="package" class="w-3.5 h-3.5"></i>
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                    <div class="text-xs font-bold text-slate-900 truncate">${escapeHtml(p.name)}</div>
+                                    <div class="flex items-center gap-2 text-[10px] text-slate-400 font-semibold">
+                                        <span>${escapeHtml(p.sku || '#'+p.id)}</span>
+                                        <span>&bull;</span>
+                                        <span class="uppercase">${escapeHtml(p.unit || 'unit')}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="shrink-0">
+                                ${isAdded ? `
+                                    <span class="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-lg bg-slate-100 text-slate-400">Added</span>
+                                ` : `
+                                    <button type="button"
+                                            onclick="addProductToActiveContainer(${p.id}, '${escapeJsString(p.name)}', '${escapeJsString(p.sku || '')}')"
+                                            class="inline-flex items-center gap-1 px-3 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 rounded-lg transition cursor-pointer shadow-2xs">
+                                        <i data-lucide="plus" class="w-3 h-3"></i> Add
+                                    </button>
+                                `}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                if (window.lucide) lucide.createIcons();
+            } else {
+                listEl.innerHTML = '<div class="p-6 text-center text-xs font-semibold text-slate-400 bg-white rounded-xl border border-slate-200">No matching products found.</div>';
+            }
+        } catch (e) {
+            listEl.innerHTML = '<div class="p-6 text-center text-xs font-bold text-rose-500 bg-rose-50 rounded-xl border border-rose-200">Failed to load products.</div>';
+        }
+    }
+
+    function addProductToActiveContainer(productId, productName, productSku) {
+        if (!activeTargetContainer) return;
+
+        if (activeTargetContainer.querySelector(`.item-row[data-product-id="${productId}"]`)) {
+            return;
+        }
+
+        const row = document.createElement('div');
+        row.className = 'item-row product-item-row flex items-center justify-between gap-3 p-2.5 bg-emerald-50/40 rounded-lg border border-emerald-200/80 hover:border-emerald-400 transition';
+        row.dataset.itemType = 'product';
+        row.dataset.productId = productId;
+
+        row.innerHTML = `
+            <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                <span class="item-drag-handle cursor-grab active:cursor-grabbing font-mono text-sm font-black text-emerald-500 hover:text-emerald-800 p-0.5 rounded hover:bg-emerald-100 transition shrink-0" title="Drag product">
+                    ⋮⋮
+                </span>
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <span class="text-xs font-bold text-slate-900 truncate">${escapeHtml(productName)}</span>
+                        <span class="font-mono text-[9px] text-emerald-800 bg-white border border-emerald-200 px-1 py-0.5 rounded font-semibold">
+                            ${escapeHtml(productSku ? productSku : '#'+productId)}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="shrink-0 flex items-center gap-1.5">
+                <span class="text-[9px] font-extrabold text-emerald-700 bg-emerald-100/70 border border-emerald-200 px-1.5 py-0.5 rounded">Product</span>
+                <button type="button"
+                        onclick="removeProductRow(this)"
+                        class="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                        title="Remove product from layout">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+        `;
+
+        activeTargetContainer.appendChild(row);
+        updateItemPlaceholders(activeTargetContainer, null);
+        initSortable();
+        if (window.lucide) lucide.createIcons();
+
+        // Refresh picker buttons
+        const query = document.getElementById('product-picker-search')?.value.trim() || '';
+        fetchProductsForPicker(query);
+    }
+
+    function removeProductRow(btn) {
+        const row = btn.closest('.item-row');
+        if (!row) return;
+        const container = row.closest('.items-list');
+        row.remove();
+        if (container) {
+            updateItemPlaceholders(container, null);
+        }
+    }
+
+    function escapeJsString(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/"/g, '\\"')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r');
     }
 
     // SHOP OWNER PREVIEW
@@ -886,6 +1169,15 @@
                     </div>
                 `).join('');
 
+                const directProductAddHtml = h.product_tagging_enabled ? `
+                    <div class="pt-1.5 flex items-center justify-between">
+                        <span class="text-[10px] font-black uppercase text-slate-400 tracking-wider">Product Items</span>
+                        <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                            <i data-lucide="plus" class="w-3 h-3"></i> Add Product
+                        </span>
+                    </div>
+                ` : '';
+
                 // Sub-headers HTML inside preview (Accordion rows inside card)
                 const subHeadersHtml = (h.sub_headers || []).map(sub => {
                     const isExpanded = !!previewSubHeaderCollapseState[sub.id];
@@ -898,6 +1190,15 @@
                             <span class="font-mono text-xs font-bold text-slate-400">₹0.00</span>
                         </div>
                     `).join('');
+
+                    const subProductAddHtml = sub.product_tagging_enabled ? `
+                        <div class="pt-1 flex items-center justify-between pl-2">
+                            <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider">Product Items</span>
+                            <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200/80 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
+                                <i data-lucide="plus" class="w-2.5 h-2.5"></i> Add Product
+                            </span>
+                        </div>
+                    ` : '';
 
                     return `
                         <div class="border-t border-slate-100/90 pt-1.5 mt-1.5">
@@ -913,7 +1214,8 @@
                             </div>
                             ${isExpanded ? `
                                 <div class="pl-3 pr-1 pt-1 pb-1 space-y-0.5 border-l-2 border-slate-200/80 ml-2 mt-1 divide-y divide-slate-50">
-                                    ${subItemsHtml || '<div class="py-1 pl-2 text-[11px] text-slate-400 italic">No items</div>'}
+                                    ${subItemsHtml || (!subProductAddHtml ? '<div class="py-1 pl-2 text-[11px] text-slate-400 italic">No items</div>' : '')}
+                                    ${subProductAddHtml}
                                 </div>
                             ` : ''}
                         </div>
@@ -938,8 +1240,9 @@
 
                         <div class="space-y-0.5 divide-y divide-slate-50">
                             ${directItemsHtml}
+                            ${directProductAddHtml}
                             ${subHeadersHtml}
-                            ${(!directItemsHtml && !subHeadersHtml) ? '<div class="py-1 text-[11px] text-slate-400 italic">No items configured</div>' : ''}
+                            ${(!directItemsHtml && !directProductAddHtml && !subHeadersHtml) ? '<div class="py-1 text-[11px] text-slate-400 italic">No items configured</div>' : ''}
                         </div>
 
                         <div class="flex items-center justify-between border-t border-slate-100 pt-1.5 text-[11px] font-bold text-slate-500">

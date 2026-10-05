@@ -433,6 +433,7 @@ class AdminShopCashbookViewTest extends TestCase
             'display_order' => 1,
             'enabled' => true,
         ]);
+        $header->allowedProducts()->attach([$product1->id, $product2->id]);
 
         $service = app(ShopCashbookUiLayoutService::class);
         $settings = ShopLedgerEntrySetting::where('shop_id', $this->shop1->id)->get();
@@ -493,7 +494,7 @@ class AdminShopCashbookViewTest extends TestCase
         );
         $response->assertOk();
 
-        // Now a new product is added to the system
+        // Now a new allowed product is configured for the header group
         $product2 = Product::create([
             'name' => 'Banana',
             'sku' => 'BAN-001',
@@ -501,6 +502,7 @@ class AdminShopCashbookViewTest extends TestCase
             'unit' => 'kg',
             'is_active' => true,
         ]);
+        $header->allowedProducts()->attach($product2->id);
 
         $service = app(ShopCashbookUiLayoutService::class);
         $settings = ShopLedgerEntrySetting::where('shop_id', $this->shop1->id)->get();
@@ -561,6 +563,70 @@ class AdminShopCashbookViewTest extends TestCase
         $response->assertSee('TOM-001');
         $response->assertSee('25.50');
         $response->assertSee('1,275.00');
+    }
+
+    public function test_cashbook_layout_does_not_load_all_catalog_products_by_default_and_shows_add_product_button(): void
+    {
+        $category = Category::create(['name' => 'Vegetables']);
+        for ($i = 1; $i <= 10; $i++) {
+            Product::create([
+                'name' => "Product {$i}",
+                'sku' => "SKU-{$i}",
+                'category_id' => $category->id,
+                'unit' => 'kg',
+                'is_active' => true,
+            ]);
+        }
+
+        $header = ShopLedgerHeaderGroup::query()->create([
+            'shop_id' => $this->shop1->id,
+            'name' => 'Purchase',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+            'display_order' => 1,
+            'enabled' => true,
+        ]);
+
+        $response = $this->actingAs($this->adminUser)->get(
+            route('admin.cashbook.shop.cashbook-layout', $this->shop1->code)
+        );
+
+        $response->assertOk();
+        $response->assertSee('Purchase');
+        $response->assertSee('Add Product');
+        $response->assertSee('product-picker-modal');
+
+        // All 10 active products should NOT be loaded into the items list by default
+        $response->assertDontSee('Product 10');
+    }
+
+    public function test_cashbook_layout_page_renders_with_valid_javascript(): void
+    {
+        $response = $this->actingAs($this->adminUser)->get(
+            route('admin.cashbook.shop.cashbook-layout', $this->shop1->code)
+        );
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        preg_match_all('/<script\b[^>]*>(.*?)<\/script>/is', $content, $matches);
+        $this->assertNotEmpty($matches[1]);
+
+        foreach ($matches[1] as $idx => $scriptContent) {
+            if (trim($scriptContent) === '') {
+                continue;
+            }
+            $tmpFile = tempnam(sys_get_temp_dir(), 'js_test_').'.js';
+            file_put_contents($tmpFile, $scriptContent);
+
+            $output = [];
+            $returnVar = 0;
+            exec('node -c '.escapeshellarg($tmpFile).' 2>&1', $output, $returnVar);
+            $err = implode("\n", $output);
+            @unlink($tmpFile);
+
+            $this->assertSame(0, $returnVar, "JavaScript syntax error in script block #{$idx}:\n{$err}\nScript:\n".substr($scriptContent, 0, 500));
+        }
     }
 
     public function test_shop_owner_cashbook_page_renders_with_valid_javascript(): void

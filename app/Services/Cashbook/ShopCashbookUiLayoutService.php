@@ -42,19 +42,17 @@ class ShopCashbookUiLayoutService
             $headerProds = collect();
 
             if ($hg->product_tagging_enabled) {
-                // 1. Configured allowed products (or all active products if unconstrained)
-                $availableProducts = $hg->allowedProducts->isNotEmpty()
-                    ? $hg->allowedProducts
-                    : Product::query()->active()->get();
-
-                foreach ($availableProducts as $prod) {
-                    $headerProds->put((int) $prod->id, [
-                        'id' => (int) $prod->id,
-                        'name' => (string) $prod->name,
-                        'sku' => (string) ($prod->sku ?? ''),
-                        'unit' => (string) ($prod->unit ?: 'kg'),
-                        'is_product' => true,
-                    ]);
+                // 1. Configured allowed products (only if explicitly assigned to this header)
+                if ($hg->allowedProducts->isNotEmpty()) {
+                    foreach ($hg->allowedProducts as $prod) {
+                        $headerProds->put((int) $prod->id, [
+                            'id' => (int) $prod->id,
+                            'name' => (string) $prod->name,
+                            'sku' => (string) ($prod->sku ?? ''),
+                            'unit' => (string) ($prod->unit ?: 'kg'),
+                            'is_product' => true,
+                        ]);
+                    }
                 }
 
                 // 2. Entered product entries for this header in this shop
@@ -208,6 +206,21 @@ class ShopCashbookUiLayoutService
                     $savedSubProductIds = $subNode['product_ids'] ?? [];
 
                     if (! empty($savedSubProductIds) && is_array($savedSubProductIds)) {
+                        $canonicalIds = array_map(fn ($p): int => (int) $p['id'], $subCanonicalProducts);
+                        $missingSubIds = array_diff(array_map('intval', $savedSubProductIds), $canonicalIds);
+                        if (! empty($missingSubIds)) {
+                            $extraProducts = Product::query()->whereIn('id', $missingSubIds)->get();
+                            foreach ($extraProducts as $ep) {
+                                $subCanonicalProducts[] = [
+                                    'id' => (int) $ep->id,
+                                    'name' => (string) $ep->name,
+                                    'sku' => (string) ($ep->sku ?? ''),
+                                    'unit' => (string) ($ep->unit ?: 'kg'),
+                                    'is_product' => true,
+                                ];
+                            }
+                        }
+
                         foreach ($savedSubProductIds as $pId) {
                             $matchedProd = collect($subCanonicalProducts)->firstWhere('id', (int) $pId);
                             if ($matchedProd) {
@@ -258,6 +271,21 @@ class ShopCashbookUiLayoutService
             $savedRootProductIds = $hNode['product_ids'] ?? [];
 
             if (! empty($savedRootProductIds) && is_array($savedRootProductIds)) {
+                $canonicalIds = array_map(fn ($p): int => (int) $p['id'], $rootCanonicalProducts);
+                $missingRootIds = array_diff(array_map('intval', $savedRootProductIds), $canonicalIds);
+                if (! empty($missingRootIds)) {
+                    $extraProducts = Product::query()->whereIn('id', $missingRootIds)->get();
+                    foreach ($extraProducts as $ep) {
+                        $rootCanonicalProducts[] = [
+                            'id' => (int) $ep->id,
+                            'name' => (string) $ep->name,
+                            'sku' => (string) ($ep->sku ?? ''),
+                            'unit' => (string) ($ep->unit ?: 'kg'),
+                            'is_product' => true,
+                        ];
+                    }
+                }
+
                 foreach ($savedRootProductIds as $pId) {
                     $matchedProd = collect($rootCanonicalProducts)->firstWhere('id', (int) $pId);
                     if ($matchedProd) {
