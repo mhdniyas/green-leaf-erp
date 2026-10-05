@@ -220,7 +220,7 @@
                     </div>
                 </form>
                 <div class="border-t border-slate-100 bg-slate-50/40 px-4 py-2 sm:px-6 text-right">
-                    <form action="{{ route('purchaser.invoices.destroy', $invoice) }}" method="POST" class="inline" onsubmit="return confirm('Cancel this bill and revert to pending? The bill will be cancelled with a full audit trail.');">
+                    <form action="{{ route('purchaser.invoices.destroy', $invoice) }}" method="POST" class="inline" onsubmit="return confirm('Cancel this bill? It will be moved to the Cancelled tab, where you can restore it if needed.');">
                         @csrf
                         @method('DELETE')
                         <input type="hidden" name="tab" value="pending">

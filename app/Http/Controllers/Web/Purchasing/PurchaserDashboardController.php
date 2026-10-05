@@ -1644,7 +1644,6 @@ class PurchaserDashboardController extends Controller
 
         $draftCount = (int) ($cartCounts['draft'] ?? 0);
         $submittedCount = (int) ($cartCounts['submitted'] ?? 0);
-        $cancelledCartCount = (int) ($cartCounts['cancelled'] ?? 0);
 
         // Cancelled invoice count query
         $cancelledInvoicesCount = PurchaseInvoice::withTrashed()
@@ -1661,7 +1660,20 @@ class PurchaserDashboardController extends Controller
             })
             ->count();
 
-        $totalCancelledCount = $cancelledInvoicesCount + $cancelledCartCount;
+        $standaloneCancelledCartsCount = PurchaserCart::query()
+            ->where('user_id', $user->id)
+            ->whereDate('business_date', $date)
+            ->when($purchaseGrade !== null, fn ($query) => $query->where('purchase_grade', $purchaseGrade))
+            ->where('status', 'cancelled')
+            ->whereNotExists(function ($query): void {
+                $query->select(DB::raw(1))
+                    ->from('purchase_invoices')
+                    ->whereColumn('purchase_invoices.purchaser_cart_id', 'purchaser_carts.id')
+                    ->where('purchase_invoices.status', InvoiceStatus::Cancelled->value);
+            })
+            ->count();
+
+        $totalCancelledCount = $cancelledInvoicesCount + $standaloneCancelledCartsCount;
 
         if (! in_array($activeTab, ['draft', 'pending', 'completed', 'cancelled'], true)) {
             $activeTab = match (true) {
@@ -2504,7 +2516,7 @@ class PurchaserDashboardController extends Controller
 
                 $ownedInvoice->delete();
                 $ownedInvoice->purchaserCart()->update([
-                    'status' => 'submitted',
+                    'status' => 'cancelled',
                     'bill_number' => null,
                     'payment_status' => 'unpaid',
                 ]);
@@ -2516,9 +2528,95 @@ class PurchaserDashboardController extends Controller
         return redirect()
             ->route('purchaser.vendors', array_filter([
                 'date' => $ownedInvoice->purchaserCart?->business_date?->format('Y-m-d'),
+                'tab' => 'cancelled',
+            ]))
+            ->with('success', 'Bill cancelled. Moved to Cancelled tab.');
+    }
+
+    public function restoreInvoice(Request $request, PurchaseInvoice $invoice): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $ownedInvoice = PurchaseInvoice::withTrashed()
+            ->whereKey($invoice->getKey())
+            ->where(function ($q) use ($request): void {
+                $q->whereHas('purchaserCart', fn ($cartQuery) => $cartQuery->where('user_id', $request->user()->id))
+                    ->orWhere('purchaser_submitted_by', $request->user()->id);
+            })
+            ->firstOrFail();
+
+        app(ShopPurchaserDailyVerificationService::class)
+            ->assertScopeNotFinalizedForInvoice($ownedInvoice);
+
+        DB::transaction(function () use ($ownedInvoice, $request): void {
+            $ownedInvoice->restore();
+            $ownedInvoice->update([
+                'status' => InvoiceStatus::Pending,
+                'payment_status' => 'unpaid',
+                'paid_amount' => 0,
+                'cancelled_at' => null,
+                'cancelled_by' => null,
+                'cancellation_reason' => null,
+                'cancellation_note' => null,
+            ]);
+
+            if ($ownedInvoice->purchaserCart) {
+                $ownedInvoice->purchaserCart->update([
+                    'status' => 'submitted',
+                    'bill_number' => $ownedInvoice->invoice_number,
+                    'payment_status' => 'unpaid',
+                    'purchase_invoice_id' => $ownedInvoice->id,
+                ]);
+            }
+
+            activity()
+                ->performedOn($ownedInvoice)
+                ->causedBy($request->user())
+                ->event('purchase_invoice.restored')
+                ->log('purchase_invoice.restored');
+        }, attempts: 3);
+
+        $date = $ownedInvoice->purchaserCart?->business_date?->format('Y-m-d')
+            ?? $ownedInvoice->business_date?->format('Y-m-d')
+            ?? $ownedInvoice->created_at?->format('Y-m-d');
+
+        return redirect()
+            ->route('purchaser.vendors', array_filter([
+                'date' => $date,
                 'tab' => 'pending',
             ]))
-            ->with('success', 'Bill cancelled. Cart reverted to pending — you can now re-process it.');
+            ->with('success', 'Bill restored to Pending successfully.');
+    }
+
+    public function restoreCart(Request $request, PurchaserCart $cart): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $ownedCart = PurchaserCart::query()
+            ->whereKey($cart->getKey())
+            ->where('user_id', $request->user()->id)
+            ->where('status', 'cancelled')
+            ->firstOrFail();
+
+        app(ShopPurchaserDailyVerificationService::class)
+            ->assertScopeNotFinalizedForCart($ownedCart);
+
+        $ownedCart->update([
+            'status' => 'draft',
+        ]);
+
+        activity()
+            ->performedOn($ownedCart)
+            ->causedBy($request->user())
+            ->event('purchaser_cart.restored')
+            ->log('purchaser_cart.restored');
+
+        return redirect()
+            ->route('purchaser.vendors', array_filter([
+                'date' => $ownedCart->business_date?->format('Y-m-d'),
+                'tab' => 'draft',
+            ]))
+            ->with('success', 'Draft cart restored successfully.');
     }
 
     /**

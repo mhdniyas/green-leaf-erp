@@ -91,21 +91,31 @@ class PurchaseInvoice extends Model
         return $this->invoice_number ?: $this->getKey();
     }
 
-    public function resolveRouteBinding($value, $field = null): ?Model
+    public function resolveRouteBindingQuery($query, $value, $field = null)
     {
         $field ??= $this->getRouteKeyName();
 
-        $query = $this->newQuery()->where($field, $value);
+        return $query->where(function ($q) use ($field, $value): void {
+            $q->where($field, $value);
 
-        if ($field !== 'invoice_number') {
-            $query->orWhere('invoice_number', $value);
-        }
+            if ($field !== 'invoice_number') {
+                $q->orWhere('invoice_number', $value);
+            }
 
-        if (is_numeric($value)) {
-            $query->orWhere($this->getKeyName(), (int) $value);
-        }
+            if (is_numeric($value)) {
+                $q->orWhere($this->getKeyName(), (int) $value);
+            }
+        });
+    }
 
-        return $query->first();
+    public function resolveRouteBinding($value, $field = null): ?Model
+    {
+        return $this->resolveRouteBindingQuery($this->newQuery(), $value, $field)->first();
+    }
+
+    public function resolveSoftDeletableRouteBinding($value, $field = null): ?Model
+    {
+        return $this->resolveRouteBindingQuery($this->withTrashed(), $value, $field)->first();
     }
 
     protected static function booted(): void

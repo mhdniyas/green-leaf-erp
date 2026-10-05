@@ -145,13 +145,13 @@
                         <a href="{{ route('purchaser.invoices.show', $invoice) }}" class="inline-flex h-9 items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-3.5 text-xs font-black text-teal-700 transition hover:bg-teal-100">
                             View Full Bill
                         </a>
-                        <form action="{{ route('purchaser.invoices.destroy', $invoice) }}" method="POST" onsubmit="return confirm('Revert this cart to Pending? The bill will be cancelled (with full audit trail) so you can re-process it.');">
+                        <form action="{{ route('purchaser.invoices.destroy', $invoice) }}" method="POST" onsubmit="return confirm('Cancel this completed bill? It will be moved to the Cancelled tab, where you can restore it to Pending if needed.');">
                             @csrf
                             @method('DELETE')
-                            <input type="hidden" name="cancellation_note" value="Reverted to pending by purchaser from completed view.">
-                            <button type="submit" class="inline-flex h-9 items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-700 hover:bg-amber-100 transition">
-                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
-                                Revert to Pending
+                            <input type="hidden" name="cancellation_note" value="Cancelled by purchaser from completed view.">
+                            <button type="submit" class="inline-flex h-9 items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700 hover:bg-rose-100 transition">
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                Cancel Bill
                             </button>
                         </form>
                     @endif

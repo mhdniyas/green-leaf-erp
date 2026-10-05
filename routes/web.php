@@ -689,6 +689,8 @@ Route::middleware('auth')->group(function () {
     Route::patch('/purchaser/carts/{cart}/status', [PurchaserDashboardController::class, 'updateOperationalStatus'])->name('purchaser.carts.status');
     Route::get('/purchaser/invoices/{invoice}', [PurchaserDashboardController::class, 'invoiceShow'])->name('purchaser.invoices.show')->withTrashed();
     Route::delete('/purchaser/invoices/{invoice}', [PurchaserDashboardController::class, 'destroyInvoice'])->name('purchaser.invoices.destroy');
+    Route::post('/purchaser/invoices/{invoice}/restore', [PurchaserDashboardController::class, 'restoreInvoice'])->name('purchaser.invoices.restore')->withTrashed();
+    Route::post('/purchaser/carts/{cart}/restore', [PurchaserDashboardController::class, 'restoreCart'])->name('purchaser.carts.restore-to-pending');
     Route::get('/purchaser/invoices/{invoice}/pdf', [PurchaserDashboardController::class, 'invoicePdf'])->name('purchaser.invoices.pdf')->withTrashed();
     Route::patch('/purchaser/invoices/{invoice}/payment', [PurchaserDashboardController::class, 'updateInvoicePayment'])->name('purchaser.invoices.payment');
     Route::post('/purchaser/suppliers/{supplier}/bulk-payment', [PurchaserDashboardController::class, 'bulkPayment'])->name('purchaser.suppliers.bulk-payment');

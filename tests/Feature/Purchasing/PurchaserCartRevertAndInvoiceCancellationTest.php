@@ -149,31 +149,68 @@ class PurchaserCartRevertAndInvoiceCancellationTest extends TestCase
             $this->assertNotNull($trashedInvoice);
             $this->assertSame(InvoiceStatus::Cancelled, $trashedInvoice->status);
             $this->assertNotNull($trashedInvoice->deleted_at);
-            $this->assertSame('submitted', $cart->status);
+            $this->assertSame('cancelled', $cart->status);
             $this->assertNull($cart->bill_number);
             $this->assertSame('unpaid', $cart->payment_status);
             $this->assertSame('approved', $goodsReceived->status);
             $this->assertSame('bill_pending', $goodsReceived->bill_status);
 
-            // Step 4: Check Pending view
+            // Step 4: Check Pending view - cancelled bill should NOT appear in pending
             $vendorsPendingResponse = $this->actingAs($this->purchaser)
                 ->get(route('purchaser.vendors', ['date' => $today->format('Y-m-d'), 'tab' => 'pending']));
             $vendorsPendingResponse->assertOk();
+            $vendorsPendingResponse->assertViewHas('pendingCarts', fn ($carts) => $carts->isEmpty());
 
-            // Step 5: Check Cancelled view
+            // Step 5: Check Cancelled view - cancelled bill MUST appear in cancelled
             $vendorsCancelledResponse = $this->actingAs($this->purchaser)
                 ->get(route('purchaser.vendors', ['date' => $today->format('Y-m-d'), 'tab' => 'cancelled']));
             $vendorsCancelledResponse->assertOk();
+            $vendorsCancelledResponse->assertViewHas('cancelledInvoices', fn ($invoices) => $invoices->count() === 1);
 
             // Step 6: Check Invoice show
             $invoiceShowResponse = $this->actingAs($this->purchaser)
                 ->get(route('purchaser.invoices.show', $invoice));
             $invoiceShowResponse->assertOk();
 
-            // Step 7: Repeated delete
-            $repeatedResponse = $this->actingAs($this->purchaser)
-                ->delete(route('purchaser.invoices.destroy', $invoice));
-            $repeatedResponse->assertNotFound();
+            // Step 7: Restore to Pending
+            $restoreResponse = $this->actingAs($this->purchaser)
+                ->post(route('purchaser.invoices.restore', $invoice));
+            $restoreResponse->assertRedirect();
+
+            $cart->refresh();
+            $restoredInvoice = PurchaseInvoice::find($invoice->id);
+            $this->assertNotNull($restoredInvoice);
+            $this->assertSame(InvoiceStatus::Pending, $restoredInvoice->status);
+            $this->assertNull($restoredInvoice->deleted_at);
+            $this->assertSame('submitted', $cart->status);
+            $this->assertSame('unpaid', $cart->payment_status);
+
+            // Step 8: Check Pending view after restore - bill now appears in pending
+            $pendingAfterRestore = $this->actingAs($this->purchaser)
+                ->get(route('purchaser.vendors', ['date' => $today->format('Y-m-d'), 'tab' => 'pending']));
+            $pendingAfterRestore->assertOk();
+            $pendingAfterRestore->assertViewHas('pendingCarts', fn ($carts) => $carts->count() === 1 && $carts->contains('id', $cart->id));
+
+            // Step 9: Cancelled view after restore - bill disappeared from cancelled
+            $cancelledAfterRestore = $this->actingAs($this->purchaser)
+                ->get(route('purchaser.vendors', ['date' => $today->format('Y-m-d'), 'tab' => 'cancelled']));
+            $cancelledAfterRestore->assertOk();
+            $cancelledAfterRestore->assertViewHas('cancelledInvoices', fn ($invoices) => $invoices->isEmpty());
+
+            // Step 10: Restored bill can be edited and updated
+            $updateResponse = $this->actingAs($this->purchaser)
+                ->patch(route('purchaser.carts.items.update-all', $cart), [
+                    'items' => [
+                        $cartItem->id => [
+                            'quantity' => 15,
+                            'unit_price' => 60,
+                        ],
+                    ],
+                ]);
+            $updateResponse->assertRedirect();
+            $cartItem->refresh();
+            $this->assertEquals(15, (float) $cartItem->quantity);
+            $this->assertEquals(60, (float) $cartItem->unit_price);
         } catch (\Throwable $e) {
             echo "\n\nEXCEPTION: ".$e->getMessage().' at '.$e->getFile().':'.$e->getLine()."\n".$e->getTraceAsString()."\n\n";
             throw $e;
@@ -184,11 +221,11 @@ class PurchaserCartRevertAndInvoiceCancellationTest extends TestCase
     {
         $today = app(PurchaserBusinessDayService::class)->operationalDate();
 
-        // 1. A reverted cart (submitted, unpaid, with cancelled invoice)
+        // 1. A cancelled cart with cancelled invoice
         $cart1 = PurchaserCart::query()->create([
             'user_id' => $this->purchaser->id,
             'supplier_id' => $this->supplier->id,
-            'status' => 'submitted',
+            'status' => 'cancelled',
             'payment_status' => 'unpaid',
             'business_date' => $today,
             'cart_number' => 'VC-REVERTED-1',
@@ -405,5 +442,84 @@ class PurchaserCartRevertAndInvoiceCancellationTest extends TestCase
 
         $response->assertOk();
         $response->assertViewHas('activeTab', 'pending');
+    }
+
+    public function test_unauthorized_user_cannot_restore_cancelled_invoice(): void
+    {
+        $otherPurchaser = User::factory()->create();
+        $otherPurchaser->assignRole('purchaser');
+
+        $cart = PurchaserCart::query()->create([
+            'user_id' => $otherPurchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'status' => 'cancelled',
+            'business_date' => today(),
+            'cart_number' => 'VC-OTHER-RESTORE',
+        ]);
+
+        $invoice = PurchaseInvoice::factory()->create([
+            'purchaser_cart_id' => $cart->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'INV-OTHER-RESTORE',
+            'status' => InvoiceStatus::Cancelled,
+            'cancelled_at' => now(),
+            'deleted_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->purchaser)
+            ->post(route('purchaser.invoices.restore', $invoice));
+
+        $response->assertNotFound();
+    }
+
+    public function test_restore_standalone_cancelled_cart_to_draft(): void
+    {
+        $today = app(PurchaserBusinessDayService::class)->operationalDate();
+
+        $cart = PurchaserCart::query()->create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'status' => 'cancelled',
+            'business_date' => $today,
+            'cart_number' => 'VC-STANDALONE-DRAFT-RESTORE',
+        ]);
+
+        $response = $this->actingAs($this->purchaser)
+            ->post(route('purchaser.carts.restore-to-pending', $cart));
+
+        $response->assertRedirect();
+        $cart->refresh();
+        $this->assertSame('draft', $cart->status);
+    }
+
+    public function test_cancelled_bills_are_excluded_from_pending_tab_and_counts(): void
+    {
+        $today = app(PurchaserBusinessDayService::class)->operationalDate();
+
+        $cart = PurchaserCart::query()->create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'status' => 'cancelled',
+            'payment_status' => 'unpaid',
+            'business_date' => $today,
+            'cart_number' => 'VC-EXCLUDED-PENDING',
+        ]);
+
+        $invoice = PurchaseInvoice::factory()->create([
+            'purchaser_cart_id' => $cart->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'INV-EXCLUDED-PENDING',
+            'status' => InvoiceStatus::Cancelled,
+            'cancelled_at' => now(),
+            'deleted_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.vendors', ['date' => $today->format('Y-m-d'), 'tab' => 'pending']));
+
+        $response->assertOk();
+        $response->assertViewHas('pendingCount', 0);
+        $response->assertViewHas('pendingCarts', fn ($carts) => $carts->isEmpty());
+        $response->assertViewHas('totalCancelledCount', 1);
     }
 }

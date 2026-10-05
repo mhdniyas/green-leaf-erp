@@ -93,6 +93,14 @@ class CancelPurchaseInvoiceAction
                 'cancellation_note' => $note,
             ]);
 
+            if ($lockedInvoice->purchaserCart) {
+                $lockedInvoice->purchaserCart->update([
+                    'status' => 'cancelled',
+                    'bill_number' => null,
+                    'payment_status' => 'unpaid',
+                ]);
+            }
+
             activity()
                 ->performedOn($lockedInvoice)
                 ->causedBy($user)

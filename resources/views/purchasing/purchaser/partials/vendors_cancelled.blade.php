@@ -78,6 +78,13 @@
             <div class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/80 px-4 py-3 sm:px-6">
                 <span class="font-mono text-xs font-black text-slate-900">Total: ₹{{ number_format((float) $invoice->amount, 2) }}</span>
                 <div class="flex items-center gap-2">
+                    <form action="{{ route('purchaser.invoices.restore', $invoice) }}" method="POST" onsubmit="return confirm('Restore this cancelled bill to Pending?');">
+                        @csrf
+                        <button type="submit" class="inline-flex h-9 items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-700 hover:bg-teal-100 transition">
+                            <svg class="h-3.5 w-3.5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
+                            Restore to Pending
+                        </button>
+                    </form>
                     <a href="{{ route('purchaser.invoices.show', $invoice) }}" class="inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
                         <svg class="h-3.5 w-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                         View Cancelled Bill
@@ -155,7 +162,16 @@
             {{-- Footer --}}
             <div class="flex items-center justify-between border-t border-slate-100 bg-slate-50/80 px-4 py-3 sm:px-6 text-xs">
                 <span class="font-mono font-black text-slate-900">Total: ₹{{ number_format((float) $cart->items->sum('line_total') - (float) $cart->discount_amount, 2) }}</span>
-                <span class="font-bold text-rose-600">Order Cancelled</span>
+                <div class="flex items-center gap-2">
+                    <form action="{{ route('purchaser.carts.restore-to-pending', $cart) }}" method="POST" onsubmit="return confirm('Restore this cancelled cart to Draft?');">
+                        @csrf
+                        <button type="submit" class="inline-flex h-8 items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-700 hover:bg-teal-100 transition">
+                            <svg class="h-3.5 w-3.5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
+                            Restore to Draft
+                        </button>
+                    </form>
+                    <span class="font-bold text-rose-600">Order Cancelled</span>
+                </div>
             </div>
         </div>
     </article>
