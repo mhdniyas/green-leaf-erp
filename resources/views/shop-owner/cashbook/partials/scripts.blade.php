@@ -79,28 +79,29 @@
 
         return settlementList.map(settlement => {
             const isExpanded = !!settlementCardCollapseState[settlement.id];
-            const hasItems = settlement.items && settlement.items.length > 0;
+            const activeItems = (settlement.items || []).filter(item => Math.abs(item.amount || 0) > 0.0001);
+            const hasVisibleItems = activeItems.length > 0;
             const amountClass = settlement.amount < 0 ? 'text-rose-700' : (settlement.is_net_balance ? 'text-emerald-700 font-black' : 'text-indigo-700');
             const cardBgClass = settlement.is_net_balance
                 ? 'bg-emerald-50/50 border-emerald-200'
                 : (settlement.is_company_payable ? 'bg-amber-50/50 border-amber-200' : 'bg-slate-50/80 border-slate-200');
 
             let itemsHtml = '';
-            if (hasItems) {
-                itemsHtml = settlement.items.map(item => {
+            if (hasVisibleItems) {
+                itemsHtml = activeItems.map(item => {
                     const isSubtract = item.role === 'subtract';
                     const sign = isSubtract ? '−' : '+';
                     const signClass = isSubtract ? 'text-rose-600 font-bold' : 'text-emerald-700 font-bold';
                     return `
                         <div class="flex items-center justify-between py-1 text-xs text-slate-600">
                             <span class="truncate pr-2">${sign} ${escapeHtml(item.name)}</span>
-                            <span class="font-mono ${signClass} shrink-0">${CashbookSettlementSummary.formatAmount(item.amount)}</span>
+                            <span class="font-mono ${signClass} shrink-0">${formatCurrency(item.amount, false)}</span>
                         </div>
                     `;
                 }).join('');
             }
 
-            const splitBtnHtml = hasItems ? `
+            const splitBtnHtml = hasVisibleItems ? `
                 <button type="button" onclick="event.stopPropagation(); toggleSettlementCardSplit('${settlement.id}')"
                         class="text-[10px] font-bold text-slate-600 hover:text-slate-900 px-2 py-0.5 rounded-md bg-white hover:bg-slate-100 transition border border-slate-200 shadow-2xs inline-flex items-center gap-1 cursor-pointer shrink-0">
                     <span>${isExpanded ? 'Hide Split' : 'Show Split'}</span>
@@ -116,10 +117,10 @@
                         </div>
                         <div class="flex items-center gap-2 shrink-0">
                             ${splitBtnHtml}
-                            <span class="font-mono font-bold ${amountClass}">${CashbookSettlementSummary.formatAmount(settlement.amount)}</span>
+                            <span class="font-mono font-bold ${amountClass}">${formatCurrency(settlement.amount, false)}</span>
                         </div>
                     </div>
-                    ${(hasItems && isExpanded) ? `
+                    ${(hasVisibleItems && isExpanded) ? `
                         <div class="pt-2 border-t border-slate-200/80 space-y-1">
                             ${itemsHtml}
                         </div>
@@ -365,6 +366,22 @@
         if (header.product_tagging_enabled) {
             renderOwnerProductRows(activeHeaderId);
         }
+
+        // Show readonly category rows only if they have a non-zero value
+        (header.setting_ids || []).forEach(sId => {
+            const s = settings.find(item => item.id === sId);
+            if (!s) return;
+            const isReadonly = Boolean(s.is_readonly || ['salary', 'staff_advance', 'advance'].includes((s.code || '').toLowerCase()));
+            const rowEl = document.querySelector(`[data-entry-row="${sId}"]`);
+            if (rowEl && isReadonly) {
+                const amt = parseFloat(activeDayData[sId]) || 0;
+                if (Math.abs(amt) > 0.0001) {
+                    rowEl.classList.remove('hidden');
+                } else {
+                    rowEl.classList.add('hidden');
+                }
+            }
+        });
 
         updateActiveHeaderSubtotal();
         document.getElementById('header-entry-sheet').classList.remove('hidden');
@@ -759,7 +776,7 @@
 
         const kpiNet = document.getElementById('kpi-today-net-activity');
         if (kpiNet) {
-            kpiNet.textContent = CashbookSettlementSummary.formatAmount(todayNetActivity);
+            kpiNet.textContent = formatCurrency(todayNetActivity);
             kpiNet.className = 'font-mono text-base sm:text-xl font-black ' + (todayNetActivity >= 0 ? 'text-emerald-700' : 'text-rose-700');
         }
 
@@ -787,7 +804,7 @@
 
         const repNet = document.getElementById('report-net-activity');
         if (repNet) {
-            repNet.textContent = CashbookSettlementSummary.formatAmount(todayNetActivity);
+            repNet.textContent = formatCurrency(todayNetActivity);
             repNet.className = 'font-mono text-xs sm:text-sm font-black ' + (todayNetActivity >= 0 ? 'text-emerald-700' : 'text-rose-700');
         }
 
@@ -968,7 +985,9 @@
 
         const normalCardsHtml = orderedHeaders.map(h => {
             const isIncome = (h.type || '').toLowerCase() === 'income';
+            const isSettlement = (h.type || '').toLowerCase() === 'settlement' || h.id === 'unassigned_transfers';
             let hTotal = 0;
+            let hasNonZeroSetting = false;
 
             // 1. Direct Settings in Root Header
             const childLines = (h.setting_ids || []).map(sId => {
@@ -977,6 +996,7 @@
 
                 const isVp = Boolean(s.is_vendor_purchase);
                 const isMirrorEnabled = s.mirror_to_cashbook !== false && s.mirror_to_cashbook !== 0 && s.mirror_to_cashbook !== '0';
+                const isReadonly = Boolean(s.is_readonly || ['salary', 'staff_advance', 'advance'].includes((s.code || '').toLowerCase()));
 
                 const amt = parseFloat(activeDayData[sId]) || 0;
                 let effectiveAmt = amt;
@@ -993,6 +1013,10 @@
                     }
                 }
 
+                if (Math.abs(effectiveAmt) > 0.0001) {
+                    hasNonZeroSetting = true;
+                }
+
                 const isMinus = !isIncome || s.is_sales_deduction || s.payable_direction === 'minus';
                 if (isMinus) {
                     hTotal -= effectiveAmt;
@@ -1000,7 +1024,7 @@
                     hTotal += effectiveAmt;
                 }
 
-                if (isVp || !isMirrorEnabled) {
+                if (isVp || !isMirrorEnabled || (isReadonly && Math.abs(effectiveAmt) <= 0.0001)) {
                     return '';
                 }
 
@@ -1108,7 +1132,9 @@
                         hTotal += effectiveAmt;
                     }
 
-                    if (isVp || !isMirrorEnabled) return '';
+                    const isReadonly = Boolean(s.is_readonly || ['salary', 'staff_advance', 'advance'].includes((s.code || '').toLowerCase()));
+
+                    if (isVp || !isMirrorEnabled || (isReadonly && Math.abs(effectiveAmt) <= 0.0001)) return '';
 
                     const name = s.name || 'Item';
                     let subText = '';
@@ -1226,6 +1252,23 @@
             const noProductsPrompt = (h.product_tagging_enabled && pRows.length === 0 && (h.setting_ids || []).length === 0 && (!h.sub_headers || h.sub_headers.length === 0))
                 ? `<div class="py-1 text-[11px] text-slate-400 italic">No products recorded yet (tap to add)</div>`
                 : '';
+
+            const hasProducts = pRows.length > 0;
+            const hasSubHeaders = (h.sub_headers && h.sub_headers.length > 0);
+            const isZeroTotal = Math.abs(hTotal) < 0.0001;
+
+            // Do not render card if:
+            // 1. It is a settlement/transfer header and has total 0 (no transactions recorded on this date)
+            // 2. It has no settings, no sub-headers, and no products recorded, and has total 0
+            if (isSettlement && isZeroTotal) {
+                return '';
+            }
+            if (!hasProducts && !hasSubHeaders && (!h.setting_ids || h.setting_ids.length === 0) && isZeroTotal) {
+                return '';
+            }
+            if (isZeroTotal && !hasProducts && !hasSubHeaders && !hasNonZeroSetting && (isSettlement || h.id === 'unassigned_transfers')) {
+                return '';
+            }
 
             const headerTotalFormatted = formatCurrency(Math.abs(hTotal));
             const headerTotalClass = isIncome ? 'text-emerald-700' : 'text-rose-700 font-black';
@@ -1959,7 +2002,12 @@
     function formatCurrency(amount, preserveSign = true) {
         const val = parseFloat(amount) || 0;
         const prefix = (preserveSign && val < -0.0001) ? '−' : '';
-        return prefix + '₹' + Math.abs(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const absVal = Math.abs(val);
+        const hasDecimals = (absVal % 1 !== 0);
+        return prefix + '₹' + absVal.toLocaleString('en-IN', {
+            minimumFractionDigits: hasDecimals ? 2 : 0,
+            maximumFractionDigits: 2
+        });
     }
 
     function escapeHtml(str) {

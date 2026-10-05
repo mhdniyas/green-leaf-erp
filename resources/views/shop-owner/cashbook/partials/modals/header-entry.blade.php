@@ -27,7 +27,7 @@
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
                 <span class="font-mono text-xs font-black text-slate-950 px-2.5 py-1 bg-slate-100 rounded-full border border-slate-200/60" id="entry-sheet-subtotal">
-                    ₹0.00
+                    ₹0
                 </span>
                 <button type="button" aria-label="Close" onclick="closeHeaderEntrySheet()"
                         class="h-8 w-8 min-h-[32px] min-w-[32px] inline-flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900 active:scale-95 transition cursor-pointer shrink-0">
@@ -152,7 +152,7 @@
                                 </div>
                             </div>
                         @else
-                            <div class="p-2 sm:p-2.5 rounded-xl bg-slate-50/70 border border-slate-100 hover:border-slate-200/80 transition space-y-1" data-entry-row="{{ $s->id }}">
+                            <div @class(['p-2 sm:p-2.5 rounded-xl bg-slate-50/70 border border-slate-100 hover:border-slate-200/80 transition space-y-1', 'hidden' => $isReadonlyCategory && ((float) ($initialTxAmounts[$s->id] ?? 0.0) <= 0.0)]) data-entry-row="{{ $s->id }}">
                                 <div class="flex items-center justify-between gap-2">
                                     <div class="min-w-0 flex-1 flex items-center gap-2">
                                         <div class="w-6 h-6 rounded-full {{ $isMinus ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-white text-slate-800 border-slate-200/60' }} border shadow-2xs flex items-center justify-center font-black text-[11px] uppercase shrink-0">
@@ -182,7 +182,7 @@
                                                id="input-s-{{ $s->id }}"
                                                data-setting-id="{{ $s->id }}"
                                                @if($isReadonlyCategory) disabled readonly @else oninput="onOwnerInputChange(this)" onblur="formatInputOnBlur(this)" @endif
-                                               placeholder="0.00"
+                                               placeholder="0"
                                                class="h-8 w-full rounded-lg border {{ $isMinus ? 'border-rose-200 text-rose-700' : 'border-slate-200 text-slate-950' }} {{ $isReadonlyCategory ? 'bg-slate-100 cursor-not-allowed opacity-75' : 'bg-white focus:border-emerald-500 focus:ring-emerald-500/20 focus:ring-1' }} pl-7 pr-2 text-right text-sm font-black font-mono focus:outline-none shadow-2xs transition">
                                     </div>
                                 </div>
