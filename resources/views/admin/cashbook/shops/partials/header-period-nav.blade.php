@@ -100,6 +100,16 @@
                 <span>Shop Financial Ledger</span>
             </a>
 
+            <!-- FUND PETTY TAB -->
+            <a href="{{ route('admin.cashbook.shop.history.petty', $currentShopSlugOrId) }}"
+               class="inline-flex items-center gap-2 rounded-2xl border border-purple-300 bg-purple-50 px-4 py-2 text-xs font-black uppercase tracking-wider text-purple-950 shadow-xs hover:bg-purple-100 transition cursor-pointer"
+               title="Fund Petty Cash &amp; View Petty Cash Movements">
+                <svg class="w-4 h-4 text-purple-700 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Fund Petty</span>
+            </a>
+
             <!-- 3. SETTINGS -->
             <a href="{{ route('admin.cashbook.settings.shop', $currentShopSlugOrId) }}"
                class="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2 text-xs font-black uppercase tracking-wider text-slate-800 shadow-xs hover:border-slate-400 hover:bg-slate-50 transition cursor-pointer">
