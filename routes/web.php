@@ -818,6 +818,21 @@ Route::middleware('auth')->group(function () {
                 Route::get('/', [CashbookCategoryController::class, 'index'])->name('index')->middleware('can:cashbook.settings.view');
                 Route::get('/create', [CashbookCategoryController::class, 'create'])->name('create')->middleware('can:cashbook.settings.manage');
                 Route::post('/', [CashbookCategoryController::class, 'store'])->name('store')->middleware('can:cashbook.settings.manage');
+
+                // ── Header -> Category Actions ──────────────────────────────────
+                Route::post('/headers', [CashbookCategoryController::class, 'storeHeader'])->name('headers.store')->middleware('can:cashbook.settings.manage');
+                Route::post('/headers/{header}/categories', [CashbookCategoryController::class, 'attachCategory'])->name('headers.attach-category')->middleware('can:cashbook.settings.manage');
+                Route::post('/headers/{header}/reorder', [CashbookCategoryController::class, 'reorderCategories'])->name('headers.reorder')->middleware('can:cashbook.settings.manage');
+
+                // Backward-compatible aliases
+                Route::post('/shops/{shop}/headers', [CashbookCategoryController::class, 'storeHeader'])->name('shop.headers.store')->middleware('can:cashbook.settings.manage');
+                Route::post('/shops/{shop}/headers/{header}/categories', [CashbookCategoryController::class, 'attachCategory'])->name('shop.headers.attach')->middleware('can:cashbook.settings.manage');
+                Route::post('/shops/{shop}/headers/{header}/reorder', [CashbookCategoryController::class, 'reorderCategories'])->name('shop.headers.reorder')->middleware('can:cashbook.settings.manage');
+
+                Route::post('/settings/{setting}/toggle', [CashbookCategoryController::class, 'toggleSetting'])->name('settings.toggle')->middleware('can:cashbook.settings.manage');
+                Route::post('/settings/{setting}/rename', [CashbookCategoryController::class, 'renameSetting'])->name('settings.rename')->middleware('can:cashbook.settings.manage');
+                Route::delete('/settings/{setting}', [CashbookCategoryController::class, 'detachSetting'])->name('settings.detach')->middleware('can:cashbook.settings.manage');
+
                 Route::get('/{category}', [CashbookCategoryController::class, 'show'])->name('show')->middleware('can:cashbook.settings.view');
                 Route::post('/{category}/update-global', [CashbookCategoryController::class, 'updateGlobal'])->name('update-global')->middleware('can:cashbook.settings.manage');
                 Route::post('/{category}/assign-shops', [CashbookCategoryController::class, 'assignShops'])->name('assign-shops')->middleware('can:cashbook.settings.manage');

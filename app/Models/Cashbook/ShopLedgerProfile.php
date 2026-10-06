@@ -23,6 +23,11 @@ class ShopLedgerProfile extends Model
         'payment_configuration' => 'array',
     ];
 
+    public function getNameAttribute(?string $value): ?string
+    {
+        return $value ?: $this->shop?->name;
+    }
+
     /**
      * Normalized payment configuration for Payable and Sales Collections (Direct to Company + Cash).
      *

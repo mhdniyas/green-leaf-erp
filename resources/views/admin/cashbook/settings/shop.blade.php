@@ -95,16 +95,17 @@
         'currentShop' => $currentShop
     ])
 
-    <!-- Header & Shop Selection -->
-    <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
-        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-                <a href="{{ route('admin.cashbook.settings') }}" class="mb-2 inline-flex items-center gap-1 text-xs font-black text-slate-400 hover:text-slate-700">
+    <!-- Header & Shop Selection (Redesigned Professional Hero) -->
+    <div class="rounded-3xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-xs space-y-5">
+        <!-- Top Row: Shop Identity & Shop Switcher -->
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div class="space-y-1.5">
+                <a href="{{ route('admin.cashbook.settings') }}" class="inline-flex items-center gap-1.5 text-xs font-black text-slate-400 hover:text-slate-800 transition">
                     <i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>
-                    All Shops
+                    <span>All Active Shops</span>
                 </a>
-                <div class="flex items-center gap-3">
-                    <h1 class="text-2xl font-extrabold tracking-tight text-slate-950">{{ $currentShop->name }}</h1>
+                <div class="flex items-center gap-3 flex-wrap">
+                    <h1 class="text-2xl sm:text-3xl font-black tracking-tight text-slate-950">{{ $currentShop->name }}</h1>
                     @if(! empty($isHistorical))
                         <span class="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-black text-amber-800 border border-amber-300">
                             Historical ({{ $selectedMonthLabel ?? $selectedMonth }})
@@ -113,69 +114,133 @@
                             READ ONLY
                         </span>
                     @else
-                        <span class="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700 border border-emerald-200">Current Configuration</span>
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200 shadow-2xs">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Current Configuration
+                        </span>
                     @endif
+
+                    @if($currentShop->client?->name ?? false)
+                        <span class="inline-flex items-center gap-1 rounded-full bg-indigo-50 border border-indigo-200/70 px-2.5 py-0.5 text-xs font-black text-indigo-700">
+                            <i data-lucide="user-check" class="w-3 h-3 text-indigo-600"></i>
+                            {{ $currentShop->client->name }}
+                        </span>
+                    @endif
+
+                    <span class="font-mono text-xs font-bold text-slate-400 rounded-lg bg-slate-100 px-2 py-0.5">
+                        {{ $currentShop->code ?: 'SHOP-'.$currentShop->shop_id }}
+                    </span>
                 </div>
-                <p class="mt-1 font-mono text-xs font-bold text-slate-400">{{ $currentShop->code ?: 'SHOP-'.$currentShop->shop_id }}</p>
             </div>
-            
-            <div class="flex flex-wrap items-center gap-3">
-                <!-- Month Selector & Recalculate Action -->
-                <div class="flex items-center gap-2 flex-wrap">
-                    <form method="GET" action="{{ route('admin.cashbook.settings.shop', ['shop' => $currentShop->slug ?: $currentShop->shop_id]) }}" class="flex items-center gap-2">
-                        <div class="relative inline-flex items-center">
-                            <label for="month-select" class="sr-only">Month</label>
-                            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400">
-                                <i data-lucide="calendar" class="h-4 w-4"></i>
-                            </div>
-                            <select id="month-select" name="month" onchange="this.form.submit()" class="h-9 rounded-xl border border-slate-300 bg-white pl-8 pr-8 text-xs font-black text-slate-900 shadow-2xs focus:border-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900">
-                                @foreach($availableMonths ?? [] as $m)
-                                    <option value="{{ $m['value'] }}" {{ ($selectedMonth ?? '') === $m['value'] ? 'selected' : '' }}>
-                                        {{ $m['label'] }}
+
+            <!-- Prominent Shop Switcher -->
+            <div class="flex flex-col sm:items-end gap-1 shrink-0">
+                <label for="header-shop-switcher" class="text-[11px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                    <i data-lucide="store" class="w-3.5 h-3.5 text-emerald-600"></i>
+                    <span>Switch Active Shop</span>
+                </label>
+                <div class="relative w-full sm:w-64">
+                    <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <i data-lucide="building-2" class="h-4 w-4 text-emerald-600"></i>
+                    </div>
+                    <select id="header-shop-switcher"
+                            onchange="if(this.value) window.location.href = this.value"
+                            class="h-10 w-full rounded-2xl border border-slate-200 bg-slate-50/80 hover:bg-white pl-9 pr-9 text-xs font-black text-slate-900 shadow-2xs focus:border-emerald-500 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-emerald-500 transition cursor-pointer">
+                        @foreach(($clientGroups ?? collect(['Client Shops' => $shops])) as $cName => $cShops)
+                            <optgroup label="{{ $cName }}">
+                                @foreach($cShops as $s)
+                                    @php
+                                        $isSelected = ($s->shop_id == $currentShop->shop_id) || ($s->id == $currentShop->id) || ($s->slug === $currentShop->slug);
+                                    @endphp
+                                    <option value="{{ route('admin.cashbook.settings.shop', $s->slug ?: $s->shop_id) }}" {{ $isSelected ? 'selected' : '' }}>
+                                        {{ $s->name }}
                                     </option>
                                 @endforeach
-                            </select>
-                        </div>
-                    </form>
-
-                    <form method="POST" action="{{ route('admin.cashbook.shop.recalculate-month', $currentShop->slug ?: $currentShop->shop_id) }}" class="inline-flex items-center">
-                        @csrf
-                        <input type="hidden" name="month" value="{{ $selectedMonth ?? now()->format('Y-m') }}">
-                        <button type="submit"
-                                class="inline-flex items-center gap-1.5 h-9 rounded-xl border border-indigo-300 bg-indigo-50 px-3 text-xs font-black text-indigo-900 shadow-2xs hover:bg-indigo-100 transition cursor-pointer"
-                                title="Rebuild all monthly Cashbook calculations for {{ $selectedMonthLabel ?? $selectedMonth }} according to its Category/Header/Relation configuration">
-                            <i data-lucide="refresh-cw" class="h-3.5 w-3.5 text-indigo-700"></i>
-                            <span>Refresh &amp; Recalculate Month</span>
-                        </button>
-                    </form>
+                            </optgroup>
+                        @endforeach
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
+                        <i data-lucide="chevrons-up-down" class="h-3.5 w-3.5"></i>
+                    </div>
                 </div>
+            </div>
+        </div>
 
-                <!-- Compact Show Disabled Toggle Switch -->
-                <div class="flex items-center gap-2.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700">
-                    <label for="toggle-show-disabled" class="cursor-pointer select-none">Show Disabled Entries</label>
+        <div class="h-px bg-slate-100"></div>
+
+        <!-- Controls Toolbar: Month, Recalculate & Disabled Toggle -->
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div class="flex items-center flex-wrap gap-3">
+                <!-- Month Selector -->
+                <form method="GET" action="{{ route('admin.cashbook.settings.shop', ['shop' => $currentShop->slug ?: $currentShop->shop_id]) }}" class="flex items-center">
+                    <div class="relative inline-flex items-center">
+                        <label for="month-select" class="sr-only">Month</label>
+                        <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400">
+                            <i data-lucide="calendar" class="h-4 w-4 text-slate-500"></i>
+                        </div>
+                        <select id="month-select" name="month" onchange="this.form.submit()" class="h-9 rounded-xl border border-slate-200 bg-white pl-8 pr-8 text-xs font-black text-slate-900 shadow-2xs hover:border-slate-300 focus:border-slate-900 focus:outline-hidden focus:ring-1 focus:ring-slate-900 cursor-pointer">
+                            @foreach($availableMonths ?? [] as $m)
+                                <option value="{{ $m['value'] }}" {{ ($selectedMonth ?? '') === $m['value'] ? 'selected' : '' }}>
+                                    {{ $m['label'] }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                </form>
+
+                <!-- Recalculate Month Action -->
+                <form method="POST" action="{{ route('admin.cashbook.shop.recalculate-month', $currentShop->slug ?: $currentShop->shop_id) }}" class="inline-flex items-center">
+                    @csrf
+                    <input type="hidden" name="month" value="{{ $selectedMonth ?? now()->format('Y-m') }}">
+                    <button type="submit"
+                            class="inline-flex items-center gap-1.5 h-9 rounded-xl border border-indigo-200 bg-indigo-50/80 px-3.5 text-xs font-black text-indigo-900 shadow-2xs hover:bg-indigo-100 hover:border-indigo-300 transition cursor-pointer"
+                            title="Rebuild all monthly Cashbook calculations for {{ $selectedMonthLabel ?? $selectedMonth }} according to its Category/Header/Relation configuration">
+                        <i data-lucide="refresh-cw" class="h-3.5 w-3.5 text-indigo-700"></i>
+                        <span>Refresh &amp; Recalculate Month</span>
+                    </button>
+                </form>
+
+                <!-- Show Disabled Entries Toggle -->
+                <div class="flex items-center gap-2.5 bg-slate-50 border border-slate-200/90 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-700">
+                    <label for="toggle-show-disabled" class="cursor-pointer select-none text-xs font-extrabold text-slate-700">Show Disabled Entries</label>
                     <label class="relative inline-flex cursor-pointer items-center">
                         <input type="checkbox" id="toggle-show-disabled" onchange="toggleShowDisabled(this.checked)" class="sr-only peer">
-                        <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-slate-900"></div>
+                        <div class="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-slate-900"></div>
                     </label>
                 </div>
+            </div>
 
-                <div class="flex flex-wrap gap-2">
-                    <a href="#income-sales" class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 hover:bg-emerald-100">Income &amp; Sales</a>
-                    <a href="#expenses" class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100">Expenses</a>
-                    <a href="#transfers-settlements" class="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700 hover:bg-indigo-100">Transfers &amp; Settlements</a>
-                    <a href="{{ route('admin.cashbook.settings.shop.vendors.index', $currentShop->slug ?: $currentShop->shop_id) }}" class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 hover:bg-amber-100">Vendors &rarr;</a>
-                    <a href="{{ route('admin.cashbook.settings.shop.payments.index', $currentShop->slug ?: $currentShop->shop_id) }}" class="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-black text-violet-700 hover:bg-violet-100">Payments &rarr;</a>
-                    <a href="#collection" class="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-black text-sky-700 hover:bg-sky-100">Collection Form</a>
-                    <a href="#historical-fetch" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100">Historical Fetch</a>
-                    <a href="#instructions-guide" class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-800 hover:bg-amber-100 inline-flex items-center gap-1">
-                        <i data-lucide="help-circle" class="h-3.5 w-3.5"></i>
-                        Setup Guide
-                    </a>
-                    <a href="{{ route('admin.cashbook.settings.shop.demo', ['shop' => $currentShop->shop_id]) }}" class="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700 hover:bg-indigo-100 inline-flex items-center gap-1">
-                        <i data-lucide="play-circle" class="h-3.5 w-3.5"></i>
-                        Demo Cashbook
-                    </a>
-                </div>
+            <!-- Quick Jump Section Navigation & Related Portals -->
+            <div class="flex items-center flex-wrap gap-1.5">
+                <a href="#income-sales" class="rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-black text-emerald-800 hover:bg-emerald-100 transition shadow-2xs">
+                    Income &amp; Sales
+                </a>
+                <a href="#expenses" class="rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-black text-rose-800 hover:bg-rose-100 transition shadow-2xs">
+                    Expenses
+                </a>
+                <a href="#transfers-settlements" class="rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-black text-indigo-800 hover:bg-indigo-100 transition shadow-2xs">
+                    Transfers &amp; Settlements
+                </a>
+                <a href="#collection" class="rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-black text-sky-800 hover:bg-sky-100 transition shadow-2xs">
+                    Collection Form
+                </a>
+                <a href="#historical-fetch" class="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-100 transition shadow-2xs">
+                    Historical Fetch
+                </a>
+                <a href="#instructions-guide" class="rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-black text-amber-900 hover:bg-amber-100 transition shadow-2xs inline-flex items-center gap-1">
+                    <i data-lucide="help-circle" class="h-3.5 w-3.5 text-amber-700"></i>
+                    <span>Setup Guide</span>
+                </a>
+                <a href="{{ route('admin.cashbook.settings.shop.vendors.index', $currentShop->slug ?: $currentShop->shop_id) }}" class="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-black text-slate-800 hover:bg-slate-50 hover:border-slate-300 transition shadow-2xs">
+                    Vendors &rarr;
+                </a>
+                <a href="{{ route('admin.cashbook.settings.shop.payments.index', $currentShop->slug ?: $currentShop->shop_id) }}" class="rounded-xl border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-black text-violet-800 hover:bg-violet-100 transition shadow-2xs">
+                    Payments &rarr;
+                </a>
+                <a href="{{ route('admin.cashbook.settings.shop.demo', ['shop' => $currentShop->shop_id]) }}" class="rounded-xl border border-indigo-200 bg-white px-2.5 py-1.5 text-xs font-black text-indigo-700 hover:bg-indigo-50 transition shadow-2xs inline-flex items-center gap-1">
+                    <i data-lucide="play-circle" class="h-3.5 w-3.5 text-indigo-600"></i>
+                    <span>Demo Cashbook</span>
+                </a>
             </div>
         </div>
     </div>

@@ -38,6 +38,7 @@ use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Cashbook\BalanceCalculator;
 use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Cashbook\CashFlowResolutionService;
 use App\Services\Cashbook\CollectionGroupPostingService;
 use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Cashbook\InvoiceCashbookProjectionService;
@@ -1545,7 +1546,18 @@ class ShopOwnerController extends Controller
             $code = (string) ($tx->entryType?->code ?: $tx->entry_type_code);
             $direction = (string) ($tx->direction ?: ($tx->entryType?->category ?: 'income'));
             $category = (string) ($tx->entryType?->category ?: $direction);
-            $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
+            $setting = $settings->first(function ($s) use ($tx) {
+                if ((int) $s->entry_type_id !== (int) $tx->entry_type_id) {
+                    return false;
+                }
+                if ($tx->funding_source) {
+                    $resolver = app(CashFlowResolutionService::class);
+
+                    return $resolver->resolveFundingSource($s) === $tx->funding_source;
+                }
+
+                return true;
+            }) ?? $settings->firstWhere('entry_type_id', $tx->entry_type_id);
             $payableDir = $setting?->payable_direction;
             $isDeduction = $payableDir ? ($payableDir === 'minus') : ($direction === 'expense' || $category === 'expense' || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true));
 
@@ -1553,7 +1565,18 @@ class ShopOwnerController extends Controller
         }), 2);
 
         $totalSales = (float) $transactions->sum(function ($t) use ($settings) {
-            $setting = $settings->firstWhere('entry_type_id', $t->entry_type_id);
+            $setting = $settings->first(function ($s) use ($t) {
+                if ((int) $s->entry_type_id !== (int) $t->entry_type_id) {
+                    return false;
+                }
+                if ($t->funding_source) {
+                    $resolver = app(CashFlowResolutionService::class);
+
+                    return $resolver->resolveFundingSource($s) === $t->funding_source;
+                }
+
+                return true;
+            }) ?? $settings->firstWhere('entry_type_id', $t->entry_type_id);
             $isIncome = $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income');
             if ($isIncome) {
                 return (float) $t->amount;
@@ -1966,11 +1989,12 @@ class ShopOwnerController extends Controller
                 ->get()
                 ->keyBy('code');
 
-            $shopSettingsMap = ShopLedgerEntrySetting::query()
+            $shopSettings = ShopLedgerEntrySetting::query()
                 ->where('shop_id', (int) $shop->id)
                 ->whereIn('entry_type_id', $entryTypes->pluck('id')->all())
-                ->get()
-                ->keyBy('entry_type_id');
+                ->get();
+
+            $headerId = ! empty($validated['header_group_id']) ? (int) $validated['header_group_id'] : null;
 
             foreach ($entries as $item) {
                 $code = (string) $item['entry_type_code'];
@@ -1983,7 +2007,13 @@ class ShopOwnerController extends Controller
                     continue;
                 }
 
-                $setting = $shopSettingsMap->get((int) $entryType->id);
+                $setting = $shopSettings->first(function ($s) use ($entryType, $headerId) {
+                    if ((int) $s->entry_type_id !== (int) $entryType->id) {
+                        return false;
+                    }
+
+                    return $headerId ? (int) $s->header_group_id === $headerId : true;
+                }) ?? $shopSettings->firstWhere('entry_type_id', $entryType->id);
                 $isStaffCode = in_array(strtolower($code), ['salary', 'staff_advance', 'advance'], true);
                 $isReadonly = (bool) ($setting?->is_readonly);
 
@@ -2019,13 +2049,21 @@ class ShopOwnerController extends Controller
                     ->get()
                     ->keyBy('code');
 
-                $existingTxMap = ShopLedgerTransaction::query()
+                $existingTxs = ShopLedgerTransaction::query()
                     ->where('shop_id', (int) $shop->id)
                     ->where('business_date', $validated['business_date'])
                     ->where('generated_by_rule', false)
                     ->whereNull('reference_type')
-                    ->get()
-                    ->keyBy(fn ($t) => (int) $t->entry_type_id);
+                    ->get();
+
+                $existingTxMap = [];
+                foreach ($existingTxs as $t) {
+                    $fs = $t->funding_source ?: 'sales';
+                    $existingTxMap[(int) $t->entry_type_id.'_'.$fs] = $t;
+                    if (! isset($existingTxMap[(int) $t->entry_type_id])) {
+                        $existingTxMap[(int) $t->entry_type_id] = $t;
+                    }
+                }
 
                 foreach ($entries as $item) {
                     $code = (string) $item['entry_type_code'];
@@ -2043,7 +2081,11 @@ class ShopOwnerController extends Controller
                     $fundingSource = (! empty($item['funding_source']) && $item['funding_source'] !== 'none') ? (string) $item['funding_source'] : null;
                     $notes = $item['notes'] ?? null;
 
-                    $existingTx = $existingTxMap->get((int) $entryType->id);
+                    $txKey = (int) $entryType->id.'_'.($fundingSource ?: 'sales');
+                    $existingTx = $existingTxMap[$txKey] ?? null;
+                    if (! $existingTx && ! $fundingSource) {
+                        $existingTx = $existingTxMap[(int) $entryType->id] ?? null;
+                    }
 
                     if ($existingTx) {
                         if (! $existingTx->isReconciled()) {

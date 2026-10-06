@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin;
 
+use App\Models\Client;
 use App\Models\Employee;
 use App\Models\EmployeeAdvanceRule;
 use App\Models\PayrollRun;
@@ -324,5 +325,124 @@ class CashbookStaffSettingsTest extends TestCase
         // Submitting settings created ZERO new cashbook entries or lines
         $this->assertEquals($initialEntriesCount, ShopAccountingEntry::query()->count());
         $this->assertEquals($initialLinesCount, ShopAccountingEntryLine::query()->count());
+    }
+
+    public function test_settings_page_displays_only_active_client_shops_under_client_name(): void
+    {
+        $client = Client::query()->create([
+            'code' => 'TEST_CLIENT',
+            'name' => 'Acme Holdings Client',
+            'status' => 'active',
+        ]);
+
+        $activeClientShop = Shop::query()->create([
+            'name' => 'Acme Downtown Branch',
+            'code' => 'ACME_DT',
+            'warehouse_tag' => 'ADT',
+            'status' => 'active',
+            'client_id' => $client->id,
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+            'is_active' => true,
+        ]);
+
+        $inactiveClientShop = Shop::query()->create([
+            'name' => 'Acme Closed Branch',
+            'code' => 'ACME_CL',
+            'warehouse_tag' => 'ACL',
+            'status' => 'inactive',
+            'client_id' => $client->id,
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+            'is_active' => false,
+        ]);
+
+        $nonClientShop = Shop::query()->create([
+            'name' => 'Independent Regular Market',
+            'code' => 'IND_MKT',
+            'warehouse_tag' => 'IND',
+            'status' => 'active',
+            'client_id' => null,
+            'accounting_enabled' => false,
+            'accounting_mode' => 'regular',
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.settings'));
+
+        $response->assertOk();
+        $response->assertSeeText('Acme Holdings Client');
+        $response->assertSeeText('Acme Downtown Branch');
+        $response->assertDontSeeText('Acme Closed Branch');
+        $response->assertDontSeeText('Independent Regular Market');
+    }
+
+    public function test_shop_settings_page_has_top_shop_switcher_with_active_client_shops_and_retains_all_controls(): void
+    {
+        $client = Client::query()->create([
+            'code' => 'GLOBAL_CLIENT',
+            'name' => 'Metro Client Group',
+            'status' => 'active',
+        ]);
+
+        $activeShop1 = Shop::query()->create([
+            'name' => 'Metro Flagship',
+            'code' => 'METRO_01',
+            'warehouse_tag' => 'M1',
+            'status' => 'active',
+            'client_id' => $client->id,
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+            'is_active' => true,
+        ]);
+
+        $activeShop2 = Shop::query()->create([
+            'name' => 'Metro Express',
+            'code' => 'METRO_02',
+            'warehouse_tag' => 'M2',
+            'status' => 'active',
+            'client_id' => $client->id,
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+            'is_active' => true,
+        ]);
+
+        $inactiveShop = Shop::query()->create([
+            'name' => 'Metro Shut Store',
+            'code' => 'METRO_SHUT',
+            'warehouse_tag' => 'MS',
+            'status' => 'inactive',
+            'client_id' => $client->id,
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+            'is_active' => false,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.settings.shop', $activeShop1->id));
+
+        $response->assertOk();
+        // Top switcher & identity
+        $response->assertSee('Switch Active Shop');
+        $response->assertSee('Metro Flagship');
+        $response->assertSee('Metro Client Group');
+        $response->assertSee('header-shop-switcher');
+        $response->assertSee('Metro Express');
+        $response->assertDontSee('Metro Shut Store');
+
+        // Retained operational controls & forms
+        $response->assertSee('id="month-select"', false);
+        $response->assertSee('Refresh &amp; Recalculate Month', false);
+        $response->assertSee('id="toggle-show-disabled"', false);
+
+        // Retained section navigation anchors & portals
+        $response->assertSee('#income-sales');
+        $response->assertSee('#expenses');
+        $response->assertSee('#transfers-settlements');
+        $response->assertSee('#collection');
+        $response->assertSee('#historical-fetch');
+        $response->assertSee('#instructions-guide');
+        $response->assertSee('Vendors &rarr;', false);
+        $response->assertSee('Payments &rarr;', false);
+        $response->assertSee('Demo Cashbook');
     }
 }

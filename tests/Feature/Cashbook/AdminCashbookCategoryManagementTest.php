@@ -12,6 +12,7 @@ use App\Models\Cashbook\ShopCashbookRelationItem;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Client;
 use App\Models\Shop;
 use App\Models\ShopSupplier;
 use App\Models\Supplier;
@@ -45,8 +46,24 @@ class AdminCashbookCategoryManagementTest extends TestCase
         ]);
         $this->admin->assignRole('admin');
 
-        $this->shopA = Shop::factory()->create(['name' => 'Shop Alpha']);
-        $this->shopB = Shop::factory()->create(['name' => 'Shop Beta']);
+        $client = Client::create([
+            'name' => 'Main Client',
+            'code' => 'MAIN_CLIENT',
+            'status' => 'active',
+        ]);
+
+        $this->shopA = Shop::factory()->create([
+            'name' => 'Shop Alpha',
+            'client_id' => $client->id,
+            'accounting_enabled' => true,
+            'status' => 'active',
+        ]);
+        $this->shopB = Shop::factory()->create([
+            'name' => 'Shop Beta',
+            'client_id' => $client->id,
+            'accounting_enabled' => true,
+            'status' => 'active',
+        ]);
     }
 
     public function test_category_list_displays_all_categories_and_shop_summaries(): void
@@ -569,5 +586,130 @@ class AdminCashbookCategoryManagementTest extends TestCase
 
         $setting->refresh();
         $this->assertEquals('company', $service->resolveFundingSource($setting));
+    }
+
+    public function test_categories_index_only_displays_active_client_shops(): void
+    {
+        $activeClient = Client::create([
+            'name' => 'Acme Retail',
+            'code' => 'ACME',
+            'status' => 'active',
+        ]);
+
+        $activeClientShop = Shop::factory()->create([
+            'name' => 'Active Client Store',
+            'code' => 'ACS_01',
+            'client_id' => $activeClient->id,
+            'status' => 'active',
+        ]);
+
+        $inactiveClientShop = Shop::factory()->create([
+            'name' => 'Inactive Client Store',
+            'code' => 'ICS_01',
+            'client_id' => $activeClient->id,
+            'status' => 'inactive',
+        ]);
+
+        $nonClientShop = Shop::factory()->create([
+            'name' => 'Direct Non Client Store',
+            'code' => 'DNCS_01',
+            'client_id' => null,
+            'status' => 'active',
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.categories.index'));
+
+        $response->assertStatus(200);
+        $shops = $response->viewData('allShops');
+        $this->assertTrue($shops->contains('id', $activeClientShop->id));
+        $this->assertFalse($shops->contains('id', $inactiveClientShop->id));
+        $this->assertFalse($shops->contains('id', $nonClientShop->id));
+    }
+
+    public function test_categories_index_filters_shops_by_selected_client(): void
+    {
+        $clientA = Client::create([
+            'name' => 'Client Alpha Group',
+            'code' => 'CAG',
+            'status' => 'active',
+        ]);
+
+        $clientB = Client::create([
+            'name' => 'Client Beta Group',
+            'code' => 'CBG',
+            'status' => 'active',
+        ]);
+
+        $shopA = Shop::factory()->create([
+            'name' => 'Alpha Specific Mart',
+            'client_id' => $clientA->id,
+            'status' => 'active',
+        ]);
+
+        $shopB = Shop::factory()->create([
+            'name' => 'Beta Specific Mart',
+            'client_id' => $clientB->id,
+            'status' => 'active',
+        ]);
+
+        $responseA = $this->actingAs($this->admin)->get(route('admin.cashbook.categories.index', [
+            'client_id' => $clientA->id,
+        ]));
+
+        $responseA->assertStatus(200);
+        $shopsA = $responseA->viewData('allShops');
+        $this->assertTrue($shopsA->contains('id', $shopA->id));
+        $this->assertFalse($shopsA->contains('id', $shopB->id));
+
+        $responseB = $this->actingAs($this->admin)->get(route('admin.cashbook.categories.index', [
+            'client_id' => $clientB->id,
+        ]));
+
+        $responseB->assertStatus(200);
+        $shopsB = $responseB->viewData('allShops');
+        $this->assertTrue($shopsB->contains('id', $shopB->id));
+        $this->assertFalse($shopsB->contains('id', $shopA->id));
+    }
+
+    public function test_categories_index_searches_shops_by_name_or_code(): void
+    {
+        $client = Client::create([
+            'name' => 'Search Test Client',
+            'code' => 'STC',
+            'status' => 'active',
+        ]);
+
+        $searchMatchShop = Shop::factory()->create([
+            'name' => 'Emerald Supermarket',
+            'code' => 'EMERALD_01',
+            'client_id' => $client->id,
+            'status' => 'active',
+        ]);
+
+        $otherShop = Shop::factory()->create([
+            'name' => 'Ruby Corner Mart',
+            'code' => 'RUBY_01',
+            'client_id' => $client->id,
+            'status' => 'active',
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.categories.index', [
+            'shop_search' => 'Emerald',
+        ]));
+
+        $response->assertStatus(200);
+        $shops = $response->viewData('allShops');
+        $this->assertTrue($shops->contains('id', $searchMatchShop->id));
+        $this->assertFalse($shops->contains('id', $otherShop->id));
+    }
+
+    public function test_categories_index_renders_client_selector_and_search_inputs(): void
+    {
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.categories.index'));
+
+        $response->assertStatus(200);
+        $response->assertSee('name="client_id"', false);
+        $response->assertSee('name="shop_search"', false);
+        $response->assertSee('id="categoryLiveFilterInput"', false);
     }
 }

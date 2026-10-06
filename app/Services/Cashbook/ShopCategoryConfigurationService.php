@@ -9,8 +9,12 @@ use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopCashbookRelation;
 use App\Models\Cashbook\ShopCashbookRelationItem;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
+use App\Models\Cashbook\ShopLedgerHeaderGroup;
+use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Shop;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 final class ShopCategoryConfigurationService
 {
@@ -206,5 +210,216 @@ final class ShopCategoryConfigurationService
                 }
             }
         });
+    }
+
+    /**
+     * Attach an existing category (LedgerEntryType) to a specific Header Group for a shop.
+     * Prevents duplicate under the SAME header, but allows attaching to MULTIPLE headers.
+     */
+    public function attachCategoryToHeader(
+        Shop $shop,
+        ShopLedgerHeaderGroup $header,
+        LedgerEntryType $entryType,
+        array $options = []
+    ): ShopLedgerEntrySetting {
+        if ((int) $header->shop_id !== (int) $shop->id) {
+            throw ValidationException::withMessages([
+                'header_id' => 'The selected header does not belong to this shop.',
+            ]);
+        }
+
+        $existing = ShopLedgerEntrySetting::where('shop_id', $shop->id)
+            ->where('header_group_id', $header->id)
+            ->where('entry_type_id', $entryType->id)
+            ->first();
+
+        if ($existing) {
+            if ($existing->enabled) {
+                throw ValidationException::withMessages([
+                    'category_id' => "Category '{$entryType->name}' is already attached to header '{$header->name}'.",
+                ]);
+            }
+
+            $existing->update(['enabled' => true]);
+
+            return $existing;
+        }
+
+        $isIncome = strtolower((string) $header->type) === 'income';
+        $isExpense = strtolower((string) $header->type) === 'expense';
+        $maxOrder = (int) (ShopLedgerEntrySetting::where('shop_id', $shop->id)
+            ->where('header_group_id', $header->id)
+            ->max('header_display_order') ?? 0);
+
+        $fundingSource = match ($header->cash_flow_mode) {
+            'shop_cash' => 'sales',
+            'petty' => 'petty',
+            'company', 'company_account' => 'company',
+            'none' => 'none',
+            default => 'sales',
+        };
+
+        return ShopLedgerEntrySetting::create([
+            'shop_id' => $shop->id,
+            'header_group_id' => $header->id,
+            'entry_type_id' => $entryType->id,
+            'display_name' => ! empty($options['display_name']) ? trim((string) $options['display_name']) : null,
+            'enabled' => true,
+            'header_display_order' => $maxOrder + 1,
+            'display_order' => $maxOrder + 1,
+            'effective_from' => now()->toDateString(),
+            'default_funding_source' => $fundingSource,
+            'include_in_sales' => $entryType->code === 'cash_sales',
+            'include_in_income' => $isIncome,
+            'include_in_expense' => $isExpense,
+            'include_in_pl' => true,
+            'mirror_to_cashbook' => true,
+        ]);
+    }
+
+    /**
+     * Create a new category definition and attach it to a header for a shop.
+     */
+    public function createAndAttachCategory(
+        Shop $shop,
+        ShopLedgerHeaderGroup $header,
+        string $name,
+        array $options = []
+    ): ShopLedgerEntrySetting {
+        $trimmedName = trim($name);
+        if ($trimmedName === '') {
+            throw ValidationException::withMessages([
+                'name' => 'Category name is required.',
+            ]);
+        }
+
+        $code = Str::slug($trimmedName, '_');
+        $originalCode = $code;
+        $counter = 1;
+        while (LedgerEntryType::where('code', $code)->exists()) {
+            $code = $originalCode.'_'.$counter;
+            $counter++;
+        }
+
+        $maxOrder = (int) (LedgerEntryType::max('display_order') ?? 0);
+
+        $entryType = LedgerEntryType::create([
+            'code' => $code,
+            'name' => $trimmedName,
+            'category' => strtolower((string) $header->type),
+            'system_type' => 'custom',
+            'active' => true,
+            'display_order' => $maxOrder + 1,
+        ]);
+
+        return $this->attachCategoryToHeader($shop, $header, $entryType, $options);
+    }
+
+    /**
+     * Reorder categories within a specific header.
+     */
+    public function reorderHeaderCategories(Shop $shop, ShopLedgerHeaderGroup $header, array $settingIdsInOrder): void
+    {
+        if ((int) $header->shop_id !== (int) $shop->id) {
+            throw ValidationException::withMessages([
+                'header_id' => 'The selected header does not belong to this shop.',
+            ]);
+        }
+
+        DB::transaction(function () use ($shop, $header, $settingIdsInOrder): void {
+            foreach ($settingIdsInOrder as $index => $settingId) {
+                ShopLedgerEntrySetting::where('id', (int) $settingId)
+                    ->where('shop_id', $shop->id)
+                    ->where('header_group_id', $header->id)
+                    ->update([
+                        'header_display_order' => $index + 1,
+                        'display_order' => $index + 1,
+                    ]);
+            }
+        });
+    }
+
+    /**
+     * Toggle enabled state of a category setting.
+     */
+    public function toggleSetting(ShopLedgerEntrySetting $setting): ShopLedgerEntrySetting
+    {
+        $setting->update(['enabled' => ! $setting->enabled]);
+
+        return $setting;
+    }
+
+    /**
+     * Rename a category setting.
+     */
+    public function renameSetting(ShopLedgerEntrySetting $setting, string $newName): ShopLedgerEntrySetting
+    {
+        $trimmed = trim($newName);
+        if ($trimmed === '') {
+            throw ValidationException::withMessages(['name' => 'Name cannot be empty.']);
+        }
+
+        if ($setting->is_readonly) {
+            throw ValidationException::withMessages(['name' => 'Protected system categories cannot be renamed.']);
+        }
+
+        if ($setting->entryType?->system_type === 'custom') {
+            $setting->entryType->update(['name' => $trimmed]);
+        }
+
+        $setting->update(['display_name' => $trimmed]);
+
+        return $setting;
+    }
+
+    /**
+     * Detach a category setting from a header.
+     * Preserves historical ledger consistency.
+     */
+    public function detachSetting(ShopLedgerEntrySetting $setting): void
+    {
+        if ($setting->is_readonly || in_array($setting->entryType?->code, ['cash_sales', 'purchase_bill', 'gl_bill', 'salary', 'staff_advance'], true)) {
+            throw ValidationException::withMessages(['setting' => 'Protected system categories cannot be removed.']);
+        }
+
+        $hasTransactions = ShopLedgerTransaction::where('shop_id', $setting->shop_id)
+            ->where('entry_type_id', $setting->entry_type_id)
+            ->exists();
+
+        if ($hasTransactions) {
+            $setting->update([
+                'enabled' => false,
+                'header_group_id' => null,
+            ]);
+        } else {
+            $setting->delete();
+        }
+    }
+
+    /**
+     * Create a new Header Group for a shop.
+     */
+    public function createHeaderGroup(Shop $shop, string $name, string $type, ?string $cashFlowMode = null): ShopLedgerHeaderGroup
+    {
+        $trimmed = trim($name);
+        if ($trimmed === '') {
+            throw ValidationException::withMessages(['name' => 'Header name is required.']);
+        }
+
+        $type = strtolower($type);
+        if (! in_array($type, ['income', 'expense'], true)) {
+            throw ValidationException::withMessages(['type' => 'Type must be either income or expense.']);
+        }
+
+        $maxOrder = (int) (ShopLedgerHeaderGroup::where('shop_id', $shop->id)->where('type', $type)->max('display_order') ?? 0);
+
+        return ShopLedgerHeaderGroup::create([
+            'shop_id' => $shop->id,
+            'name' => $trimmed,
+            'type' => $type,
+            'cash_flow_mode' => $cashFlowMode ?: ($type === 'income' ? 'shop_cash' : 'shop_cash'),
+            'display_order' => $maxOrder + 1,
+            'enabled' => true,
+        ]);
     }
 }

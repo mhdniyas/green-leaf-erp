@@ -11,6 +11,7 @@ use App\Models\Cashbook\ShopCashbookRelation;
 use App\Models\Cashbook\ShopCashbookRelationItem;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerHeaderGroup;
+use App\Models\Client;
 use App\Models\Shop;
 use App\Models\ShopSupplier;
 use App\Services\Cashbook\CategoryExplanationService;
@@ -28,17 +29,129 @@ class CashbookCategoryController extends Controller
     ) {}
 
     /**
-     * List all categories with intelligent non-misleading shop summaries.
+     * List categories organized around Headers (Income & Expense) or Global Catalog.
      */
     public function index(Request $request): View
     {
+        $clients = Client::query()->active()->orderBy('name')->get();
+
+        $selectedClientId = $request->filled('client_id') ? (int) $request->input('client_id') : null;
+        $shopSearch = $request->filled('shop_search') ? trim((string) $request->input('shop_search')) : null;
+
+        // Base query: ONLY active client shops
+        $shopsQuery = Shop::query()
+            ->active()
+            ->whereNotNull('client_id')
+            ->with('client')
+            ->orderBy('name');
+
+        if ($selectedClientId) {
+            $shopsQuery->where('client_id', $selectedClientId);
+        }
+
+        if ($shopSearch !== null && $shopSearch !== '') {
+            $searchLower = strtolower($shopSearch);
+            $shopsQuery->where(function ($q) use ($searchLower): void {
+                $q->whereRaw('LOWER(name) LIKE ?', ["%{$searchLower}%"])
+                    ->orWhereRaw('LOWER(code) LIKE ?', ["%{$searchLower}%"]);
+            });
+        }
+
+        $allShops = $shopsQuery->get();
+
+        $user = $request->user();
+        $shopParam = $request->input('shop');
+
+        $currentShop = null;
+        if ($shopParam) {
+            $currentShop = $allShops->first(function (Shop $s) use ($shopParam): bool {
+                return (string) $s->id === (string) $shopParam || strcasecmp((string) $s->code, (string) $shopParam) === 0;
+            });
+
+            // If not found in filtered list (e.g. search narrowed it down or client filter changed),
+            // check if the requested shop is an active client shop
+            if (! $currentShop && ! $shopSearch) {
+                $candidate = Shop::query()
+                    ->active()
+                    ->whereNotNull('client_id')
+                    ->with('client')
+                    ->where(function ($q) use ($shopParam): void {
+                        $q->where('id', is_numeric($shopParam) ? (int) $shopParam : 0)
+                            ->orWhere('code', (string) $shopParam);
+                    })->first();
+
+                if ($candidate) {
+                    if ($selectedClientId && (int) $candidate->client_id !== $selectedClientId) {
+                        $currentShop = $allShops->first();
+                    } else {
+                        $currentShop = $candidate;
+                    }
+                }
+            }
+        }
+
+        if (! $currentShop) {
+            $currentShop = ($user && $user->shop_id)
+                ? $allShops->firstWhere('id', (int) $user->shop_id)
+                : $allShops->first();
+        }
+
+        if (! $currentShop && $allShops->isNotEmpty()) {
+            $currentShop = $allShops->first();
+        }
+
+        if ($user && ! $user->isMainAdmin() && ! $user->hasRole('admin')) {
+            if ($user->shop_id && $currentShop && (int) $currentShop->id !== (int) $user->shop_id) {
+                abort(403, 'Unauthorized access to shop configuration.');
+            }
+        }
+
+        $incomeHeaders = collect();
+        $expenseHeaders = collect();
+        $multiHeaderCodes = [];
+        $availableCategories = LedgerEntryType::query()->where('active', true)->orderBy('name')->get();
+
+        if ($currentShop) {
+            $incomeHeaders = ShopLedgerHeaderGroup::query()
+                ->where('shop_id', (int) $currentShop->id)
+                ->where('type', 'income')
+                ->with(['entrySettings' => fn ($q) => $q->orderBy('header_display_order')->orderBy('display_order')->with('entryType')])
+                ->orderBy('display_order')
+                ->get();
+
+            $expenseHeaders = ShopLedgerHeaderGroup::query()
+                ->where('shop_id', (int) $currentShop->id)
+                ->where('type', 'expense')
+                ->with(['entrySettings' => fn ($q) => $q->orderBy('header_display_order')->orderBy('display_order')->with('entryType')])
+                ->orderBy('display_order')
+                ->get();
+
+            $allShopSettings = ShopLedgerEntrySetting::query()
+                ->where('shop_id', (int) $currentShop->id)
+                ->where('enabled', true)
+                ->whereNotNull('header_group_id')
+                ->with('entryType', 'headerGroup')
+                ->get();
+
+            $groupedByEntryType = $allShopSettings->groupBy('entry_type_id');
+            foreach ($groupedByEntryType as $entryTypeId => $settingsGroup) {
+                if ($settingsGroup->count() > 1) {
+                    $first = $settingsGroup->first();
+                    if ($first && $first->entryType) {
+                        $headerNames = $settingsGroup->map(fn ($s) => $s->headerGroup?->name)->filter()->unique()->values()->all();
+                        $multiHeaderCodes[$first->entryType->code] = $headerNames;
+                    }
+                }
+            }
+        }
+
         $query = LedgerEntryType::query()->with([
             'settings' => fn ($q) => $q->where('enabled', true)->with(['headerGroup', 'companyAccount', 'definedShopSuppliers', 'vendorSettlementRelation']),
         ])->orderBy('display_order')->orderBy('name');
 
         if ($request->filled('search')) {
             $search = strtolower(trim((string) $request->input('search')));
-            $query->where(function ($q) use ($search) {
+            $query->where(function ($q) use ($search): void {
                 $q->whereRaw('LOWER(name) LIKE ?', ["%{$search}%"])
                     ->orWhereRaw('LOWER(code) LIKE ?', ["%{$search}%"]);
             });
@@ -49,11 +162,13 @@ class CashbookCategoryController extends Controller
         }
 
         $categories = $query->get();
-        $allShops = Shop::query()->orderBy('name')->get();
 
-        // Calculate aggregated shop summaries per category
-        $categorySummaries = $categories->mapWithKeys(function (LedgerEntryType $cat) use ($allShops): array {
-            $enabledSettings = $cat->settings;
+        // Calculate aggregated shop summaries per category strictly scoped to active client shops
+        $activeClientShopIds = $allShops->pluck('id')->all();
+        $totalActiveShopsCount = count($activeClientShopIds);
+
+        $categorySummaries = $categories->mapWithKeys(function (LedgerEntryType $cat) use ($activeClientShopIds, $totalActiveShopsCount): array {
+            $enabledSettings = $cat->settings->filter(fn ($s) => in_array((int) $s->shop_id, $activeClientShopIds, true));
             $shopCount = $enabledSettings->count();
 
             // 1. Header Summary
@@ -92,14 +207,14 @@ class CashbookCategoryController extends Controller
             $vendorPurchases = $enabledSettings->filter(fn ($s) => $s->is_vendor_purchase);
             $vendorSummary = match ($vendorPurchases->count()) {
                 0 => 'None',
-                $allShops->count() => 'All Shops',
+                $totalActiveShopsCount => 'All Shops',
                 default => $vendorPurchases->count().' Shops',
             };
 
             return [
                 $cat->id => [
                     'shop_count' => $shopCount,
-                    'total_shops' => $allShops->count(),
+                    'total_shops' => $totalActiveShopsCount,
                     'header' => $headerSummary,
                     'settlement' => $settlementSummary,
                     'company' => $companySummary,
@@ -108,7 +223,13 @@ class CashbookCategoryController extends Controller
             ];
         });
 
-        return view('admin.cashbook.categories.index', compact('categories', 'categorySummaries', 'allShops'));
+        $activeView = $request->input('view', 'headers');
+
+        return view('admin.cashbook.categories.index', compact(
+            'categories', 'categorySummaries', 'allShops', 'currentShop',
+            'incomeHeaders', 'expenseHeaders', 'availableCategories', 'multiHeaderCodes', 'activeView',
+            'clients', 'selectedClientId', 'shopSearch'
+        ));
     }
 
     /**
@@ -116,7 +237,12 @@ class CashbookCategoryController extends Controller
      */
     public function create(): View
     {
-        $shops = Shop::query()->orderBy('name')->get();
+        $shops = Shop::query()
+            ->active()
+            ->whereNotNull('client_id')
+            ->with('client')
+            ->orderBy('name')
+            ->get();
 
         return view('admin.cashbook.categories.create', compact('shops'));
     }
@@ -162,6 +288,150 @@ class CashbookCategoryController extends Controller
     }
 
     /**
+     * Store new Header Group for a shop.
+     */
+    public function storeHeader(Request $request, int|string|null $shop = null): RedirectResponse
+    {
+        $shopId = $shop ?? $request->input('shop_id', $request->user()?->shop_id);
+        if (! $shopId) {
+            abort(422, 'Shop ID is required.');
+        }
+
+        $resolvedShop = $this->resolveShop($shopId);
+        $this->authorizeShopAccess($request, $resolvedShop);
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'type' => ['required', 'string', 'in:income,expense'],
+            'cash_flow_mode' => ['nullable', 'string', 'in:shop_cash,petty,company,none'],
+            'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
+        ]);
+
+        $this->configService->createHeaderGroup(
+            $resolvedShop,
+            $validated['name'],
+            $validated['type'],
+            $validated['cash_flow_mode'] ?? null
+        );
+
+        return redirect()->route('admin.cashbook.categories.index', ['shop' => $resolvedShop->id, 'view' => 'headers'])
+            ->with('success', "Header '{$validated['name']}' created successfully.");
+    }
+
+    /**
+     * Attach category (existing or new) to a header.
+     * Supports both clean /headers/{header}/categories and legacy /shops/{shop}/headers/{header}/categories.
+     */
+    public function attachCategory(Request $request, mixed $param1, mixed $param2 = null): RedirectResponse
+    {
+        $headerGroup = $param2 !== null
+            ? ShopLedgerHeaderGroup::findOrFail((int) $param2)
+            : ($param1 instanceof ShopLedgerHeaderGroup ? $param1 : ShopLedgerHeaderGroup::findOrFail((int) $param1));
+
+        $resolvedShop = Shop::findOrFail($headerGroup->shop_id);
+        $this->authorizeShopAccess($request, $resolvedShop);
+
+        $validated = $request->validate([
+            'mode' => ['required', 'string', 'in:existing,new'],
+            'category_id' => ['required_if:mode,existing', 'nullable', 'integer', 'exists:ledger_entry_types,id'],
+            'name' => ['required_if:mode,new', 'nullable', 'string', 'max:255'],
+            'display_name' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        if ($validated['mode'] === 'existing') {
+            $entryType = LedgerEntryType::findOrFail((int) $validated['category_id']);
+            $this->configService->attachCategoryToHeader(
+                $resolvedShop,
+                $headerGroup,
+                $entryType,
+                ['display_name' => $validated['display_name'] ?? null]
+            );
+            $catName = $entryType->name;
+        } else {
+            $setting = $this->configService->createAndAttachCategory(
+                $resolvedShop,
+                $headerGroup,
+                (string) $validated['name'],
+                ['display_name' => $validated['display_name'] ?? null]
+            );
+            $catName = $setting->entryType?->name ?? $validated['name'];
+        }
+
+        return redirect()->route('admin.cashbook.categories.index', ['shop' => $resolvedShop->id, 'view' => 'headers'])
+            ->with('success', "Category '{$catName}' added to '{$headerGroup->name}'.");
+    }
+
+    /**
+     * Reorder categories under a header.
+     * Supports both clean /headers/{header}/reorder and legacy /shops/{shop}/headers/{header}/reorder.
+     */
+    public function reorderCategories(Request $request, mixed $param1, mixed $param2 = null): RedirectResponse
+    {
+        $headerGroup = $param2 !== null
+            ? ShopLedgerHeaderGroup::findOrFail((int) $param2)
+            : ($param1 instanceof ShopLedgerHeaderGroup ? $param1 : ShopLedgerHeaderGroup::findOrFail((int) $param1));
+
+        $resolvedShop = Shop::findOrFail($headerGroup->shop_id);
+        $this->authorizeShopAccess($request, $resolvedShop);
+
+        $validated = $request->validate([
+            'order' => ['required', 'array'],
+            'order.*' => ['integer', 'exists:shop_ledger_entry_settings,id'],
+        ]);
+
+        $this->configService->reorderHeaderCategories($resolvedShop, $headerGroup, $validated['order']);
+
+        return redirect()->route('admin.cashbook.categories.index', ['shop' => $resolvedShop->id, 'view' => 'headers'])
+            ->with('success', "Display order updated for '{$headerGroup->name}'.");
+    }
+
+    /**
+     * Toggle active/enabled status for a category setting.
+     */
+    public function toggleSetting(Request $request, ShopLedgerEntrySetting $setting): RedirectResponse
+    {
+        $shop = Shop::findOrFail($setting->shop_id);
+        $this->authorizeShopAccess($request, $shop);
+
+        $this->configService->toggleSetting($setting);
+
+        $status = $setting->fresh()->enabled ? 'enabled' : 'disabled';
+
+        return redirect()->back()->with('success', "Category '{$setting->displayName()}' {$status}.");
+    }
+
+    /**
+     * Rename a category setting.
+     */
+    public function renameSetting(Request $request, ShopLedgerEntrySetting $setting): RedirectResponse
+    {
+        $shop = Shop::findOrFail($setting->shop_id);
+        $this->authorizeShopAccess($request, $shop);
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+        ]);
+
+        $this->configService->renameSetting($setting, $validated['name']);
+
+        return redirect()->back()->with('success', "Category renamed to '{$validated['name']}'.");
+    }
+
+    /**
+     * Detach a category from a header.
+     */
+    public function detachSetting(Request $request, ShopLedgerEntrySetting $setting): RedirectResponse
+    {
+        $shop = Shop::findOrFail($setting->shop_id);
+        $this->authorizeShopAccess($request, $shop);
+
+        $name = $setting->displayName();
+        $this->configService->detachSetting($setting);
+
+        return redirect()->back()->with('success', "Category '{$name}' removed from header.");
+    }
+
+    /**
      * Category Details / Unified Edit Page.
      */
     public function show(string|int $category): View
@@ -172,7 +442,12 @@ class CashbookCategoryController extends Controller
             'settings' => fn ($q) => $q->with(['shop', 'headerGroup', 'companyAccount', 'vendorSettlementRelation', 'definedShopSuppliers']),
         ])->findOrFail($resolvedCategory->id);
 
-        $allShops = Shop::query()->orderBy('name')->get();
+        $allShops = Shop::query()
+            ->active()
+            ->whereNotNull('client_id')
+            ->with('client')
+            ->orderBy('name')
+            ->get();
         $companyAccounts = CompanyAccount::query()->orderBy('name')->get();
 
         // Build shop card configurations with shop-isolated data
@@ -418,5 +693,30 @@ class CashbookCategoryController extends Controller
         return LedgerEntryType::where('code', (string) $category)
             ->orWhere('id', is_numeric($category) ? (int) $category : 0)
             ->firstOrFail();
+    }
+
+    private function resolveShop(int|string $shop): Shop
+    {
+        return Shop::where('id', is_numeric($shop) ? (int) $shop : 0)
+            ->orWhere('code', (string) $shop)
+            ->firstOrFail();
+    }
+
+    private function authorizeShopAccess(Request $request, Shop $shop): void
+    {
+        $user = $request->user();
+        if (! $user) {
+            abort(403);
+        }
+
+        if ($user->isMainAdmin() || $user->hasRole('admin')) {
+            return;
+        }
+
+        if ((int) $user->shop_id === (int) $shop->id) {
+            return;
+        }
+
+        abort(403, 'Unauthorized access to shop configuration.');
     }
 }

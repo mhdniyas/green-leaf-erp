@@ -200,7 +200,15 @@
                 continue;
             }
             if ($tx->entry_type_id) {
-                $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
+                $setting = $settings->first(function ($s) use ($tx) {
+                    if ((int) $s->entry_type_id !== (int) $tx->entry_type_id) {
+                        return false;
+                    }
+                    $resolver = app(\App\Services\Cashbook\CashFlowResolutionService::class);
+                    $sFunding = $resolver->resolveFundingSource($s);
+                    return $sFunding === ($tx->funding_source ?: 'sales');
+                }) ?? $settings->firstWhere('entry_type_id', $tx->entry_type_id);
+
                 if ($setting) {
                     $initialTxAmounts[$setting->id] = ($initialTxAmounts[$setting->id] ?? 0.0) + (float) $tx->amount;
                     if ($tx->notes) {
@@ -266,9 +274,17 @@
     #layout-mobile-nav {
         display: none !important;
     }
+
+    /* Anchor jump controls to bottom corner so they never overlap card buttons */
+    @media (max-width: 1023px) {
+        #page-jump-controls {
+            bottom: 1rem !important;
+            right: 0.75rem !important;
+        }
+    }
 </style>
 
-<div class="max-w-xl mx-auto pb-10 sm:pb-12 space-y-3 sm:space-y-4">
+<div class="max-w-xl mx-auto pb-24 sm:pb-28 space-y-3 sm:space-y-4">
 
     {{-- MAIN CASHBOOK DASHBOARD VIEW --}}
     <div id="cashbook-dashboard-view" @class(['space-y-3 sm:space-y-4', 'hidden' => $isReportTab])>

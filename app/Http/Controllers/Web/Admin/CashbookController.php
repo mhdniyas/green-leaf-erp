@@ -5025,7 +5025,26 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
-        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $shops = $this->shopSyncService->syncAndGetProfiles()
+            ->filter(function ($profile): bool {
+                if (! (bool) $profile->enabled) {
+                    return false;
+                }
+                if (empty($profile->client_id) && empty($profile->shop?->client_id)) {
+                    return false;
+                }
+                if ($profile->shop && strtolower((string) ($profile->shop->status ?? 'active')) !== 'active') {
+                    return false;
+                }
+
+                return true;
+            })
+            ->values();
+
+        $clientGroups = $shops->groupBy(function ($profile): string {
+            return (string) ($profile->client?->name ?? $profile->shop?->client?->name ?? 'Client Shops');
+        });
+
         $clients = LedgerClient::with('shops')->where('enabled', true)->get();
         $entryTypes = LedgerEntryType::where('active', true)->orderBy('display_order')->get();
         $companyAccounts = CompanyAccount::where('enabled', true)->get();
@@ -5042,7 +5061,7 @@ final class CashbookController extends Controller
         ];
 
         return view('admin.cashbook.settings.index', compact(
-            'shops', 'clients', 'entryTypes', 'companyAccounts', 'company', 'currentShop',
+            'shops', 'clientGroups', 'clients', 'entryTypes', 'companyAccounts', 'company', 'currentShop',
             'advanceRule', 'salaryCategory', 'advanceCategory', 'vendorPurchaseEditWindow'
         ));
     }
@@ -5146,13 +5165,36 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
-        $shops = $this->shopSyncService->syncAndGetProfiles();
-        $clients = LedgerClient::with('shops')->where('enabled', true)->get();
-        $companyAccounts = CompanyAccount::where('enabled', true)->get();
-        $company = config('greenleaf');
         $currentShop = $this->resolveShop($shop);
         $currentShop->load('client');
         $this->ensureShopSettings($currentShop);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles()
+            ->filter(function ($profile) use ($currentShop): bool {
+                if ($profile->shop_id === $currentShop->shop_id) {
+                    return true;
+                }
+                if (! (bool) $profile->enabled) {
+                    return false;
+                }
+                if (empty($profile->client_id) && empty($profile->shop?->client_id)) {
+                    return false;
+                }
+                if ($profile->shop && strtolower((string) ($profile->shop->status ?? 'active')) !== 'active') {
+                    return false;
+                }
+
+                return true;
+            })
+            ->values();
+
+        $clientGroups = $shops->groupBy(function ($profile): string {
+            return (string) ($profile->client?->name ?? $profile->shop?->client?->name ?? 'Client Shops');
+        });
+
+        $clients = LedgerClient::with('shops')->where('enabled', true)->get();
+        $companyAccounts = CompanyAccount::where('enabled', true)->get();
+        $company = config('greenleaf');
 
         $selectedMonth = (string) $request->input('month', Carbon::now()->format('Y-m'));
         if (! preg_match('/^\d{4}-\d{2}$/', $selectedMonth)) {
@@ -5176,7 +5218,7 @@ final class CashbookController extends Controller
         $isCurrentMonth = ! $isHistorical;
 
         return view('admin.cashbook.settings.shop', compact(
-            'shops', 'clients', 'companyAccounts', 'company', 'currentShop', 'settingsByCategory', 'collectionGroup', 'bankAdjustmentRules', 'headerGroups', 'relations', 'allEntryTypes', 'shopSuppliers',
+            'shops', 'clientGroups', 'clients', 'companyAccounts', 'company', 'currentShop', 'settingsByCategory', 'collectionGroup', 'bankAdjustmentRules', 'headerGroups', 'relations', 'allEntryTypes', 'shopSuppliers',
             'selectedMonth', 'selectedMonthLabel', 'availableMonths', 'isHistorical', 'isLegacy', 'isReadOnly', 'isCurrentMonth'
         ));
     }

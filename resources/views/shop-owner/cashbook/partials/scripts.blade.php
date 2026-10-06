@@ -74,17 +74,91 @@
 
     function renderSettlementCardsHtml(settlementList) {
         if (!settlementList || settlementList.length === 0) {
-            return '<div class="text-xs text-slate-500 italic p-3 bg-slate-50 rounded-xl border border-slate-100">No active settlements configured.</div>';
+            return '<div class="text-xs text-slate-500 italic p-3 bg-slate-50 rounded-xl border border-slate-100 text-center">No active settlements configured.</div>';
         }
 
         return settlementList.map(settlement => {
             const isExpanded = !!settlementCardCollapseState[settlement.id];
             const activeItems = (settlement.items || []).filter(item => Math.abs(item.amount || 0) > 0.0001);
             const hasVisibleItems = activeItems.length > 0;
-            const amountClass = settlement.amount < 0 ? 'text-rose-700' : (settlement.is_net_balance ? 'text-emerald-700 font-black' : 'text-indigo-700');
-            const cardBgClass = settlement.is_net_balance
-                ? 'bg-emerald-50/50 border-emerald-200'
-                : (settlement.is_company_payable ? 'bg-amber-50/50 border-amber-200' : 'bg-slate-50/80 border-slate-200');
+
+            const rawName = String(settlement.name || '').trim();
+            const displayName = (rawName === rawName.toUpperCase() && rawName.length > 2)
+                ? rawName.charAt(0) + rawName.slice(1).toLowerCase()
+                : rawName;
+            const nameLower = rawName.toLowerCase();
+
+            const isNetBal = Boolean(settlement.is_net_balance || nameLower === 'balance' || nameLower.includes('net balance'));
+            const isIncome = nameLower === 'income' || nameLower.includes('inflow') || nameLower.includes('collection');
+            const isExpense = nameLower === 'expense' || nameLower.includes('outflow') || nameLower.includes('expenditure');
+            const isCompany = Boolean(settlement.is_company_payable || nameLower.includes('company') || nameLower.includes('payable'));
+            const isPetty = nameLower === 'petty';
+
+            let iconHtml = '';
+            let rowBorderBg = '';
+            let subtitle = '';
+            let amountClass = '';
+            let signPrefix = '';
+
+            if (isNetBal) {
+                const isNegative = settlement.amount < 0;
+                iconHtml = `
+                    <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-lg ${isNegative ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'} flex items-center justify-center shrink-0 shadow-2xs">
+                        <i data-lucide="scale" class="h-3.5 w-3.5 sm:h-4 sm:w-4"></i>
+                    </div>
+                `;
+                rowBorderBg = isNegative
+                    ? 'bg-rose-50/70 border-rose-200/90 shadow-2xs'
+                    : 'bg-emerald-50/70 border-emerald-200/90 shadow-2xs';
+                subtitle = `<span class="text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${isNegative ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'}">Net Position</span>`;
+                amountClass = isNegative ? 'text-rose-700 font-black' : 'text-emerald-700 font-black';
+            } else if (isIncome) {
+                iconHtml = `
+                    <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-50 border border-emerald-200/70 text-emerald-700 flex items-center justify-center shrink-0">
+                        <i data-lucide="arrow-down-left" class="h-3.5 w-3.5 sm:h-4 sm:w-4"></i>
+                    </div>
+                `;
+                rowBorderBg = 'bg-white border-slate-200/90 hover:border-emerald-200';
+                subtitle = '<span class="text-[10px] font-semibold text-slate-400">Total Inflow</span>';
+                amountClass = settlement.amount > 0 ? 'text-emerald-700 font-bold' : 'text-slate-600 font-semibold';
+                signPrefix = settlement.amount > 0 ? '+' : '';
+            } else if (isExpense) {
+                iconHtml = `
+                    <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-rose-50 border border-rose-200/70 text-rose-700 flex items-center justify-center shrink-0">
+                        <i data-lucide="arrow-up-right" class="h-3.5 w-3.5 sm:h-4 sm:w-4"></i>
+                    </div>
+                `;
+                rowBorderBg = 'bg-white border-slate-200/90 hover:border-rose-200';
+                subtitle = '<span class="text-[10px] font-semibold text-slate-400">Total Outflow</span>';
+                amountClass = settlement.amount > 0 ? 'text-rose-700 font-bold' : 'text-slate-600 font-semibold';
+                signPrefix = settlement.amount > 0 ? '−' : '';
+            } else if (isCompany) {
+                iconHtml = `
+                    <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-amber-50 border border-amber-200/80 text-amber-800 flex items-center justify-center shrink-0">
+                        <i data-lucide="building-2" class="h-3.5 w-3.5 sm:h-4 sm:w-4"></i>
+                    </div>
+                `;
+                rowBorderBg = 'bg-amber-50/30 border-amber-200/80 hover:border-amber-300';
+                subtitle = '<span class="text-[9px] font-extrabold uppercase tracking-wider text-amber-800 bg-amber-100/80 px-1.5 py-0.5 rounded-full">Payable</span>';
+                amountClass = 'text-amber-900 font-bold';
+            } else if (isPetty) {
+                iconHtml = `
+                    <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-indigo-50 border border-indigo-200/70 text-indigo-700 flex items-center justify-center shrink-0">
+                        <i data-lucide="coins" class="h-3.5 w-3.5 sm:h-4 sm:w-4"></i>
+                    </div>
+                `;
+                rowBorderBg = 'bg-white border-slate-200/90 hover:border-indigo-200';
+                subtitle = '<span class="text-[10px] font-semibold text-slate-400">Shop Petty</span>';
+                amountClass = 'text-slate-900 font-bold';
+            } else {
+                iconHtml = `
+                    <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-slate-50 border border-slate-200/70 text-slate-600 flex items-center justify-center shrink-0">
+                        <i data-lucide="arrow-left-right" class="h-3.5 w-3.5 sm:h-4 sm:w-4"></i>
+                    </div>
+                `;
+                rowBorderBg = 'bg-white border-slate-200/90 hover:border-slate-300';
+                amountClass = settlement.amount < 0 ? 'text-rose-700 font-bold' : 'text-slate-900 font-bold';
+            }
 
             let itemsHtml = '';
             if (hasVisibleItems) {
@@ -103,25 +177,36 @@
 
             const splitBtnHtml = hasVisibleItems ? `
                 <button type="button" onclick="event.stopPropagation(); toggleSettlementCardSplit('${settlement.id}')"
-                        class="text-[10px] font-bold text-slate-600 hover:text-slate-900 px-2 py-0.5 rounded-md bg-white hover:bg-slate-100 transition border border-slate-200 shadow-2xs inline-flex items-center gap-1 cursor-pointer shrink-0">
-                    <span>${isExpanded ? 'Hide Split' : 'Show Split'}</span>
+                        class="text-[10px] font-bold text-slate-500 hover:text-slate-800 px-2 py-0.5 rounded-full bg-slate-100 hover:bg-slate-200/70 transition border border-slate-200/60 inline-flex items-center gap-1 cursor-pointer shrink-0">
+                    <span>${isExpanded ? 'Hide' : 'Split'}</span>
                     <i data-lucide="chevron-${isExpanded ? 'up' : 'down'}" class="h-3 w-3 inline"></i>
                 </button>
             ` : '';
 
+            const formattedVal = formatCurrency(Math.abs(settlement.amount), false);
+            const displayAmt = (settlement.amount !== 0 && signPrefix)
+                ? `${signPrefix} ${formattedVal}`
+                : formatCurrency(settlement.amount, false);
+
             return `
-                <div class="rounded-2xl border ${cardBgClass} p-3.5 space-y-2 transition">
-                    <div class="flex items-center justify-between gap-3">
-                        <div class="min-w-0 flex-1">
-                            <span class="font-bold text-slate-900 break-words leading-tight">${escapeHtml(settlement.name)}</span>
+                <div class="rounded-xl border ${rowBorderBg} p-2.5 sm:p-3 transition shadow-2xs">
+                    <div class="flex items-center justify-between gap-2.5">
+                        <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                            ${iconHtml}
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <span class="text-xs sm:text-sm font-bold text-slate-900 leading-tight truncate">${escapeHtml(displayName)}</span>
+                                    ${subtitle}
+                                </div>
+                            </div>
                         </div>
                         <div class="flex items-center gap-2 shrink-0">
                             ${splitBtnHtml}
-                            <span class="font-mono font-bold ${amountClass}">${formatCurrency(settlement.amount, false)}</span>
+                            <span class="font-mono text-xs sm:text-sm ${amountClass}">${displayAmt}</span>
                         </div>
                     </div>
                     ${(hasVisibleItems && isExpanded) ? `
-                        <div class="pt-2 border-t border-slate-200/80 space-y-1">
+                        <div class="pt-2 mt-2 border-t border-slate-200/70 space-y-1 pl-9 pr-1">
                             ${itemsHtml}
                         </div>
                     ` : ''}
@@ -1024,7 +1109,9 @@
                     hTotal += effectiveAmt;
                 }
 
-                if (isVp || !isMirrorEnabled || (isReadonly && Math.abs(effectiveAmt) <= 0.0001)) {
+                // On the main page cards, only show categories that have a non-zero value.
+                // (All categories remain available in the edit popup modal)
+                if (isVp || !isMirrorEnabled || Math.abs(effectiveAmt) <= 0.0001) {
                     return '';
                 }
 
@@ -1071,6 +1158,11 @@
                 } else {
                     hTotal += pAmt;
                 }
+
+                if (pAmt <= 0.0001 && !hasQty) {
+                    return '';
+                }
+
                 const avgStr = (hasQty && pAmt > 0) ? ` @ ₹${(pAmt / pQty).toFixed(2)}/${escapeHtml(pr.unit || 'unit')}` : '';
                 const qtySubtitle = hasQty ? `${pQty} ${escapeHtml(pr.unit || '')}${avgStr}` : (pr.sku || '');
                 const itemBadge = isIncome
@@ -1094,7 +1186,7 @@
                         </span>
                     </div>
                 `;
-            }).join('');
+            }).filter(Boolean).join('');
 
             // 3. Sub-Headers inside this card (Expandable Rows)
             const subHeadersHtml = (h.sub_headers || []).map(sub => {
@@ -1134,7 +1226,7 @@
 
                     const isReadonly = Boolean(s.is_readonly || ['salary', 'staff_advance', 'advance'].includes((s.code || '').toLowerCase()));
 
-                    if (isVp || !isMirrorEnabled || (isReadonly && Math.abs(effectiveAmt) <= 0.0001)) return '';
+                    if (isVp || !isMirrorEnabled || Math.abs(effectiveAmt) <= 0.0001) return '';
 
                     const name = s.name || 'Item';
                     let subText = '';
@@ -1180,6 +1272,11 @@
                         subTotal += pAmt;
                         hTotal += pAmt;
                     }
+
+                    if (pAmt <= 0.0001 && !hasQty) {
+                        return '';
+                    }
+
                     const avgStr = (hasQty && pAmt > 0) ? ` @ ₹${(pAmt / pQty).toFixed(2)}/${escapeHtml(pr.unit || 'unit')}` : '';
                     const qtySubtitle = hasQty ? `${pQty} ${escapeHtml(pr.unit || '')}${avgStr}` : (pr.sku || '');
                     const itemBadge = subIsIncome
@@ -1203,7 +1300,11 @@
                             </span>
                         </div>
                     `;
-                }).join('');
+                }).filter(Boolean).join('');
+
+                if (!subSettingLines && !subProductLines && Math.abs(subTotal) <= 0.0001) {
+                    return '';
+                }
 
                 const isExpanded = !!subHeaderCollapseState[sub.id];
                 const subTotalFormatted = formatCurrency(Math.abs(subTotal));
@@ -1247,10 +1348,15 @@
                         ` : ''}
                     </div>
                 `;
-            }).join('');
+            }).filter(Boolean).join('');
 
             const noProductsPrompt = (h.product_tagging_enabled && pRows.length === 0 && (h.setting_ids || []).length === 0 && (!h.sub_headers || h.sub_headers.length === 0))
                 ? `<div class="py-1 text-[11px] text-slate-400 italic">No products recorded yet (tap to add)</div>`
+                : '';
+
+            const hasAnyVisibleContent = Boolean(childLines || productLines || subHeadersHtml || noProductsPrompt);
+            const emptyPrompt = !hasAnyVisibleContent
+                ? `<div class="py-1.5 text-center sm:text-left text-[11px] font-medium text-slate-400 italic">No entries recorded yet (tap to add)</div>`
                 : '';
 
             const hasProducts = pRows.length > 0;
@@ -1298,6 +1404,7 @@
                         ${productLines}
                         ${subHeadersHtml}
                         ${noProductsPrompt}
+                        ${emptyPrompt}
                     </div>
 
                     <div class="flex items-center justify-between border-t border-slate-100 pt-1.5 text-[11px] font-bold text-slate-500">
