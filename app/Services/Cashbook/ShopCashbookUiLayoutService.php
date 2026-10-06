@@ -361,37 +361,51 @@ class ShopCashbookUiLayoutService
             $orphanExpense = $orphanSettings->reject(fn ($s): bool => $orphanIncome->contains('id', $s->id))->values();
 
             if ($orphanIncome->isNotEmpty()) {
-                $resultHeaders[] = [
-                    'id' => 'unassigned_income',
-                    'source_id' => null,
-                    'name' => 'OTHER INCOME',
-                    'original_name' => 'OTHER INCOME',
-                    'display_name' => 'OTHER INCOME',
-                    'custom_display_name' => null,
-                    'type' => 'income',
-                    'product_tagging_enabled' => false,
-                    'show_both_sides' => false,
-                    'sub_headers' => [],
-                    'settings' => $orphanIncome,
-                    'products' => [],
-                ];
+                $matchedIncIdx = $this->findHeaderIndexByName($resultHeaders, 'income', ['OTHER INCOME', 'OTHER INCOMES', 'Other Income', 'Other Incomes', 'SALES', 'Sales']);
+                if ($matchedIncIdx !== null) {
+                    $existingIds = $resultHeaders[$matchedIncIdx]['settings']->pluck('id')->all();
+                    $toAdd = $orphanIncome->reject(fn ($s): bool => in_array((int) $s->id, $existingIds, true));
+                    $resultHeaders[$matchedIncIdx]['settings'] = $resultHeaders[$matchedIncIdx]['settings']->concat($toAdd)->values();
+                } else {
+                    $resultHeaders[] = [
+                        'id' => 'unassigned_income',
+                        'source_id' => null,
+                        'name' => 'OTHER INCOME',
+                        'original_name' => 'OTHER INCOME',
+                        'display_name' => 'OTHER INCOME',
+                        'custom_display_name' => null,
+                        'type' => 'income',
+                        'product_tagging_enabled' => false,
+                        'show_both_sides' => false,
+                        'sub_headers' => [],
+                        'settings' => $orphanIncome,
+                        'products' => [],
+                    ];
+                }
             }
 
             if ($orphanExpense->isNotEmpty()) {
-                $resultHeaders[] = [
-                    'id' => 'unassigned_expense',
-                    'source_id' => null,
-                    'name' => 'OTHER EXPENSES',
-                    'original_name' => 'OTHER EXPENSES',
-                    'display_name' => 'OTHER EXPENSES',
-                    'custom_display_name' => null,
-                    'type' => 'expense',
-                    'product_tagging_enabled' => false,
-                    'show_both_sides' => false,
-                    'sub_headers' => [],
-                    'settings' => $orphanExpense,
-                    'products' => [],
-                ];
+                $matchedExpIdx = $this->findHeaderIndexByName($resultHeaders, 'expense', ['OTHER EXPENSES', 'OTHER EXPENSE', 'Other Expenses', 'Other Expense', 'SHOP EXPENSES', 'EXPENSES', 'Expenses']);
+                if ($matchedExpIdx !== null) {
+                    $existingIds = $resultHeaders[$matchedExpIdx]['settings']->pluck('id')->all();
+                    $toAdd = $orphanExpense->reject(fn ($s): bool => in_array((int) $s->id, $existingIds, true));
+                    $resultHeaders[$matchedExpIdx]['settings'] = $resultHeaders[$matchedExpIdx]['settings']->concat($toAdd)->values();
+                } else {
+                    $resultHeaders[] = [
+                        'id' => 'unassigned_expense',
+                        'source_id' => null,
+                        'name' => 'OTHER EXPENSES',
+                        'original_name' => 'OTHER EXPENSES',
+                        'display_name' => 'OTHER EXPENSES',
+                        'custom_display_name' => null,
+                        'type' => 'expense',
+                        'product_tagging_enabled' => false,
+                        'show_both_sides' => false,
+                        'sub_headers' => [],
+                        'settings' => $orphanExpense,
+                        'products' => [],
+                    ];
+                }
             }
         }
 
@@ -464,54 +478,75 @@ class ShopCashbookUiLayoutService
             })->values();
 
             if ($unassignedIncome->isNotEmpty()) {
-                $sections[] = [
-                    'id' => 'unassigned_income',
-                    'source_id' => null,
-                    'name' => 'OTHER INCOME',
-                    'original_name' => 'OTHER INCOME',
-                    'display_name' => 'OTHER INCOME',
-                    'custom_display_name' => null,
-                    'type' => 'income',
-                    'product_tagging_enabled' => false,
-                    'show_both_sides' => false,
-                    'sub_headers' => [],
-                    'settings' => $unassignedIncome,
-                    'products' => [],
-                ];
+                $matchedIncIdx = $this->findHeaderIndexByName($sections, 'income', ['OTHER INCOME', 'OTHER INCOMES', 'Other Income', 'Other Incomes', 'SALES', 'Sales']);
+                if ($matchedIncIdx !== null) {
+                    $existingIds = $sections[$matchedIncIdx]['settings']->pluck('id')->all();
+                    $toAdd = $unassignedIncome->reject(fn ($s): bool => in_array((int) $s->id, $existingIds, true));
+                    $sections[$matchedIncIdx]['settings'] = $sections[$matchedIncIdx]['settings']->concat($toAdd)->values();
+                } else {
+                    $sections[] = [
+                        'id' => 'unassigned_income',
+                        'source_id' => null,
+                        'name' => 'OTHER INCOME',
+                        'original_name' => 'OTHER INCOME',
+                        'display_name' => 'OTHER INCOME',
+                        'custom_display_name' => null,
+                        'type' => 'income',
+                        'product_tagging_enabled' => false,
+                        'show_both_sides' => false,
+                        'sub_headers' => [],
+                        'settings' => $unassignedIncome,
+                        'products' => [],
+                    ];
+                }
             }
 
             if ($unassignedExpense->isNotEmpty()) {
-                $sections[] = [
-                    'id' => 'unassigned_expense',
-                    'source_id' => null,
-                    'name' => 'OTHER EXPENSES',
-                    'original_name' => 'OTHER EXPENSES',
-                    'display_name' => 'OTHER EXPENSES',
-                    'custom_display_name' => null,
-                    'type' => 'expense',
-                    'product_tagging_enabled' => false,
-                    'show_both_sides' => false,
-                    'sub_headers' => [],
-                    'settings' => $unassignedExpense,
-                    'products' => [],
-                ];
+                $matchedExpIdx = $this->findHeaderIndexByName($sections, 'expense', ['OTHER EXPENSES', 'OTHER EXPENSE', 'Other Expenses', 'Other Expense', 'SHOP EXPENSES', 'EXPENSES', 'Expenses']);
+                if ($matchedExpIdx !== null) {
+                    $existingIds = $sections[$matchedExpIdx]['settings']->pluck('id')->all();
+                    $toAdd = $unassignedExpense->reject(fn ($s): bool => in_array((int) $s->id, $existingIds, true));
+                    $sections[$matchedExpIdx]['settings'] = $sections[$matchedExpIdx]['settings']->concat($toAdd)->values();
+                } else {
+                    $sections[] = [
+                        'id' => 'unassigned_expense',
+                        'source_id' => null,
+                        'name' => 'OTHER EXPENSES',
+                        'original_name' => 'OTHER EXPENSES',
+                        'display_name' => 'OTHER EXPENSES',
+                        'custom_display_name' => null,
+                        'type' => 'expense',
+                        'product_tagging_enabled' => false,
+                        'show_both_sides' => false,
+                        'sub_headers' => [],
+                        'settings' => $unassignedExpense,
+                        'products' => [],
+                    ];
+                }
             }
 
             if ($unassignedTransfers->isNotEmpty()) {
-                $sections[] = [
-                    'id' => 'unassigned_transfers',
-                    'source_id' => null,
-                    'name' => 'TRANSFERS & SETTLEMENTS',
-                    'original_name' => 'TRANSFERS & SETTLEMENTS',
-                    'display_name' => 'TRANSFERS & SETTLEMENTS',
-                    'custom_display_name' => null,
-                    'type' => 'expense',
-                    'product_tagging_enabled' => false,
-                    'show_both_sides' => false,
-                    'sub_headers' => [],
-                    'settings' => $unassignedTransfers,
-                    'products' => [],
-                ];
+                $matchedTrIdx = $this->findHeaderIndexByName($sections, 'expense', ['TRANSFERS & SETTLEMENTS', 'Transfers & Settlements', 'Transfers and Settlements', 'Transfers', 'Settlements']);
+                if ($matchedTrIdx !== null) {
+                    $existingIds = $sections[$matchedTrIdx]['settings']->pluck('id')->all();
+                    $toAdd = $unassignedTransfers->reject(fn ($s): bool => in_array((int) $s->id, $existingIds, true));
+                    $sections[$matchedTrIdx]['settings'] = $sections[$matchedTrIdx]['settings']->concat($toAdd)->values();
+                } else {
+                    $sections[] = [
+                        'id' => 'unassigned_transfers',
+                        'source_id' => null,
+                        'name' => 'TRANSFERS & SETTLEMENTS',
+                        'original_name' => 'TRANSFERS & SETTLEMENTS',
+                        'display_name' => 'TRANSFERS & SETTLEMENTS',
+                        'custom_display_name' => null,
+                        'type' => 'expense',
+                        'product_tagging_enabled' => false,
+                        'show_both_sides' => false,
+                        'sub_headers' => [],
+                        'settings' => $unassignedTransfers,
+                        'products' => [],
+                    ];
+                }
             }
         }
 
@@ -558,5 +593,29 @@ class ShopCashbookUiLayoutService
         }
 
         return $sections;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $headers
+     * @param  array<int, string>  $targetNames
+     */
+    private function findHeaderIndexByName(array $headers, string $type, array $targetNames): ?int
+    {
+        $normalizedTargets = array_map(fn (string $n): string => strtolower((string) preg_replace('/[^a-z0-9]/i', '', $n)), $targetNames);
+
+        foreach ($headers as $index => $h) {
+            if (($h['type'] ?? '') !== $type) {
+                continue;
+            }
+
+            $origNorm = strtolower((string) preg_replace('/[^a-z0-9]/i', '', (string) ($h['original_name'] ?? '')));
+            $dispNorm = strtolower((string) preg_replace('/[^a-z0-9]/i', '', (string) ($h['display_name'] ?? '')));
+
+            if (in_array($origNorm, $normalizedTargets, true) || in_array($dispNorm, $normalizedTargets, true)) {
+                return $index;
+            }
+        }
+
+        return null;
     }
 }

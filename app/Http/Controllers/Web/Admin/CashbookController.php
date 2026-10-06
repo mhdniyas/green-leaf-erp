@@ -11711,6 +11711,20 @@ final class CashbookController extends Controller
             $name = trim($validated['name']);
             $type = $validated['type'];
 
+            $existingHeader = ShopLedgerHeaderGroup::query()
+                ->where('shop_id', $shopId)
+                ->where('type', $type)
+                ->where('enabled', true)
+                ->whereRaw('LOWER(TRIM(name)) = ?', [strtolower($name)])
+                ->first();
+
+            if ($existingHeader) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "A header group named '{$existingHeader->name}' already exists for this shop.",
+                ], 422);
+            }
+
             $maxOrder = (int) ShopLedgerHeaderGroup::query()
                 ->where('shop_id', $shopId)
                 ->where('type', $type)

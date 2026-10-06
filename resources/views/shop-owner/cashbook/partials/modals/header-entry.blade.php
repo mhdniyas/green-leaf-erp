@@ -98,7 +98,7 @@
                             $isReadonlyCategory = (bool) ($s->is_readonly || in_array($code, ['salary', 'staff_advance', 'advance'], true));
                         @endphp
 
-                        @if($s->is_vendor_purchase)
+                        @if($s->is_vendor_purchase && $shop->isPurchasingEnabled())
                             @php
                                 $vpSum = ($vendorPurchaseSummaries ?? [])[$s->id] ?? [
                                     'total_amount' => 0.0,

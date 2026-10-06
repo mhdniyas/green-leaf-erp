@@ -4,6 +4,9 @@
     Always accurate — no JS dependency.
 --}}
 @php
+    if (! ($shop->isPurchasingEnabled() ?? false)) {
+        return;
+    }
     $allVpSettings = ($settings ?? collect())->filter(fn($s) =>
         (bool)($s->is_vendor_purchase ?? false) &&
         (bool)($s->mirror_to_cashbook ?? true)
