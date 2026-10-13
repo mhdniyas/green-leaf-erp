@@ -41,7 +41,7 @@ class StockMovementRepository extends BaseRepository
      * raw string value safe for array-key lookup.
      */
     /** @param array<int, int>|null $categoryIds */
-    public function currentStockByProductAndGrade(?string $date = null, ?int $warehouseId = null, ?array $categoryIds = null, string $search = ''): Collection
+    public function currentStockByProductAndGrade(?string $date = null, ?int $warehouseId = null, ?array $categoryIds = null, string $search = '', ?int $productId = null): Collection
     {
         $driver = (new Product)->getConnection()->getDriverName();
         $positiveMovementTypes = [
@@ -56,6 +56,7 @@ class StockMovementRepository extends BaseRepository
         ];
 
         $movementsStock = $this->query()
+            ->when($productId !== null, fn ($q) => $q->where('stock_movements.product_id', $productId))
             ->where(function ($query): void {
                 $query->where('stock_movements.grade', '!=', ProductGrade::Unsorted->value)
                     ->orWhereDoesntHave('batch', fn ($batchQuery) => $batchQuery->where('status', BatchStatus::Pending->value));
@@ -101,6 +102,7 @@ class StockMovementRepository extends BaseRepository
         // 2. Fetch pending batches (unsorted stock) that are warehouse confirmed
         $pendingBatches = StockBatch::where('status', BatchStatus::Pending)
             ->where('warehouse_receive_pending', false)
+            ->when($productId !== null, fn ($q) => $q->where('product_id', $productId))
             ->when($date, fn ($q) => $q->where('received_at', '<=', $date))
             ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
             ->when($categoryIds !== null, fn ($q) => $q->whereHas('product', fn ($productQuery) => $productQuery->whereIn('category_id', $categoryIds)))
@@ -208,7 +210,7 @@ class StockMovementRepository extends BaseRepository
 
     public function currentStockForProduct(int $productId, ?int $warehouseId = null, ?string $date = null): float
     {
-        return round((float) $this->currentStockByProductAndGrade($date, $warehouseId)
+        return round((float) $this->currentStockByProductAndGrade($date, $warehouseId, null, '', $productId)
             ->where('product_id', $productId)
             ->sum('current_stock'), 3);
     }

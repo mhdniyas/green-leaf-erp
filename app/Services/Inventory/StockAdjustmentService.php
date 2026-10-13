@@ -181,6 +181,11 @@ class StockAdjustmentService
     public function emptyProductInventory(int $productId, int $userId): bool
     {
         return DB::transaction(function () use ($productId, $userId): bool {
+            $stockRows = $this->stockMovements->currentStockByProductAndGrade(null, null, null, '', $productId);
+            if ($stockRows->isEmpty()) {
+                return true;
+            }
+
             $positiveTypes = [StockMovementType::In->value, StockMovementType::SaleReversal->value];
             $negativeTypes = [StockMovementType::Out->value, StockMovementType::Wastage->value, StockMovementType::Sale->value, StockMovementType::Adjustment->value];
             $lots = StockMovement::query()->where('product_id', $productId)
@@ -231,8 +236,8 @@ class StockAdjustmentService
                 ]);
             }
 
-            // Final reconciliation pass: verify against StockMovementRepository and clear any remaining variance
-            $remainingStockRows = $this->stockMovements->currentStockByProductAndGrade(null, null, null, '')->where('product_id', $productId);
+            // Final reconciliation pass: verify against StockMovementRepository scoped by productId
+            $remainingStockRows = $this->stockMovements->currentStockByProductAndGrade(null, null, null, '', $productId);
             foreach ($remainingStockRows as $remRow) {
                 $remQty = (float) $remRow->current_stock;
                 if (abs($remQty) > 0.0001) {

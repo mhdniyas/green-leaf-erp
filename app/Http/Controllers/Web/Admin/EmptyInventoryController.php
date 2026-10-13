@@ -51,7 +51,12 @@ class EmptyInventoryController extends Controller
 
             return $process;
         });
-        ProcessInventoryEmptyBatch::dispatch($process->id);
+        if (! app()->runningUnitTests() && config('queue.default') === 'sync') {
+            // On sync queue web requests, redirect immediately to allow the browser AJAX step loop
+            // to process items in short chunks without blocking PHP-FPM.
+        } else {
+            ProcessInventoryEmptyBatch::dispatch($process->id);
+        }
 
         return redirect()->route('admin.inventory-empty.index', ['process' => $process->id]);
     }
@@ -79,7 +84,7 @@ class EmptyInventoryController extends Controller
 
         if (in_array($process->status, ['pending', 'running'], true)) {
             $batch = new ProcessInventoryEmptyBatch($process->id);
-            $batch->processSingleBatch($process, app(StockAdjustmentService::class));
+            $batch->processSingleBatch($process, app(StockAdjustmentService::class), 5);
         }
 
         $process->refresh()->load('currentProduct:id,name');
@@ -132,7 +137,11 @@ class EmptyInventoryController extends Controller
             'completed_at' => null,
             'error_message' => null,
         ]);
-        ProcessInventoryEmptyBatch::dispatch($process->id);
+        if (! app()->runningUnitTests() && config('queue.default') === 'sync') {
+            // Let the step loop advance on sync web requests
+        } else {
+            ProcessInventoryEmptyBatch::dispatch($process->id);
+        }
 
         return back()->with('success', 'Process restarted.');
     }
