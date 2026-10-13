@@ -12,6 +12,7 @@ use App\Models\StockAdjustment;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\Warehouse;
+use App\Models\WastageEntry;
 use App\Repositories\Inventory\StockMovementRepository;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -191,16 +192,30 @@ class StockAdjustmentService
                 ->selectRaw('batch_id, warehouse_id, grade, MAX(cost_per_unit) as cost_per_unit, SUM(CASE WHEN type IN (?, ?) THEN quantity WHEN type IN (?, ?, ?, ?) THEN -quantity ELSE 0 END) as available_quantity', [...$positiveTypes, ...$negativeTypes])
                 ->groupBy('batch_id', 'warehouse_id', 'grade')->havingRaw('ABS(available_quantity) > 0.0001')->lockForUpdate()->get();
             $pending = StockBatch::query()->where('product_id', $productId)->where('status', BatchStatus::Pending->value)->where('warehouse_receive_pending', false)->lockForUpdate()->get();
+            $batchIds = $pending->pluck('id');
+            $wastageByBatch = WastageEntry::query()->whereIn('batch_id', $batchIds)->selectRaw('batch_id, SUM(quantity) as quantity')->groupBy('batch_id')->pluck('quantity', 'batch_id');
+            $writeOffByBatch = StockMovement::query()->whereIn('batch_id', $batchIds)->whereIn('type', [
+                StockMovementType::Out->value,
+                StockMovementType::Sale->value,
+                StockMovementType::Wastage->value,
+                StockMovementType::Adjustment->value,
+            ])->selectRaw('batch_id, SUM(quantity) as quantity')->groupBy('batch_id')->pluck('quantity', 'batch_id');
+
             foreach ($pending as $batch) {
-                $writtenOff = (float) StockMovement::query()->where('batch_id', $batch->id)->where('grade', ProductGrade::Unsorted->value)->whereIn('type', [StockMovementType::Wastage->value, StockMovementType::Adjustment->value])->sum('quantity');
-                $available = max(0.0, (float) $batch->remaining_qty - $writtenOff);
+                $wasted = (float) ($wastageByBatch[$batch->id] ?? 0.0);
+                $writtenOff = (float) ($writeOffByBatch[$batch->id] ?? 0.0);
+                $available = max(0.0, (float) $batch->total_kg - $wasted - $writtenOff);
                 if ($available > 0.0001) {
-                    $lots->push((object) ['batch_id' => $batch->id, 'warehouse_id' => $batch->warehouse_id, 'grade' => ProductGrade::Unsorted->value, 'cost_per_unit' => $batch->cost_per_kg, 'available_quantity' => $available]);
+                    $lots->push((object) [
+                        'batch_id' => $batch->id,
+                        'warehouse_id' => $batch->warehouse_id,
+                        'grade' => ProductGrade::Unsorted->value,
+                        'cost_per_unit' => $batch->cost_per_kg,
+                        'available_quantity' => $available,
+                    ]);
                 }
             }
-            if ($lots->isEmpty()) {
-                return false;
-            }
+
             foreach ($lots as $lot) {
                 $availableQuantity = (float) $lot->available_quantity;
                 StockMovement::create([
@@ -214,6 +229,26 @@ class StockAdjustmentService
                     'cost_per_unit' => (float) $lot->cost_per_unit,
                     'notes' => 'Global inventory empty process: balance reset to zero',
                 ]);
+            }
+
+            // Final reconciliation pass: verify against StockMovementRepository and clear any remaining variance
+            $remainingStockRows = $this->stockMovements->currentStockByProductAndGrade(null, null, null, '')->where('product_id', $productId);
+            foreach ($remainingStockRows as $remRow) {
+                $remQty = (float) $remRow->current_stock;
+                if (abs($remQty) > 0.0001) {
+                    $targetBatch = StockBatch::query()->where('product_id', $productId)->latest('id')->first();
+                    StockMovement::create([
+                        'product_id' => $productId,
+                        'batch_id' => $targetBatch?->id,
+                        'warehouse_id' => $targetBatch?->warehouse_id,
+                        'created_by' => $userId,
+                        'grade' => $remRow->grade,
+                        'type' => $remQty > 0 ? StockMovementType::Wastage->value : StockMovementType::In->value,
+                        'quantity' => abs($remQty),
+                        'cost_per_unit' => 0.0,
+                        'notes' => 'Global inventory empty process: reconcile remaining balance to zero',
+                    ]);
+                }
             }
 
             return true;

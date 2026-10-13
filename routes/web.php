@@ -765,7 +765,9 @@ Route::middleware('auth')->group(function () {
         Route::get('inventory/empty', [EmptyInventoryController::class, 'index'])->name('inventory-empty.index');
         Route::post('inventory/empty', [EmptyInventoryController::class, 'store'])->name('inventory-empty.store');
         Route::get('inventory/empty/{process}/progress', [EmptyInventoryController::class, 'progress'])->name('inventory-empty.progress');
+        Route::post('inventory/empty/{process}/step', [EmptyInventoryController::class, 'step'])->name('inventory-empty.step');
         Route::post('inventory/empty/{process}/retry', [EmptyInventoryController::class, 'retry'])->name('inventory-empty.retry');
+        Route::post('inventory/empty/{process}/cancel', [EmptyInventoryController::class, 'cancel'])->name('inventory-empty.cancel');
         Route::get('/', AdminOverviewController::class)->name('overview');
         Route::get('company-settings', [CompanySettingsController::class, 'edit'])->name('company-settings.edit');
         Route::patch('company-settings', [CompanySettingsController::class, 'update'])->name('company-settings.update');
