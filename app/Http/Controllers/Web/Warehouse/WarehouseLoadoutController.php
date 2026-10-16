@@ -468,7 +468,10 @@ class WarehouseLoadoutController extends Controller
                 $quantity,
                 $userId,
                 StockMovementType::Out,
-                "Loadout dispatch to delivery — Order: {$shopOrder->order_number}"
+                "Loadout dispatch to delivery — Order: {$shopOrder->order_number}",
+                null,
+                $product->default_warehouse_id,
+                ProductGrade::GradeA,
             );
         });
 
@@ -574,13 +577,20 @@ class WarehouseLoadoutController extends Controller
                     $oldLoadedQty = (float) $rows->where('sorting_status', 'loaded')->sum('loaded_qty');
                     $diff = $submittedQty - $oldLoadedQty;
 
+                    $product = Product::find($productId);
+                    $warehouseId = $product?->default_warehouse_id;
+                    $itemGrade = ProductGrade::tryFrom($firstRow->product_grade ?? '') ?? ProductGrade::GradeA;
+
                     if ($diff > 0.001) {
                         $this->stockLedgerService->consumeStockForProductAllowingNegative(
                             $productId,
                             $diff,
                             $userId,
                             StockMovementType::Out,
-                            "Loadout dispatch to delivery — Order: {$shopOrder->order_number}"
+                            "Loadout dispatch to delivery — Order: {$shopOrder->order_number}",
+                            $firstRow->id,
+                            $warehouseId,
+                            $itemGrade,
                         );
                     } elseif ($diff < -0.001) {
                         $lastOut = StockMovement::where('product_id', $productId)
@@ -605,7 +615,7 @@ class WarehouseLoadoutController extends Controller
                                 'type' => StockMovementType::SaleReversal,
                                 'quantity' => abs($diff),
                                 'cost_per_unit' => $lastOut?->cost_per_unit ?? 0.0,
-                                'warehouse_id' => $batch?->warehouse_id,
+                                'warehouse_id' => $batch?->warehouse_id ?? $warehouseId,
                                 'notes' => "Loadout adjustment (decrease) — Order: {$shopOrder->order_number}",
                             ]);
                         }

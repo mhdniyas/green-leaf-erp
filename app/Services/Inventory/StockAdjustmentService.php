@@ -25,12 +25,18 @@ class StockAdjustmentService
         private readonly StockMovementRepository $stockMovements,
     ) {}
 
-    public function reconcile(Product $product, float $submittedSystemQty, float $countedQty, string $businessDate, string $notes, int $userId, ?int $warehouseId = null): ?StockAdjustment
+    public function reconcile(Product $product, float $submittedSystemQty, float $countedQty, string $businessDate, string $notes, int $userId, ?int $warehouseId = null, ?string $grade = null): ?StockAdjustment
     {
-        return DB::transaction(function () use ($product, $submittedSystemQty, $countedQty, $businessDate, $notes, $userId, $warehouseId): ?StockAdjustment {
+        return DB::transaction(function () use ($product, $submittedSystemQty, $countedQty, $businessDate, $notes, $userId, $warehouseId, $grade): ?StockAdjustment {
             StockBatch::query()->where('product_id', $product->id)->when($warehouseId !== null, fn ($query) => $query->where('warehouse_id', $warehouseId))->lockForUpdate()->get(['id']);
 
-            $systemQty = $this->stockMovements->currentStockForProduct($product->id, $warehouseId, $businessDate);
+            $gradeEnum = ProductGrade::tryResolve($grade);
+            $normalizedGrade = $gradeEnum?->value;
+
+            $systemQty = $gradeEnum !== null
+                ? $this->stockMovements->stockForProductAndGrade($product->id, $gradeEnum, $warehouseId, $businessDate)
+                : $this->stockMovements->currentStockForProduct($product->id, $warehouseId, $businessDate);
+
             if (abs($systemQty - $submittedSystemQty) > 0.01) {
                 throw ValidationException::withMessages(['counted_qty' => 'Stock changed while you were counting. Refresh the page and try again.']);
             }
@@ -44,6 +50,7 @@ class StockAdjustmentService
             $adjustment = StockAdjustment::query()->create([
                 'product_id' => $product->id,
                 'warehouse_id' => $warehouseId,
+                'grade' => $normalizedGrade,
                 'created_by' => $userId,
                 'business_date' => Carbon::parse($businessDate)->toDateString(),
                 'system_qty' => $systemQty,
@@ -53,47 +60,40 @@ class StockAdjustmentService
                 'notes' => trim($notes),
             ]);
 
-            if ($variance > 0) {
-                $latestBatch = StockBatch::query()->where('product_id', $product->id)->when($warehouseId !== null, fn ($query) => $query->where('warehouse_id', $warehouseId))->latest('received_at')->latest('id')->first();
-                $batch = StockBatch::query()->create([
+            $latestBatch = StockBatch::query()->where('product_id', $product->id)
+                ->when($warehouseId !== null, fn ($query) => $query->where('warehouse_id', $warehouseId))
+                ->latest('received_at')
+                ->latest('id')
+                ->first();
+
+            if (! $latestBatch) {
+                $latestBatch = StockBatch::query()->create([
                     'product_id' => $product->id,
-                    'warehouse_id' => $warehouseId ?? $latestBatch?->warehouse_id,
+                    'warehouse_id' => $warehouseId ?? $product->default_warehouse_id,
                     'created_by' => $userId,
                     'reference' => 'ADJ-'.now()->format('YmdHis').'-'.$product->id.'-'.$adjustment->id,
                     'received_at' => $businessDate,
-                    'total_kg' => $variance,
-                    'cost_per_kg' => (float) ($latestBatch?->cost_per_kg ?? 0),
+                    'total_kg' => abs($variance),
+                    'cost_per_kg' => 0.0,
                     'status' => BatchStatus::Sorted->value,
                     'warehouse_receive_pending' => false,
                     'sorted_at' => now(),
-                    'notes' => 'Old stock reconciliation #'.$adjustment->id,
+                    'notes' => 'Stock reconciliation baseline #'.$adjustment->id,
                 ]);
-
-                StockMovement::query()->create([
-                    'product_id' => $product->id,
-                    'batch_id' => $batch->id,
-                    'warehouse_id' => $batch->warehouse_id,
-                    'created_by' => $userId,
-                    'grade' => ProductGrade::GradeA->value,
-                    'type' => StockMovementType::In->value,
-                    'quantity' => $variance,
-                    'cost_per_unit' => (float) $batch->cost_per_kg,
-                    'notes' => 'Old stock adjustment #'.$adjustment->id.': '.trim($notes),
-                ]);
-            } else {
-                $consumed = $this->ledger->consumeSortedStockForProduct(
-                    $product->id,
-                    abs($variance),
-                    $userId,
-                    StockMovementType::Wastage,
-                    'Physical count wastage adjustment #'.$adjustment->id.': '.trim($notes),
-                    warehouseId: $warehouseId,
-                );
-
-                if (abs($consumed - abs($variance)) > 0.001) {
-                    throw ValidationException::withMessages(['counted_qty' => 'The physical count is lower than the stock currently available. Refresh and retry.']);
-                }
             }
+
+            $movementGrade = $normalizedGrade ?? ProductGrade::GradeA->value;
+            StockMovement::query()->create([
+                'product_id' => $product->id,
+                'batch_id' => $latestBatch->id,
+                'warehouse_id' => $warehouseId ?? $latestBatch->warehouse_id,
+                'created_by' => $userId,
+                'grade' => $movementGrade,
+                'type' => $variance > 0 ? StockMovementType::In->value : StockMovementType::Adjustment->value,
+                'quantity' => abs($variance),
+                'cost_per_unit' => (float) $latestBatch->cost_per_kg,
+                'notes' => ($variance > 0 ? 'Old stock adjustment' : 'Physical count adjustment').' #'.$adjustment->id.': '.trim($notes),
+            ]);
 
             return $adjustment;
         });

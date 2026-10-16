@@ -541,13 +541,20 @@ class ApiWarehouseLoadoutController extends Controller
                     $oldLoadedQty = (float) $rows->where('sorting_status', 'loaded')->sum('loaded_qty');
                     $diff = $submittedQty - $oldLoadedQty;
 
+                    $product = Product::find($productId);
+                    $warehouseId = $product?->default_warehouse_id;
+                    $itemGrade = ProductGrade::tryFrom($firstRow->product_grade ?? '') ?? ProductGrade::GradeA;
+
                     if ($diff > 0.001) {
                         $this->stockLedgerService->consumeStockForProductAllowingNegative(
                             $productId,
                             $diff,
                             $userId,
                             StockMovementType::Out,
-                            "Loadout dispatch to delivery — Order: {$shopOrder->order_number}"
+                            "Loadout dispatch to delivery — Order: {$shopOrder->order_number}",
+                            $firstRow->id,
+                            $warehouseId,
+                            $itemGrade,
                         );
                     } elseif ($diff < -0.001) {
                         $lastOut = StockMovement::where('product_id', $productId)
@@ -1151,7 +1158,10 @@ class ApiWarehouseLoadoutController extends Controller
                 $quantity,
                 $userId,
                 StockMovementType::Out,
-                "Loadout dispatch to delivery — Order: {$shopOrder->order_number}"
+                "Loadout dispatch to delivery — Order: {$shopOrder->order_number}",
+                $item->id,
+                $product->default_warehouse_id,
+                ProductGrade::GradeA,
             );
 
             $this->markLoadoutStartedForProducts($shopOrder, collect([(int) $product->id]));
@@ -1207,13 +1217,21 @@ class ApiWarehouseLoadoutController extends Controller
                     $oldLoadedQty = (float) $productRows->where('sorting_status', 'loaded')->sum('loaded_qty');
                     $diff = $totalApproved - $oldLoadedQty;
 
+                    $product = Product::find($productId);
+                    $warehouseId = $product?->default_warehouse_id;
+                    $firstProductRow = $productRows->first();
+                    $itemGrade = ProductGrade::tryFrom($firstProductRow?->product_grade ?? '') ?? ProductGrade::GradeA;
+
                     if ($diff > 0.001) {
                         $this->stockLedgerService->consumeStockForProductAllowingNegative(
                             $productId,
                             $diff,
                             $userId,
                             StockMovementType::Out,
-                            "Loadout dispatch to delivery — Order: {$shopOrder->order_number}"
+                            "Loadout dispatch to delivery — Order: {$shopOrder->order_number}",
+                            $firstProductRow?->id,
+                            $warehouseId,
+                            $itemGrade,
                         );
                     } elseif ($diff < -0.001) {
                         $lastOut = StockMovement::where('product_id', $productId)

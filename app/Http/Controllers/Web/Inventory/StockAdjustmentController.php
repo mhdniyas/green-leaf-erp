@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Inventory;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Inventory\EmptyWarehouseStockRequest;
 use App\Http\Requests\Web\Inventory\StoreStockAdjustmentRequest;
@@ -27,7 +28,8 @@ class StockAdjustmentController extends Controller
             $data['preset_reason'] ?? null,
             $data['notes'] ?? null,
         ])));
-        $adjustment = $this->service->reconcile($product, (float) $data['system_qty'], (float) $data['counted_qty'], $data['business_date'], $notes, (int) $request->user()->id, $warehouseId);
+        $grade = ! empty($data['grade']) ? (ProductGrade::tryResolve((string) $data['grade'])?->value ?? $data['grade']) : null;
+        $adjustment = $this->service->reconcile($product, (float) $data['system_qty'], (float) $data['counted_qty'], $data['business_date'], $notes, (int) $request->user()->id, $warehouseId, $grade);
 
         return redirect()->route('inventory.stock.index', array_filter(['date' => $data['business_date'], 'warehouse_id' => $warehouseId]))
             ->with('success', $adjustment ? 'Stock adjustment saved.' : 'Physical count matches the current stock. No adjustment was needed.');

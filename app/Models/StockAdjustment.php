@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class StockAdjustment extends Model
 {
-    protected $fillable = ['product_id', 'warehouse_id', 'created_by', 'business_date', 'system_qty', 'counted_qty', 'variance_qty', 'category', 'notes'];
+    protected $fillable = ['product_id', 'warehouse_id', 'grade', 'created_by', 'business_date', 'system_qty', 'counted_qty', 'variance_qty', 'category', 'notes'];
 
     protected function casts(): array
     {

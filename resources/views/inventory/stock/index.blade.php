@@ -190,8 +190,8 @@
             $productRouteKey = $firstEntry->product_route_key;
             $productUnit = $firstEntry->product_unit ?: 'kg';
             $totalStock  = $grades->sum(fn ($e) => (float) $e->current_stock);
-            $sortedStock = (float) $grades->reject(fn ($e) => $e->grade === 'Unsorted')->sum('current_stock');
-            $unsortedStock = (float) $grades->where('grade', 'Unsorted')->sum('current_stock');
+            $sortedStock = (float) $grades->reject(fn ($e) => in_array($e->grade, ['Unsorted', 'U'], true))->sum('current_stock');
+            $unsortedStock = (float) $grades->filter(fn ($e) => in_array($e->grade, ['Unsorted', 'U'], true))->sum('current_stock');
             $bufferQty = (float) ($firstEntry->buffer_qty ?? 0);
             $isBelowBuffer = $bufferQty > 0 && $totalStock < $bufferQty;
             $isNegative = $totalStock < -0.001;
@@ -296,11 +296,23 @@
                                 'D' => 'bg-rose-50 text-rose-700 border-rose-200',
                                 default => 'bg-slate-100 text-slate-700 border-slate-200',
                             };
-                            $gradeLabel = $entry->grade === 'Unsorted' ? 'Unsorted' : 'Grade ' . $entry->grade;
+                            $gradeLabel = in_array($entry->grade, ['Unsorted', 'U'], true) ? 'Unsorted' : 'Grade ' . $entry->grade;
                         @endphp
                         <div class="flex items-center justify-between px-2 py-1 rounded-lg border text-xs {{ $color }}">
                             <span class="text-[10px] font-extrabold uppercase tracking-tight">{{ $gradeLabel }}</span>
-                            <span class="font-mono font-black text-[11px]">{{ number_format((float) $entry->current_stock, 2) }} <span class="text-[9px] font-bold opacity-75 font-sans">{{ $productUnit }}</span></span>
+                            <div class="flex items-center gap-1.5">
+                                <span class="font-mono font-black text-[11px]">{{ number_format((float) $entry->current_stock, 2) }} <span class="text-[9px] font-bold opacity-75 font-sans">{{ $productUnit }}</span></span>
+                                @can('inventory.stock.adjust')
+                                    <button
+                                        type="button"
+                                        onclick="event.stopPropagation(); openStockAdjustmentModal('{{ $productRouteKey }}', @js($productName), {{ number_format((float) $entry->current_stock, 3, '.', '') }}, {{ $selectedWarehouseId ? $selectedWarehouseId : 'null' }}, @js($productUnit), '{{ $entry->grade }}')"
+                                        class="rounded px-1 text-[9px] font-bold text-slate-500 hover:bg-white hover:text-slate-900 transition shadow-2xs"
+                                        title="Update {{ $gradeLabel }} Qty"
+                                    >
+                                        Edit
+                                    </button>
+                                @endcan
+                            </div>
                         </div>
                         @endforeach
                     </div>
@@ -372,6 +384,7 @@
                     <input type="hidden" name="system_qty" id="stock-adjustment-system-qty">
                     <input type="hidden" name="business_date" value="{{ $date }}">
                     <input type="hidden" name="warehouse_id" id="stock-adjustment-warehouse-id">
+                    <input type="hidden" name="grade" id="stock-adjustment-grade">
                     <div class="rounded-2xl bg-slate-50 p-4">
                         <div class="flex items-center justify-between text-xs font-bold text-slate-500"><span>System quantity</span><span id="stock-adjustment-system-label" class="font-mono text-base font-black text-slate-950"></span></div>
                         <label for="stock-adjustment-counted-qty" id="stock-adjustment-counted-label" class="mt-4 block text-xs font-black text-slate-700">Physical quantity counted</label>
@@ -397,10 +410,11 @@
                 old_stock: ['Old stock found during count', 'Previous-day stock not recorded', 'Stock received before system entry', 'Other old stock'],
                 wastage: ['Damaged or spoiled stock', 'Expired / unsellable stock', 'Handling or sorting loss', 'Missing stock after count', 'Other wastage'],
             };
-            function openStockAdjustmentModal(productKey, productName, systemQty, warehouseId, unit) {
-                document.getElementById('stock-adjustment-title').textContent = productName;
+            function openStockAdjustmentModal(productKey, productName, systemQty, warehouseId, unit, grade = '') {
+                document.getElementById('stock-adjustment-title').textContent = productName + (grade ? ' (' + (['Unsorted', 'U'].includes(grade) ? 'Unsorted' : 'Grade ' + grade) + ')' : '');
                 document.getElementById('stock-adjustment-system-qty').value = systemQty.toFixed(3);
                 document.getElementById('stock-adjustment-warehouse-id').value = warehouseId ?? '';
+                document.getElementById('stock-adjustment-grade').value = grade ?? '';
                 document.getElementById('stock-adjustment-system-label').textContent = systemQty.toFixed(3) + ' ' + unit;
                 document.getElementById('stock-adjustment-counted-label').textContent = 'Physical quantity counted (' + unit + ')';
                 document.getElementById('stock-adjustment-counted-qty').value = systemQty.toFixed(3);

@@ -12,6 +12,24 @@ enum ProductGrade: string
     case Damage = 'D';
     case Unsorted = 'U';
 
+    public static function tryResolve(?string $value): ?self
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $trimmed = trim($value);
+
+        return match (strtoupper($trimmed)) {
+            'A', 'GRADE A', 'GRADEA' => self::GradeA,
+            'B', 'GRADE B', 'GRADEB' => self::GradeB,
+            'C', 'GRADE C', 'GRADEC' => self::GradeC,
+            'D', 'DAMAGE' => self::Damage,
+            'U', 'UNSORTED' => self::Unsorted,
+            default => self::tryFrom($trimmed),
+        };
+    }
+
     public function label(): string
     {
         return match ($this) {

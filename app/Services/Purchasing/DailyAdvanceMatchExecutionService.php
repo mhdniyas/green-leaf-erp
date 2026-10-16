@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Purchasing;
 
+use App\Enums\Inventory\StockMovementType;
 use App\Models\AdvanceReceiveMatch;
 use App\Models\DailyAdvanceMatchRun;
 use App\Models\DailyAdvanceMatchRunItem;
@@ -13,6 +14,8 @@ use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
+use App\Models\StockBatch;
+use App\Models\StockMovement;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
@@ -462,6 +465,57 @@ class DailyAdvanceMatchExecutionService
         // 5. Insert AdvanceReceiveMatch records
         foreach ($validatedMatches as $matchData) {
             AdvanceReceiveMatch::create($matchData);
+        }
+
+        // Adjust bill StockBatch so matched quantity is not double counted
+        $matchedBaseByBillItem = collect($validatedMatches)->groupBy('bill_goods_received_item_id');
+        foreach ($matchedBaseByBillItem as $billItemId => $matchesForItem) {
+            $newlyMatchedBase = (float) $matchesForItem->sum('base_qty');
+            $billBatch = StockBatch::where('goods_received_id', $billGrn->id)
+                ->where('goods_received_item_id', $billItemId)
+                ->first()
+                ?? StockBatch::where('goods_received_id', $billGrn->id)
+                    ->where('product_id', $matchesForItem->first()['product_id'])
+                    ->first();
+
+            if (! $billBatch) {
+                continue;
+            }
+
+            $billItemModel = $billGrn->items->firstWhere('id', $billItemId);
+            $lineConv = (float) ($billItemModel?->purchaseOrderItem?->unit_conversion_rate ?? 1.0);
+            $totalBillItemBase = $billItemModel ? round((float) $billItemModel->received_qty * $lineConv, 3) : (float) $billBatch->total_kg;
+
+            $totalItemMatchedBase = (float) AdvanceReceiveMatch::query()
+                ->where('bill_goods_received_item_id', $billItemId)
+                ->sum(DB::raw('COALESCE(base_qty, matched_qty, 0)'));
+
+            $unmatchedBase = max(0.0, round($totalBillItemBase - $totalItemMatchedBase, 3));
+            $unmatchedItemQty = $lineConv > 0 ? round($unmatchedBase / $lineConv, 3) : $unmatchedBase;
+
+            $wasConfirmed = ! $billBatch->warehouse_receive_pending;
+            $oldBatchTotal = (float) $billBatch->total_kg;
+
+            $billBatch->update([
+                'total_kg' => $unmatchedItemQty,
+                'notes' => $unmatchedItemQty <= 0.0001
+                    ? 'Reconciled 100% from Advance (Bill-side stock removed)'
+                    : $billBatch->notes,
+            ]);
+
+            if ($wasConfirmed && $billBatch->grading_mode === 'fixed_purchase_grade' && $newlyMatchedBase > 0) {
+                StockMovement::create([
+                    'batch_id' => $billBatch->id,
+                    'product_id' => $billBatch->product_id,
+                    'warehouse_id' => $billBatch->warehouse_id,
+                    'created_by' => $userId,
+                    'grade' => $billBatch->purchase_grade,
+                    'type' => StockMovementType::Out->value,
+                    'quantity' => min($oldBatchTotal, $newlyMatchedBase),
+                    'cost_per_unit' => $billBatch->cost_per_kg,
+                    'notes' => "Advance match duplicate bill stock removed from {$billGrn->grn_number}",
+                ]);
+            }
         }
 
         // 6. Check if any touched advance GRN is fully cleared across all items

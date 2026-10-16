@@ -166,7 +166,7 @@ class StockBatch extends Model
                 $query->whereDate('business_date', $date)
                     ->where('state', 'approved');
             })
-            ->whereIn('sorting_status', ['allocated', 'loaded'])
+            ->where('sorting_status', 'allocated')
             ->sum('approved_qty');
 
         if ($totalAllocated <= 0) {

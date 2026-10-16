@@ -11,6 +11,7 @@ use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Warehouse\ReceiveIndexRequest;
+use App\Models\AdvanceReceiveMatch;
 use App\Models\Category;
 use App\Models\GoodsReceived;
 use App\Models\ShopOrder;
@@ -1086,14 +1087,24 @@ class WarehouseReceiverController extends Controller
                     $discrepancyNote = $grnItem?->discrepancy_note;
                     $itemWarehouseId = (int) ($items[$grnItem?->id]['warehouse_id'] ?? $fallbackWarehouseId);
 
+                    // Check if Advance matches already cover part or all of this item
+                    $alreadyMatchedBase = $grnItem ? (float) AdvanceReceiveMatch::query()
+                        ->where('bill_goods_received_item_id', $grnItem->id)
+                        ->sum(DB::raw('COALESCE(base_qty, matched_qty, 0)')) : 0.0;
+
+                    $newTotalKg = $alreadyMatchedBase > 0
+                        ? max(0.0, round((float) $batch->total_kg - $alreadyMatchedBase, 3))
+                        : (float) $batch->total_kg;
+
                     $batch->update([
                         'warehouse_id' => $itemWarehouseId,
+                        'total_kg' => $newTotalKg,
                         'warehouse_receive_pending' => false,
                         'warehouse_confirmed_at' => now(),
                         'warehouse_confirmed_by' => $userId,
                     ]);
 
-                    if ($batch->grading_mode === 'fixed_purchase_grade') {
+                    if ($batch->grading_mode === 'fixed_purchase_grade' && $newTotalKg > 0) {
                         StockMovement::query()->firstOrCreate(
                             [
                                 'batch_id' => $batch->id,
@@ -1104,7 +1115,7 @@ class WarehouseReceiverController extends Controller
                                 'product_id' => $batch->product_id,
                                 'warehouse_id' => $itemWarehouseId,
                                 'created_by' => $userId,
-                                'quantity' => $batch->total_kg,
+                                'quantity' => $newTotalKg,
                                 'cost_per_unit' => $batch->cost_per_kg,
                                 'notes' => "Fixed Grade {$batch->purchase_grade} receipt from {$approvedGrn->grn_number}",
                             ],
