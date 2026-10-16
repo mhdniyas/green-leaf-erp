@@ -590,6 +590,12 @@
                                                     @endif
                                                 </div>
                                                     @if ($canEditPrices)
+                                                        <input
+                                                            type="hidden"
+                                                            class="matrix-cell-unit"
+                                                            name="matrix_price_units[{{ $prod['product_id'] }}][{{ $dateStr }}]"
+                                                            value="{{ $cellUnit }}"
+                                                        >
                                                         <button
                                                             type="button"
                                                             title="Click to change unit"
@@ -606,7 +612,7 @@
                                                                 <button
                                                                     type="button"
                                                                     data-unit="{{ $unitOption['unit'] }}"
-                                                                    onclick="selectUnit(this, '{{ $unitOption['unit'] }}')"
+                                                                    onclick="selectUnit(this, '{{ $unitOption['unit'] }}', '{{ $unitOption['label'] }}')"
                                                                     class="w-full text-left px-2 py-1 rounded text-[9px] font-bold hover:bg-cyan-50 hover:text-cyan-800 transition"
                                                                 >{{ $unitOption['label'] }}</button>
                                                             @endforeach
@@ -885,23 +891,31 @@
                 }
 
                 function selectUnit(btn, unit, label) {
-                    const selector = btn.parentElement;
-                    const unitBtn = selector.previousElementSibling;
-                    const hiddenInput = unitBtn.previousElementSibling;
-                    
-                    if (hiddenInput && hiddenInput.classList.contains('matrix-cell-unit')) {
+                    const container = btn.closest('.matrix-cell-container');
+                    if (!container) return;
+
+                    const hiddenInput = container.querySelector('.matrix-cell-unit');
+                    const unitBtn = container.querySelector('.matrix-cell-unit-btn');
+                    const display = unitBtn ? unitBtn.querySelector('.unit-display') : null;
+
+                    if (hiddenInput) {
                         hiddenInput.value = unit;
                     }
-                    
-                    if (unitBtn) {
-                        const display = unitBtn.querySelector('.unit-display');
-                        if (display) {
-                            display.textContent = label || unit;
-                        }
+
+                    if (display) {
+                        display.textContent = label || unit.toUpperCase();
                     }
-                    
-                    selector.style.display = 'none';
-                    selector.classList.add('hidden');
+
+                    const selector = container.querySelector('.unit-selector');
+                    if (selector) {
+                        selector.style.display = 'none';
+                        selector.classList.add('hidden');
+                    }
+
+                    const saveBtn = container.querySelector('.matrix-cell-save-btn');
+                    if (saveBtn) {
+                        saveMatrixCell(saveBtn);
+                    }
                 }
 
                 // Global click outside to hide unit selectors

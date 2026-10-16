@@ -812,7 +812,7 @@ class ShopInvoiceService
     ): ShopInvoice {
         return DB::transaction(function () use ($invoice, $invoiceItem, $finalQty, $finalPrice, $userId, $note): ShopInvoice {
             $invoice = ShopInvoice::query()
-                ->with(['items.product', 'order'])
+                ->with(['items.product', 'order.items.product'])
                 ->lockForUpdate()
                 ->findOrFail($invoice->id);
 
@@ -832,9 +832,14 @@ class ShopInvoiceService
             $deliveredQty = round($finalQty, 2);
             $shortageQty = round(max(0, $approvedQty - $deliveredQty), 2);
             $excessQty = round(max(0, $deliveredQty - $approvedQty), 2);
-            $deliveredPriceQuantity = $this->priceQuantityFor($invoiceItem->product, $newQty, $priceUnit);
-            $shortagePriceQuantity = $this->priceQuantityFor($invoiceItem->product, $shortageQty, $priceUnit);
-            $excessPriceQuantity = $this->priceQuantityFor($invoiceItem->product, $excessQty, $priceUnit);
+
+            $productOrderItems = $invoice->order?->items
+                ?->where('product_id', $invoiceItem->product_id);
+            $orderItemContext = $productOrderItems instanceof Collection && $productOrderItems->isNotEmpty() ? $productOrderItems : null;
+
+            $deliveredPriceQuantity = $this->priceQuantityFor($invoiceItem->product, $newQty, $priceUnit, $orderItemContext);
+            $shortagePriceQuantity = $this->priceQuantityFor($invoiceItem->product, $shortageQty, $priceUnit, $orderItemContext);
+            $excessPriceQuantity = $this->priceQuantityFor($invoiceItem->product, $excessQty, $priceUnit, $orderItemContext);
             $lineSubtotal = round((float) $invoiceItem->price_quantity * $newPrice, 2);
             $shortageAmount = round($shortagePriceQuantity * $newPrice, 2);
             $excessAmount = round($excessPriceQuantity * $newPrice, 2);
@@ -1547,8 +1552,18 @@ class ShopInvoiceService
 
         // Case: Order is kg-based, Price is piece-based
         if ($orderItemUnit === 'kg' && in_array($normalizedPriceUnit, $countUnits, true)) {
+            if ($baseQuantity <= 0.0001) {
+                return 0.0;
+            }
+
             $totalCount = (float) ($orderItems?->sum(fn (ShopOrderItem $item): float => (float) ($item->loaded_order_unit_qty ?? $item->requested_unit_quantity ?? 0)) ?? 0);
+            $totalWeight = (float) ($orderItems?->sum(fn (ShopOrderItem $item): float => (float) ($item->actual_weight ?? $item->loaded_qty ?? $item->approved_qty ?? 0)) ?? 0);
+
             if ($totalCount > 0) {
+                if ($totalWeight > 0 && abs($baseQuantity - $totalWeight) > 0.0001) {
+                    return round($totalCount * ($baseQuantity / $totalWeight), 4);
+                }
+
                 return round($totalCount, 4);
             }
 

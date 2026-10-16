@@ -565,6 +565,13 @@
                     }),
                 });
 
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    const firstError = errorData.errors ? Object.values(errorData.errors).flat()[0] : null;
+                    alert(firstError || errorData.message || 'Failed to save item changes.');
+                    return;
+                }
+
                 window.location.reload();
             });
 
