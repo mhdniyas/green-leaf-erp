@@ -10,6 +10,7 @@ use App\Models\DailyPricePublication;
 use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
 use App\Models\GoodsReceived;
+use App\Models\GoodsReceivedItem;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\PurchaseGradePrice;
@@ -119,6 +120,8 @@ class AppServiceProvider extends ServiceProvider
         StockBatch::observe($purchaserObserver);
         StockAdjustment::observe($purchaserObserver);
         WastageEntry::observe($purchaserObserver);
+        GoodsReceived::observe($purchaserObserver);
+        GoodsReceivedItem::observe($purchaserObserver);
 
         Activity::creating(function (Activity $activity): void {
             if (app()->runningInConsole() && ! app()->environment('testing')) {

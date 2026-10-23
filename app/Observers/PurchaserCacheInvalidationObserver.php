@@ -10,6 +10,8 @@ use App\Models\DailyPriceApproval;
 use App\Models\DailyPricePublication;
 use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
+use App\Models\GoodsReceived;
+use App\Models\GoodsReceivedItem;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\PurchaseGradePrice;
@@ -84,7 +86,8 @@ class PurchaserCacheInvalidationObserver
             $model instanceof DailyPricePublication,
             $model instanceof PurchaseGradePrice => ['prices'],
             $model instanceof Product, $model instanceof Category, $model instanceof ProductUnit,
-            $model instanceof StockMovement, $model instanceof StockBatch, $model instanceof StockAdjustment, $model instanceof WastageEntry => ['products'],
+            $model instanceof StockMovement, $model instanceof StockBatch, $model instanceof StockAdjustment, $model instanceof WastageEntry,
+            $model instanceof GoodsReceived, $model instanceof GoodsReceivedItem => ['products', 'carts'],
             $model instanceof BusinessSetting => ['settings'],
             default => [],
         };

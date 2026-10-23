@@ -16,6 +16,7 @@ use App\Models\StockMovement;
 use App\Models\Warehouse;
 use App\Models\WastageEntry;
 use Carbon\Carbon;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
@@ -89,6 +90,8 @@ final class DamageLossReportService
 
         $options = $this->getOptions();
 
+        $baseCacheFilters = collect($filters)->except(['page', 'search'])->all();
+
         $cacheService = app(PurchaserReadCacheService::class);
         $rawReportContent = $cacheService->remember(
             scopes: ['orders', 'products'],
@@ -96,10 +99,10 @@ final class DamageLossReportService
             ttlSeconds: 300,
             callback: fn () => $this->compileReport($product, $filters),
             tenantScope: PurchaserReadCacheService::DEFAULT_TENANT_SCOPE,
-            filters: $filters,
+            filters: $baseCacheFilters,
         );
 
-        $reportContent = $this->hydrateReportData($rawReportContent);
+        $reportContent = $this->hydrateReportData($rawReportContent, $filters);
 
         return array_merge([
             'product' => $product,
@@ -113,10 +116,40 @@ final class DamageLossReportService
      * Hydrate cached raw array data into Blade-ready objects and Collections.
      *
      * @param  array<string, mixed>  $raw
+     * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
-    private function hydrateReportData(array $raw): array
+    private function hydrateReportData(array $raw, array $filters = []): array
     {
+        $search = trim((string) ($filters['search'] ?? ''));
+        $page = max(1, (int) ($filters['page'] ?? 1));
+        $perPage = 5;
+
+        $matrixCollection = collect($raw['productMatrix'] ?? []);
+        if ($search !== '') {
+            $s = mb_strtolower($search);
+            $matrixCollection = $matrixCollection->filter(function ($item) use ($s) {
+                $name = mb_strtolower((string) ($item['product_name'] ?? ''));
+                $grade = mb_strtolower((string) ($item['grade_label'] ?? ''));
+
+                return str_contains($name, $s) || str_contains($grade, $s);
+            });
+        }
+
+        $total = $matrixCollection->count();
+        $slice = $matrixCollection->slice(($page - 1) * $perPage, $perPage)->values();
+
+        $paginatedProductMatrix = new LengthAwarePaginator(
+            $slice->map(fn ($item) => (object) $item),
+            $total,
+            $perPage,
+            $page,
+            [
+                'path' => request()->url(),
+                'query' => request()->query(),
+            ]
+        );
+
         return [
             'summary' => (object) $raw['summary'],
             'sellingLossLines' => collect($raw['sellingLossLines'] ?? [])->map(fn ($item) => (object) $item),
@@ -125,7 +158,8 @@ final class DamageLossReportService
             'monthlySummary' => collect($raw['monthlySummary'] ?? [])->map(fn ($item) => (object) $item),
             'clientShopSummary' => collect($raw['clientShopSummary'] ?? [])->map(fn ($item) => (object) $item),
             'unallocatedWarehouseDamage' => (object) ($raw['unallocatedWarehouseDamage'] ?? []),
-            'productMatrix' => collect($raw['productMatrix'] ?? [])->map(fn ($item) => (object) $item),
+            'productMatrix' => $paginatedProductMatrix,
+            'productMatrixTotalCount' => $total,
         ];
     }
 

@@ -379,91 +379,63 @@
 
     <!-- TAB 1: OVERVIEW & PRODUCT MATRIX -->
     <div x-show="currentTab === 'overview'" class="space-y-6">
-        <div
-            x-data="{
-                searchQuery: '',
-                page: 1,
-                perPage: 5,
-                rawRows: {{ Js::from($productMatrix) }},
-                get filteredRows() {
-                    if (!this.searchQuery.trim()) return this.rawRows;
-                    const q = this.searchQuery.toLowerCase().trim();
-                    return this.rawRows.filter(r =>
-                        (r.product_name && r.product_name.toLowerCase().includes(q)) ||
-                        (r.grade_label && r.grade_label.toLowerCase().includes(q))
-                    );
-                },
-                get totalPages() {
-                    return Math.max(1, Math.ceil(this.filteredRows.length / this.perPage));
-                },
-                get paginatedRows() {
-                    const start = (this.page - 1) * this.perPage;
-                    return this.filteredRows.slice(start, start + this.perPage);
-                },
-                setSearch(val) {
-                    this.searchQuery = val;
-                    this.page = 1;
-                },
-                nextPage() {
-                    if (this.page < this.totalPages) this.page++;
-                },
-                prevPage() {
-                    if (this.page > 1) this.page--;
-                }
-            }"
-            class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden"
-        >
+        <div class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 bg-slate-50/75 px-5 py-3.5">
                 <div class="flex items-center gap-2">
                     <i data-lucide="table" class="h-4 w-4 text-slate-500"></i>
                     <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">Product & Grade Loss Breakdown</h3>
-                    <span class="rounded-full bg-slate-200/80 px-2 py-0.5 text-[11px] font-semibold text-slate-700" x-text="`${filteredRows.length} combinations`"></span>
+                    <span class="rounded-full bg-slate-200/80 px-2 py-0.5 text-[11px] font-semibold text-slate-700">{{ $productMatrix->total() }} combinations</span>
                     <span class="text-[11px] text-slate-400 font-medium hidden sm:inline">(5 per page)</span>
                 </div>
 
-                <!-- Product Matrix Search -->
-                <div class="relative w-full sm:w-64">
+                <!-- Product Matrix Server-side Search -->
+                <form method="GET" action="{{ request()->url() }}" class="relative w-full sm:w-64">
+                    @foreach(request()->except(['search', 'page']) as $k => $v)
+                        @if(is_array($v))
+                            @foreach($v as $subK => $subV)
+                                <input type="hidden" name="{{ $k }}[{{ $subK }}]" value="{{ $subV }}">
+                            @endforeach
+                        @else
+                            <input type="hidden" name="{{ $k }}" value="{{ $v }}">
+                        @endif
+                    @endforeach
                     <i data-lucide="search" class="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400"></i>
                     <input
                         type="text"
-                        :value="searchQuery"
-                        @input="setSearch($event.target.value)"
+                        name="search"
+                        value="{{ $filters['search'] ?? '' }}"
                         placeholder="Search product or grade..."
                         class="w-full rounded-lg border border-slate-300 py-1.5 pl-8 pr-7 text-xs font-medium text-slate-900 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 shadow-sm"
                     >
-                    <template x-if="searchQuery.length > 0">
-                        <button
-                            type="button"
-                            @click="setSearch('')"
+                    @if(! empty($filters['search']))
+                        <a
+                            href="{{ request()->fullUrlWithQuery(['search' => null, 'page' => 1]) }}"
                             class="absolute right-2 top-2 text-slate-400 hover:text-slate-600 text-xs"
                             title="Clear search"
                         >
                             <i data-lucide="x" class="h-3.5 w-3.5"></i>
-                        </button>
-                    </template>
-                </div>
+                        </a>
+                    @endif
+                </form>
             </div>
 
-            <template x-if="filteredRows.length === 0">
+            @if($productMatrix->isEmpty())
                 <div class="p-12 text-center text-slate-400">
                     <i data-lucide="shield-check" class="h-8 w-8 mx-auto text-emerald-500 mb-2"></i>
                     <h4 class="text-sm font-bold text-slate-700">No Losses Matching Criteria</h4>
                     <p class="text-xs text-slate-500 mt-1">
                         No product loss records match your search or filter criteria in the selected period.
                     </p>
-                    <template x-if="searchQuery.length > 0">
-                        <button
-                            type="button"
-                            @click="setSearch('')"
+                    @if(! empty($filters['search']))
+                        <a
+                            href="{{ request()->fullUrlWithQuery(['search' => null, 'page' => 1]) }}"
                             class="inline-block mt-3 rounded-lg bg-rose-50 border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 transition"
                         >
                             Clear Search
-                        </button>
-                    </template>
+                        </a>
+                    @endif
                 </div>
-            </template>
-
-            <template x-if="filteredRows.length > 0">
+            @else
                 <div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-left text-xs">
@@ -479,65 +451,42 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
-                                <template x-for="row in paginatedRows" :key="`${row.product_id}-${row.grade}`">
+                                @foreach($productMatrix as $row)
                                     <tr class="hover:bg-slate-50/75 transition">
                                         <td class="py-2.5 px-4 font-bold text-slate-900">
-                                            <span x-text="row.product_name"></span>
-                                            <span class="text-[10px] text-slate-400 font-mono" x-text="`(${row.product_unit.toUpperCase()})`"></span>
+                                            <span>{{ $row->product_name }}</span>
+                                            <span class="text-[10px] text-slate-400 font-mono">({{ strtoupper($row->product_unit) }})</span>
                                         </td>
                                         <td class="py-2.5 px-4 whitespace-nowrap">
-                                            <span class="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-bold" x-text="row.grade_label"></span>
+                                            <span class="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-bold">{{ $row->grade_label }}</span>
                                         </td>
-                                        <td class="py-2.5 px-4 text-right font-mono" x-text="row.sold_below_cost_qty > 0 ? Number(row.sold_below_cost_qty).toFixed(1) : '—'"></td>
+                                        <td class="py-2.5 px-4 text-right font-mono">{{ $row->sold_below_cost_qty > 0 ? number_format($row->sold_below_cost_qty, 1) : '—' }}</td>
                                         <td
-                                            class="py-2.5 px-4 text-right font-mono font-bold"
-                                            :class="row.selling_loss > 0 ? 'text-amber-700' : 'text-slate-400'"
-                                            x-text="row.selling_loss > 0 ? '₹' + Number(row.selling_loss).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—'"
-                                        ></td>
-                                        <td class="py-2.5 px-4 text-right font-mono" x-text="row.damaged_qty > 0 ? Number(row.damaged_qty).toFixed(1) : '—'"></td>
+                                            class="py-2.5 px-4 text-right font-mono font-bold {{ $row->selling_loss > 0 ? 'text-amber-700' : 'text-slate-400' }}"
+                                        >
+                                            {{ $row->selling_loss > 0 ? '₹' . number_format($row->selling_loss, 2) : '—' }}
+                                        </td>
+                                        <td class="py-2.5 px-4 text-right font-mono">{{ $row->damaged_qty > 0 ? number_format($row->damaged_qty, 1) : '—' }}</td>
                                         <td
-                                            class="py-2.5 px-4 text-right font-mono font-bold"
-                                            :class="row.damaged_cost > 0 ? 'text-rose-600' : 'text-slate-400'"
-                                            x-text="row.damaged_cost > 0 ? '₹' + Number(row.damaged_cost).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—'"
-                                        ></td>
-                                        <td class="py-2.5 px-4 text-right font-mono font-black text-rose-700" x-text="'₹' + Number(row.total_loss).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></td>
+                                            class="py-2.5 px-4 text-right font-mono font-bold {{ $row->damaged_cost > 0 ? 'text-rose-600' : 'text-slate-400' }}"
+                                        >
+                                            {{ $row->damaged_cost > 0 ? '₹' . number_format($row->damaged_cost, 2) : '—' }}
+                                        </td>
+                                        <td class="py-2.5 px-4 text-right font-mono font-black text-rose-700">
+                                            ₹{{ number_format($row->total_loss, 2) }}
+                                        </td>
                                     </tr>
-                                </template>
+                                @endforeach
                             </tbody>
                         </table>
                     </div>
 
                     <!-- PAGINATION CONTROLS (5 PER PAGE) -->
-                    <div class="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-5 py-3">
-                        <div class="text-xs text-slate-500 font-medium">
-                            Showing <span class="font-bold text-slate-800" x-text="Math.min((page - 1) * perPage + 1, filteredRows.length)"></span>
-                            to <span class="font-bold text-slate-800" x-text="Math.min(page * perPage, filteredRows.length)"></span>
-                            of <span class="font-bold text-slate-800" x-text="filteredRows.length"></span> products
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <button
-                                type="button"
-                                @click="prevPage()"
-                                :disabled="page <= 1"
-                                :class="page <= 1 ? 'opacity-50 cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-white text-slate-700 hover:bg-slate-100'"
-                                class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold shadow-sm transition"
-                            >
-                                Previous
-                            </button>
-                            <span class="text-xs font-bold text-slate-700 px-2" x-text="`Page ${page} of ${totalPages}`"></span>
-                            <button
-                                type="button"
-                                @click="nextPage()"
-                                :disabled="page >= totalPages"
-                                :class="page >= totalPages ? 'opacity-50 cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-white text-slate-700 hover:bg-slate-100'"
-                                class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold shadow-sm transition"
-                            >
-                                Next
-                            </button>
-                        </div>
+                    <div class="border-t border-slate-200 bg-slate-50 px-5 py-3">
+                        {{ $productMatrix->withQueryString()->links() }}
                     </div>
                 </div>
-            </template>
+            @endif
         </div>
     </div>
 
