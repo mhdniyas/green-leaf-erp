@@ -134,6 +134,42 @@
         || $isExpensesActive
         || request()->routeIs('admin.cashbook.monthly-report.*');
 
+    $isPurchaseReportActive = request()->routeIs('admin.cashbook.finance.purchase')
+        && ! request()->routeIs('admin.cashbook.finance.purchase.*');
+    $isItemPurchaseReportActive = request()->routeIs('admin.cashbook.reports-v1.item-purchase*');
+    $isGradesReportActive = request()->routeIs('admin.cashbook.reports-v1.grades*');
+    $isDamageLossReportActive = request()->routeIs('admin.cashbook.reports-v1.damage-loss*');
+    $isReportsV1Active = $isPurchaseReportActive || $isItemPurchaseReportActive || $isGradesReportActive || $isDamageLossReportActive;
+
+    $reportsV1SidebarItem = [
+        'label' => 'Reports V1',
+        'href' => route('admin.cashbook.finance.purchase'),
+        'active' => $isReportsV1Active,
+        'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>',
+        'children' => [
+            [
+                'label' => 'Purchase Report',
+                'href' => route('admin.cashbook.finance.purchase'),
+                'active' => $isPurchaseReportActive,
+            ],
+            [
+                'label' => 'Item Purchase Report',
+                'href' => route('admin.cashbook.reports-v1.item-purchase'),
+                'active' => $isItemPurchaseReportActive,
+            ],
+            [
+                'label' => 'Grades Report',
+                'href' => route('admin.cashbook.reports-v1.grades'),
+                'active' => $isGradesReportActive,
+            ],
+            [
+                'label' => 'Damage & Loss Report',
+                'href' => route('admin.cashbook.reports-v1.damage-loss'),
+                'active' => $isDamageLossReportActive,
+            ],
+        ],
+    ];
+
     $monthlyReportsSidebarItem = [
         'label' => 'Reports',
         'href' => route('admin.cashbook.monthly-report.overview'),
@@ -668,6 +704,11 @@
                 <!-- MOBILE -->
                 @if (\App\Support\CashbookAccess::allows($sidebarUser, \App\Support\CashbookAccess::ReportsView))
                     <x-sidebar-link :item="$mobileSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+                @endif
+
+                <!-- REPORTS V1 -->
+                @if (\App\Support\CashbookAccess::allows($sidebarUser, \App\Support\CashbookAccess::ReconciliationView) || \App\Support\CashbookAccess::allows($sidebarUser, \App\Support\CashbookAccess::ReportsView))
+                    <x-sidebar-link :item="$reportsV1SidebarItem" label-attribute="data-cashbook-sidebar-label" />
                 @endif
 
                 <!-- PURCHASE -->

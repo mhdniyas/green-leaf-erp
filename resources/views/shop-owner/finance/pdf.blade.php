@@ -90,7 +90,12 @@
                                     @if($item->product?->sku)
                                         <span class="text-xs font-semibold text-slate-500 mr-1">[{{ $item->product->sku }}]</span>
                                     @endif
-                                    {{ $item->product_name }}
+                                    @php
+                                        $baseName = $item->product_name;
+                                        $itemGrade = (string) ($item->product_grade ?? 'A');
+                                        $showGrade = $itemGrade !== 'A' || $invoice->items->where('product_id', $item->product_id)->count() > 1;
+                                    @endphp
+                                    {{ $showGrade ? "{$baseName} — Grade {$itemGrade}" : $baseName }}
                                 </td>
                                 <td class="px-4 py-3 text-right text-slate-700">{{ number_format((float) ($item->price_quantity ?: $item->approved_qty), 4) }} {{ strtoupper($item->price_unit ?: $item->product->unit) }}</td>
                                 <td class="px-4 py-3 text-right text-slate-700">{{ number_format((float) $item->delivered_qty, 2) }} {{ strtoupper($item->product->unit) }}</td>

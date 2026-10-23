@@ -61,6 +61,9 @@ class WarehouseReceiptReadScope
                 );
             })->orWhere(function (Builder $withoutBatches) use ($ids): void {
                 $withoutBatches->whereNotExists($this->receiptState->batches()->selectRaw('1')->toBase())
+
+                    ->whereDoesntHave('purchaseOrder', fn ($po) => $po->where('fulfillment_type', 'shop'))
+                    ->whereDoesntHave('purchaserCart', fn ($cart) => $cart->where('purchase_source', 'shop'))
                     ->where(function (Builder $ownership) use ($ids): void {
                         $ownership->where(function (Builder $explicit) use ($ids): void {
                             $explicit->whereNotNull('goods_received.warehouse_id')
@@ -89,11 +92,14 @@ class WarehouseReceiptReadScope
                 $withReceipts->whereHas('goodsReceiveds', fn (Builder $receipt) => $this->receipts($receipt, $ids))
                     ->whereDoesntHave('goodsReceiveds', fn (Builder $foreignReceipt) => $foreignReceipt->whereNot(fn (Builder $allowed) => $this->receipts($allowed, $ids)));
             })->orWhere(function (Builder $withoutReceipts) use ($ids): void {
-                $withoutReceipts->whereDoesntHave('goodsReceiveds');
-                $withoutReceipts->where(function (Builder $location) use ($ids): void {
-                    $location->whereIn('purchase_orders.destination_shop_id', $ids)
-                        ->orWhere(fn (Builder $pi) => $this->productItems($pi, $ids));
-                });
+                $withoutReceipts->whereDoesntHave('goodsReceiveds')
+                    ->where('purchase_orders.fulfillment_type', '!=', 'shop')
+
+                    ->whereDoesntHave('purchaserCart', fn ($cart) => $cart->where('purchase_source', 'shop'))
+                    ->where(function (Builder $location) use ($ids): void {
+                        $location->where(fn (Builder $pi) => $this->productItems($pi, $ids))
+                            ->orWhereDoesntHave('items');
+                    });
             });
         });
     }

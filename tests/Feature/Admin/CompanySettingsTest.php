@@ -166,4 +166,31 @@ class CompanySettingsTest extends TestCase
         $service = app(PurchaserBusinessDayService::class);
         $this->assertTrue($service->isWarehouseEnabled($warehouse->id));
     }
+
+    public function test_company_settings_can_view_and_update_grade_default_percentages(): void
+    {
+        $this->actingAs($this->admin)
+            ->get(route('admin.company-settings.edit', ['tab' => 'operations']))
+            ->assertOk()
+            ->assertSee('Grade Selling Price Default Percentages')
+            ->assertSee('grade_b_default_percentage')
+            ->assertSee('grade_c_default_percentage');
+
+        $purchaserUser = User::factory()->create();
+        $purchaserUser->assignRole('purchaser');
+
+        $response = $this->actingAs($this->admin)
+            ->patch(route('admin.company-settings.update'), [
+                'company_name' => 'Green Leaf Fresh',
+                'default_purchaser_user_id' => $purchaserUser->id,
+                'grade_b_default_percentage' => '88.5',
+                'grade_c_default_percentage' => '75',
+            ]);
+
+        $response->assertRedirect(route('admin.company-settings.edit'))
+            ->assertSessionHas('success');
+
+        $this->assertEquals('88.5', BusinessSetting::where('key', 'grade_b_default_percentage')->value('value'));
+        $this->assertEquals('75', BusinessSetting::where('key', 'grade_c_default_percentage')->value('value'));
+    }
 }

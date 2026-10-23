@@ -44,10 +44,10 @@ class ShopOrderRevisionService
         // old_requested_qty on revision items stores the previously *approved* baseline quantity.
         $baselineQuantities = $order->items()
             ->get()
-            ->groupBy('product_id')
+            ->groupBy(fn (ShopOrderItem $item): string => (string) $item->product_id.'|'.($item->product_grade?->value ?? (string) ($item->product_grade ?? 'A')))
             ->map(fn ($items): float => (float) $items->sum(fn (ShopOrderItem $item): float => (float) ($item->approved_qty ?? $item->requested_qty ?? 0.00)));
         $incomingQuantities = collect($items)
-            ->groupBy(fn (array $item): int => (int) $item['product']->id)
+            ->groupBy(fn (array $item): string => (string) $item['product']->id.'|'.(string) ($item['grade'] ?? 'A'))
             ->map(fn ($productItems): float => (float) $productItems->sum(fn (array $item): float => (float) $item['quantity']));
 
         // Iterate ONLY over products the shop explicitly included in this payload.
@@ -57,9 +57,11 @@ class ShopOrderRevisionService
         $changedProducts = collect($incomingQuantities->keys())
             ->unique()
             ->values()
-            ->map(function (int $productId) use ($baselineQuantities, $incomingQuantities): ?array {
-                $oldQuantity = (float) ($baselineQuantities->get($productId) ?? 0.00);
-                $newQuantity = (float) ($incomingQuantities->get($productId) ?? 0.00);
+            ->map(function (string $key) use ($baselineQuantities, $incomingQuantities): ?array {
+                [$productIdStr, $grade] = explode('|', $key);
+                $productId = (int) $productIdStr;
+                $oldQuantity = (float) ($baselineQuantities->get($key) ?? 0.00);
+                $newQuantity = (float) ($incomingQuantities->get($key) ?? 0.00);
 
                 if (abs($oldQuantity - $newQuantity) < 0.0001) {
                     return null;
@@ -67,6 +69,7 @@ class ShopOrderRevisionService
 
                 return [
                     'product_id' => $productId,
+                    'product_grade' => $grade,
                     'old_requested_qty' => round($oldQuantity, 2),
                     'new_requested_qty' => round($newQuantity, 2),
                     'delta_qty' => round($newQuantity - $oldQuantity, 2),
@@ -79,7 +82,7 @@ class ShopOrderRevisionService
             return null;
         }
 
-        if ($this->linkedPurchaseOrdersQuery($order, $changedProducts->pluck('product_id')->all())->whereHas('goodsReceiveds')->exists()) {
+        if ($this->linkedPurchaseOrdersQuery($order, $changedProducts->pluck('product_id')->unique()->all())->whereHas('goodsReceiveds')->exists()) {
             throw ValidationException::withMessages([
                 'items' => 'This order can no longer be updated because goods receipt has already started for its purchase order.',
             ]);
@@ -169,24 +172,31 @@ class ShopOrderRevisionService
             return $revision->fresh(['items.product', 'shopOrder']);
         }
 
-        $existingItems = $order->items()->with('product')->get()->groupBy('product_id');
+        $existingItems = $order->items()->with('product')->get()->groupBy(
+            fn (ShopOrderItem $item): string => (string) $item->product_id.'|'.($item->product_grade?->value ?? (string) ($item->product_grade ?? 'A'))
+        );
         $wasApplied = false;
 
         foreach ($revision->items as $revisionItem) {
             $productId = (int) $revisionItem->product_id;
-            $finalQuantity = array_key_exists($productId, $shopQuantities)
-                ? (float) $shopQuantities[$productId]
-                : (float) $revisionItem->new_requested_qty;
+            $grade = (string) ($revisionItem->product_grade ?? 'A');
+            $key = $productId.'|'.$grade;
+
+            $finalQuantity = array_key_exists($key, $shopQuantities)
+                ? (float) $shopQuantities[$key]
+                : (array_key_exists($productId, $shopQuantities)
+                    ? (float) $shopQuantities[$productId]
+                    : (float) $revisionItem->new_requested_qty);
             $finalQuantity = round(max(0.0, $finalQuantity), 2);
 
-            $existingProductItems = $existingItems->get($productId, collect());
+            $existingProductItems = $existingItems->get($key, collect());
             /** @var ShopOrderItem|null $existingItem */
             $existingItem = $existingProductItems->first();
-            $fulfillmentType = (string) ($fulfillmentTypes[$productId] ?? $existingItem?->fulfillment_type ?? 'warehouse');
+            $fulfillmentType = (string) ($fulfillmentTypes[$key] ?? $fulfillmentTypes[$productId] ?? $existingItem?->fulfillment_type ?? 'warehouse');
             $product = $revisionItem->product ?? Product::findOrFail($productId);
 
             if ($finalQuantity > 0) {
-                $payload = $this->lockedPricePayload($order, $product, $finalQuantity);
+                $payload = $this->lockedPricePayload($order, $product, $finalQuantity, $grade);
 
                 if ($existingItem) {
                     // Update approved_qty to the new effective quantity.
@@ -197,15 +207,16 @@ class ShopOrderRevisionService
                         'fulfillment_type' => $fulfillmentType,
                         ...$payload,
                     ]);
-                    // Remove genuine duplicate rows for the same product (not the baseline).
+                    // Remove genuine duplicate rows for the same product and grade (not the baseline).
                     $extraItemIds = $existingProductItems->skip(1)->pluck('id')->all();
                     if ($extraItemIds !== []) {
                         $order->items()->whereIn('id', $extraItemIds)->delete();
                     }
                 } else {
-                    // New product added via late revision — create the item.
+                    // New product-grade added via late revision — create the item.
                     $existingItem = $order->items()->create([
                         'product_id' => $product->id,
+                        'product_grade' => $grade,
                         'requested_qty' => $finalQuantity,
                         'approved_qty' => $finalQuantity,
                         'unit' => $product->unit,
@@ -222,7 +233,7 @@ class ShopOrderRevisionService
                 // NEVER delete the baseline row: it must remain for audit history,
                 // and downstream modules (purchaser demand, loadout, invoice) read approved_qty.
                 $existingItem->update(['approved_qty' => 0.0]);
-                // Remove genuine duplicate rows only.
+                // Remove genuine duplicate rows for this product and grade only.
                 $extraItemIds = $existingProductItems->skip(1)->pluck('id')->all();
                 if ($extraItemIds !== []) {
                     $order->items()->whereIn('id', $extraItemIds)->delete();
@@ -453,12 +464,16 @@ class ShopOrderRevisionService
     /**
      * @return array<string, mixed>
      */
-    private function lockedPricePayload(ShopOrder $order, Product $product, float $quantity): array
+    private function lockedPricePayload(ShopOrder $order, Product $product, float $quantity, ProductGrade|string $grade = ProductGrade::GradeA): array
     {
-        $price = $this->priceBoardService->sellingPriceFor($product, $order->shop, ProductGrade::GradeA);
+        $resolvedGrade = is_string($grade)
+            ? (ProductGrade::tryFrom($grade) ?? ProductGrade::GradeA)
+            : $grade;
+
+        $price = $this->priceBoardService->sellingPriceFor($product, $order->shop, $resolvedGrade);
 
         return [
-            'product_grade' => ProductGrade::GradeA->value,
+            'product_grade' => $resolvedGrade->value,
             'locked_price_group_id' => $price['group']->id,
             'locked_selling_price' => $price['price'],
             'locked_price_source' => $price['source'],

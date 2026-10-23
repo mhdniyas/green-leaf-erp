@@ -140,6 +140,10 @@
                     @php
                         $source = data_get($activity->properties, 'source');
                         $product = data_get($activity->properties, 'after.product_name');
+                        $grade = data_get($activity->properties, 'after.product_grade') ?: data_get($activity->properties, 'before.product_grade');
+                        if ($product && $grade && (string) $grade !== 'A') {
+                            $product .= " — Grade {$grade}";
+                        }
                         $reason = data_get($activity->properties, 'reason');
                         $lines = $changeLines($activity);
                     @endphp
@@ -167,6 +171,10 @@
                             @php
                                 $source = data_get($activity->properties, 'source');
                                 $product = data_get($activity->properties, 'after.product_name');
+                                $grade = data_get($activity->properties, 'after.product_grade') ?: data_get($activity->properties, 'before.product_grade');
+                                if ($product && $grade && (string) $grade !== 'A') {
+                                    $product .= " — Grade {$grade}";
+                                }
                                 $reason = data_get($activity->properties, 'reason');
                                 $lines = $changeLines($activity);
                             @endphp
@@ -364,7 +372,10 @@
                             $dDiff = round($dFinal - $dLoaded, 4);
                             $dUnit = $formatUnit($dItem->unit);
                             $dOrderItemId = $dItem->shop_order_item_id;
-                            $dProductName = $dItem->product?->name ?? $dItem->product_name;
+                            $dBaseName = $dItem->product?->name ?? $dItem->product_name;
+                            $dItemGrade = (string) ($dItem->product_grade ?? 'A');
+                            $dShowGrade = $dItemGrade !== 'A' || $discrepancyItems->where('product_id', $dItem->product_id)->count() > 1;
+                            $dProductName = $dShowGrade ? "{$dBaseName} — Grade {$dItemGrade}" : $dBaseName;
                         @endphp
                         <div class="rounded-2xl border border-slate-200/90 bg-slate-50/70 p-4 space-y-3" data-impact-row data-order-item-id="{{ $dOrderItemId }}" data-diff="{{ $dDiff }}" data-product-name="{{ $dProductName }}">
                             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200/60 pb-2.5">

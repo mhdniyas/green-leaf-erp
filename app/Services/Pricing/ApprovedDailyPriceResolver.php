@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Pricing;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Models\DailyPriceApproval;
 use App\Models\Product;
 use App\Models\ProductUnit;
@@ -25,11 +26,16 @@ class ApprovedDailyPriceResolver
      *     price: float,
      *     price_unit: string,
      *     price_column: string,
-     *     category_code: string
+     *     category_code: string,
+     *     grade: string
      * }
      */
-    public function resolve(Product $product, Shop $shop, CarbonInterface|string $businessDate): array
-    {
+    public function resolve(
+        Product $product,
+        Shop $shop,
+        CarbonInterface|string $businessDate,
+        ProductGrade|string|null $grade = ProductGrade::GradeA,
+    ): array {
         $businessDate = Carbon::parse($businessDate)->startOfDay();
         $nextBusinessDate = $businessDate->copy()->addDay();
         $group = $shop->priceGroup;
@@ -40,52 +46,60 @@ class ApprovedDailyPriceResolver
             ]);
         }
 
-        $specialPrice = ShopDailyProductPrice::query()
-            ->where('business_date', '>=', $businessDate->toDateString())
-            ->where('business_date', '<', $nextBusinessDate->toDateString())
-            ->where('shop_id', $shop->id)
-            ->where('product_id', $product->id)
-            ->where('status', 'approved')
-            ->first();
+        $productGrade = $grade instanceof ProductGrade ? $grade : (ProductGrade::tryResolve($grade) ?? ProductGrade::GradeA);
+        $gradeVal = $productGrade->value;
 
-        if ($specialPrice instanceof ShopDailyProductPrice) {
-            $price = round((float) $specialPrice->selling_price, 2);
+        // Special prices only apply to Grade A unless grade-specific special prices are defined
+        if ($productGrade === ProductGrade::GradeA) {
+            $specialPrice = ShopDailyProductPrice::query()
+                ->where('business_date', '>=', $businessDate->toDateString())
+                ->where('business_date', '<', $nextBusinessDate->toDateString())
+                ->where('shop_id', $shop->id)
+                ->where('product_id', $product->id)
+                ->where('status', 'approved')
+                ->first();
 
-            if ($price <= 0.0) {
-                throw ValidationException::withMessages([
-                    'prices' => "Special price for {$product->name} is invalid.",
-                ]);
+            if ($specialPrice instanceof ShopDailyProductPrice) {
+                $price = round((float) $specialPrice->selling_price, 2);
+
+                if ($price <= 0.0) {
+                    throw ValidationException::withMessages([
+                        'prices' => "Special price for {$product->name} is invalid.",
+                    ]);
+                }
+
+                return [
+                    'source' => 'special',
+                    'approval' => null,
+                    'special_price' => $specialPrice,
+                    'group' => $group,
+                    'price' => $price,
+                    'price_unit' => ProductUnit::normalizeUnit((string) ($specialPrice->price_unit ?: $product->unit ?: 'kg')),
+                    'price_column' => 'special',
+                    'category_code' => 'SPECIAL',
+                    'grade' => $gradeVal,
+                ];
             }
-
-            return [
-                'source' => 'special',
-                'approval' => null,
-                'special_price' => $specialPrice,
-                'group' => $group,
-                'price' => $price,
-                'price_unit' => ProductUnit::normalizeUnit((string) ($specialPrice->price_unit ?: $product->unit ?: 'kg')),
-                'price_column' => 'special',
-                'category_code' => 'SPECIAL',
-            ];
         }
 
         $priceColumn = $this->priceColumnForGroup($group);
 
         $approval = DailyPriceApproval::query()
             ->where('product_id', $product->id)
+            ->where('grade', $gradeVal)
             ->where('business_date', '>=', $businessDate->toDateString())
             ->where('business_date', '<', $nextBusinessDate->toDateString())
             ->first();
 
         if (! $approval instanceof DailyPriceApproval) {
             throw ValidationException::withMessages([
-                'prices' => "Approved daily price is missing for {$product->name}.",
+                'prices' => "Approved daily price is missing for {$product->name} (Grade {$gradeVal}).",
             ]);
         }
 
         if ($approval->status !== 'approved' || $approval->approved_at === null) {
             throw ValidationException::withMessages([
-                'prices' => "Daily price for {$product->name} has not been approved by admin.",
+                'prices' => "Daily price for {$product->name} (Grade {$gradeVal}) has not been approved by admin.",
             ]);
         }
 
@@ -93,7 +107,7 @@ class ApprovedDailyPriceResolver
 
         if ($price <= 0.0) {
             throw ValidationException::withMessages([
-                'prices' => "Approved daily price for {$product->name} is invalid.",
+                'prices' => "Approved daily price for {$product->name} (Grade {$gradeVal}) is invalid.",
             ]);
         }
 
@@ -106,6 +120,7 @@ class ApprovedDailyPriceResolver
             'price_unit' => ProductUnit::normalizeUnit((string) ($approval->price_unit ?: $product->unit ?: 'kg')),
             'price_column' => $priceColumn,
             'category_code' => strtoupper((string) $group->name),
+            'grade' => $gradeVal,
         ];
     }
 

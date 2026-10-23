@@ -16,8 +16,14 @@ use App\Models\PurchaseGradePrice;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
+use App\Models\ShopInvoice;
+use App\Models\ShopInvoiceItem;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\StockAdjustment;
+use App\Models\StockBatch;
+use App\Models\StockMovement;
+use App\Models\WastageEntry;
 use App\Services\Purchasing\DailyPurchaserPriceSyncService;
 use App\Services\Purchasing\PurchaserReadCacheService;
 use Illuminate\Database\Eloquent\Model;
@@ -67,14 +73,18 @@ class PurchaserCacheInvalidationObserver
     private function invalidateForModel(Model $model): void
     {
         $scopes = match (true) {
-            $model instanceof ShopOrder, $model instanceof ShopOrderItem => ['orders'],
+            $model instanceof ShopOrder,
+            $model instanceof ShopOrderItem,
+            $model instanceof ShopInvoice,
+            $model instanceof ShopInvoiceItem => ['orders'],
             $model instanceof PurchaserCart, $model instanceof PurchaserCartItem, $model instanceof PurchaseInvoice => ['carts'],
             $model instanceof DailyProductPrice,
             $model instanceof DailyProductPriceRevision,
             $model instanceof DailyPriceApproval,
             $model instanceof DailyPricePublication,
             $model instanceof PurchaseGradePrice => ['prices'],
-            $model instanceof Product, $model instanceof Category, $model instanceof ProductUnit => ['products'],
+            $model instanceof Product, $model instanceof Category, $model instanceof ProductUnit,
+            $model instanceof StockMovement, $model instanceof StockBatch, $model instanceof StockAdjustment, $model instanceof WastageEntry => ['products'],
             $model instanceof BusinessSetting => ['settings'],
             default => [],
         };

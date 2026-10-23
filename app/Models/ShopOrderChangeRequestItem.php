@@ -16,7 +16,9 @@ class ShopOrderChangeRequestItem extends Model
 
     protected $fillable = [
         'shop_order_change_request_id',
+        'shop_order_item_id',
         'product_id',
+        'product_grade',
         'old_qty',
         'new_qty',
         'approved_qty',
@@ -26,6 +28,7 @@ class ShopOrderChangeRequestItem extends Model
     protected function casts(): array
     {
         return [
+            'product_grade' => 'string',
             'old_qty' => 'decimal:2',
             'new_qty' => 'decimal:2',
             'approved_qty' => 'decimal:2',
@@ -39,6 +42,14 @@ class ShopOrderChangeRequestItem extends Model
     public function changeRequest(): BelongsTo
     {
         return $this->belongsTo(ShopOrderChangeRequest::class, 'shop_order_change_request_id');
+    }
+
+    /**
+     * @return BelongsTo<ShopOrderItem, $this>
+     */
+    public function shopOrderItem(): BelongsTo
+    {
+        return $this->belongsTo(ShopOrderItem::class);
     }
 
     /**

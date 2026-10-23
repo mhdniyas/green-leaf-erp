@@ -104,7 +104,7 @@ class PurchaserRequestPerformanceAndCleanupTest extends TestCase
 
         $this->actingAs($unauthorizedUser)->get(route('purchaser.daily'))->assertRedirect();
         $this->actingAs($this->purchaser)->get(route('purchaser.daily'))->assertOk();
-        $this->actingAs($this->purchaser)->get(route('purchaser.b-grade'))->assertOk();
+        $this->actingAs($this->purchaser)->get(route('purchaser.daily', ['purchase_grade' => 'B']))->assertOk();
     }
 
     private function cart(string $businessDate, string $status): PurchaserCart

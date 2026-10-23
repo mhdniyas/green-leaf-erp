@@ -34,6 +34,9 @@ class CompanySettingsController extends Controller
         'shop_attendance_cutoff_time',
         'purchaser_business_day_verification_enabled',
         'purchaser_business_day_require_daily_submission',
+        'enable_multi_grade_ordering',
+        'grade_b_default_percentage',
+        'grade_c_default_percentage',
     ];
 
     public function __construct(
@@ -66,6 +69,9 @@ class CompanySettingsController extends Controller
             'auto_load_all_delay_seconds' => (int) ($settings->get('auto_load_all_delay_seconds') ?: 3),
             'auto_load_all_allow_manual' => filter_var($settings->get('auto_load_all_allow_manual') ?? true, FILTER_VALIDATE_BOOLEAN),
             'shop_attendance_cutoff_time' => $settings->get('shop_attendance_cutoff_time') ?: '10:00',
+            'enable_multi_grade_ordering' => filter_var($settings->get('enable_multi_grade_ordering') ?? false, FILTER_VALIDATE_BOOLEAN),
+            'grade_b_default_percentage' => (float) ($settings->get('grade_b_default_percentage') ?: 90),
+            'grade_c_default_percentage' => (float) ($settings->get('grade_c_default_percentage') ?: 80),
         ];
 
         $purchaserBusinessDayGlobalSettings = [
@@ -153,6 +159,10 @@ class CompanySettingsController extends Controller
             'shop_attendance_cutoff_time' => ['nullable', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d$/'],
             'purchaser_business_day_verification_enabled' => ['nullable', 'boolean'],
             'purchaser_business_day_require_daily_submission' => ['nullable', 'boolean'],
+            'enable_multi_grade_ordering' => ['nullable', 'boolean'],
+            'grade_b_default_percentage' => ['nullable', 'numeric', 'min:1', 'max:200'],
+            'grade_c_default_percentage' => ['nullable', 'numeric', 'min:1', 'max:200'],
+            'active_tab' => ['nullable', 'string', 'in:company,operations,purchaser-business-day,warehouse-sales,auto-load,history'],
             'warehouse_sales_enabled' => ['nullable', 'boolean'],
             'warehouse_sales_allowed_user_ids' => ['nullable', 'array'],
             'warehouse_sales_allowed_user_ids.*' => ['integer', 'exists:users,id'],
@@ -162,9 +172,15 @@ class CompanySettingsController extends Controller
         ]);
 
         foreach (self::SETTING_KEYS as $key) {
+            $value = filled($validated[$key] ?? null) ? $validated[$key] : null;
+
+            if ($key === 'enable_multi_grade_ordering') {
+                $value = $request->boolean('enable_multi_grade_ordering') ? '1' : '0';
+            }
+
             BusinessSetting::query()->updateOrCreate(
                 ['key' => $key],
-                ['value' => filled($validated[$key] ?? null) ? $validated[$key] : null],
+                ['value' => $value],
             );
         }
 
@@ -214,8 +230,10 @@ class CompanySettingsController extends Controller
             ]);
         }
 
+        $activeTab = $request->input('active_tab');
+
         return redirect()
-            ->route('admin.company-settings.edit')
+            ->route('admin.company-settings.edit', $activeTab ? ['tab' => $activeTab] : [])
             ->with('success', 'Company settings updated successfully.');
     }
 

@@ -105,7 +105,7 @@ class CustomerController extends Controller
         $client = $this->resolveClient($request);
         $destinationType = $request->string('destination_type')->toString();
 
-        Shop::query()->create([
+        $data = [
             'name' => $request->string('name')->toString(),
             'code' => $request->string('code')->toString(),
             'warehouse_tag' => $request->input('warehouse_tag') ?: null,
@@ -119,7 +119,21 @@ class CustomerController extends Controller
             'address' => $request->input('address') ?: null,
             'contact_name' => $request->input('contact_name') ?: null,
             'contact_phone' => $request->input('contact_phone') ?: null,
-        ]);
+        ];
+
+        if ($request->user()?->hasRole('admin') && $request->has('allowed_product_grades')) {
+            $rawGrades = (array) $request->input('allowed_product_grades', ['A']);
+            $grades = array_values(array_unique(array_filter(
+                array_map(fn ($g) => strtoupper(trim((string) $g)), $rawGrades),
+                fn ($g) => in_array($g, ['A', 'B', 'C'], true)
+            )));
+            if (! in_array('A', $grades, true)) {
+                array_unshift($grades, 'A');
+            }
+            $data['allowed_product_grades'] = $grades;
+        }
+
+        Shop::query()->create($data);
 
         return redirect()
             ->route('sales.customers.index')
@@ -131,7 +145,7 @@ class CustomerController extends Controller
         $client = $this->resolveClient($request);
         $destinationType = $request->string('destination_type')->toString();
 
-        $shop->update([
+        $data = [
             'name' => $request->string('name')->toString(),
             'code' => $request->string('code')->toString(),
             'warehouse_tag' => $request->input('warehouse_tag') ?: null,
@@ -145,7 +159,21 @@ class CustomerController extends Controller
             'address' => $request->input('address') ?: null,
             'contact_name' => $request->input('contact_name') ?: null,
             'contact_phone' => $request->input('contact_phone') ?: null,
-        ]);
+        ];
+
+        if ($request->user()?->hasRole('admin') && $request->has('allowed_product_grades')) {
+            $rawGrades = (array) $request->input('allowed_product_grades', ['A']);
+            $grades = array_values(array_unique(array_filter(
+                array_map(fn ($g) => strtoupper(trim((string) $g)), $rawGrades),
+                fn ($g) => in_array($g, ['A', 'B', 'C'], true)
+            )));
+            if (! in_array('A', $grades, true)) {
+                array_unshift($grades, 'A');
+            }
+            $data['allowed_product_grades'] = $grades;
+        }
+
+        $shop->update($data);
 
         return redirect()
             ->route('sales.customers.index')

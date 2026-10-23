@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\Auth\ApiAuthController;
 use App\Http\Controllers\Api\Inventory\CategoryController;
 use App\Http\Controllers\Api\Inventory\ProductController;
+use App\Http\Controllers\Api\Inventory\SegregateBatchController;
 use App\Http\Controllers\Api\Inventory\SortBatchController;
 use App\Http\Controllers\Api\Inventory\StockBatchController;
 use App\Http\Controllers\Api\Inventory\StockController;
@@ -103,6 +104,10 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::apiResource('products', ProductController::class);
             Route::apiResource('batches', StockBatchController::class)->except(['update']);
             Route::post('batches/{batch}/sort', SortBatchController::class)->name('batches.sort');
+            Route::post('batches/{batch}/segregate', [SegregateBatchController::class, 'segregate'])->name('batches.segregate');
+            Route::post('batches/{batch}/segregate/reverse', [SegregateBatchController::class, 'reverse'])
+                ->withTrashed()
+                ->name('batches.segregate.reverse');
             Route::get('stock', [StockController::class, 'index'])->name('stock.index');
             Route::get('movements', [StockController::class, 'movements'])->name('movements.index');
             Route::get('wastage', [WastageController::class, 'index'])->name('wastage.index');

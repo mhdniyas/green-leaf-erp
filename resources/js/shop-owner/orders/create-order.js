@@ -538,6 +538,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         window.localStorage.removeItem(draftStorageKey);
+
+        // Eliminate unselected zero-quantity lines to prevent exceeding PHP max_input_vars limit
+        quantityInputs.forEach((input) => {
+            const val = parseQty(input.value);
+            const hadExistingQty = Boolean(input.defaultValue && parseQty(input.defaultValue) > 0);
+
+            if (val === 0 && !hadExistingQty) {
+                input.disabled = true;
+                const lineKey = input.getAttribute('data-line-key');
+                if (lineKey) {
+                    const row = input.closest('[data-product-card]');
+                    row?.querySelectorAll(`[name="item_units[${lineKey}]"], [name="item_measures[${lineKey}]"], [name="item_grades[${lineKey}]"]`)
+                        .forEach((hiddenInput) => {
+                            hiddenInput.disabled = true;
+                        });
+                }
+            }
+        });
+
         formNode.submit();
     };
 

@@ -13,8 +13,6 @@ use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
-use App\Models\StockBatch;
-use App\Models\StockMovement;
 use App\Repositories\Warehouse\ShopOrderLoadoutRepository;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Pricing\PriceBoardService;
@@ -92,22 +90,21 @@ class WarehouseLoadoutController extends Controller
 
         $shopOrder->load(['shop', 'items.product.category', 'items.product.orderUnits', 'deliveredBy']);
 
-        // Group items by product — UI shows one merged row per product
+        // Group items by product & grade — UI shows one distinct row per product & grade
         $productGroups = $shopOrder->items
-            ->groupBy('product_id')
-            ->pipe(function ($groups) {
-                $availableByProduct = $this->stockLedgerService->availableSortedStockForProducts(
-                    $groups->keys()->map(fn ($id) => (int) $id)->all()
-                );
-
-                return $groups->map(function ($items) use ($availableByProduct) {
+            ->groupBy(fn (ShopOrderItem $item) => $item->product_id.'|'.($item->product_grade ?? 'A'))
+            ->pipe(function ($groups) use ($shopOrder) {
+                return $groups->map(function ($items, $groupKey) use ($shopOrder) {
                     $productId = $items->first()->product_id;
+                    $gradeStr = (string) ($items->first()->product_grade ?? 'A');
+                    $gradeEnum = ProductGrade::tryResolve($gradeStr) ?? ProductGrade::GradeA;
                     $totalApproved = $this->loadoutApprovedQuantity($items);
                     $totalLoaded = (float) $items->where('sorting_status', 'loaded')->sum('loaded_qty');
                     $totalLoadedOrderUnit = (float) $items->where('sorting_status', 'loaded')->sum(fn (ShopOrderItem $item): float => (float) ($item->loaded_order_unit_qty ?? 0));
                     $totalRequestedOrderUnit = (float) $items->sum(fn (ShopOrderItem $item): float => (float) ($item->requested_qty ?? 0));
                     $totalBalance = max(0.0, round($totalApproved - $totalLoaded, 3));
-                    $available = round((float) ($availableByProduct[$productId] ?? 0.0) + $totalLoaded, 3);
+                    $stockBreakdown = $this->stockLedgerService->availableLoadoutStockBreakdown($productId, null, $gradeEnum);
+                    $available = round($stockBreakdown['available_stock'] + $totalLoaded, 3);
 
                     $firstItem = $items->first();
                     $productBaseUnit = strtolower((string) ($firstItem->product->unit ?? 'kg'));
@@ -115,11 +112,15 @@ class WarehouseLoadoutController extends Controller
                     $hasSecondaryUnit = $requestedUnit !== '' && $requestedUnit !== $productBaseUnit;
                     $measurementCount = (int) ($firstItem->product?->orderUnits?->count() ?? 0);
 
+                    $hasMultipleGrades = $shopOrder->items->where('product_id', $productId)->pluck('product_grade')->unique()->count() > 1;
+                    $rowKey = ($hasMultipleGrades || $gradeStr !== 'A') ? (string) $groupKey : (string) $productId;
+
                     return [
+                        'row_key' => $rowKey,
                         'product_id' => $productId,
                         'product' => $firstItem->product,
                         'unit' => $firstItem->product->unit ?? 'KG',
-                        'product_grade' => $firstItem->product_grade ?? 'A',
+                        'product_grade' => $gradeStr,
                         'total_approved' => $totalApproved,
                         'total_loaded' => $totalLoaded,
                         'loaded_order_unit_qty' => $totalLoadedOrderUnit,
@@ -132,6 +133,8 @@ class WarehouseLoadoutController extends Controller
                         'requested_unit_conversion_to_base' => (float) ($firstItem->requested_unit_conversion_to_base ?? 1.0),
                         'total_balance' => $totalBalance,
                         'available_stock' => $available,
+                        'grade_stock' => $stockBreakdown['grade_stock'],
+                        'mixed_stock' => $stockBreakdown['mixed_stock'],
                         'is_fully_loaded' => $totalLoaded > 0.0 && $totalBalance <= 0.001,
                         'is_partially_loaded' => $totalLoaded > 0.0 && $totalBalance > 0.001,
                         'items' => $items,
@@ -342,15 +345,16 @@ class WarehouseLoadoutController extends Controller
                 $rowsByProduct = $shopOrder->items()
                     ->lockForUpdate()
                     ->get()
-                    ->groupBy('product_id');
+                    ->groupBy(fn (ShopOrderItem $item) => $item->product_id.'|'.($item->product_grade ?? 'A'));
 
-                foreach ($rowsByProduct as $productId => $rows) {
+                foreach ($rowsByProduct as $groupKey => $rows) {
                     if (! $this->needsMerge($rows)) {
                         continue;
                     }
 
+                    $productId = (int) $rows->first()->product_id;
                     $targetRows = $this->canonicalRowsForProduct($rows, $userId);
-                    $this->applyOrderItemRows($rows, $shopOrder->id, (int) $productId, $targetRows);
+                    $this->applyOrderItemRows($rows, $shopOrder->id, $productId, $targetRows);
                     $merged++;
                 }
             });
@@ -514,42 +518,60 @@ class WarehouseLoadoutController extends Controller
                 // Lock the order row against concurrent saves
                 ShopOrder::lockForUpdate()->find($shopOrder->id);
 
-                $anyItemLoaded = false;
                 $itemsInput = $request->input('items', []);
                 $unitQtysInput = $request->input('item_unit_qtys', []);
 
-                $productIds = collect(array_keys($itemsInput))
+                $rawKeys = collect(array_keys($itemsInput))
                     ->merge(array_keys($unitQtysInput))
                     ->merge(array_keys($request->input('item_status', [])))
                     ->merge(array_keys($request->input('item_notes', [])))
-                    ->map(fn ($id) => (int) $id)
+                    ->map(fn ($k) => (string) $k)
                     ->unique()
-                    ->sort()
                     ->values();
 
-                foreach ($productIds as $productId) {
-                    $hasWeightInput = array_key_exists($productId, $itemsInput) && $itemsInput[$productId] !== null && trim((string) $itemsInput[$productId]) !== '';
-                    $hasUnitQtyInput = array_key_exists($productId, $unitQtysInput) && $unitQtysInput[$productId] !== null && trim((string) $unitQtysInput[$productId]) !== '';
-                    $hasStatusInput = array_key_exists($productId, $request->input('item_status', [])) && $request->input("item_status.{$productId}") !== null && trim((string) $request->input("item_status.{$productId}")) !== '';
-                    $hasNoteInput = array_key_exists($productId, $request->input('item_notes', [])) && $request->input("item_notes.{$productId}") !== null && trim((string) $request->input("item_notes.{$productId}")) !== '';
+                foreach ($rawKeys as $key) {
+                    $hasWeightInput = array_key_exists($key, $itemsInput) && $itemsInput[$key] !== null && trim((string) $itemsInput[$key]) !== '';
+                    $hasUnitQtyInput = array_key_exists($key, $unitQtysInput) && $unitQtysInput[$key] !== null && trim((string) $unitQtysInput[$key]) !== '';
+                    $hasStatusInput = array_key_exists($key, $request->input('item_status', [])) && $request->input("item_status.{$key}") !== null && trim((string) $request->input("item_status.{$key}")) !== '';
+                    $hasNoteInput = array_key_exists($key, $request->input('item_notes', [])) && $request->input("item_notes.{$key}") !== null && trim((string) $request->input("item_notes.{$key}")) !== '';
 
                     if (! $hasWeightInput && ! $hasUnitQtyInput && ! $hasStatusInput && ! $hasNoteInput) {
                         continue;
                     }
 
-                    $actualWeight = isset($itemsInput[$productId]) && $itemsInput[$productId] !== ''
-                        ? max(0.0, (float) $itemsInput[$productId])
+                    $actualWeight = isset($itemsInput[$key]) && $itemsInput[$key] !== ''
+                        ? max(0.0, (float) $itemsInput[$key])
                         : 0.0;
 
-                    $submittedUnitQty = isset($unitQtysInput[$productId]) && $unitQtysInput[$productId] !== ''
-                        ? max(0.0, (float) $unitQtysInput[$productId])
+                    $submittedUnitQty = isset($unitQtysInput[$key]) && $unitQtysInput[$key] !== ''
+                        ? max(0.0, (float) $unitQtysInput[$key])
                         : null;
 
-                    // Lock rows for this product in this order
-                    $rows = $shopOrder->items()
-                        ->where('product_id', $productId)
-                        ->lockForUpdate()
-                        ->get();
+                    if (str_contains($key, '|')) {
+                        [$pIdStr, $gStr] = explode('|', $key, 2);
+                        $productId = (int) $pIdStr;
+                        $targetGrade = ProductGrade::tryResolve($gStr) ?? ProductGrade::GradeA;
+                        $rows = $shopOrder->items()
+                            ->where('product_id', $productId)
+                            ->where('product_grade', $targetGrade->value)
+                            ->lockForUpdate()
+                            ->get();
+                    } else {
+                        $numericId = (int) $key;
+                        $singleItem = $shopOrder->items()->where('id', $numericId)->lockForUpdate()->first();
+                        if ($singleItem) {
+                            $productId = (int) $singleItem->product_id;
+                            $targetGrade = ProductGrade::tryResolve($singleItem->product_grade) ?? ProductGrade::GradeA;
+                            $rows = collect([$singleItem]);
+                        } else {
+                            $productId = $numericId;
+                            $rows = $shopOrder->items()
+                                ->where('product_id', $productId)
+                                ->lockForUpdate()
+                                ->get();
+                            $targetGrade = ProductGrade::tryResolve($rows->first()?->product_grade) ?? ProductGrade::GradeA;
+                        }
+                    }
 
                     if ($rows->isEmpty()) {
                         continue;
@@ -571,7 +593,7 @@ class WarehouseLoadoutController extends Controller
                         ? ($actualWeight > 0.0001 ? $actualWeight : $convertedQty)
                         : ($actualWeight > 0.0001
                             ? $actualWeight
-                            : max(0.0, (float) ($itemsInput[$productId] ?? 0)));
+                            : max(0.0, (float) ($itemsInput[$key] ?? 0)));
 
                     // Calculate difference-based deduction
                     $oldLoadedQty = (float) $rows->where('sorting_status', 'loaded')->sum('loaded_qty');
@@ -579,7 +601,7 @@ class WarehouseLoadoutController extends Controller
 
                     $product = Product::find($productId);
                     $warehouseId = $product?->default_warehouse_id;
-                    $itemGrade = ProductGrade::tryFrom($firstRow->product_grade ?? '') ?? ProductGrade::GradeA;
+                    $itemGrade = $targetGrade;
 
                     if ($diff > 0.001) {
                         $this->stockLedgerService->consumeStockForProductAllowingNegative(
@@ -593,32 +615,12 @@ class WarehouseLoadoutController extends Controller
                             $itemGrade,
                         );
                     } elseif ($diff < -0.001) {
-                        $lastOut = StockMovement::where('product_id', $productId)
-                            ->where('type', StockMovementType::Out)
-                            ->where('notes', 'like', "%Order: {$shopOrder->order_number}%")
-                            ->latest()
-                            ->first();
-
-                        $batchId = $lastOut?->batch_id;
-                        if (! $batchId) {
-                            $anyBatch = StockBatch::where('product_id', $productId)->latest()->first();
-                            $batchId = $anyBatch?->id;
-                        }
-
-                        if ($batchId) {
-                            $batch = StockBatch::find($batchId);
-                            StockMovement::create([
-                                'batch_id' => $batchId,
-                                'product_id' => $productId,
-                                'created_by' => $userId,
-                                'grade' => $lastOut?->grade ?? $firstRow->product_grade ?? 'A',
-                                'type' => StockMovementType::SaleReversal,
-                                'quantity' => abs($diff),
-                                'cost_per_unit' => $lastOut?->cost_per_unit ?? 0.0,
-                                'warehouse_id' => $batch?->warehouse_id ?? $warehouseId,
-                                'notes' => "Loadout adjustment (decrease) — Order: {$shopOrder->order_number}",
-                            ]);
-                        }
+                        $this->stockLedgerService->reverseStockForOrderItem(
+                            $firstRow->id,
+                            abs($diff),
+                            $userId,
+                            "Loadout adjustment (decrease) — Order: {$shopOrder->order_number}",
+                        );
                     }
 
                     $unitSellingPrice = (float) ($firstRow->locked_selling_price ?? 0.0);
@@ -633,12 +635,12 @@ class WarehouseLoadoutController extends Controller
                         'requested_unit' => $firstRow->requested_unit,
                         'requested_unit_label' => $firstRow->requested_unit_label,
                         'requested_unit_conversion_to_base' => $firstRow->requested_unit_conversion_to_base,
-                        'product_grade' => $firstRow->product_grade ?? 'A',
+                        'product_grade' => $firstRow->product_grade ?? $itemGrade->value,
                         'fulfillment_type' => $firstRow->fulfillment_type,
                     ];
 
-                    $isNotAvailable = ($request->input("item_status.{$productId}") === 'not_available');
-                    $discrepancyNote = $request->input("item_notes.{$productId}") ?? null;
+                    $isNotAvailable = ($request->input("item_status.{$key}") === 'not_available') || ($request->input("item_status.{$productId}") === 'not_available');
+                    $discrepancyNote = $request->input("item_notes.{$key}") ?? $request->input("item_notes.{$productId}") ?? null;
 
                     // Build the target row shape first, then reuse/update existing rows in
                     // place instead of soft-deleting and recreating them on every save.
@@ -987,13 +989,13 @@ class WarehouseLoadoutController extends Controller
     private function duplicateMergeCandidates(Collection $rows): Collection
     {
         return $rows
-            ->groupBy('product_id')
+            ->groupBy(fn (ShopOrderItem $item) => $item->product_id.'|'.($item->product_grade ?? 'A'))
             ->filter(fn (Collection $productRows): bool => $this->needsMerge($productRows))
-            ->map(function (Collection $productRows, int|string $productId): array {
+            ->map(function (Collection $productRows, int|string $groupKey): array {
                 $first = $productRows->first();
 
                 return [
-                    'product_id' => (int) $productId,
+                    'product_id' => (int) ($first?->product_id ?? 0),
                     'product_name' => (string) ($first?->product?->name ?? 'Unknown Product'),
                     'row_count' => $productRows->count(),
                     'loaded_rows' => $productRows->where('sorting_status', 'loaded')->count(),

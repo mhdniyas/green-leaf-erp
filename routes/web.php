@@ -68,7 +68,6 @@ use App\Http\Controllers\Web\Purchasing\DirectSaleController;
 use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Web\Purchasing\OtherExpenseController;
 use App\Http\Controllers\Web\Purchasing\ProcurementExpenseController;
-use App\Http\Controllers\Web\Purchasing\PurchaseGradePriceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Web\Purchasing\PurchaserBusinessDayCloseController;
@@ -387,6 +386,10 @@ Route::middleware('auth')->group(function () {
             Route::get('batches/{batch}', [BatchController::class, 'show'])->name('batches.show');
             Route::get('batches/{batch}/sort', [BatchController::class, 'sort'])->name('batches.sort');
             Route::post('batches/{batch}/sort', [BatchController::class, 'processSort'])->name('batches.sort.process');
+            Route::post('batches/{batch}/segregate', [BatchController::class, 'segregate'])->name('batches.segregate');
+            Route::post('batches/{batch}/segregate/reverse', [BatchController::class, 'reverseSegregation'])
+                ->withTrashed()
+                ->name('batches.segregate.reverse');
             Route::delete('batches/{batch}', [BatchController::class, 'destroy'])->name('batches.destroy');
 
             Route::get('settings', [InventorySettingsController::class, 'edit'])->name('settings.edit');
@@ -599,16 +602,13 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/daily', [PurchaserDashboardController::class, 'daily'])->name('purchaser.daily');
     Route::get('/purchaser/daily/products/{product}/demand', [PurchaserDashboardController::class, 'dailyProductDemand'])->name('purchaser.daily.product-demand');
     Route::get('/purchaser/daily/products/{product}/purchase-options', [PurchaserDashboardController::class, 'dailyProductPurchaseOptions'])->name('purchaser.daily.product-purchase-options');
-    Route::get('/purchaser/b-grade', [PurchaserDashboardController::class, 'bGrade'])->name('purchaser.b-grade');
     Route::get('/purchaser/daily/share', [PurchaserDashboardController::class, 'dailyShare'])->name('purchaser.daily.share');
     Route::get('/purchaser/daily/share/presets', [PurchaserDashboardController::class, 'dailySharePresets'])->name('purchaser.daily.share.presets');
     Route::post('/purchaser/daily/share/presets', [PurchaserDashboardController::class, 'dailySharePresetStore'])->name('purchaser.daily.share.presets.store');
     Route::get('/purchaser/products', [PurchaserDashboardController::class, 'products'])->name('purchaser.products');
     Route::get('/purchaser/daily-prices', [PurchaserDashboardController::class, 'dailyPrices'])->name('purchaser.daily-prices');
+    Route::get('/purchaser/daily-prices/{product}/history', [PurchaserDashboardController::class, 'dailyPriceHistory'])->name('purchaser.daily-prices.history');
     Route::post('/purchaser/daily-prices', [PurchaserDashboardController::class, 'updateDailyPrices'])->name('purchaser.daily-prices.update');
-    Route::get('/purchaser/purchase-grade-prices', [PurchaseGradePriceController::class, 'index'])->name('purchaser.purchase-grade-prices.index');
-    Route::post('/purchaser/purchase-grade-prices', [PurchaseGradePriceController::class, 'update'])->name('purchaser.purchase-grade-prices.update');
-    Route::post('/purchaser/purchase-grade-prices/copy-a-to-b', [PurchaseGradePriceController::class, 'copyGradeAToB'])->name('purchaser.purchase-grade-prices.copy-a-to-b');
     Route::get('/purchaser/shop-orders', [PurchaserDashboardController::class, 'shopOrders'])->name('purchaser.shop-orders.index');
     Route::get('/purchaser/shop-orders/{order_number}', [PurchaserDashboardController::class, 'shopOrderShow'])->name('purchaser.shop-orders.show');
     Route::get('/purchaser/add-ons/create', [RequisitionController::class, 'createPurchaserDirectPurchase'])->name('purchaser.add-ons.create');
@@ -799,6 +799,7 @@ Route::middleware('auth')->group(function () {
             Route::get('/manifest', [ApiWarehouseLoadoutController::class, 'index'])->name('manifest');
             Route::get('/orders/{shopOrder}', [ApiWarehouseLoadoutController::class, 'show'])->name('show');
             Route::post('/orders/{shopOrder}/save', [ApiWarehouseLoadoutController::class, 'save'])->name('save');
+            Route::post('/orders/{shopOrder}/load', [AdminAutoLoadAllController::class, 'loadOrder'])->name('load-order');
             Route::post('/runs', [AdminAutoLoadAllController::class, 'storeRunSummary'])->name('runs.store');
         });
 
@@ -1018,6 +1019,10 @@ Route::middleware('auth')->group(function () {
             Route::post('finance/payments/{paymentRequest}/reconcile', [CashbookController::class, 'reconcileCompanyPayment'])->name('finance.payments.reconcile')->middleware('can:cashbook.reconciliation.manage');
 
             Route::get('finance/purchase', [CashbookController::class, 'companyFinancePurchaseDashboard'])->name('finance.purchase')->middleware('can:cashbook.reconciliation.view');
+            Route::get('reports-v1/item-purchase', [CashbookController::class, 'reportsV1ItemPurchaseReport'])->name('reports-v1.item-purchase')->middleware('can:cashbook.reconciliation.view');
+            Route::get('reports-v1/grades', [CashbookController::class, 'reportsV1GradesReport'])->name('reports-v1.grades')->middleware('can:cashbook.reconciliation.view');
+            Route::get('reports-v1/grades/batch-detail/{batch}', [CashbookController::class, 'reportsV1GradeBatchDetail'])->name('reports-v1.grades.batch-detail')->middleware('can:cashbook.reconciliation.view');
+            Route::get('reports-v1/damage-loss', [CashbookController::class, 'reportsV1DamageLossReport'])->name('reports-v1.damage-loss')->middleware('can:cashbook.reconciliation.view');
             Route::get('finance/purchase/monthly-summary', [PurchaserMonthlySummaryController::class, 'index'])->name('finance.purchase.monthly-summary.index')->middleware('can:cashbook.reconciliation.view');
             Route::get('finance/purchase/monthly-summary/{purchaser:public_uuid}', [PurchaserMonthlySummaryController::class, 'show'])->name('finance.purchase.monthly-summary.show')->middleware('can:cashbook.reconciliation.view');
             Route::get('finance/purchase/purchasers', [CashbookController::class, 'companyFinancePurchaseSection'])->defaults('section', 'purchasers')->name('finance.purchase.purchasers')->middleware('can:cashbook.reconciliation.view');

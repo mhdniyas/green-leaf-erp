@@ -4,16 +4,18 @@ declare(strict_types=1);
 
 namespace App\Services\Requisition;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Models\Product;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderChangeRequest;
+use App\Models\ShopOrderItem;
 use App\Models\ShopOrderRevision;
 use App\Models\User;
 
 class ShopOrderChangeRequestRecorder
 {
     /**
-     * @param  array<int, array{product: Product, quantity: float}>  $items
+     * @param  array<int, array{product: Product, quantity: float, grade?: string|ProductGrade}>  $items
      */
     public function recordSubmittedOrderUpdate(ShopOrder $order, array $items, User $requester, ?string $reason = null): ShopOrderChangeRequest
     {
@@ -39,8 +41,11 @@ class ShopOrderChangeRequestRecorder
 
         $order->loadMissing('items.product');
         foreach ($order->items as $item) {
+            $grade = $item->product_grade?->value ?? (string) ($item->product_grade ?? 'A');
             $changeRequest->items()->create([
+                'shop_order_item_id' => $item->id,
                 'product_id' => $item->product_id,
+                'product_grade' => $grade,
                 'old_qty' => 0,
                 'new_qty' => (float) $item->requested_qty,
                 'approved_qty' => null,
@@ -53,7 +58,7 @@ class ShopOrderChangeRequestRecorder
 
     public function recordApprovedOrderRevision(ShopOrderRevision $revision): ShopOrderChangeRequest
     {
-        $revision->loadMissing(['shopOrder', 'items.product', 'requestedBy']);
+        $revision->loadMissing(['shopOrder.items', 'items.product', 'requestedBy']);
 
         $revision->shopOrder->changeRequests()
             ->where('type', 'approved_order_update')
@@ -69,8 +74,14 @@ class ShopOrderChangeRequestRecorder
         );
 
         foreach ($revision->items as $item) {
+            $grade = $item->product_grade?->value ?? (string) ($item->product_grade ?? 'A');
+            $baselineItem = $revision->shopOrder->items
+                ->first(fn (ShopOrderItem $soi): bool => (int) $soi->product_id === (int) $item->product_id && ($soi->product_grade?->value ?? (string) ($soi->product_grade ?? 'A')) === $grade);
+
             $changeRequest->items()->create([
+                'shop_order_item_id' => $baselineItem?->id,
                 'product_id' => $item->product_id,
+                'product_grade' => $grade,
                 'old_qty' => (float) $item->old_requested_qty,
                 'new_qty' => (float) $item->new_requested_qty,
                 'approved_qty' => $item->final_approved_qty,
@@ -129,20 +140,28 @@ class ShopOrderChangeRequestRecorder
     }
 
     /**
-     * @param  array<int, array{product: Product, quantity: float}>  $items
+     * @param  array<int, array{product: Product, quantity: float, grade?: string|ProductGrade}>  $items
      */
     private function syncRequestedItems(ShopOrderChangeRequest $changeRequest, ShopOrder $order, array $items): void
     {
-        $baselineItems = $order->items()->get()->keyBy('product_id');
+        $baselineItems = $order->items()->get()->keyBy(
+            fn (ShopOrderItem $item): string => (string) $item->product_id.'|'.($item->product_grade?->value ?? (string) ($item->product_grade ?? 'A'))
+        );
 
         foreach ($items as $item) {
             $product = $item['product'];
+            $grade = $item['grade'] ?? 'A';
+            $gradeValue = $grade instanceof ProductGrade ? $grade->value : (string) $grade;
+            $key = (string) $product->id.'|'.$gradeValue;
+
             $newQty = round((float) $item['quantity'], 2);
-            $baselineItem = $baselineItems->get($product->id);
+            $baselineItem = $baselineItems->get($key);
             $oldQty = round((float) ($baselineItem?->requested_qty ?? 0), 2);
 
             $changeRequest->items()->create([
+                'shop_order_item_id' => $baselineItem?->id,
                 'product_id' => $product->id,
+                'product_grade' => $gradeValue,
                 'old_qty' => $oldQty,
                 'new_qty' => $newQty,
                 'approved_qty' => null,

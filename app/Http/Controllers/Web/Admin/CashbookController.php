@@ -119,6 +119,9 @@ use App\Services\Finance\VendorSettlementService;
 use App\Services\HR\PayrollPaymentService;
 use App\Services\Pricing\ApprovedDailyPriceResolver;
 use App\Services\Purchasing\DailyPurchaseReportService;
+use App\Services\Purchasing\DamageLossReportService;
+use App\Services\Purchasing\GradesReportService;
+use App\Services\Purchasing\ItemPurchaseReportService;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchasePriceReportingService;
 use App\Services\Purchasing\PurchaseReportingService;
@@ -7090,6 +7093,350 @@ final class CashbookController extends Controller
             $this->purchaseLayoutData(),
             compact('filters', 'dashboard')
         ));
+    }
+
+    public function reportsV1ItemPurchaseReport(Request $request, ItemPurchaseReportService $itemPurchaseReportService): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $this->itemPurchaseReportFilters($request);
+        $data = $itemPurchaseReportService->getReportData($filters);
+
+        return view('admin.cashbook.reports-v1.item-purchase', array_merge(
+            $this->purchaseLayoutData(),
+            $data,
+            ['filters' => $filters]
+        ));
+    }
+
+    public function reportsV1GradesReport(Request $request, GradesReportService $gradesReportService): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $this->gradesReportFilters($request);
+        $data = $gradesReportService->getReportData($filters);
+
+        return view('admin.cashbook.reports-v1.grades', array_merge(
+            $this->purchaseLayoutData(),
+            $data,
+            ['filters' => $filters]
+        ));
+    }
+
+    public function reportsV1GradeBatchDetail(Request $request, string $batch, GradesReportService $gradesReportService): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $detail = $gradesReportService->getBatchAuditDetail($batch);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $detail,
+        ]);
+    }
+
+    public function reportsV1DamageLossReport(Request $request, DamageLossReportService $damageLossReportService): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $this->damageLossReportFilters($request);
+        $data = $damageLossReportService->getReportData($filters);
+
+        return view('admin.cashbook.reports-v1.damage-loss', array_merge(
+            $this->purchaseLayoutData(),
+            $data,
+            ['filters' => $filters]
+        ));
+    }
+
+    private function damageLossReportFilters(Request $request): array
+    {
+        $validated = $request->validate([
+            'product' => ['nullable', 'string', 'max:100'],
+            'product_uuid' => ['nullable', 'string', 'max:100'],
+            'product_id' => ['nullable', 'integer', 'exists:products,id'],
+            'search_product' => ['nullable', 'string', 'max:100'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'warehouse' => ['nullable', 'integer'],
+            'period' => ['nullable', 'in:today,yesterday,week,this_week,month,this_month,custom,between,range'],
+            'period_mode' => ['nullable', 'in:month,day,custom'],
+            'date' => ['nullable', 'date'],
+            'day' => ['nullable', 'date'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
+            'month' => ['nullable', 'string', 'regex:/^\d{4}-\d{2}$/'],
+            'grade' => ['nullable', 'string', 'in:all,A,B,C,U,mixed,unsorted'],
+            'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
+            'client_id' => ['nullable', 'integer', 'exists:clients,id'],
+            'tab' => ['nullable', 'string', 'in:overview,selling_loss,damage,daily_monthly,client_shop'],
+            'search' => ['nullable', 'string', 'max:100'],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $periodParam = $validated['period'] ?? null;
+        $periodMode = (string) ($validated['period_mode'] ?? '');
+
+        if ($periodMode === 'day' || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day']) || in_array($periodParam, ['today', 'yesterday'], true)))) {
+            $periodMode = 'day';
+            $today = now('Asia/Kolkata')->startOfDay();
+            if ($periodParam === 'yesterday') {
+                $rawDate = $today->copy()->subDay()->toDateString();
+                $period = 'yesterday';
+            } elseif ($periodParam === 'today') {
+                $rawDate = $today->toDateString();
+                $period = 'today';
+            } else {
+                $rawDate = (string) ($validated['date'] ?? $validated['day'] ?? $today->toDateString());
+                $period = $periodParam ?: ($rawDate === $today->toDateString() ? 'today' : 'custom');
+            }
+            $startDate = Carbon::parse($rawDate)->startOfDay();
+            $endDate = $startDate->copy();
+        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($validated['from']) || ! empty($validated['to']) || in_array($periodParam, ['custom', 'between', 'range', 'week', 'this_week'], true)))) {
+            $periodMode = 'custom';
+            $today = now('Asia/Kolkata')->startOfDay();
+            if (in_array($periodParam, ['week', 'this_week'], true)) {
+                $startDate = $today->copy()->startOfWeek()->startOfDay();
+                $endDate = $today->copy();
+                $period = 'this_week';
+            } else {
+                $rawFrom = (string) ($validated['from'] ?? $validated['start_date'] ?? $today->copy()->startOfMonth()->toDateString());
+                $rawTo = (string) ($validated['to'] ?? $validated['end_date'] ?? $today->toDateString());
+                $startDate = Carbon::parse($rawFrom)->startOfDay();
+                $endDate = Carbon::parse($rawTo)->startOfDay();
+                $period = 'custom';
+            }
+        } else {
+            $periodMode = 'month';
+            $month = (string) ($validated['month'] ?? today('Asia/Kolkata')->format('Y-m'));
+            if (! preg_match('/^\d{4}-\d{2}$/', $month)) {
+                $month = today('Asia/Kolkata')->format('Y-m');
+            }
+            $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+            $startDate = $monthCarbon->copy()->startOfMonth()->startOfDay();
+            $endDate = $monthCarbon->copy()->endOfMonth()->startOfDay();
+            $period = $periodParam ?: 'this_month';
+        }
+
+        if ($startDate->greaterThan($endDate)) {
+            [$startDate, $endDate] = [$endDate, $startDate];
+        }
+
+        $formattedRange = $startDate->toDateString() === $endDate->toDateString()
+            ? $startDate->format('d M Y')
+            : $startDate->format('d M Y').' – '.$endDate->format('d M Y');
+
+        $whId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : (isset($validated['warehouse']) ? (int) $validated['warehouse'] : null);
+
+        return [
+            'product' => $validated['product'] ?? $validated['product_uuid'] ?? null,
+            'product_uuid' => $validated['product_uuid'] ?? null,
+            'product_id' => isset($validated['product_id']) ? (int) $validated['product_id'] : null,
+            'search_product' => trim((string) ($validated['search_product'] ?? '')),
+            'warehouse_id' => $whId,
+            'period' => $period,
+            'period_mode' => $periodMode,
+            'start_date' => $startDate->toDateString(),
+            'end_date' => $endDate->toDateString(),
+            'formatted_range' => $formattedRange,
+            'grade' => $validated['grade'] ?? 'all',
+            'shop_id' => isset($validated['shop_id']) ? (int) $validated['shop_id'] : null,
+            'client_id' => isset($validated['client_id']) ? (int) $validated['client_id'] : null,
+            'tab' => $validated['tab'] ?? 'overview',
+            'search' => trim((string) ($validated['search'] ?? $validated['search_product'] ?? '')),
+            'page' => isset($validated['page']) ? (int) $validated['page'] : 1,
+        ];
+    }
+
+    private function gradesReportFilters(Request $request): array
+    {
+        $validated = $request->validate([
+            'product' => ['nullable', 'string', 'max:100'],
+            'product_uuid' => ['nullable', 'string', 'max:100'],
+            'product_id' => ['nullable', 'integer', 'exists:products,id'],
+            'search_product' => ['nullable', 'string', 'max:100'],
+            'search' => ['nullable', 'string', 'max:100'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'warehouse' => ['nullable', 'integer'],
+            'period' => ['nullable', 'in:today,yesterday,week,this_week,month,this_month,custom,between,range'],
+            'period_mode' => ['nullable', 'in:month,day,custom'],
+            'date' => ['nullable', 'date'],
+            'day' => ['nullable', 'date'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
+            'month' => ['nullable', 'string', 'regex:/^\d{4}-\d{2}$/'],
+            'grade' => ['nullable', 'string', 'in:all,A,B,C,U,mixed,unsorted'],
+            'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
+            'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
+        ]);
+
+        $periodParam = $validated['period'] ?? null;
+        $periodMode = (string) ($validated['period_mode'] ?? '');
+
+        if ($periodMode === 'day' || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day']) || in_array($periodParam, ['today', 'yesterday'], true)))) {
+            $periodMode = 'day';
+            $today = now('Asia/Kolkata')->startOfDay();
+            if ($periodParam === 'yesterday') {
+                $rawDate = $today->copy()->subDay()->toDateString();
+                $period = 'yesterday';
+            } elseif ($periodParam === 'today') {
+                $rawDate = $today->toDateString();
+                $period = 'today';
+            } else {
+                $rawDate = (string) ($validated['date'] ?? $validated['day'] ?? $today->toDateString());
+                $period = $periodParam ?: ($rawDate === $today->toDateString() ? 'today' : 'custom');
+            }
+            $startDate = Carbon::parse($rawDate)->startOfDay();
+            $endDate = $startDate->copy();
+        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($validated['from']) || ! empty($validated['to']) || in_array($periodParam, ['custom', 'between', 'range', 'week', 'this_week'], true)))) {
+            $periodMode = 'custom';
+            $today = now('Asia/Kolkata')->startOfDay();
+            if (in_array($periodParam, ['week', 'this_week'], true)) {
+                $startDate = $today->copy()->startOfWeek()->startOfDay();
+                $endDate = $today->copy();
+                $period = 'this_week';
+            } else {
+                $rawFrom = (string) ($validated['from'] ?? $validated['start_date'] ?? $today->copy()->startOfMonth()->toDateString());
+                $rawTo = (string) ($validated['to'] ?? $validated['end_date'] ?? $today->toDateString());
+                $startDate = Carbon::parse($rawFrom)->startOfDay();
+                $endDate = Carbon::parse($rawTo)->startOfDay();
+                $period = 'custom';
+            }
+        } else {
+            $periodMode = 'month';
+            $month = (string) ($validated['month'] ?? today('Asia/Kolkata')->format('Y-m'));
+            if (! preg_match('/^\d{4}-\d{2}$/', $month)) {
+                $month = today('Asia/Kolkata')->format('Y-m');
+            }
+            $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+            $startDate = $monthCarbon->copy()->startOfMonth()->startOfDay();
+            $endDate = $monthCarbon->copy()->endOfMonth()->startOfDay();
+            $period = $periodParam ?: 'this_month';
+        }
+
+        if ($startDate->greaterThan($endDate)) {
+            [$startDate, $endDate] = [$endDate, $startDate];
+        }
+
+        $formattedRange = $startDate->toDateString() === $endDate->toDateString()
+            ? $startDate->format('d M Y')
+            : $startDate->format('d M Y').' – '.$endDate->format('d M Y');
+
+        $whId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : (isset($validated['warehouse']) ? (int) $validated['warehouse'] : null);
+
+        return [
+            'product' => $validated['product'] ?? $validated['product_uuid'] ?? null,
+            'product_uuid' => $validated['product_uuid'] ?? null,
+            'product_id' => isset($validated['product_id']) ? (int) $validated['product_id'] : null,
+            'search_product' => trim((string) ($validated['search_product'] ?? '')),
+            'warehouse_id' => $whId,
+            'period' => $period,
+            'period_mode' => $periodMode,
+            'start_date' => $startDate->toDateString(),
+            'end_date' => $endDate->toDateString(),
+            'formatted_range' => $formattedRange,
+            'grade' => $validated['grade'] ?? 'all',
+            'purchaser_id' => isset($validated['purchaser_id']) ? (int) $validated['purchaser_id'] : null,
+            'shop_id' => isset($validated['shop_id']) ? (int) $validated['shop_id'] : null,
+            'search' => trim((string) ($validated['search'] ?? $validated['search_product'] ?? '')),
+            'page' => isset($validated['page']) ? (int) $validated['page'] : 1,
+        ];
+    }
+
+    private function itemPurchaseReportFilters(Request $request): array
+    {
+        $validated = $request->validate([
+            'product' => ['nullable', 'string', 'max:100'],
+            'product_uuid' => ['nullable', 'string', 'max:100'],
+            'product_id' => ['nullable', 'integer', 'exists:products,id'],
+            'search_product' => ['nullable', 'string', 'max:100'],
+            'payment' => ['nullable', 'string', 'in:all,cash,credit'],
+            'purchase_type' => ['nullable', 'string', 'in:all,cash,credit'],
+            'period' => ['nullable', 'in:today,yesterday,week,this_week,month,this_month,custom,between,range'],
+            'period_mode' => ['nullable', 'in:month,day,custom'],
+            'date' => ['nullable', 'date'],
+            'day' => ['nullable', 'date'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
+            'month' => ['nullable', 'string', 'regex:/^\d{4}-\d{2}$/'],
+            'grade' => ['nullable', 'string', 'in:all,A,B,C,D,ungraded'],
+            'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
+            'vendor_id' => ['nullable', 'integer', 'exists:suppliers,id'],
+        ]);
+
+        $periodParam = $validated['period'] ?? null;
+        $periodMode = (string) ($validated['period_mode'] ?? '');
+
+        if ($periodMode === 'day' || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day']) || in_array($periodParam, ['today', 'yesterday'], true)))) {
+            $periodMode = 'day';
+            $today = now('Asia/Kolkata')->startOfDay();
+            if ($periodParam === 'yesterday') {
+                $rawDate = $today->copy()->subDay()->toDateString();
+                $period = 'yesterday';
+            } elseif ($periodParam === 'today') {
+                $rawDate = $today->toDateString();
+                $period = 'today';
+            } else {
+                $rawDate = (string) ($validated['date'] ?? $validated['day'] ?? $today->toDateString());
+                $period = $periodParam ?: ($rawDate === $today->toDateString() ? 'today' : 'custom');
+            }
+            $startDate = Carbon::parse($rawDate)->startOfDay();
+            $endDate = $startDate->copy();
+        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($validated['from']) || ! empty($validated['to']) || in_array($periodParam, ['custom', 'between', 'range', 'week', 'this_week'], true)))) {
+            $periodMode = 'custom';
+            $today = now('Asia/Kolkata')->startOfDay();
+            if (in_array($periodParam, ['week', 'this_week'], true)) {
+                $startDate = $today->copy()->startOfWeek()->startOfDay();
+                $endDate = $today->copy();
+                $period = 'this_week';
+            } else {
+                $rawFrom = (string) ($validated['from'] ?? $validated['start_date'] ?? $today->copy()->startOfMonth()->toDateString());
+                $rawTo = (string) ($validated['to'] ?? $validated['end_date'] ?? $today->toDateString());
+                $startDate = Carbon::parse($rawFrom)->startOfDay();
+                $endDate = Carbon::parse($rawTo)->startOfDay();
+                $period = 'custom';
+            }
+        } else {
+            $periodMode = 'month';
+            $month = (string) ($validated['month'] ?? today('Asia/Kolkata')->format('Y-m'));
+            if (! preg_match('/^\d{4}-\d{2}$/', $month)) {
+                $month = today('Asia/Kolkata')->format('Y-m');
+            }
+            $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+            $startDate = $monthCarbon->copy()->startOfMonth()->startOfDay();
+            $endDate = $monthCarbon->copy()->endOfMonth()->startOfDay();
+            $period = $periodParam ?: 'this_month';
+        }
+
+        if ($startDate->greaterThan($endDate)) {
+            [$startDate, $endDate] = [$endDate, $startDate];
+        }
+
+        $formattedRange = $startDate->toDateString() === $endDate->toDateString()
+            ? $startDate->format('d M Y')
+            : $startDate->format('d M Y').' – '.$endDate->format('d M Y');
+
+        return [
+            'product' => $validated['product'] ?? $validated['product_uuid'] ?? null,
+            'product_uuid' => $validated['product_uuid'] ?? null,
+            'product_id' => isset($validated['product_id']) ? (int) $validated['product_id'] : null,
+            'search_product' => trim((string) ($validated['search_product'] ?? '')),
+            'payment' => $validated['payment'] ?? $validated['purchase_type'] ?? 'all',
+            'period' => $period,
+            'period_mode' => $periodMode,
+            'start_date' => $startDate->toDateString(),
+            'end_date' => $endDate->toDateString(),
+            'formatted_range' => $formattedRange,
+            'grade' => $validated['grade'] ?? 'all',
+            'purchaser_id' => isset($validated['purchaser_id']) ? (int) $validated['purchaser_id'] : null,
+            'vendor_id' => isset($validated['vendor_id']) ? (int) $validated['vendor_id'] : null,
+        ];
     }
 
     public function companyFinancePurchaseReport(Request $request): RedirectResponse
@@ -14643,7 +14990,7 @@ PY;
             'day' => ['nullable', 'date'],
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date'],
-            'period' => ['nullable', 'in:today,yesterday,week,month,custom,between,range'],
+            'period' => ['nullable', 'in:today,yesterday,week,this_week,month,this_month,custom,between,range'],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date'],
             'product_filter' => ['nullable', 'string', 'exists:purchase_product_filters,uuid,deleted_at,NULL'],
@@ -14694,10 +15041,10 @@ PY;
             $parsedDate = Carbon::parse($rawDate)->toDateString();
             $periodStart = $parsedDate;
             $periodEnd = $parsedDate;
-        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($validated['from']) || ! empty($validated['to']) || in_array($periodParam, ['custom', 'between', 'range'], true) || $periodParam === 'week'))) {
+        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($validated['from']) || ! empty($validated['to']) || in_array($periodParam, ['custom', 'between', 'range'], true) || in_array($periodParam, ['week', 'this_week'], true)))) {
             $periodMode = 'custom';
             $today = now('Asia/Kolkata')->startOfDay();
-            if ($periodParam === 'week') {
+            if (in_array($periodParam, ['week', 'this_week'], true)) {
                 $parsedFrom = $today->copy()->startOfWeek()->toDateString();
                 $parsedTo = $today->toDateString();
             } else {
@@ -14792,6 +15139,13 @@ PY;
             'company' => config('greenleaf'),
             'currentShop' => $shops->first(),
             'productFilters' => PurchaseProductFilter::query()->orderBy('name')->get(['id', 'uuid', 'name']),
+            'purchasersList' => User::query()
+                ->where(function ($query): void {
+                    $query->whereHas('roles', fn ($roles) => $roles->where('name', 'purchaser'))
+                        ->orWhereIn('id', DB::table('purchaser_carts')->select('user_id'));
+                })
+                ->orderBy('name')
+                ->get(['id', 'name']),
         ];
     }
 }

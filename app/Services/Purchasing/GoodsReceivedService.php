@@ -8,6 +8,7 @@ use App\Actions\Purchasing\ApproveGoodsReceiptAction;
 use App\Actions\Purchasing\RecordGoodsReceiptAction;
 use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Enums\Inventory\BatchStatus;
+use App\Enums\Inventory\StockMovementType;
 use App\Enums\Purchasing\POStatus;
 use App\Models\AdvanceReceiveMatch;
 use App\Models\GoodsReceived;
@@ -18,6 +19,7 @@ use App\Models\ProductUnit;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrderItem;
 use App\Models\StockBatch;
+use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Repositories\Inventory\StockBatchRepository;
@@ -393,12 +395,24 @@ class GoodsReceivedService
                     ? ProductUnit::normalizeUnit((string) $item['received_unit'])
                     : ($poItem->purchase_unit ?: (Product::find($item['product_id'])?->unit ?? 'kg'));
 
+                $itemGrade = isset($item['grade']) && filled($item['grade'])
+                    ? (string) $item['grade']
+                    : (filled($data->purchaseGrade)
+                        ? (string) $data->purchaseGrade
+                        : ($poItem->grade && in_array(strtoupper($poItem->grade), ['B', 'C', 'MIXED'], true) ? $poItem->grade : 'U'));
+
+                $itemGradingMode = isset($item['grading_mode']) && filled($item['grading_mode'])
+                    ? (string) $item['grading_mode']
+                    : (filled($data->gradingMode) ? (string) $data->gradingMode : null);
+
                 $grn->items()->create([
                     'purchase_order_item_id' => $poItem->id,
                     'product_id' => $item['product_id'],
                     'received_qty' => $item['received_qty'],
                     'received_unit' => $receivedUnit,
                     'variance' => $variance,
+                    'grade' => $itemGrade,
+                    'grading_mode' => $itemGradingMode,
                 ]);
             }
 
@@ -700,16 +714,34 @@ class GoodsReceivedService
             ]);
         }
 
-        return DB::transaction(function () use ($grn, $userId): array {
+        // Check if any stock has already been dispatched to orders (parent or child batches)
+        $parentBatchIds = StockBatch::query()->where('goods_received_id', $grn->id)->pluck('id');
+        $allBatches = StockBatch::query()
+            ->where('goods_received_id', $grn->id)
+            ->orWhereIn('parent_batch_id', $parentBatchIds)
+            ->get();
+        $allBatchIds = $allBatches->pluck('id');
+
+        $hasDispatches = StockMovement::query()
+            ->whereIn('batch_id', $allBatchIds)
+            ->whereIn('type', [
+                StockMovementType::Out->value,
+                StockMovementType::Sale->value,
+            ])
+            ->exists();
+
+        if ($hasDispatches) {
+            throw ValidationException::withMessages([
+                'advance' => 'Cannot delete advance receipt because stock from this receipt (or its segregated batches) has already been dispatched to orders.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($grn, $allBatches, $userId): array {
             $user = User::find($userId);
             $reversedDetails = [];
 
-            // Reverse linked stock batches
-            $batches = StockBatch::query()
-                ->where('goods_received_id', $grn->id)
-                ->get();
-
-            foreach ($batches as $batch) {
+            // Reverse linked stock batches (both parent and segregated child batches)
+            foreach ($allBatches as $batch) {
                 $revKg = (float) $batch->total_kg;
                 $reversedDetails[] = [
                     'batch_id' => $batch->id,
@@ -717,6 +749,7 @@ class GoodsReceivedService
                     'reversed_total_kg' => $revKg,
                 ];
 
+                $batch->stockMovements()->delete();
                 $batch->update([
                     'total_kg' => 0.0,
                     'status' => BatchStatus::Closed,

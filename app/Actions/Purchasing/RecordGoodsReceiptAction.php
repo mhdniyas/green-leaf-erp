@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Purchasing;
 
 use App\DTOs\Purchasing\GoodsReceivedData;
+use App\Enums\Inventory\ProductGrade;
 use App\Enums\Purchasing\POStatus;
 use App\Models\BillReconciliation;
 use App\Models\GoodsReceived;
@@ -76,9 +77,9 @@ class RecordGoodsReceiptAction
             $grnNumber = $this->grnRepository->generateGrnNumber();
 
             $businessDayId = $data->businessDayId;
-            if ($businessDayId === null && $data->purchaseOrderId) {
-                $po = PurchaseOrder::find($data->purchaseOrderId);
-                $businessDayId = $po?->business_day_id;
+            $po = $data->purchaseOrderId ? PurchaseOrder::find($data->purchaseOrderId) : null;
+            if ($businessDayId === null && $po) {
+                $businessDayId = $po->business_day_id;
             }
             if ($businessDayId === null && $data->warehouseId) {
                 $activeDay = app(PurchaserBusinessDayService::class)->getActiveForWarehouse($data->warehouseId);
@@ -117,6 +118,7 @@ class RecordGoodsReceiptAction
                 'approved_at' => now(),
                 'transport_cost' => $data->transportCost,
                 'labour_cost' => $data->labourCost,
+                'purchase_grade' => $data->purchaseGrade ?? ($po?->purchase_grade ?? 'U'),
                 'notes' => $data->notes,
             ]);
 
@@ -137,6 +139,16 @@ class RecordGoodsReceiptAction
                     ? ProductUnit::normalizeUnit((string) $item['received_unit'])
                     : ($poItem?->purchase_unit ?: (Product::find($item['product_id'])?->unit ?? 'kg'));
 
+                $rawItemGrade = isset($item['grade']) && filled($item['grade'])
+                    ? (string) $item['grade']
+                    : (filled($data->purchaseGrade)
+                        ? (string) $data->purchaseGrade
+                        : ($poItem?->grade && in_array(strtoupper($poItem->grade), ['B', 'C', 'MIXED'], true) ? $poItem->grade : 'U'));
+
+                $itemGradingMode = isset($item['grading_mode']) && filled($item['grading_mode'])
+                    ? (string) $item['grading_mode']
+                    : (filled($data->gradingMode) ? (string) $data->gradingMode : null);
+
                 // Create GRN Item
                 $grn->items()->create([
                     'purchase_order_item_id' => $poItem?->id,
@@ -144,6 +156,8 @@ class RecordGoodsReceiptAction
                     'received_qty' => $item['received_qty'],
                     'received_unit' => $receivedUnit,
                     'variance' => $variance,
+                    'grade' => $rawItemGrade,
+                    'grading_mode' => $itemGradingMode,
                 ]);
             }
 
@@ -239,12 +253,14 @@ class RecordGoodsReceiptAction
             return false;
         }
 
-        $existingItems = $existing->items()->get(['product_id', 'purchase_order_item_id', 'received_qty'])->toArray();
+        $existingItems = $existing->items()->get(['product_id', 'purchase_order_item_id', 'grade', 'received_qty'])->toArray();
         if (count($existingItems) !== count($data->items)) {
             return false;
         }
 
-        $normalize = function (array $items): array {
+        $hasDataGrade = collect($data->items)->contains(fn ($it) => isset($it['grade']) && filled($it['grade']));
+
+        $normalize = function (array $items) use ($hasDataGrade): array {
             $sorted = $items;
             usort($sorted, function (array $a, array $b): int {
                 $cmp = ($a['product_id'] ?? 0) <=> ($b['product_id'] ?? 0);
@@ -252,10 +268,28 @@ class RecordGoodsReceiptAction
                     return $cmp;
                 }
 
-                return ($a['purchase_order_item_id'] ?? 0) <=> ($b['purchase_order_item_id'] ?? 0);
+                $cmpPo = ($a['purchase_order_item_id'] ?? 0) <=> ($b['purchase_order_item_id'] ?? 0);
+                if ($cmpPo !== 0) {
+                    return $cmpPo;
+                }
+
+                $gradeA = isset($a['grade']) && filled($a['grade']) ? (ProductGrade::tryResolve((string) $a['grade'])?->value ?? (string) $a['grade']) : '';
+                $gradeB = isset($b['grade']) && filled($b['grade']) ? (ProductGrade::tryResolve((string) $b['grade'])?->value ?? (string) $b['grade']) : '';
+
+                return $gradeA <=> $gradeB;
             });
 
-            return array_map(fn (array $i): string => (int) $i['product_id'].':'.(int) ($i['purchase_order_item_id'] ?? 0).':'.number_format((float) $i['received_qty'], 3, '.', ''), $sorted);
+            return array_map(function (array $i) use ($hasDataGrade): string {
+                $gradePart = '';
+                if ($hasDataGrade) {
+                    $resolved = isset($i['grade']) && filled($i['grade'])
+                        ? (ProductGrade::tryResolve((string) $i['grade'])?->value ?? (string) $i['grade'])
+                        : 'U';
+                    $gradePart = ':'.$resolved;
+                }
+
+                return (int) $i['product_id'].':'.(int) ($i['purchase_order_item_id'] ?? 0).$gradePart.':'.number_format((float) $i['received_qty'], 3, '.', '');
+            }, $sorted);
         };
 
         return $normalize($existingItems) === $normalize($data->items);

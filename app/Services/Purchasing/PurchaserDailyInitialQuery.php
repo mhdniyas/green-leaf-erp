@@ -14,6 +14,21 @@ use Illuminate\Support\Collection;
 
 class PurchaserDailyInitialQuery
 {
+    public function __construct(
+        private readonly ?PurchaserWarehouseBalanceService $warehouseBalanceService = null,
+        private readonly ?PurchaserReadCacheService $readCacheService = null,
+    ) {}
+
+    private function warehouseBalanceService(): PurchaserWarehouseBalanceService
+    {
+        return $this->warehouseBalanceService ?? app(PurchaserWarehouseBalanceService::class);
+    }
+
+    private function readCacheService(): PurchaserReadCacheService
+    {
+        return $this->readCacheService ?? app(PurchaserReadCacheService::class);
+    }
+
     /**
      * Fetch pending demand items for the Daily page using lightweight grouped queries.
      *
@@ -24,146 +39,258 @@ class PurchaserDailyInitialQuery
         string $purchaseGrade = 'A',
         ?User $user = null,
         ?string $selectedChip = 'All',
-        ?string $search = null
+        ?string $search = null,
+        ?int $warehouseId = null
     ): Collection {
         $dateString = $date->toDateString();
         $hasCategoryFilter = $user && $user->hasAssignedCategoryFilter();
         $assignedCatIds = $hasCategoryFilter ? $user->assignedCategoryIds() : [];
 
         if ($purchaseGrade === 'B') {
-            return $this->getGradeBPendingCatalog($dateString, $user, $assignedCatIds, $hasCategoryFilter, $selectedChip, $search);
+            return $this->getGradeBPendingCatalog($dateString, $user, $assignedCatIds, $hasCategoryFilter, $selectedChip, $search, $warehouseId);
         }
 
-        // 1. Grouped approved demand by product_id
-        $approvedQuery = ShopOrderItem::query()
-            ->where('product_grade', 'A')
-            ->whereNull('deleted_at')
-            ->whereHas('order', function ($query) use ($dateString): void {
-                $query->whereDate('business_date', $dateString)->where('state', 'approved');
-            })
-            ->with('order:id,order_source,business_date,created_at,submitted_at');
+        $userId = $user ? (int) $user->id : null;
+        $filters = [
+            'assigned_cats' => $hasCategoryFilter ? $assignedCatIds : null,
+        ];
 
-        if ($hasCategoryFilter && ! empty($assignedCatIds)) {
-            $approvedQuery->whereIn('product_id', function ($query) use ($assignedCatIds): void {
-                $query->select('id')
-                    ->from('products')
-                    ->whereIn('category_id', $assignedCatIds)
-                    ->whereNull('deleted_at');
-            });
-        }
+        /** @var array<int, array<string, mixed>> $sortedRaw */
+        $sortedRaw = $this->readCacheService()->remember(
+            scopes: ['orders', 'carts', 'products', 'settings'],
+            dataset: 'pending_demand_sorted',
+            ttlSeconds: 45,
+            callback: function () use ($dateString, $hasCategoryFilter, $assignedCatIds): array {
+                // 1. Grouped approved demand by product_id
+                $approvedQuery = ShopOrderItem::query()
+                    ->whereNull('deleted_at')
+                    ->whereHas('order', function ($query) use ($dateString): void {
+                        $query->whereDate('business_date', $dateString)->where('state', 'approved');
+                    })
+                    ->with('order:id,order_source,business_date,created_at,submitted_at');
 
-        /** @var Collection<int, Collection<int, ShopOrderItem>> $approvedItemsByProduct */
-        $approvedItemsByProduct = $approvedQuery->get()->groupBy('product_id');
+                if ($hasCategoryFilter && ! empty($assignedCatIds)) {
+                    $approvedQuery->whereIn('product_id', function ($query) use ($assignedCatIds): void {
+                        $query->select('id')
+                            ->from('products')
+                            ->whereIn('category_id', $assignedCatIds)
+                            ->whereNull('deleted_at');
+                    });
+                }
 
-        if ($approvedItemsByProduct->isEmpty()) {
-            return collect();
-        }
+                /** @var Collection<int, Collection<int, ShopOrderItem>> $approvedItemsByProduct */
+                $approvedItemsByProduct = $approvedQuery->get()->groupBy('product_id');
 
-        $productIds = $approvedItemsByProduct->keys()->map(fn ($id): int => (int) $id)->all();
+                if ($approvedItemsByProduct->isEmpty()) {
+                    return [];
+                }
 
-        // 2. Grouped draft quantities by product_id
-        /** @var Collection<int, float> $draftQuantities */
-        $draftQuantities = PurchaserCartItem::query()
-            ->where('grade', 'A')
-            ->whereIn('product_id', $productIds)
-            ->whereHas('cart', function ($query) use ($dateString): void {
-                $query->whereDate('business_date', $dateString)
-                    ->where('status', 'draft')
-                    ->where('purchase_grade', 'A');
-            })
-            ->selectRaw('product_id, SUM(quantity) as total_draft_qty')
-            ->groupBy('product_id')
-            ->pluck('total_draft_qty', 'product_id');
+                $productIds = $approvedItemsByProduct->keys()->map(fn ($id): int => (int) $id)->all();
 
-        // 3. Grouped submitted (bought) quantities by product_id with cart timestamps
-        /** @var Collection<int, Collection<int, PurchaserCartItem>> $submittedCartsByProduct */
-        $submittedCartsByProduct = PurchaserCartItem::query()
-            ->where('grade', 'A')
-            ->whereIn('product_id', $productIds)
-            ->whereHas('cart', function ($query) use ($dateString): void {
-                $query->whereDate('business_date', $dateString)
-                    ->where('status', 'submitted')
-                    ->where('purchase_grade', 'A');
-            })
-            ->with('cart:id,business_date,status,submitted_at,created_at')
-            ->get()
-            ->groupBy('product_id');
+                // 2. Grouped draft quantities by product_id
+                /** @var Collection<int, Collection<int, PurchaserCartItem>> $draftCartsByProduct */
+                $draftCartsByProduct = PurchaserCartItem::query()
+                    ->whereIn('product_id', $productIds)
+                    ->whereHas('cart', function ($query) use ($dateString): void {
+                        $query->whereDate('business_date', $dateString)
+                            ->where('status', 'draft');
+                    })
+                    ->with('cart:id,business_date,status,purchase_grade')
+                    ->get()
+                    ->groupBy('product_id');
 
-        // 4. Retrieve Product and Category details for demand products
-        $products = Product::query()
-            ->whereIn('id', $productIds)
-            ->with('category:id,name')
-            ->get(['id', 'category_id', 'name', 'sku', 'unit'])
-            ->keyBy('id');
+                // 3. Grouped submitted (bought) quantities by product_id with cart timestamps
+                /** @var Collection<int, Collection<int, PurchaserCartItem>> $submittedCartsByProduct */
+                $submittedCartsByProduct = PurchaserCartItem::query()
+                    ->whereIn('product_id', $productIds)
+                    ->whereHas('cart', function ($query) use ($dateString): void {
+                        $query->whereDate('business_date', $dateString)
+                            ->where('status', 'submitted');
+                    })
+                    ->with('cart:id,business_date,status,submitted_at,created_at,purchase_grade')
+                    ->get()
+                    ->groupBy('product_id');
 
-        // 5. Combine and calculate metrics
-        $items = collect();
-        foreach ($approvedItemsByProduct as $productId => $approvedItems) {
-            /** @var Product|null $product */
-            $product = $products->get($productId);
-            if (! $product) {
-                continue;
-            }
+                // 4. Retrieve Product and Category details for demand products
+                $products = Product::query()
+                    ->whereIn('id', $productIds)
+                    ->with('category:id,name')
+                    ->get(['id', 'category_id', 'name', 'sku', 'unit'])
+                    ->keyBy('id');
 
-            $productCarts = $submittedCartsByProduct->get($productId, collect());
-            $normalItems = $approvedItems->filter(fn (ShopOrderItem $i): bool => ! $i->order?->isAdminDirectPurchase());
-            $addonItems = $approvedItems->filter(fn (ShopOrderItem $i): bool => (bool) $i->order?->isAdminDirectPurchase());
+                // 5. Combine and calculate metrics
+                $items = collect();
+                foreach ($approvedItemsByProduct as $productId => $approvedItems) {
+                    /** @var Product|null $product */
+                    $product = $products->get($productId);
+                    if (! $product) {
+                        continue;
+                    }
 
-            $normalApproved = (float) $normalItems->sum('approved_qty');
-            $normalBought = (float) $productCarts->sum('quantity');
-            $normalRemaining = max(0, $normalApproved - $normalBought);
+                    $productCarts = $submittedCartsByProduct->get($productId, collect());
+                    $productDrafts = $draftCartsByProduct->get($productId, collect());
 
-            $addonRemaining = 0.0;
-            foreach ($addonItems->groupBy('shop_order_id') as $orderItems) {
-                $first = $orderItems->first();
-                $orderTime = $first->order->created_at ?? $first->order->submitted_at;
-                $addonApproved = (float) $orderItems->sum('approved_qty');
-                $addonCarts = $productCarts->filter(function (PurchaserCartItem $c) use ($orderTime): bool {
-                    $cartTime = $c->cart->submitted_at ?? $c->cart->created_at;
+                    $nonAGrades = $approvedItems->filter(fn (ShopOrderItem $i): bool => (string) ($i->product_grade ?? 'A') !== 'A');
+                    $hasNonAGrades = $nonAGrades->isNotEmpty();
 
-                    return $cartTime && $orderTime && $cartTime->gte($orderTime);
-                });
-                $addonBought = (float) $addonCarts->sum('quantity');
-                $addonRemaining += max(0, $addonApproved - $addonBought);
-            }
+                    if (! $hasNonAGrades) {
+                        // Grade A only — keep existing exact calculation
+                        $gradeACarts = $productCarts->filter(fn (PurchaserCartItem $c): bool => (string) ($c->grade ?? 'A') === 'A');
+                        $gradeADrafts = $productDrafts->filter(fn (PurchaserCartItem $c): bool => (string) ($c->grade ?? 'A') === 'A');
 
-            $approved = (float) $approvedItems->sum('approved_qty');
-            $bought = (float) $productCarts->sum('quantity');
-            $draft = (float) ($draftQuantities->get($productId) ?? 0);
-            $remaining = $normalRemaining + $addonRemaining;
+                        $normalItems = $approvedItems->filter(fn (ShopOrderItem $i): bool => ! $i->order?->isAdminDirectPurchase());
+                        $addonItems = $approvedItems->filter(fn (ShopOrderItem $i): bool => (bool) $i->order?->isAdminDirectPurchase());
 
-            // Filter ONLY pending products where purchasing work remains
-            if ($remaining <= 0) {
-                continue;
-            }
+                        $normalApproved = (float) $normalItems->sum('approved_qty');
+                        $normalBought = (float) $gradeACarts->sum('quantity');
+                        $normalRemaining = max(0, $normalApproved - $normalBought);
 
-            $categoryName = (string) ($product->category?->name ?? 'Other');
+                        $addonRemaining = 0.0;
+                        foreach ($addonItems->groupBy('shop_order_id') as $orderItems) {
+                            $first = $orderItems->first();
+                            $orderTime = $first->order->created_at ?? $first->order->submitted_at;
+                            $addonApproved = (float) $orderItems->sum('approved_qty');
+                            $addonCarts = $gradeACarts->filter(function (PurchaserCartItem $c) use ($orderTime): bool {
+                                $cartTime = $c->cart->submitted_at ?? $c->cart->created_at;
 
-            $items->push([
-                'product_id' => (int) $productId,
-                'product_name' => (string) $product->name,
-                'sku' => (string) $product->sku,
-                'unit' => (string) $product->unit,
-                'category_id' => (int) $product->category_id,
-                'category_name' => $categoryName,
-                'total_approved_qty' => $approved,
-                'bought_qty' => $bought,
-                'draft_qty' => $draft,
-                'remaining_qty' => $remaining,
-                'order_date' => $dateString,
-                'search_index' => strtolower(implode(' ', [
-                    (string) $product->name,
-                    (string) $product->sku,
-                    $categoryName,
-                ])),
-            ]);
-        }
+                                return $cartTime && $orderTime && $cartTime->gte($orderTime);
+                            });
+                            $addonBought = (float) $addonCarts->sum('quantity');
+                            $addonRemaining += max(0, $addonApproved - $addonBought);
+                        }
 
-        // Sort items by sortable SKU
-        $sorted = $items->sortBy(fn (array $item): string => Product::sortableSku((string) $item['sku']).'_'.$item['order_date'])->values();
+                        $approved = (float) $approvedItems->sum('approved_qty');
+                        $bought = (float) $gradeACarts->sum('quantity');
+                        $draft = (float) $gradeADrafts->sum('quantity');
+                        $remaining = $normalRemaining + $addonRemaining;
+
+                        if ($remaining <= 0) {
+                            continue;
+                        }
+
+                        $categoryName = (string) ($product->category?->name ?? 'Other');
+
+                        $items->push([
+                            'product_id' => (int) $productId,
+                            'product_name' => (string) $product->name,
+                            'sku' => (string) $product->sku,
+                            'unit' => (string) $product->unit,
+                            'category_id' => (int) $product->category_id,
+                            'category_name' => $categoryName,
+                            'total_approved_qty' => $approved,
+                            'bought_qty' => $bought,
+                            'draft_qty' => $draft,
+                            'remaining_qty' => $remaining,
+                            'order_date' => $dateString,
+                            'has_non_a_grades' => false,
+                            'grade_breakdown' => null,
+                            'search_index' => strtolower(implode(' ', [
+                                (string) $product->name,
+                                (string) $product->sku,
+                                $categoryName,
+                            ])),
+                        ]);
+                    } else {
+                        // Multi-grade demand exists: calculate each grade independently and aggregate
+                        $distinctGrades = $approvedItems->map(fn (ShopOrderItem $i): string => (string) ($i->product_grade ?? 'A'))
+                            ->unique()
+                            ->sort()
+                            ->values();
+
+                        $gradeBreakdown = [];
+                        $totalApproved = 0.0;
+                        $totalBought = 0.0;
+                        $totalDraft = 0.0;
+                        $totalRemaining = 0.0;
+
+                        foreach ($distinctGrades as $grade) {
+                            $gradeApprovedItems = $approvedItems->filter(fn (ShopOrderItem $i): bool => (string) ($i->product_grade ?? 'A') === $grade);
+                            $gradeCarts = $productCarts->filter(fn (PurchaserCartItem $c): bool => (string) ($c->grade ?? 'A') === $grade);
+                            $gradeDrafts = $productDrafts->filter(fn (PurchaserCartItem $c): bool => (string) ($c->grade ?? 'A') === $grade);
+
+                            $normalItems = $gradeApprovedItems->filter(fn (ShopOrderItem $i): bool => ! $i->order?->isAdminDirectPurchase());
+                            $addonItems = $gradeApprovedItems->filter(fn (ShopOrderItem $i): bool => (bool) $i->order?->isAdminDirectPurchase());
+
+                            $normalApproved = (float) $normalItems->sum('approved_qty');
+                            $normalBought = (float) $gradeCarts->sum('quantity');
+                            $normalRemaining = max(0, $normalApproved - $normalBought);
+
+                            $addonRemaining = 0.0;
+                            foreach ($addonItems->groupBy('shop_order_id') as $orderItems) {
+                                $first = $orderItems->first();
+                                $orderTime = $first->order->created_at ?? $first->order->submitted_at;
+                                $addonApproved = (float) $orderItems->sum('approved_qty');
+                                $addonCarts = $gradeCarts->filter(function (PurchaserCartItem $c) use ($orderTime): bool {
+                                    $cartTime = $c->cart->submitted_at ?? $c->cart->created_at;
+
+                                    return $cartTime && $orderTime && $cartTime->gte($orderTime);
+                                });
+                                $addonBought = (float) $addonCarts->sum('quantity');
+                                $addonRemaining += max(0, $addonApproved - $addonBought);
+                            }
+
+                            $gApproved = (float) $gradeApprovedItems->sum('approved_qty');
+                            $gBought = (float) $gradeCarts->sum('quantity');
+                            $gDraft = (float) $gradeDrafts->sum('quantity');
+                            $gRemaining = $normalRemaining + $addonRemaining;
+
+                            $totalApproved += $gApproved;
+                            $totalBought += $gBought;
+                            $totalDraft += $gDraft;
+                            $totalRemaining += $gRemaining;
+
+                            $gradeBreakdown[] = [
+                                'grade' => $grade,
+                                'approved_qty' => $gApproved,
+                                'bought_qty' => $gBought,
+                                'draft_qty' => $gDraft,
+                                'remaining_qty' => $gRemaining,
+                            ];
+                        }
+
+                        if ($totalRemaining <= 0) {
+                            continue;
+                        }
+
+                        $categoryName = (string) ($product->category?->name ?? 'Other');
+
+                        $items->push([
+                            'product_id' => (int) $productId,
+                            'product_name' => (string) $product->name,
+                            'sku' => (string) $product->sku,
+                            'unit' => (string) $product->unit,
+                            'category_id' => (int) $product->category_id,
+                            'category_name' => $categoryName,
+                            'total_approved_qty' => $totalApproved,
+                            'bought_qty' => $totalBought,
+                            'draft_qty' => $totalDraft,
+                            'remaining_qty' => $totalRemaining,
+                            'order_date' => $dateString,
+                            'has_non_a_grades' => true,
+                            'grade_breakdown' => $gradeBreakdown,
+                            'search_index' => strtolower(implode(' ', [
+                                (string) $product->name,
+                                (string) $product->sku,
+                                $categoryName,
+                            ])),
+                        ]);
+                    }
+                }
+
+                // Sort items by sortable SKU
+                return $items->sortBy(fn (array $item): string => Product::sortableSku((string) $item['sku']).'_'.$item['order_date'])->values()->all();
+            },
+            userId: $userId,
+            businessDate: $date,
+            grade: $purchaseGrade,
+            filters: $filters,
+        );
+
+        $sorted = collect($sortedRaw);
+        $withBalances = $this->warehouseBalanceService()->attachWarehouseBalances($sorted, $date, $warehouseId, $purchaseGrade);
 
         // Apply category filter and search if requested
-        return $this->applyFilters($sorted, $selectedChip, $search);
+        return $this->applyFilters($withBalances, $selectedChip, $search);
     }
 
     /**
@@ -181,7 +308,7 @@ class PurchaserDailyInitialQuery
         $assignedCatIds = $hasCategoryFilter ? $user->assignedCategoryIds() : [];
 
         $approvedQuery = ShopOrderItem::query()
-            ->where('product_grade', $purchaseGrade)
+            ->when($purchaseGrade === 'B', fn ($q) => $q->where('product_grade', 'B'))
             ->whereNull('deleted_at')
             ->whereHas('order', function ($query) use ($dateString): void {
                 $query->whereDate('business_date', $dateString)->where('state', 'approved');
@@ -212,17 +339,22 @@ class PurchaserDailyInitialQuery
 
         $productIds = $approvedItemsByProduct->keys()->map(fn ($id): int => (int) $id)->all();
 
-        $submittedCartsByProduct = PurchaserCartItem::query()
-            ->where('grade', $purchaseGrade)
+        $submittedCartsQuery = PurchaserCartItem::query()
             ->whereIn('product_id', $productIds)
             ->whereHas('cart', function ($query) use ($dateString, $purchaseGrade): void {
                 $query->whereDate('business_date', $dateString)
-                    ->where('status', 'submitted')
-                    ->where('purchase_grade', $purchaseGrade);
+                    ->where('status', 'submitted');
+                if ($purchaseGrade === 'B') {
+                    $query->where('purchase_grade', 'B');
+                }
             })
-            ->with('cart:id,business_date,status,submitted_at,created_at')
-            ->get()
-            ->groupBy('product_id');
+            ->with('cart:id,business_date,status,submitted_at,created_at,purchase_grade');
+
+        if ($purchaseGrade === 'B') {
+            $submittedCartsQuery->where('grade', 'B');
+        }
+
+        $submittedCartsByProduct = $submittedCartsQuery->get()->groupBy('product_id');
 
         $totalApproved = 0.0;
         $totalBought = 0.0;
@@ -230,30 +362,39 @@ class PurchaserDailyInitialQuery
 
         foreach ($approvedItemsByProduct as $productId => $approvedItems) {
             $productCarts = $submittedCartsByProduct->get($productId, collect());
-            $normalItems = $approvedItems->filter(fn (ShopOrderItem $i): bool => ! $i->order?->isAdminDirectPurchase());
-            $addonItems = $approvedItems->filter(fn (ShopOrderItem $i): bool => (bool) $i->order?->isAdminDirectPurchase());
+            $distinctGrades = $approvedItems->map(fn (ShopOrderItem $i): string => (string) ($i->product_grade ?? 'A'))
+                ->unique()
+                ->values();
 
-            $normalApproved = (float) $normalItems->sum('approved_qty');
-            $normalBought = (float) $productCarts->sum('quantity');
-            $normalRemaining = max(0, $normalApproved - $normalBought);
+            foreach ($distinctGrades as $grade) {
+                $gradeApprovedItems = $approvedItems->filter(fn (ShopOrderItem $i): bool => (string) ($i->product_grade ?? 'A') === $grade);
+                $gradeCarts = $productCarts->filter(fn (PurchaserCartItem $c): bool => (string) ($c->grade ?? 'A') === $grade);
 
-            $addonRemaining = 0.0;
-            foreach ($addonItems->groupBy('shop_order_id') as $orderItems) {
-                $first = $orderItems->first();
-                $orderTime = $first->order->created_at ?? $first->order->submitted_at;
-                $addonApproved = (float) $orderItems->sum('approved_qty');
-                $addonCarts = $productCarts->filter(function (PurchaserCartItem $c) use ($orderTime): bool {
-                    $cartTime = $c->cart->submitted_at ?? $c->cart->created_at;
+                $normalItems = $gradeApprovedItems->filter(fn (ShopOrderItem $i): bool => ! $i->order?->isAdminDirectPurchase());
+                $addonItems = $gradeApprovedItems->filter(fn (ShopOrderItem $i): bool => (bool) $i->order?->isAdminDirectPurchase());
 
-                    return $cartTime && $orderTime && $cartTime->gte($orderTime);
-                });
-                $addonBought = (float) $addonCarts->sum('quantity');
-                $addonRemaining += max(0, $addonApproved - $addonBought);
+                $normalApproved = (float) $normalItems->sum('approved_qty');
+                $normalBought = (float) $gradeCarts->sum('quantity');
+                $normalRemaining = max(0, $normalApproved - $normalBought);
+
+                $addonRemaining = 0.0;
+                foreach ($addonItems->groupBy('shop_order_id') as $orderItems) {
+                    $first = $orderItems->first();
+                    $orderTime = $first->order->created_at ?? $first->order->submitted_at;
+                    $addonApproved = (float) $orderItems->sum('approved_qty');
+                    $addonCarts = $gradeCarts->filter(function (PurchaserCartItem $c) use ($orderTime): bool {
+                        $cartTime = $c->cart->submitted_at ?? $c->cart->created_at;
+
+                        return $cartTime && $orderTime && $cartTime->gte($orderTime);
+                    });
+                    $addonBought = (float) $addonCarts->sum('quantity');
+                    $addonRemaining += max(0, $addonApproved - $addonBought);
+                }
+
+                $totalApproved += (float) $gradeApprovedItems->sum('approved_qty');
+                $totalBought += (float) $gradeCarts->sum('quantity');
+                $totalRemaining += ($normalRemaining + $addonRemaining);
             }
-
-            $totalApproved += (float) $approvedItems->sum('approved_qty');
-            $totalBought += (float) $productCarts->sum('quantity');
-            $totalRemaining += ($normalRemaining + $addonRemaining);
         }
 
         return [
@@ -305,7 +446,8 @@ class PurchaserDailyInitialQuery
         array $assignedCatIds,
         bool $hasCategoryFilter,
         ?string $selectedChip,
-        ?string $search
+        ?string $search,
+        ?int $warehouseId = null
     ): Collection {
         $products = Product::query()
             ->active()
@@ -363,7 +505,9 @@ class PurchaserDailyInitialQuery
             ];
         });
 
-        return $this->applyFilters($items, $selectedChip, $search);
+        $withBalances = $this->warehouseBalanceService()->attachWarehouseBalances($items, $dateString, $warehouseId, 'B');
+
+        return $this->applyFilters($withBalances, $selectedChip, $search);
     }
 
     /**

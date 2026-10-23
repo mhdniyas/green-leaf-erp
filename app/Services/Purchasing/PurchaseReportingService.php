@@ -24,6 +24,38 @@ final class PurchaseReportingService
     {
         $items = $this->filteredItems($filters);
         $summary = $this->summary($items);
+        $purchasers = $this->purchaserRows($items, $filters)->orderByDesc('total_purchase')->get();
+
+        $billsQuery = $this->invoiceRows($items)
+            ->orderByDesc('business_date')
+            ->orderByDesc('invoice_id');
+        $bills = $billsQuery->paginate(25, ['*'], 'bills_page')->withQueryString();
+
+        $cartIds = collect($bills->items())->pluck('purchaser_cart_id')->filter()->unique()->all();
+        $billItems = [];
+        if (! empty($cartIds)) {
+            $billItems = DB::table('purchaser_cart_items')
+                ->join('products', 'products.id', '=', 'purchaser_cart_items.product_id')
+                ->leftJoin('categories', 'categories.id', '=', 'products.category_id')
+                ->whereIn('purchaser_cart_items.purchaser_cart_id', $cartIds)
+                ->select([
+                    'purchaser_cart_items.purchaser_cart_id',
+                    'products.name as product_name',
+                    'categories.id as category_id',
+                    'categories.name as category_name',
+                    'purchaser_cart_items.grade',
+                    'purchaser_cart_items.quantity',
+                    'products.unit',
+                    'purchaser_cart_items.unit_price',
+                    'purchaser_cart_items.line_total',
+                ])
+                ->get()
+                ->groupBy('purchaser_cart_id');
+        }
+
+        foreach ($bills->items() as $bill) {
+            $bill->items = $billItems[$bill->purchaser_cart_id] ?? collect();
+        }
 
         return [
             'summary' => $summary,
@@ -32,8 +64,10 @@ final class PurchaseReportingService
                 ->orderByDesc('invoice_id')
                 ->limit(10)
                 ->get(),
+            'bills' => $bills,
             'vendors' => $this->vendorRows($items)->orderByDesc('total_purchase')->limit(5)->get(),
-            'purchasers' => $this->purchaserRows($items, $filters)->orderByDesc('total_purchase')->limit(5)->get(),
+            'purchasers' => $purchasers->take(5),
+            'allPurchasers' => $purchasers,
             'categories' => $this->categoryRows($items)->orderByDesc('total_purchase')->limit(8)->get(),
             'unsupportedLegacyCount' => $this->unsupportedLegacyCount($filters),
         ];
@@ -196,7 +230,7 @@ final class PurchaseReportingService
             ->leftJoinSub($settlements, 'settlement_totals', 'settlement_totals.purchase_invoice_id', '=', 'purchase_invoices.id')
             ->whereNull('purchase_invoices.deleted_at')
             ->where('purchase_invoices.status', '!=', 'cancelled')
-            ->selectRaw("purchase_invoices.id as invoice_id, purchase_invoices.public_uuid as invoice_public_uuid, purchase_invoices.invoice_number, purchaser_carts.id as purchaser_cart_id, purchaser_carts.business_date, purchase_invoices.supplier_id, suppliers.public_uuid as supplier_public_uuid, suppliers.name as supplier_name, purchaser_carts.user_id as purchaser_id, users.public_uuid as purchaser_public_uuid, users.name as purchaser_name, products.id as product_id, products.name as product_name, products.unit as unit, products.default_warehouse_id, warehouses.code as warehouse_code, CASE WHEN warehouses.code = 'VEG-WH' THEN 'Vegetables' WHEN warehouses.code = 'FRT-WH' THEN 'Fruits' ELSE 'Other' END as produce_type, categories.id as category_id, categories.name as category_name, purchaser_cart_items.grade, purchaser_cart_items.quantity, purchaser_cart_items.unit_price, {$paymentClass} as payment_class, {$netExpression} as item_net, ({$netExpression} * {$paidExpression} / NULLIF({$invoiceNetExpression}, 0)) as item_paid");
+            ->selectRaw("purchase_invoices.id as invoice_id, purchase_invoices.public_uuid as invoice_public_uuid, purchase_invoices.invoice_number, purchase_invoices.status as invoice_status, purchase_invoices.payment_status, purchaser_carts.id as purchaser_cart_id, purchaser_carts.business_date, purchase_invoices.supplier_id, suppliers.public_uuid as supplier_public_uuid, suppliers.name as supplier_name, purchaser_carts.user_id as purchaser_id, users.public_uuid as purchaser_public_uuid, users.name as purchaser_name, products.id as product_id, products.name as product_name, products.unit as unit, products.default_warehouse_id, warehouses.code as warehouse_code, CASE WHEN warehouses.code = 'VEG-WH' THEN 'Vegetables' WHEN warehouses.code = 'FRT-WH' THEN 'Fruits' ELSE 'Other' END as produce_type, categories.id as category_id, categories.name as category_name, purchaser_cart_items.grade, purchaser_cart_items.quantity, purchaser_cart_items.unit_price, {$paymentClass} as payment_class, {$netExpression} as item_net, ({$netExpression} * {$paidExpression} / NULLIF({$invoiceNetExpression}, 0)) as item_paid");
 
         $this->applyFilters($query, $filters);
 
@@ -306,7 +340,9 @@ final class PurchaseReportingService
             ? 'GROUP_CONCAT(DISTINCT category_name)'
             : 'GROUP_CONCAT(DISTINCT category_name ORDER BY category_name SEPARATOR ", ")';
 
-        return DB::query()->fromSub($items, 'purchase_items')->selectRaw('invoice_id, invoice_public_uuid, invoice_number, business_date, supplier_id, supplier_public_uuid, supplier_name, purchaser_id, purchaser_public_uuid, purchaser_name, payment_class, '.$produceExpression.' as produce_types, '.$categoryExpression.' as categories, SUM(item_net) as total_purchase, SUM(item_paid) as paid_amount, SUM(CASE WHEN payment_class = "credit" AND item_net > item_paid THEN item_net - item_paid ELSE 0 END) as outstanding')->groupBy('invoice_id', 'invoice_public_uuid', 'invoice_number', 'business_date', 'supplier_id', 'supplier_public_uuid', 'supplier_name', 'purchaser_id', 'purchaser_public_uuid', 'purchaser_name', 'payment_class');
+        return DB::query()->fromSub($items, 'purchase_items')
+            ->selectRaw('invoice_id, invoice_public_uuid, invoice_number, purchaser_cart_id, invoice_status, payment_status, business_date, supplier_id, supplier_public_uuid, supplier_name, purchaser_id, purchaser_public_uuid, purchaser_name, payment_class, '.$produceExpression.' as produce_types, '.$categoryExpression.' as categories, SUM(item_net) as total_purchase, SUM(item_paid) as paid_amount, SUM(CASE WHEN payment_class = "credit" AND item_net > item_paid THEN item_net - item_paid ELSE 0 END) as outstanding')
+            ->groupBy('invoice_id', 'invoice_public_uuid', 'invoice_number', 'purchaser_cart_id', 'invoice_status', 'payment_status', 'business_date', 'supplier_id', 'supplier_public_uuid', 'supplier_name', 'purchaser_id', 'purchaser_public_uuid', 'purchaser_name', 'payment_class');
     }
 
     /** @param array<string, mixed> $filters */

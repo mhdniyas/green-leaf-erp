@@ -6,6 +6,7 @@ namespace App\Services\Purchasing;
 
 use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Enums\Inventory\BatchStatus;
+use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Purchasing\POStatus;
 use App\Models\AdvanceReceiveMatch;
@@ -898,8 +899,8 @@ class AdvanceReceiveReconciliationService
                     'warehouse_id' => $billGrn->warehouse_id,
                     'goods_received_id' => $billGrn->id,
                     'goods_received_item_id' => $grnItem->id,
-                    'purchase_grade' => $grnItem->grade ?? $billGrn->purchase_grade ?? 'A',
-                    'grading_mode' => ($grnItem->grade ?? $billGrn->purchase_grade ?? 'A') === 'B' ? 'fixed_purchase_grade' : 'sort_required',
+                    'purchase_grade' => $grnItem->grade ? (ProductGrade::tryResolve($grnItem->grade)?->value ?? $grnItem->grade) : ($billGrn->purchase_grade ?? 'U'),
+                    'grading_mode' => $grnItem->grading_mode ?? (in_array($grnItem->grade ? (ProductGrade::tryResolve($grnItem->grade)?->value ?? $grnItem->grade) : ($billGrn->purchase_grade ?? 'U'), ['A', 'B', 'C'], true) ? 'fixed_purchase_grade' : 'sort_required'),
                     'created_by' => $userId,
                     'reference' => $this->stockBatchRepository->generateReference(),
                     'received_at' => $billGrn->received_at,
@@ -1437,8 +1438,8 @@ class AdvanceReceiveReconciliationService
                             'warehouse_id' => $itemWarehouseId,
                             'goods_received_id' => $lockedGrn->id,
                             'goods_received_item_id' => $grnItem->id,
-                            'purchase_grade' => $grnItem->grade ?? $lockedGrn->purchase_grade ?? 'A',
-                            'grading_mode' => ($grnItem->grade ?? $lockedGrn->purchase_grade ?? 'A') === 'B' ? 'fixed_purchase_grade' : 'sort_required',
+                            'purchase_grade' => $grnItem->grade ? (ProductGrade::tryResolve($grnItem->grade)?->value ?? $grnItem->grade) : ($lockedGrn->purchase_grade ?? 'U'),
+                            'grading_mode' => $grnItem->grading_mode ?? (in_array($grnItem->grade ? (ProductGrade::tryResolve($grnItem->grade)?->value ?? $grnItem->grade) : ($lockedGrn->purchase_grade ?? 'U'), ['A', 'B', 'C'], true) ? 'fixed_purchase_grade' : 'sort_required'),
                             'created_by' => $userId,
                             'reference' => $this->stockBatchRepository->generateReference(),
                             'received_at' => $lockedGrn->received_at,

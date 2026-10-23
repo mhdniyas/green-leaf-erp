@@ -171,20 +171,40 @@ class ShopInvoice extends Model
             ->get()
             ->filter(fn ($a): bool => data_get($a->properties, 'source') === 'admin_item_adjustment');
 
-        $productAdjustmentGroups = $activities->groupBy(
-            fn ($a): int => (int) (data_get($a->properties, 'after.product_id') ?: data_get($a->properties, 'before.product_id'))
-        );
+        $itemAdjustmentGroups = $activities->groupBy(function ($a): string {
+            $itemId = data_get($a->properties, 'after.item_id') ?: data_get($a->properties, 'before.item_id');
+            if ($itemId) {
+                return 'item:'.$itemId;
+            }
 
-        $itemsByProductId = ($this->relationLoaded('items') ? $this->items : $this->items()->with('product')->get())->keyBy('product_id');
+            $productId = data_get($a->properties, 'after.product_id') ?: data_get($a->properties, 'before.product_id');
+            $grade = data_get($a->properties, 'after.product_grade') ?: data_get($a->properties, 'before.product_grade') ?: 'A';
+
+            return 'pg:'.$productId.'|'.$grade;
+        });
+
+        $items = $this->relationLoaded('items') ? $this->items : $this->items()->with('product')->get();
+        $itemsById = $items->keyBy('id');
+        $itemsByProductGrade = $items->keyBy(fn ($i): string => $i->product_id.'|'.($i->product_grade ?? 'A'));
 
         $rows = collect();
         $netDifference = 0.0;
 
-        foreach ($productAdjustmentGroups as $productId => $group) {
+        foreach ($itemAdjustmentGroups as $groupKey => $group) {
             $firstAdj = $group->first();
             $lastAdj = $group->last();
 
-            $item = $itemsByProductId->get($productId);
+            $itemId = data_get($lastAdj->properties, 'after.item_id') ?: data_get($firstAdj->properties, 'before.item_id');
+            $productId = (int) (data_get($lastAdj->properties, 'after.product_id') ?: data_get($firstAdj->properties, 'before.product_id'));
+            $grade = (string) (data_get($lastAdj->properties, 'after.product_grade') ?: data_get($firstAdj->properties, 'before.product_grade') ?: 'A');
+
+            $item = $itemId ? $itemsById->get((int) $itemId) : $itemsByProductGrade->get($productId.'|'.$grade);
+            if (! $item && ! $itemId) {
+                $item = $items->firstWhere('product_id', $productId);
+            }
+            if ($item && $item->product_grade) {
+                $grade = (string) $item->product_grade;
+            }
 
             $beforeQty = (float) data_get($firstAdj->properties, 'before.qty');
             $beforePrice = (float) (data_get($firstAdj->properties, 'before.price') ?: 0);
@@ -222,11 +242,14 @@ class ShopInvoice extends Model
 
             $netDifference += $difference;
 
-            $productName = (string) ($item?->product?->name ?? $item?->product_name ?? data_get($lastAdj->properties, 'after.product_name') ?? data_get($firstAdj->properties, 'before.product_name') ?? 'Unknown Product');
+            $baseProductName = (string) ($item?->product?->name ?? $item?->product_name ?? data_get($lastAdj->properties, 'after.product_name') ?? data_get($firstAdj->properties, 'before.product_name') ?? 'Unknown Product');
+            $productName = $grade !== 'A' ? "{$baseProductName} — Grade {$grade}" : $baseProductName;
             $unit = ProductUnit::normalizeUnit($item?->price_unit ?: $item?->unit ?: 'kg');
 
             $rows->push([
+                'item_id' => $item?->id ?: ($itemId ? (int) $itemId : null),
                 'product_id' => (int) $productId,
+                'product_grade' => $grade,
                 'product_name' => $productName,
                 'unit' => $unit,
                 'previous_qty' => $beforeQty,

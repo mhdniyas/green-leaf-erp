@@ -192,7 +192,12 @@
                                                     @foreach($order->items as $item)
                                                         <tr>
                                                             <td class="py-3 px-4">
-                                                                <p class="font-bold text-slate-900 dark:text-white">{{ $item->product?->name }}</p>
+                                                                <div class="flex items-center gap-1.5">
+                                                                    <p class="font-bold text-slate-900 dark:text-white">{{ $item->product?->name }}</p>
+                                                                    @if ($item->product_grade && $item->product_grade !== 'A')
+                                                                        <span class="rounded bg-amber-100 dark:bg-amber-950/40 px-1.5 py-0.5 text-[9px] font-black uppercase text-amber-800 dark:text-amber-300">Grade {{ $item->product_grade }}</span>
+                                                                    @endif
+                                                                </div>
                                                                 <p class="text-[10px] text-slate-400 font-medium tracking-wider uppercase mt-0.5">{{ $item->product?->sku }}</p>
                                                             </td>
                                                             <td class="py-3 px-4 text-center font-bold text-slate-850 dark:text-slate-350">
@@ -289,11 +294,18 @@
                                                 @foreach($revision->items as $item)
                                                     @php
                                                         $diff = (float)$item->new_requested_qty - (float)$item->old_requested_qty;
-                                                        $existingItem = $order->items->keyBy('product_id')->get($item->product_id);
+                                                        $grade = (string)($item->product_grade ?? 'A');
+                                                        $existingItem = $order->items->first(fn($i) => (int)$i->product_id === (int)$item->product_id && (string)($i->product_grade ?? 'A') === $grade);
+                                                        $inputKey = $grade !== 'A' ? "{$item->product_id}|{$grade}" : (string)$item->product_id;
                                                     @endphp
                                                     <tr>
                                                         <td class="py-3 px-4">
-                                                            <p class="font-bold text-slate-900 dark:text-white">{{ $item->product?->name }}</p>
+                                                            <div class="flex items-center gap-1.5">
+                                                                <p class="font-bold text-slate-900 dark:text-white">{{ $item->product?->name }}</p>
+                                                                @if ($grade !== 'A')
+                                                                    <span class="rounded bg-indigo-100 dark:bg-indigo-950/40 px-1.5 py-0.5 text-[9px] font-black uppercase text-indigo-800 dark:text-indigo-300">Grade {{ $grade }}</span>
+                                                                @endif
+                                                            </div>
                                                             <p class="text-[10px] text-slate-400 font-medium tracking-wider uppercase mt-0.5">{{ $item->product?->sku }}</p>
                                                         </td>
                                                         <td class="py-3 px-4 text-center text-slate-500 dark:text-slate-400">
@@ -309,7 +321,7 @@
                                                         </td>
                                                         <td class="py-2 px-4">
                                                             <div class="flex items-center justify-center">
-                                                                <input type="number" step="0.01" min="0" name="approved_qty[{{ $item->product_id }}]" value="{{ number_format($item->new_requested_qty, 2, '.', '') }}" class="w-20 rounded-lg border border-slate-200 dark:border-slate-800 text-center py-1 text-xs font-black text-slate-800 dark:text-slate-200 dark:bg-slate-900 focus:outline-none focus:border-indigo-500">
+                                                                <input type="number" step="0.01" min="0" name="approved_qty[{{ $inputKey }}]" value="{{ number_format($item->new_requested_qty, 2, '.', '') }}" class="w-20 rounded-lg border border-slate-200 dark:border-slate-800 text-center py-1 text-xs font-black text-slate-800 dark:text-slate-200 dark:bg-slate-900 focus:outline-none focus:border-indigo-500">
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -401,7 +413,12 @@
                                                 @foreach($order->items as $item)
                                                     <tr>
                                                         <td class="py-3 px-4">
-                                                            <p class="font-bold text-slate-900 dark:text-white">{{ $item->product?->name }}</p>
+                                                            <div class="flex items-center gap-1.5">
+                                                                <p class="font-bold text-slate-900 dark:text-white">{{ $item->product?->name }}</p>
+                                                                @if ($item->product_grade && $item->product_grade !== 'A')
+                                                                    <span class="rounded bg-amber-100 dark:bg-amber-950/40 px-1.5 py-0.5 text-[9px] font-black uppercase text-amber-800 dark:text-amber-300">Grade {{ $item->product_grade }}</span>
+                                                                @endif
+                                                            </div>
                                                             <p class="text-[10px] text-slate-400 font-medium tracking-wider uppercase mt-0.5">{{ $item->product?->sku }}</p>
                                                         </td>
                                                         <td class="py-3 px-4 text-center font-bold text-slate-850 dark:text-slate-350">

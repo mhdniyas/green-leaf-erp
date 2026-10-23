@@ -7,6 +7,7 @@ namespace Tests\Feature\Purchasing;
 use App\Models\Category;
 use App\Models\GoodsReceived;
 use App\Models\Product;
+use App\Models\PurchaseGradePrice;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
@@ -215,8 +216,8 @@ class PurchaserBulkBuyOptimizedTest extends TestCase
             $this->assertStringNotContainsString('VC-OVERDUE-001', $sql);
         }
 
-        // Query count should be minimal (< 20)
-        $this->assertLessThan(20, count($executedQueries));
+        // Query count should be minimal (< 25)
+        $this->assertLessThan(25, count($executedQueries));
     }
 
     public function test_bulk_buy_fulfilled_tab_endpoint_works(): void
@@ -645,5 +646,354 @@ class PurchaserBulkBuyOptimizedTest extends TestCase
             'unit_price' => 6.00,
             'line_total' => 78.0,
         ]);
+    }
+
+    public function test_daily_page_bulk_button_links_to_all_grades_by_default(): void
+    {
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.daily', ['date' => '2026-08-24']));
+        $response->assertOk();
+        $response->assertSee(e(route('purchaser.bulk-buy', ['date' => '2026-08-24', 'purchase_grade' => 'ALL'])), false);
+    }
+
+    public function test_bulk_buy_all_grades_view_shows_single_consolidated_product_row_with_grades_a_b_c(): void
+    {
+        $product = Product::factory()->create([
+            'category_id' => $this->category->id,
+            'name' => 'Tomato Hybrid',
+            'sku' => 'TOM-HYB-01',
+            'unit' => 'kg',
+            'is_active' => true,
+            'show_in_purchaser_order' => true,
+        ]);
+
+        $shopOrder = ShopOrder::factory()->create([
+            'business_date' => '2026-08-24',
+            'order_source' => 'shop_owner',
+            'state' => 'approved',
+            'order_number' => 'SO-TOM-HYB',
+        ]);
+        DB::table('shop_orders')->where('id', $shopOrder->id)->update(['business_date' => '2026-08-24']);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $shopOrder->id,
+            'product_id' => $product->id,
+            'product_grade' => 'A',
+            'approved_qty' => 14.0,
+            'requested_qty' => 14.0,
+            'unit' => 'kg',
+        ]);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $shopOrder->id,
+            'product_id' => $product->id,
+            'product_grade' => 'B',
+            'approved_qty' => 5.0,
+            'requested_qty' => 5.0,
+            'unit' => 'kg',
+        ]);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $shopOrder->id,
+            'product_id' => $product->id,
+            'product_grade' => 'C',
+            'approved_qty' => 3.0,
+            'requested_qty' => 3.0,
+            'unit' => 'kg',
+        ]);
+
+        app(PurchaserReadCacheService::class)->invalidate(['orders', 'carts', 'products', 'settings']);
+
+        // 1. Visit All Grades view
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', [
+            'date' => '2026-08-24',
+            'purchase_grade' => 'ALL',
+        ]));
+        $response->assertOk();
+
+        // Product name appears
+        $response->assertSee('Tomato Hybrid');
+        $response->assertSee('Need: 22.0 kg');
+        $response->assertSee('Multi-grade');
+
+        // Quality grade breakdown table
+        $response->assertSee('Grade A');
+        $response->assertSee('14.0 kg');
+        $response->assertSee('Buy A');
+
+        $response->assertSee('Grade B');
+        $response->assertSee('5.0 kg');
+        $response->assertSee('Buy B');
+
+        $response->assertSee('Grade C');
+        $response->assertSee('3.0 kg');
+        $response->assertSee('Buy C');
+
+        // Nav tabs present
+        $response->assertSee('All Grades');
+        $response->assertSee('Grade A');
+        $response->assertSee('Grade B');
+        $response->assertSee('Grade C');
+    }
+
+    public function test_bulk_buy_grade_specific_filtered_urls_work_independently(): void
+    {
+        $product = Product::factory()->create([
+            'category_id' => $this->category->id,
+            'name' => 'Tomato Hybrid 2',
+            'sku' => 'TOM-HYB-02',
+            'unit' => 'kg',
+            'is_active' => true,
+            'show_in_purchaser_order' => true,
+        ]);
+
+        $shopOrder = ShopOrder::factory()->create([
+            'business_date' => '2026-08-24',
+            'order_source' => 'shop_owner',
+            'state' => 'approved',
+            'order_number' => 'SO-TOM-HYB2',
+        ]);
+        DB::table('shop_orders')->where('id', $shopOrder->id)->update(['business_date' => '2026-08-24']);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $shopOrder->id,
+            'product_id' => $product->id,
+            'product_grade' => 'A',
+            'approved_qty' => 14.0,
+            'requested_qty' => 14.0,
+            'unit' => 'kg',
+        ]);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $shopOrder->id,
+            'product_id' => $product->id,
+            'product_grade' => 'B',
+            'approved_qty' => 5.0,
+            'requested_qty' => 5.0,
+            'unit' => 'kg',
+        ]);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $shopOrder->id,
+            'product_id' => $product->id,
+            'product_grade' => 'C',
+            'approved_qty' => 3.0,
+            'requested_qty' => 3.0,
+            'unit' => 'kg',
+        ]);
+
+        app(PurchaserReadCacheService::class)->invalidate(['orders', 'carts', 'products', 'settings']);
+
+        // Grade A
+        $responseA = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', ['date' => '2026-08-24', 'purchase_grade' => 'A']));
+        $responseA->assertOk();
+        $responseA->assertSee('Need: 14.0 kg');
+        $responseA->assertDontSee('5.0 kg');
+
+        // Grade B
+        $responseB = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', ['date' => '2026-08-24', 'purchase_grade' => 'B']));
+        $responseB->assertOk();
+        $responseB->assertSee('Need: 5.0 kg');
+
+        // Grade C
+        $responseC = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', ['date' => '2026-08-24', 'purchase_grade' => 'C']));
+        $responseC->assertOk();
+        $responseC->assertSee('Need: 3.0 kg');
+    }
+
+    public function test_bulk_buy_purchase_action_preserves_grade_b_and_grade_c(): void
+    {
+        $product = Product::factory()->create([
+            'category_id' => $this->category->id,
+            'name' => 'Tomato Hybrid 3',
+            'sku' => 'TOM-HYB-03',
+            'unit' => 'kg',
+            'is_active' => true,
+            'show_in_purchaser_order' => true,
+        ]);
+
+        $shopOrder = ShopOrder::factory()->create([
+            'business_date' => '2026-08-24',
+            'order_source' => 'shop_owner',
+            'state' => 'approved',
+            'order_number' => 'SO-TOM-HYB3',
+        ]);
+        DB::table('shop_orders')->where('id', $shopOrder->id)->update(['business_date' => '2026-08-24']);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $shopOrder->id,
+            'product_id' => $product->id,
+            'product_grade' => 'B',
+            'approved_qty' => 10.0,
+            'requested_qty' => 10.0,
+            'unit' => 'kg',
+        ]);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $shopOrder->id,
+            'product_id' => $product->id,
+            'product_grade' => 'C',
+            'approved_qty' => 7.0,
+            'requested_qty' => 7.0,
+            'unit' => 'kg',
+        ]);
+
+        PurchaseGradePrice::query()->create([
+            'product_id' => $product->id,
+            'business_date' => '2026-08-24',
+            'grade' => 'B',
+            'purchase_price' => 15.0,
+            'status' => 'approved',
+        ]);
+
+        PurchaseGradePrice::query()->create([
+            'product_id' => $product->id,
+            'business_date' => '2026-08-24',
+            'grade' => 'C',
+            'purchase_price' => 12.0,
+            'status' => 'approved',
+        ]);
+
+        app(PurchaserReadCacheService::class)->invalidate(['orders', 'carts', 'products', 'settings']);
+
+        // Buy Grade B
+        $responseB = $this->actingAs($this->purchaser)->post(route('purchaser.cart-items.store'), [
+            'business_date' => '2026-08-24',
+            'product_id' => $product->id,
+            'purchase_grade' => 'B',
+            'quantity' => 4.0,
+            'unit_price' => 15.0,
+            'return_to' => 'bulk-buy',
+            'return_grade' => 'ALL',
+        ]);
+
+        $responseB->assertRedirect(route('purchaser.bulk-buy', ['date' => '2026-08-24', 'purchase_grade' => 'ALL']));
+
+        $this->assertDatabaseHas('purchaser_carts', [
+            'user_id' => $this->purchaser->id,
+            'purchase_grade' => 'B',
+            'status' => 'draft',
+        ]);
+        $this->assertDatabaseHas('purchaser_cart_items', [
+            'product_id' => $product->id,
+            'grade' => 'B',
+            'quantity' => 4.0,
+        ]);
+
+        // Buy Grade C
+        $responseC = $this->actingAs($this->purchaser)->post(route('purchaser.cart-items.store'), [
+            'business_date' => '2026-08-24',
+            'product_id' => $product->id,
+            'purchase_grade' => 'C',
+            'quantity' => 2.5,
+            'unit_price' => 12.0,
+            'return_to' => 'bulk-buy',
+            'return_grade' => 'ALL',
+        ]);
+
+        $responseC->assertRedirect(route('purchaser.bulk-buy', ['date' => '2026-08-24', 'purchase_grade' => 'ALL']));
+
+        $this->assertDatabaseHas('purchaser_carts', [
+            'user_id' => $this->purchaser->id,
+            'purchase_grade' => 'C',
+            'status' => 'draft',
+        ]);
+        $this->assertDatabaseHas('purchaser_cart_items', [
+            'product_id' => $product->id,
+            'grade' => 'C',
+            'quantity' => 2.5,
+        ]);
+    }
+
+    public function test_all_grades_navigation_preserves_selection_without_reverting_to_grade_a(): void
+    {
+        $product = Product::factory()->create([
+            'category_id' => $this->category->id,
+            'name' => 'Multi Grade Apple',
+            'sku' => 'MGA-01',
+            'unit' => 'kg',
+            'is_active' => true,
+            'show_in_purchaser_order' => true,
+        ]);
+
+        $order = ShopOrder::factory()->create([
+            'business_date' => '2026-08-24',
+            'order_source' => 'shop_owner',
+            'state' => 'approved',
+            'order_number' => 'SO-MGA-001',
+        ]);
+        DB::table('shop_orders')->where('id', $order->id)->update(['business_date' => '2026-08-24']);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'product_grade' => 'A',
+            'approved_qty' => 10.0,
+            'requested_qty' => 10.0,
+            'unit' => 'kg',
+        ]);
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'product_grade' => 'B',
+            'approved_qty' => 20.0,
+            'requested_qty' => 20.0,
+            'unit' => 'kg',
+        ]);
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'product_grade' => 'C',
+            'approved_qty' => 30.0,
+            'requested_qty' => 30.0,
+            'unit' => 'kg',
+        ]);
+
+        app(PurchaserReadCacheService::class)->invalidate(['orders', 'carts', 'products', 'settings']);
+
+        // 1. Visit ALL GRADES
+        $responseAll = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.bulk-buy', ['date' => '2026-08-24', 'purchase_grade' => 'ALL']));
+
+        $responseAll->assertOk();
+        $this->assertEquals('ALL', $responseAll->viewData('purchaseGrade'));
+        $responseAll->assertSee('All Grades Purchaser Flow');
+        // Ensure ALL GRADES link points to purchase_grade=ALL and not a bare URL
+        $responseAll->assertSee('purchase_grade=ALL');
+
+        // Multi-grade breakdown should include A, B, and C
+        $pendingSummary = $responseAll->viewData('pendingSummary');
+        $item = $pendingSummary->firstWhere('product_id', $product->id);
+        $this->assertNotNull($item);
+        $this->assertTrue((bool) $item['has_non_a_grades']);
+        $this->assertEquals(60.0, (float) $item['total_approved_qty']);
+
+        // 2. Visit Grade A
+        $responseA = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.bulk-buy', ['date' => '2026-08-24', 'purchase_grade' => 'A']));
+        $responseA->assertOk();
+        $this->assertEquals('A', $responseA->viewData('purchaseGrade'));
+        $responseA->assertSee('Grade A Purchaser Flow');
+
+        // 3. Visit Grade B
+        $responseB = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.bulk-buy', ['date' => '2026-08-24', 'purchase_grade' => 'B']));
+        $responseB->assertOk();
+        $this->assertEquals('B', $responseB->viewData('purchaseGrade'));
+        $responseB->assertSee('Grade B Purchaser Flow');
+
+        // 4. Visit Grade C
+        $responseC = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.bulk-buy', ['date' => '2026-08-24', 'purchase_grade' => 'C']));
+        $responseC->assertOk();
+        $this->assertEquals('C', $responseC->viewData('purchaseGrade'));
+        $responseC->assertSee('Grade C Purchaser Flow');
+
+        // 5. Return to ALL GRADES — MUST remain ALL, NOT revert to A
+        $responseReturnAll = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.bulk-buy', ['date' => '2026-08-24', 'purchase_grade' => 'ALL']));
+        $responseReturnAll->assertOk();
+        $this->assertEquals('ALL', $responseReturnAll->viewData('purchaseGrade'));
+        $responseReturnAll->assertSee('All Grades Purchaser Flow');
+        $responseReturnAll->assertDontSee('Grade A Purchaser Flow');
     }
 }

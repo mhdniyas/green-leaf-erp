@@ -23,7 +23,9 @@ class ShopOrderChangeRequestItemFactory extends Factory
 
         return [
             'shop_order_change_request_id' => ShopOrderChangeRequest::factory(),
+            'shop_order_item_id' => null,
             'product_id' => Product::factory(),
+            'product_grade' => 'A',
             'old_qty' => $oldQuantity,
             'new_qty' => $newQuantity,
             'approved_qty' => null,

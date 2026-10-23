@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Domains\ShopOrder\Actions;
 
 use App\DTOs\Inventory\WastageEntryData;
+use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
 use App\Models\ShopInvoice;
@@ -164,7 +165,9 @@ class ResolveDeliveryReviewAction
 
             $invoice = ShopInvoice::query()->with('items')->lockForUpdate()->findOrFail($invoice->id);
             $this->shopInvoiceIntegrityValidator->assertMatchesApprovedDailyPrices($invoice);
-            $invoiceItemsByProductId = $invoice->items->keyBy(fn ($invoiceItem) => (int) $invoiceItem->product_id);
+            $invoiceItemsByProductAndGrade = $invoice->items->keyBy(
+                fn ($invoiceItem): string => $invoiceItem->product_id.'|'.($invoiceItem->product_grade ?? 'A')
+            );
 
             $beforeSubtotal = round((float) $invoice->subtotal, 2);
             $beforeDiscount = round((float) $invoice->discount_total, 2);
@@ -240,7 +243,7 @@ class ResolveDeliveryReviewAction
                     $this->addShortageBackToInventory($lockedOrder, $item, $shortageQty, $userId);
                 }
 
-                if ($shortageQty > 0.0 && $inventoryAction === 'wastage') {
+                if ($shortageQty > 0.0 && in_array($inventoryAction, ['wastage', 'record_wastage'], true)) {
                     $this->recordWastageForShortage($lockedOrder, $item, $shortageQty, $discrepancyType, $discrepancyNote, $userId);
                 }
 
@@ -255,7 +258,9 @@ class ResolveDeliveryReviewAction
                         ->exists();
 
                     if (! $alreadyExists) {
-                        $availableStock = $this->stockLedgerService->availableStockForProduct((int) $item->product_id);
+                        $itemGradeStr = is_object($item->product_grade ?? null) ? $item->product_grade->value : ($item->product_grade ?? 'A');
+                        $itemGradeEnum = ProductGrade::tryFrom((string) $itemGradeStr);
+                        $availableStock = $this->stockLedgerService->availableStockForProduct((int) $item->product_id, null, $itemGradeEnum);
                         $this->stockLedgerService->consumeStockForProductAllowingNegative(
                             (int) $item->product_id,
                             $excessQty,
@@ -263,6 +268,8 @@ class ResolveDeliveryReviewAction
                             StockMovementType::Out,
                             "Delivery excess approved - Order: {$lockedOrder->order_number}; Item: {$item->id}",
                             (int) $item->id,
+                            null,
+                            $itemGradeEnum,
                         );
 
                         if ($excessQty > $availableStock + 0.001) {
@@ -291,9 +298,9 @@ class ResolveDeliveryReviewAction
             }
 
             $lockedOrder->items
-                ->groupBy(fn ($item) => (int) $item->product_id)
-                ->each(function ($items, int $productId) use ($invoiceItemsByProductId): void {
-                    $invoiceItem = $invoiceItemsByProductId->get($productId);
+                ->groupBy(fn ($item): string => $item->product_id.'|'.($item->product_grade ?? 'A'))
+                ->each(function ($items, string $groupKey) use ($invoiceItemsByProductAndGrade): void {
+                    $invoiceItem = $invoiceItemsByProductAndGrade->get($groupKey);
 
                     if (! $invoiceItem) {
                         return;
@@ -636,10 +643,17 @@ class ResolveDeliveryReviewAction
         }
 
         $remainingQty = $shortageQty;
+        $itemGradeStr = is_object($item->product_grade ?? null) ? $item->product_grade->value : ($item->product_grade ?? 'A');
         $sourceMovements = StockMovement::query()
             ->where('product_id', $item->product_id)
             ->where('type', StockMovementType::Out->value)
-            ->where('notes', 'like', "%Order: {$order->order_number}%")
+            ->where(function ($query) use ($item, $order, $itemGradeStr) {
+                $query->where('shop_order_item_id', $item->id)
+                    ->orWhere(function ($q) use ($order, $itemGradeStr) {
+                        $q->where('notes', 'like', "%Order: {$order->order_number}%")
+                            ->where('grade', $itemGradeStr);
+                    });
+            })
             ->oldest('id')
             ->get();
 
@@ -692,15 +706,22 @@ class ResolveDeliveryReviewAction
             return;
         }
 
+        $itemGradeStr = is_object($item->product_grade ?? null) ? $item->product_grade->value : ($item->product_grade ?? 'A');
         $sourceMovement = StockMovement::query()
             ->where('product_id', $item->product_id)
             ->where('type', StockMovementType::Out->value)
-            ->where('notes', 'like', "%Order: {$orderNumber}%")
+            ->where(function ($query) use ($item, $orderNumber, $itemGradeStr) {
+                $query->where('shop_order_item_id', $item->id)
+                    ->orWhere(function ($q) use ($orderNumber, $itemGradeStr) {
+                        $q->where('notes', 'like', "%Order: {$orderNumber}%")
+                            ->where('grade', $itemGradeStr);
+                    });
+            })
             ->oldest('id')
             ->first();
 
         $batchId = $sourceMovement?->batch_id ?? (is_numeric($item->batch_id ?? null) ? (int) $item->batch_id : null);
-        $grade = (string) ($sourceMovement?->grade?->value ?? (is_object($item->product_grade ?? null) ? $item->product_grade->value : ($item->product_grade ?? 'A')));
+        $grade = (string) ($sourceMovement?->grade?->value ?? $itemGradeStr);
 
         $wastageReason = match ($discrepancyType) {
             'transit_damage', 'wastage_damage', 'wastage' => WastageReason::TransitDamage,

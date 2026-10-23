@@ -185,7 +185,9 @@
                             </button>
                             <div data-unit-picker-menu class="absolute left-0 top-[calc(100%+0.25rem)] z-50 hidden min-w-28 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl shadow-slate-900/15" role="listbox">
                                 @foreach($productData['order_units'] as $unit)
-                                    @php($measureValue = $unit['public_uuid'] ?: $unit['unit'])
+                                    @php
+                                        $measureValue = $unit['public_uuid'] ?: $unit['unit'];
+                                    @endphp
                                     <button type="button" data-unit-picker-option data-unit-value="{{ $measureValue }}" data-unit-name="{{ $unit['unit'] }}" data-unit-label="{{ $unit['label'] }}" @class([
                                         'flex h-8 w-full items-center gap-1.5 rounded-lg px-2 text-left text-[10px] font-black uppercase transition',
                                         'bg-emerald-600 text-white' => $measureValue === $productData['current_measure_uuid'] || ($productData['current_measure_uuid'] === null && $unit['unit'] === $productData['current_unit']),
@@ -222,6 +224,42 @@
                         aria-label="Quantity for {{ $productData['name'] }}"
                     >
                 </div>
+
+                @if(($multiGradeOrderingEnabled ?? false) && count($allowedProductGrades ?? ['A']) > 1)
+                    <div class="mt-2 space-y-1.5 border-t border-slate-100 pt-1.5">
+                        @foreach($allowedProductGrades as $subGrade)
+                            @if($subGrade !== 'A')
+                                @php
+                                    $subGradeKey = $productData['line_key'] . '|' . $subGrade;
+                                    $subExistingItem = $tomorrowOrder?->items->first(fn ($item) => (int) $item->product_id === (int) $productData['id'] && ($item->product_grade?->value ?? (string) $item->product_grade) === $subGrade);
+                                    $subCurrentQty = old("items.{$subGradeKey}", $subExistingItem?->requested_unit_quantity ?? $subExistingItem?->requested_qty ?? '');
+                                @endphp
+                                <div class="flex items-center justify-between gap-2 rounded-lg bg-slate-50/80 px-2 py-1 text-xs">
+                                    <span class="inline-flex items-center gap-1 font-bold text-slate-700">
+                                        <span class="rounded bg-purple-100 px-1 py-0.5 text-[9px] font-black text-purple-700">Grade {{ $subGrade }}</span>
+                                        <span class="text-[10px] text-slate-500">Qty ({{ $productData['current_unit_label'] }})</span>
+                                    </span>
+                                    <input type="hidden" name="item_units[{{ $subGradeKey }}]" value="{{ $productData['current_unit'] }}">
+                                    <input type="hidden" name="item_measures[{{ $subGradeKey }}]" value="{{ $productData['current_measure_uuid'] }}">
+                                    <input type="hidden" name="item_grades[{{ $subGradeKey }}]" value="{{ $subGrade }}">
+                                    <input
+                                        type="number"
+                                        inputmode="decimal"
+                                        step="0.01"
+                                        min="0"
+                                        name="items[{{ $subGradeKey }}]"
+                                        value="{{ $subCurrentQty }}"
+                                        data-inline-qty
+                                        data-product-id="{{ $productData['id'] }}"
+                                        data-line-key="{{ $subGradeKey }}"
+                                        class="h-7 w-20 rounded border border-slate-200 bg-white px-1.5 text-right text-xs font-bold text-slate-900 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                        placeholder="0"
+                                    >
+                                </div>
+                            @endif
+                        @endforeach
+                    </div>
+                @endif
 
                 <span data-row-selection-label class="{{ (float) $productData['current_qty'] > 0 ? '' : 'hidden' }} sr-only">{{ $rowSelectionLabel }}</span>
                 <p data-unit-conversion-info class="mt-2 hidden rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[11px] font-black uppercase tracking-[0.08em] text-emerald-700"></p>

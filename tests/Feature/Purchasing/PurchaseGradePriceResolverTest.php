@@ -320,4 +320,63 @@ class PurchaseGradePriceResolverTest extends TestCase
         $standardGradeBPrice = $this->resolver->resolve($product->id, '2026-09-22', 'B');
         $this->assertSame((float) $gradeBCartItem->unit_price, $standardGradeBPrice);
     }
+
+    public function test_13_grade_c_missing_explicit_price_falls_back_to_grade_a_price(): void
+    {
+        $product = Product::factory()->create(['category_id' => $this->category->id]);
+
+        DailyPriceApproval::query()->create([
+            'product_id' => $product->id,
+            'business_date' => '2026-09-22',
+            'purchase_price' => 38.00,
+            'status' => 'approved',
+            'price_unit' => 'kg',
+        ]);
+
+        $resolvedPrice = $this->resolver->resolve($product->id, '2026-09-22', 'C');
+
+        $this->assertSame(38.00, $resolvedPrice);
+    }
+
+    public function test_14_grade_c_with_fallback_price_uses_fallback_price(): void
+    {
+        $product = Product::factory()->create(['category_id' => $this->category->id]);
+
+        DailyPriceApproval::query()->create([
+            'product_id' => $product->id,
+            'business_date' => '2026-09-22',
+            'purchase_price' => 38.00,
+            'status' => 'approved',
+            'price_unit' => 'kg',
+        ]);
+
+        $resolvedPrice = $this->resolver->resolve($product->id, '2026-09-22', 'C', 22.50);
+
+        $this->assertSame(22.50, $resolvedPrice);
+    }
+
+    public function test_15_grade_c_with_explicit_grade_c_price_prefers_grade_c(): void
+    {
+        $product = Product::factory()->create(['category_id' => $this->category->id]);
+
+        DailyPriceApproval::query()->create([
+            'product_id' => $product->id,
+            'business_date' => '2026-09-22',
+            'purchase_price' => 38.00,
+            'status' => 'approved',
+            'price_unit' => 'kg',
+        ]);
+
+        PurchaseGradePrice::query()->create([
+            'product_id' => $product->id,
+            'business_date' => '2026-09-22',
+            'grade' => 'C',
+            'purchase_price' => 19.00,
+            'status' => 'approved',
+        ]);
+
+        $resolvedPrice = $this->resolver->resolve($product->id, '2026-09-22', 'C');
+
+        $this->assertSame(19.00, $resolvedPrice);
+    }
 }

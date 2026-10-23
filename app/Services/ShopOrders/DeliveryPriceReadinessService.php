@@ -104,7 +104,12 @@ class DeliveryPriceReadinessService
         }
 
         try {
-            $resolvedPrice = $this->approvedDailyPriceResolver->resolve($product, $order->shop, $order->business_date);
+            $resolvedPrice = $this->approvedDailyPriceResolver->resolve(
+                $product,
+                $order->shop,
+                $order->business_date,
+                $item->product_grade ?? 'A'
+            );
         } catch (\Throwable) {
             return $base;
         }

@@ -118,6 +118,26 @@
                         <input type="checkbox" name="allow_grade_b_purchase" value="1" @checked(old('allow_grade_b_purchase')) class="rounded border-blue-300 text-blue-600 focus:ring-blue-500">
                         Allow this shop to request Grade B purchases
                     </label>
+                    @if(auth()->user()?->hasRole('admin'))
+                    <div class="mt-3 rounded-lg border border-purple-100 bg-purple-50 p-2.5">
+                        <span class="block text-xs font-bold text-purple-900 mb-1.5">Permitted Product Ordering Grades</span>
+                        <div class="flex items-center gap-4 text-xs font-semibold text-purple-900">
+                            <label class="inline-flex items-center gap-1.5 opacity-80 cursor-not-allowed">
+                                <input type="checkbox" name="allowed_product_grades[]" value="A" checked disabled class="rounded border-purple-300 text-purple-600">
+                                <input type="hidden" name="allowed_product_grades[]" value="A">
+                                <span>Grade A (Default)</span>
+                            </label>
+                            <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                                <input type="checkbox" name="allowed_product_grades[]" value="B" @checked(in_array('B', (array) old('allowed_product_grades', []), true)) class="rounded border-purple-300 text-purple-600 focus:ring-purple-500">
+                                <span>Grade B</span>
+                            </label>
+                            <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                                <input type="checkbox" name="allowed_product_grades[]" value="C" @checked(in_array('C', (array) old('allowed_product_grades', []), true)) class="rounded border-purple-300 text-purple-600 focus:ring-purple-500">
+                                <span>Grade C</span>
+                            </label>
+                        </div>
+                    </div>
+                    @endif
                 </div>
 
                 <div>
@@ -371,6 +391,26 @@
                                                     <input type="checkbox" name="allow_grade_b_purchase" value="1" @checked((bool) ($showEditForm ? old('allow_grade_b_purchase', $shop->allow_grade_b_purchase) : $shop->allow_grade_b_purchase)) class="rounded border-blue-300 text-blue-600 focus:ring-blue-500">
                                                     Allow Grade B purchases
                                                 </label>
+                                                @if(auth()->user()?->hasRole('admin'))
+                                                <div class="mt-3 rounded-lg border border-purple-100 bg-purple-50 p-2.5">
+                                                    <span class="block text-xs font-bold text-purple-900 mb-1.5">Permitted Product Ordering Grades</span>
+                                                    <div class="flex items-center gap-4 text-xs font-semibold text-purple-900">
+                                                        <label class="inline-flex items-center gap-1.5 opacity-80 cursor-not-allowed">
+                                                            <input type="checkbox" name="allowed_product_grades[]" value="A" checked disabled class="rounded border-purple-300 text-purple-600">
+                                                            <input type="hidden" name="allowed_product_grades[]" value="A">
+                                                            <span>Grade A (Default)</span>
+                                                        </label>
+                                                        <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                                                            <input type="checkbox" name="allowed_product_grades[]" value="B" @checked(in_array('B', old('allowed_product_grades', $shop->allowedProductGrades()), true)) class="rounded border-purple-300 text-purple-600 focus:ring-purple-500">
+                                                            <span>Grade B</span>
+                                                        </label>
+                                                        <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                                                            <input type="checkbox" name="allowed_product_grades[]" value="C" @checked(in_array('C', old('allowed_product_grades', $shop->allowedProductGrades()), true)) class="rounded border-purple-300 text-purple-600 focus:ring-purple-500">
+                                                            <span>Grade C</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                                @endif
                                             </div>
 
                                             <div>

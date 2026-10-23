@@ -14,13 +14,12 @@ use App\Models\ShopInvoiceItem;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\ShopOrderLoadoutState;
-use App\Models\StockBatch;
-use App\Models\StockMovement;
 use App\Models\Warehouse;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
+use App\Services\Warehouse\AutoLoadAllService;
 use App\Support\PerformanceProbe;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
@@ -225,18 +224,21 @@ class ApiWarehouseLoadoutController extends Controller
         $probe?->checkpoint('load_order_relations');
 
         $productGroups = $shopOrder->items
-            ->groupBy('product_id')
-            ->map(function ($items) {
+            ->groupBy(fn (ShopOrderItem $item) => $item->product_id.'|'.($item->product_grade ?? 'A'))
+            ->map(function ($items, $groupKey) use ($shopOrder, $selectedWarehouseId) {
                 $productId = $items->first()->product_id;
+                $gradeStr = (string) ($items->first()->product_grade ?? 'A');
+                $gradeEnum = ProductGrade::tryResolve($gradeStr) ?? ProductGrade::GradeA;
                 $totalApproved = $this->loadoutApprovedQuantity($items);
                 $totalLoaded = (float) $items->where('sorting_status', 'loaded')->sum('loaded_qty');
                 $totalLoadedOrderUnit = (float) $items->where('sorting_status', 'loaded')->sum(fn (ShopOrderItem $item): float => (float) ($item->loaded_order_unit_qty ?? 0));
                 $totalRequestedOrderUnit = (float) $items->sum(fn (ShopOrderItem $item): float => (float) ($item->requested_qty ?? 0));
                 $totalBalance = max(0.0, round($totalApproved - $totalLoaded, 3));
-                $available = round($this->stockLedgerService->availableSortedStockForProduct($productId) + $totalLoaded, 3);
+                $stockBreakdown = $this->stockLedgerService->availableLoadoutStockBreakdown($productId, $selectedWarehouseId, $gradeEnum);
+                $available = round($stockBreakdown['available_stock'] + $totalLoaded, 3);
 
                 $firstItem = $items->first();
-                $productBaseUnit = strtolower((string) ($firstItem->product->unit ?? 'kg'));
+                $productBaseUnit = strtolower((string) ($firstItem->product?->unit ?? 'kg'));
                 $requestedUnit = strtolower((string) ($firstItem->requested_unit ?? ''));
                 $hasSecondaryUnit = $requestedUnit !== '' && $requestedUnit !== $productBaseUnit;
                 $measurementCount = (int) ($firstItem->product?->orderUnits?->count() ?? 0);
@@ -245,7 +247,12 @@ class ApiWarehouseLoadoutController extends Controller
                     ? round($totalApproved / $conversionToBase, 2)
                     : null;
 
+                $hasMultipleGrades = $shopOrder->items->where('product_id', $productId)->pluck('product_grade')->unique()->count() > 1;
+                $rowKey = ($hasMultipleGrades || $gradeStr !== 'A') ? (string) $groupKey : (string) $productId;
+
                 return [
+                    'row_key' => $rowKey,
+                    'shop_order_item_id' => $firstItem->id,
                     'product_id' => $productId,
                     'product_name' => $firstItem->product?->name ?? 'Unknown Product',
                     'product_sku' => $firstItem->product?->sku ?? '',
@@ -253,8 +260,8 @@ class ApiWarehouseLoadoutController extends Controller
                     'default_warehouse_name' => $firstItem->product?->defaultWarehouse?->name,
                     'default_warehouse_code' => $firstItem->product?->defaultWarehouse?->code,
                     'category_name' => $firstItem->product?->category?->name ?? 'General',
-                    'unit' => $firstItem->product->unit ?? 'KG',
-                    'product_grade' => $firstItem->product_grade ?? 'A',
+                    'unit' => $firstItem->product?->unit ?? 'KG',
+                    'product_grade' => $gradeStr,
                     'total_approved' => $totalApproved,
                     'total_loaded' => $totalLoaded,
                     'loaded_order_unit_qty' => $totalLoadedOrderUnit,
@@ -269,6 +276,8 @@ class ApiWarehouseLoadoutController extends Controller
                     'requested_unit_conversion_to_base' => (float) ($firstItem->requested_unit_conversion_to_base ?? 1.0),
                     'total_balance' => $totalBalance,
                     'available_stock' => $available,
+                    'grade_stock' => $stockBreakdown['grade_stock'],
+                    'mixed_stock' => $stockBreakdown['mixed_stock'],
                     'is_fully_loaded' => $totalLoaded > 0.0 && $totalBalance <= 0.001,
                     'is_partially_loaded' => $totalLoaded > 0.0 && $totalBalance > 0.001,
                     'sorting_status' => $firstItem->sorting_status,
@@ -475,6 +484,100 @@ class ApiWarehouseLoadoutController extends Controller
 
         $userId = (int) $request->user()->id;
 
+        if ($shopOrder->hasMultiGradeItems()) {
+            if (! $this->isCompatibleMultiGradeClient($request)) {
+                return response()->json([
+                    'success' => false,
+                    'code' => 'MULTI_GRADE_MOBILE_RESTRICTED',
+                    'message' => 'This order contains multi-grade items (Grade B/C). Mobile warehouse loadout is not supported on legacy mobile clients for multi-grade orders. Please complete loadout using the Web Warehouse portal.',
+                ], 422);
+            }
+
+            $multiGradeProductIds = $shopOrder->items()
+                ->where(function ($q): void {
+                    $q->whereNotNull('product_grade')->where('product_grade', '!=', 'A');
+                })
+                ->pluck('product_id')
+                ->merge(
+                    $shopOrder->items()
+                        ->select('product_id')
+                        ->groupBy('product_id')
+                        ->havingRaw('COUNT(*) > 1')
+                        ->pluck('product_id')
+                )
+                ->unique();
+
+            $submittedKeys = collect(array_keys($request->input('items', [])))
+                ->merge(array_keys($request->input('item_unit_qtys', [])))
+                ->merge(array_keys($request->input('item_status', [])))
+                ->merge(array_keys($request->input('item_notes', [])))
+                ->map(fn ($k) => (string) $k)
+                ->unique();
+
+            $orderItems = $shopOrder->items()->get();
+            $orderItemIds = $orderItems->pluck('id')->map(fn ($id) => (int) $id)->all();
+            $itemsByProduct = $orderItems->groupBy('product_id');
+
+            foreach ($submittedKeys as $key) {
+                if (! str_contains($key, '|')) {
+                    $numericId = (int) $key;
+                    $isOrderItemId = in_array($numericId, $orderItemIds, true);
+
+                    if (! $isOrderItemId && $multiGradeProductIds->contains($numericId)) {
+                        return response()->json([
+                            'success' => false,
+                            'code' => 'AMBIGUOUS_MULTI_GRADE_PAYLOAD',
+                            'message' => "Ambiguous item key [{$key}]. Products with multiple grades must use explicit line identities (e.g. 'productId|grade'). Please use the Web Warehouse portal.",
+                        ], 422);
+                    }
+
+                    if ($isOrderItemId) {
+                        $orderItem = $orderItems->firstWhere('id', $numericId);
+                        if ($orderItem && $multiGradeProductIds->contains($orderItem->product_id)) {
+                            $productItems = $itemsByProduct->get($orderItem->product_id, collect());
+                            $productItemIds = $productItems->pluck('id')->all();
+                            $submittedItemCountForProduct = collect($submittedKeys)
+                                ->map(fn ($k) => (int) $k)
+                                ->filter(fn ($id) => in_array($id, $productItemIds, true))
+                                ->count();
+
+                            if ($submittedItemCountForProduct < count($productItemIds)) {
+                                return response()->json([
+                                    'success' => false,
+                                    'code' => 'AMBIGUOUS_MULTI_GRADE_PAYLOAD',
+                                    'message' => "Ambiguous item key [{$key}]. Products with multiple grades must use explicit line identities (e.g. 'productId|grade'). Please use the Web Warehouse portal.",
+                                ], 422);
+                            }
+                        }
+                    }
+                } else {
+                    [$pIdStr, $gStr] = explode('|', $key, 2);
+                    $productId = (int) $pIdStr;
+                    $resolvedGrade = ProductGrade::tryResolve($gStr);
+                    if ($resolvedGrade === null) {
+                        return response()->json([
+                            'success' => false,
+                            'code' => 'INVALID_GRADE_IDENTITY',
+                            'message' => "Invalid grade [{$gStr}] in key [{$key}]. Grade must be a valid product grade (A, B, or C).",
+                        ], 422);
+                    }
+
+                    $lineExists = $shopOrder->items()
+                        ->where('product_id', $productId)
+                        ->where('product_grade', $resolvedGrade->value)
+                        ->exists();
+
+                    if (! $lineExists) {
+                        return response()->json([
+                            'success' => false,
+                            'code' => 'UNKNOWN_LINE_IDENTITY',
+                            'message' => "No order item exists matching product [{$productId}] and grade [{$resolvedGrade->value}].",
+                        ], 422);
+                    }
+                }
+            }
+        }
+
         try {
             DB::transaction(function () use ($shopOrder, $request, $userId) {
                 ShopOrder::lockForUpdate()->find($shopOrder->id);
@@ -483,43 +586,68 @@ class ApiWarehouseLoadoutController extends Controller
                 $itemsInput = $request->input('items', []);
                 $unitQtysInput = $request->input('item_unit_qtys', []);
 
-                $productIds = collect(array_keys($itemsInput))
+                $rawKeys = collect(array_keys($itemsInput))
                     ->merge(array_keys($unitQtysInput))
                     ->merge(array_keys($request->input('item_status', [])))
                     ->merge(array_keys($request->input('item_notes', [])))
-                    ->map(fn ($id) => (int) $id)
+                    ->map(fn ($k) => (string) $k)
                     ->unique()
-                    ->sort()
                     ->values();
 
-                $this->markLoadoutStartedForProducts($shopOrder, $productIds);
+                $productIdsForProbe = [];
 
-                foreach ($productIds as $productId) {
-                    $hasWeightInput = array_key_exists($productId, $itemsInput) && $itemsInput[$productId] !== null && trim((string) $itemsInput[$productId]) !== '';
-                    $hasUnitQtyInput = array_key_exists($productId, $unitQtysInput) && $unitQtysInput[$productId] !== null && trim((string) $unitQtysInput[$productId]) !== '';
-                    $hasStatusInput = array_key_exists($productId, $request->input('item_status', [])) && $request->input("item_status.{$productId}") !== null && trim((string) $request->input("item_status.{$productId}")) !== '';
-                    $hasNoteInput = array_key_exists($productId, $request->input('item_notes', [])) && $request->input("item_notes.{$productId}") !== null && trim((string) $request->input("item_notes.{$productId}")) !== '';
+                foreach ($rawKeys as $key) {
+                    $hasWeightInput = array_key_exists($key, $itemsInput) && $itemsInput[$key] !== null && trim((string) $itemsInput[$key]) !== '';
+                    $hasUnitQtyInput = array_key_exists($key, $unitQtysInput) && $unitQtysInput[$key] !== null && trim((string) $unitQtysInput[$key]) !== '';
+                    $hasStatusInput = array_key_exists($key, $request->input('item_status', [])) && $request->input("item_status.{$key}") !== null && trim((string) $request->input("item_status.{$key}")) !== '';
+                    $hasNoteInput = array_key_exists($key, $request->input('item_notes', [])) && $request->input("item_notes.{$key}") !== null && trim((string) $request->input("item_notes.{$key}")) !== '';
 
                     if (! $hasWeightInput && ! $hasUnitQtyInput && ! $hasStatusInput && ! $hasNoteInput) {
                         continue;
                     }
 
-                    $actualWeight = isset($itemsInput[$productId]) && $itemsInput[$productId] !== ''
-                        ? max(0.0, (float) $itemsInput[$productId])
+                    $actualWeight = isset($itemsInput[$key]) && $itemsInput[$key] !== ''
+                        ? max(0.0, (float) $itemsInput[$key])
                         : 0.0;
 
-                    $submittedUnitQty = isset($unitQtysInput[$productId]) && $unitQtysInput[$productId] !== ''
-                        ? max(0.0, (float) $unitQtysInput[$productId])
+                    $submittedUnitQty = isset($unitQtysInput[$key]) && $unitQtysInput[$key] !== ''
+                        ? max(0.0, (float) $unitQtysInput[$key])
                         : null;
 
-                    $rows = $shopOrder->items()
-                        ->where('product_id', $productId)
-                        ->lockForUpdate()
-                        ->get();
+                    if (str_contains($key, '|')) {
+                        [$pIdStr, $gStr] = explode('|', $key, 2);
+                        $productId = (int) $pIdStr;
+                        $targetGrade = ProductGrade::tryResolve($gStr);
+                        if (! $targetGrade) {
+                            continue;
+                        }
+                        $rows = $shopOrder->items()
+                            ->where('product_id', $productId)
+                            ->where('product_grade', $targetGrade->value)
+                            ->lockForUpdate()
+                            ->get();
+                    } else {
+                        $numericId = (int) $key;
+                        $singleItem = $shopOrder->items()->where('id', $numericId)->lockForUpdate()->first();
+                        if ($singleItem) {
+                            $productId = (int) $singleItem->product_id;
+                            $targetGrade = ProductGrade::tryResolve($singleItem->product_grade) ?? ProductGrade::GradeA;
+                            $rows = collect([$singleItem]);
+                        } else {
+                            $productId = $numericId;
+                            $rows = $shopOrder->items()
+                                ->where('product_id', $productId)
+                                ->lockForUpdate()
+                                ->get();
+                            $targetGrade = ProductGrade::tryResolve($rows->first()?->product_grade) ?? ProductGrade::GradeA;
+                        }
+                    }
 
                     if ($rows->isEmpty()) {
                         continue;
                     }
+
+                    $productIdsForProbe[] = $productId;
 
                     $totalApproved = $this->loadoutApprovedQuantity($rows);
                     $totalRequested = $this->loadoutRequestedQuantity($rows);
@@ -536,14 +664,14 @@ class ApiWarehouseLoadoutController extends Controller
                         ? ($actualWeight > 0.0001 ? $actualWeight : $convertedQty)
                         : ($actualWeight > 0.0001
                             ? $actualWeight
-                            : max(0.0, (float) ($itemsInput[$productId] ?? 0)));
+                            : max(0.0, (float) ($itemsInput[$key] ?? 0)));
 
                     $oldLoadedQty = (float) $rows->where('sorting_status', 'loaded')->sum('loaded_qty');
                     $diff = $submittedQty - $oldLoadedQty;
 
                     $product = Product::find($productId);
                     $warehouseId = $product?->default_warehouse_id;
-                    $itemGrade = ProductGrade::tryFrom($firstRow->product_grade ?? '') ?? ProductGrade::GradeA;
+                    $itemGrade = $targetGrade;
 
                     if ($diff > 0.001) {
                         $this->stockLedgerService->consumeStockForProductAllowingNegative(
@@ -557,32 +685,12 @@ class ApiWarehouseLoadoutController extends Controller
                             $itemGrade,
                         );
                     } elseif ($diff < -0.001) {
-                        $lastOut = StockMovement::where('product_id', $productId)
-                            ->where('type', StockMovementType::Out)
-                            ->where('notes', 'like', "%Order: {$shopOrder->order_number}%")
-                            ->latest()
-                            ->first();
-
-                        $batchId = $lastOut?->batch_id;
-                        if (! $batchId) {
-                            $anyBatch = StockBatch::where('product_id', $productId)->latest()->first();
-                            $batchId = $anyBatch?->id;
-                        }
-
-                        if ($batchId) {
-                            $batch = StockBatch::find($batchId);
-                            StockMovement::create([
-                                'batch_id' => $batchId,
-                                'product_id' => $productId,
-                                'created_by' => $userId,
-                                'grade' => $lastOut?->grade ?? $firstRow->product_grade ?? 'A',
-                                'type' => StockMovementType::SaleReversal,
-                                'quantity' => abs($diff),
-                                'cost_per_unit' => $lastOut?->cost_per_unit ?? 0.0,
-                                'warehouse_id' => $batch?->warehouse_id,
-                                'notes' => "Loadout adjustment (decrease) — Order: {$shopOrder->order_number}",
-                            ]);
-                        }
+                        $this->stockLedgerService->reverseStockForOrderItem(
+                            $firstRow->id,
+                            abs($diff),
+                            $userId,
+                            "Loadout adjustment (decrease) — Order: {$shopOrder->order_number}",
+                        );
                     }
 
                     $unitSellingPrice = (float) ($firstRow->locked_selling_price ?? 0.0);
@@ -597,12 +705,12 @@ class ApiWarehouseLoadoutController extends Controller
                         'requested_unit' => $firstRow->requested_unit,
                         'requested_unit_label' => $firstRow->requested_unit_label,
                         'requested_unit_conversion_to_base' => $firstRow->requested_unit_conversion_to_base,
-                        'product_grade' => $firstRow->product_grade ?? 'A',
+                        'product_grade' => $firstRow->product_grade ?? $itemGrade->value,
                         'fulfillment_type' => $firstRow->fulfillment_type,
                     ];
 
-                    $isNotAvailable = ($request->input("item_status.{$productId}") === 'not_available');
-                    $discrepancyNote = $request->input("item_notes.{$productId}") ?? null;
+                    $isNotAvailable = ($request->input("item_status.{$key}") === 'not_available') || ($request->input("item_status.{$productId}") === 'not_available');
+                    $discrepancyNote = $request->input("item_notes.{$key}") ?? $request->input("item_notes.{$productId}") ?? null;
 
                     $targetRows = [];
 
@@ -726,6 +834,14 @@ class ApiWarehouseLoadoutController extends Controller
     {
         $this->authorizeAccess($request);
 
+        if ($shopOrder->hasMultiGradeItems() && ! $this->isCompatibleMultiGradeClient($request)) {
+            return response()->json([
+                'success' => false,
+                'code' => 'MULTI_GRADE_MOBILE_RESTRICTED',
+                'message' => 'Transitioning delivery status for multi-grade orders is restricted on mobile. Please dispatch using the Web Warehouse portal.',
+            ], 422);
+        }
+
         $partialDelivery = $request->boolean('partial', false);
 
         if ($this->duplicateMergeCandidates($shopOrder->items)->isNotEmpty()) {
@@ -803,6 +919,14 @@ class ApiWarehouseLoadoutController extends Controller
     {
         $this->authorizeAccess($request);
 
+        if ($shopOrder->hasMultiGradeItems() && ! $this->isCompatibleMultiGradeClient($request)) {
+            return response()->json([
+                'success' => false,
+                'code' => 'MULTI_GRADE_MOBILE_RESTRICTED',
+                'message' => 'Reopening multi-grade orders is restricted on mobile. Please manage loadout using the Web Warehouse portal.',
+            ], 422);
+        }
+
         if ($shopOrder->delivery_status === 'delivered') {
             return response()->json(['success' => false, 'message' => 'Delivered orders cannot be reopened.'], 422);
         }
@@ -819,6 +943,14 @@ class ApiWarehouseLoadoutController extends Controller
             'success' => true,
             'message' => 'Order moved back to loadout. You can now edit loadout quantities and save updates.',
         ]);
+    }
+
+    private function isCompatibleMultiGradeClient(Request $request): bool
+    {
+        return $request->header('X-Client-Supports-Multi-Grade') === 'true'
+            || $request->header('X-Client-Supports-Multi-Grade') === '1'
+            || $request->header('X-Warehouse-Client-Supports-Multi-Grade') === 'true'
+            || $request->header('X-Warehouse-Client-Supports-Multi-Grade') === '1';
     }
 
     private function authorizeAccess(Request $request): void
@@ -1019,15 +1151,18 @@ class ApiWarehouseLoadoutController extends Controller
     private function duplicateMergeCandidates(Collection $rows): Collection
     {
         return $rows
-            ->groupBy('product_id')
+            ->groupBy(fn (ShopOrderItem $item) => $item->product_id.'|'.(ProductGrade::tryResolve($item->product_grade)?->value ?? $item->product_grade ?? 'A'))
             ->filter(fn (Collection $productRows): bool => $this->needsMerge($productRows))
-            ->map(function (Collection $productRows, int|string $productId): array {
+            ->map(function (Collection $productRows, int|string $groupKey): array {
                 $first = $productRows->first();
 
                 return [
-                    'product_id' => (int) $productId,
+                    'product_id' => (int) ($first?->product_id ?? 0),
                     'product_name' => (string) ($first?->product?->name ?? 'Unknown Product'),
                     'row_count' => $productRows->count(),
+                    'loaded_rows' => $productRows->where('sorting_status', 'loaded')->count(),
+                    'allocated_rows' => $productRows->where('sorting_status', 'allocated')->count(),
+                    'not_available_rows' => $productRows->where('sorting_status', 'not_available')->count(),
                 ];
             })
             ->values();
@@ -1106,6 +1241,14 @@ class ApiWarehouseLoadoutController extends Controller
     public function storeAddon(ShopOrder $shopOrder, Request $request): JsonResponse
     {
         $this->authorizeAccess($request);
+
+        if ($shopOrder->hasMultiGradeItems() && ! $this->isCompatibleMultiGradeClient($request)) {
+            return response()->json([
+                'success' => false,
+                'code' => 'MULTI_GRADE_MOBILE_RESTRICTED',
+                'message' => 'Adding addon items to multi-grade orders is restricted on mobile. Please use the Web Warehouse portal.',
+            ], 422);
+        }
 
         if ($shopOrder->delivery_status === 'delivered') {
             return response()->json(['success' => false, 'message' => 'Cannot add addon to a delivered order.'], 422);
@@ -1187,130 +1330,21 @@ class ApiWarehouseLoadoutController extends Controller
             return response()->json(['success' => false, 'message' => 'Order is not in editable status.'], 422);
         }
 
-        $userId = (int) $request->user()->id;
-        $warehouseId = $request->input('warehouse_id') ? (int) $request->input('warehouse_id') : null;
-
-        try {
-            DB::transaction(function () use ($shopOrder, $userId, $warehouseId) {
-                ShopOrder::lockForUpdate()->find($shopOrder->id);
-
-                $rows = $shopOrder->items()
-                    ->when($warehouseId, function ($query) use ($warehouseId) {
-                        $query->whereHas('product', fn ($q) => $q->where('default_warehouse_id', $warehouseId));
-                    })
-                    ->lockForUpdate()
-                    ->get();
-                $grouped = $rows->groupBy('product_id')->sortKeys();
-
-                foreach ($grouped as $productId => $productRows) {
-                    $totalApproved = $this->loadoutApprovedQuantity($productRows);
-                    $firstRow = $productRows->first();
-
-                    $conversionToBase = (float) ($firstRow->requested_unit_conversion_to_base ?? 1.0);
-                    $hasRequestedUnit = filled($firstRow->requested_unit)
-                        && strtolower((string) $firstRow->requested_unit) !== 'kg';
-
-                    $requestedUnitQty = $hasRequestedUnit && $conversionToBase > 0
-                        ? round($totalApproved / $conversionToBase, 2)
-                        : $totalApproved;
-
-                    $oldLoadedQty = (float) $productRows->where('sorting_status', 'loaded')->sum('loaded_qty');
-                    $diff = $totalApproved - $oldLoadedQty;
-
-                    $product = Product::find($productId);
-                    $warehouseId = $product?->default_warehouse_id;
-                    $firstProductRow = $productRows->first();
-                    $itemGrade = ProductGrade::tryFrom($firstProductRow?->product_grade ?? '') ?? ProductGrade::GradeA;
-
-                    if ($diff > 0.001) {
-                        $this->stockLedgerService->consumeStockForProductAllowingNegative(
-                            $productId,
-                            $diff,
-                            $userId,
-                            StockMovementType::Out,
-                            "Loadout dispatch to delivery — Order: {$shopOrder->order_number}",
-                            $firstProductRow?->id,
-                            $warehouseId,
-                            $itemGrade,
-                        );
-                    } elseif ($diff < -0.001) {
-                        $lastOut = StockMovement::where('product_id', $productId)
-                            ->where('type', StockMovementType::Out)
-                            ->where('notes', 'like', "%Order: {$shopOrder->order_number}%")
-                            ->latest()
-                            ->first();
-
-                        $batchId = $lastOut?->batch_id;
-                        if (! $batchId) {
-                            $anyBatch = StockBatch::where('product_id', $productId)->latest()->first();
-                            $batchId = $anyBatch?->id;
-                        }
-
-                        if ($batchId) {
-                            StockMovement::create([
-                                'batch_id' => $batchId,
-                                'product_id' => $productId,
-                                'created_by' => $userId,
-                                'grade' => $lastOut?->grade ?? $firstRow->product_grade ?? 'A',
-                                'type' => StockMovementType::SaleReversal,
-                                'quantity' => abs($diff),
-                                'cost_per_unit' => $lastOut?->cost_per_unit ?? 0.0,
-                                'warehouse_id' => $lastOut?->warehouse_id ?? ($batchId ? StockBatch::find($batchId)?->warehouse_id : null),
-                                'notes' => "Loadout adjustment (decrease) — Order: {$shopOrder->order_number}",
-                            ]);
-                        }
-                    }
-
-                    $unitSellingPrice = (float) ($firstRow->locked_selling_price ?? 0.0);
-
-                    $basePriceData = [
-                        'locked_price_group_id' => $firstRow->locked_price_group_id,
-                        'locked_selling_price' => $firstRow->locked_selling_price,
-                        'locked_price_source' => $firstRow->locked_price_source,
-                        'unit_cost' => $firstRow->unit_cost,
-                        'unit' => $firstRow->unit,
-                        'requested_product_unit_id' => $firstRow->requested_product_unit_id,
-                        'requested_unit' => $firstRow->requested_unit,
-                        'requested_unit_label' => $firstRow->requested_unit_label,
-                        'requested_unit_conversion_to_base' => $firstRow->requested_unit_conversion_to_base,
-                        'product_grade' => $firstRow->product_grade ?? 'A',
-                        'fulfillment_type' => $firstRow->fulfillment_type,
-                    ];
-
-                    $targetRows = [
-                        array_merge($basePriceData, [
-                            'requested_qty' => $totalApproved,
-                            'approved_qty' => $totalApproved,
-                            'loaded_qty' => $totalApproved,
-                            'loaded_order_unit_qty' => $hasRequestedUnit ? $requestedUnitQty : null,
-                            'requested_unit_quantity' => $requestedUnitQty,
-                            'line_total' => round($totalApproved * $unitSellingPrice, 2),
-                            'actual_weight' => $hasRequestedUnit ? null : $totalApproved,
-                            'delivered_qty' => null,
-                            'excess_qty' => 0.0,
-                            'excess_value' => 0.0,
-                            'loadout_discrepancy_type' => 'none',
-                            'loadout_discrepancy_note' => null,
-                            'sorting_status' => 'loaded',
-                            'is_sorted' => true,
-                            'sorted_at' => now(),
-                            'sorted_by' => $userId,
-                        ]),
-                    ];
-
-                    $this->applyOrderItemRows($productRows, $shopOrder->id, $productId, $targetRows);
-                }
-
-                $shopOrder->update(['delivery_status' => 'ready_for_dispatch']);
-            });
-        } catch (Throwable $e) {
-            return response()->json(['success' => false, 'message' => 'Load All failed: '.$e->getMessage()], 500);
+        if ($shopOrder->hasMultiGradeItems() && ! $this->isCompatibleMultiGradeClient($request)) {
+            return response()->json([
+                'success' => false,
+                'code' => 'MULTI_GRADE_BULK_LOAD_RESTRICTED',
+                'message' => 'Bulk loading is restricted for multi-grade orders on mobile to preserve line identity. Please load items individually using the Web Warehouse portal.',
+            ], 422);
         }
 
+        $warehouseId = $request->input('warehouse_id') ? (int) $request->input('warehouse_id') : null;
+        $result = app(AutoLoadAllService::class)->loadOrder($shopOrder, $request->user(), $warehouseId);
+
         return response()->json([
-            'success' => true,
-            'message' => 'All products loaded at full approved quantities successfully.',
-        ]);
+            'success' => $result['success'],
+            'message' => $result['message'],
+        ], $result['success'] ? 200 : 422);
     }
 
     private function loadoutEditorEtag(ShopOrder $shopOrder, ?int $selectedWarehouseId): string

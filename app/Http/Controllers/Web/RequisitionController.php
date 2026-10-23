@@ -27,6 +27,7 @@ use App\Notifications\PurchasingOrderSubmittedNotification;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use App\Services\Requisition\MultiGradeOrderGate;
 use App\Services\Requisition\ShopOrderChangeRequestRecorder;
 use App\Services\Requisition\ShopOrderItemSyncService;
 use App\Services\Requisition\ShopOrderRevisionService;
@@ -56,6 +57,7 @@ class RequisitionController extends Controller
         private readonly ActiveShopResolver $activeShopResolver,
         private readonly ResolveDeliveryReviewAction $resolveDeliveryReviewAction,
         private readonly DeliveryVerificationEligibility $deliveryVerificationEligibility,
+        private readonly MultiGradeOrderGate $multiGradeOrderGate,
     ) {}
 
     /**
@@ -77,7 +79,24 @@ class RequisitionController extends Controller
                 ->withInput();
         }
 
-        $items = $this->resolveRequestedProducts($request->input('items', []), $request->input('item_units', []), $request->input('item_measures', []), allowZero: true);
+        if ($request->filled('_form_submission_start') && ! $request->filled('_form_submission_complete')) {
+            $message = 'The order submission was truncated by server limits before all items could be received. No order data was saved.';
+            if ($request->expectsJson()) {
+                return response()->json(['error' => $message], 422);
+            }
+
+            return redirect()->route('shop-owner.orders.create')
+                ->withErrors(['items' => $message])
+                ->withInput();
+        }
+
+        $items = $this->resolveRequestedProducts(
+            $request->input('items', []),
+            $request->input('item_units', []),
+            $request->input('item_measures', []),
+            allowZero: true,
+            rawGrades: (array) $request->input('item_grades', []),
+        );
 
         if ($items === []) {
             if ($request->expectsJson()) {
@@ -91,6 +110,8 @@ class RequisitionController extends Controller
 
         $activeShop = $user->hasRole('shop') ? $this->activeShopResolver->resolve($request) : $user->shop;
         abort_unless($activeShop instanceof Shop, 403, 'User is not associated with any shop.');
+
+        $this->multiGradeOrderGate->validateOrderItems($activeShop, $items);
 
         $nowInKolkata = now('Asia/Kolkata');
         $businessDate = $nowInKolkata->copy()->addDay()->toDateString();
@@ -628,11 +649,25 @@ class RequisitionController extends Controller
                 ->with('error', 'This order can no longer be modified from the shop incharge workflow.');
         }
 
-        $items = $this->resolveRequestedProducts($request->input('items', []), $request->input('item_units', []), $request->input('item_measures', []), allowZero: true);
+        if ($request->filled('_form_submission_start') && ! $request->filled('_form_submission_complete')) {
+            return redirect()->route('shop-owner.orders.show', $orderNumber)
+                ->withErrors(['items' => 'The order submission was truncated by server limits before all items could be received. No order data was saved.'])
+                ->with('error', 'The order submission was truncated by server limits before all items could be received. No order data was saved.');
+        }
+
+        $items = $this->resolveRequestedProducts(
+            $request->input('items', []),
+            $request->input('item_units', []),
+            $request->input('item_measures', []),
+            allowZero: true,
+            rawGrades: (array) $request->input('item_grades', []),
+        );
         if ($items === []) {
             return redirect()->route('shop-owner.orders.create')
                 ->withErrors(['items' => 'Updated order cannot be empty.']);
         }
+
+        $this->multiGradeOrderGate->validateOrderItems($order->shop, $items);
 
         $reason = trim((string) $request->input('reason', ''));
 
@@ -1037,6 +1072,8 @@ class RequisitionController extends Controller
             'productFulfillmentTypes' => $productFulfillmentTypes,
             'shopUpdateMeta' => $shopUpdateMeta,
             'shopPoStatusMeta' => $shopPoStatusMeta,
+            'gradesByProduct' => $gradesByProduct,
+            'gradeMatrix' => $gradeMatrix,
         ] = $this->buildBoardPresentationData($orders, $products);
         $boardFullyApproved = $orders->isNotEmpty()
             && $orders->every(static fn (ShopOrder $order): bool => $order->state === 'approved');
@@ -1049,6 +1086,8 @@ class RequisitionController extends Controller
             'productFulfillmentTypes',
             'shopUpdateMeta',
             'shopPoStatusMeta',
+            'gradesByProduct',
+            'gradeMatrix',
             'boardFullyApproved',
             'lateOrders',
             'orders'
@@ -1118,18 +1157,28 @@ class RequisitionController extends Controller
                     }
 
                     // Process items
-                    foreach ($quantities as $productId => $shopQtys) {
+                    foreach ($quantities as $rowKey => $shopQtys) {
                         $qty = isset($shopQtys[$shop->id]) ? (float) $shopQtys[$shop->id] : 0.00;
-                        $fulfillmentType = $fulfillmentTypes[$productId] ?? 'warehouse';
+                        if (str_contains((string) $rowKey, '|')) {
+                            [$productId, $grade] = explode('|', (string) $rowKey, 2);
+                            $productId = (int) $productId;
+                            $grade = strtoupper($grade);
+                        } else {
+                            $productId = (int) $rowKey;
+                            $grade = 'A';
+                        }
+
+                        $fulfillmentType = $fulfillmentTypes[$rowKey] ?? $fulfillmentTypes[$productId] ?? 'warehouse';
 
                         $item = ShopOrderItem::where('shop_order_id', $order->id)
                             ->where('product_id', $productId)
+                            ->where('product_grade', $grade)
                             ->first();
 
                         if ($qty > 0) {
                             $product = Product::find($productId);
                             if ($product) {
-                                $pricePayload = $this->lockedPricePayload($order, $product, $qty);
+                                $pricePayload = $this->lockedPricePayload($order, $product, $qty, $grade);
                                 if ($item) {
                                     $item->update([
                                         'approved_qty' => $qty,
@@ -1140,6 +1189,7 @@ class RequisitionController extends Controller
                                     ShopOrderItem::create([
                                         'shop_order_id' => $order->id,
                                         'product_id' => $productId,
+                                        'product_grade' => $grade,
                                         'requested_qty' => $qty, // default requested_qty to the same as approved when created by manager
                                         'approved_qty' => $qty,
                                         'unit' => $product->unit,
@@ -1234,10 +1284,23 @@ class RequisitionController extends Controller
             'productFulfillmentTypes' => $productFulfillmentTypes,
             'shopUpdateMeta' => $shopUpdateMeta,
             'shopPoStatusMeta' => $shopPoStatusMeta,
+            'gradesByProduct' => $gradesByProduct,
+            'gradeMatrix' => $gradeMatrix,
         ] = $this->buildBoardPresentationData($orders, $products);
 
         $approvedProductIds = $products
-            ->filter(fn (Product $product): bool => $this->calculateProductRowTotal($matrix[$product->id] ?? []) > 0)
+            ->filter(function (Product $product) use ($matrix, $gradeMatrix): bool {
+                if ($this->calculateProductRowTotal($matrix[$product->id] ?? []) > 0) {
+                    return true;
+                }
+                foreach ($gradeMatrix[$product->id] ?? [] as $gradeShopMatrix) {
+                    if ($this->calculateProductRowTotal($gradeShopMatrix) > 0) {
+                        return true;
+                    }
+                }
+
+                return false;
+            })
             ->pluck('id')
             ->values()
             ->all();
@@ -1291,6 +1354,8 @@ class RequisitionController extends Controller
             'existingPos',
             'shopUpdateMeta',
             'shopPoStatusMeta',
+            'gradesByProduct',
+            'gradeMatrix',
             'autoApprovedOrders',
             'autoApproveShopOrdersEnabled'
         ));
@@ -1332,9 +1397,14 @@ class RequisitionController extends Controller
 
                 foreach ($order->latestPendingRevision?->items ?? [] as $revisionItem) {
                     $productId = (int) $revisionItem->product_id;
-                    $shopQuantities[$productId] = isset($quantities[$productId][$order->shop_id])
-                        ? (float) $quantities[$productId][$order->shop_id]
-                        : (float) $revisionItem->new_requested_qty;
+                    $grade = (string) ($revisionItem->product_grade ?? 'A');
+                    $key = $productId.'|'.$grade;
+                    $shopQuantities[$key] = isset($quantities[$key][$order->shop_id])
+                        ? (float) $quantities[$key][$order->shop_id]
+                        : (isset($quantities[$productId][$order->shop_id])
+                            ? (float) $quantities[$productId][$order->shop_id]
+                            : (float) $revisionItem->new_requested_qty);
+                    $shopQuantities[$productId] = $shopQuantities[$key];
                 }
 
                 $revision = $this->shopOrderRevisionService->applyPendingRevision(
@@ -1356,7 +1426,7 @@ class RequisitionController extends Controller
                 ->with('success', 'Pending approved-order updates were applied.');
         }
 
-        // quantities is a 2D array: [product_id][shop_id] => value
+        // quantities is a 2D array: [product_id or product_id|grade][shop_id] => value
         $quantities = $request->input('quantities', []);
         $fulfillmentTypes = $request->input('fulfillment_types', []);
 
@@ -1367,7 +1437,7 @@ class RequisitionController extends Controller
             foreach ($shops as $shop) {
                 // Check if any product has a quantity for this shop
                 $hasQty = false;
-                foreach ($quantities as $productId => $shopQtys) {
+                foreach ($quantities as $rowKey => $shopQtys) {
                     if (isset($shopQtys[$shop->id]) && (float) $shopQtys[$shop->id] > 0) {
                         $hasQty = true;
                         break;
@@ -1404,18 +1474,28 @@ class RequisitionController extends Controller
                     }
 
                     // Process items
-                    foreach ($quantities as $productId => $shopQtys) {
+                    foreach ($quantities as $rowKey => $shopQtys) {
                         $qty = isset($shopQtys[$shop->id]) ? (float) $shopQtys[$shop->id] : 0.00;
-                        $fulfillmentType = $fulfillmentTypes[$productId] ?? 'warehouse';
+                        if (str_contains((string) $rowKey, '|')) {
+                            [$productId, $grade] = explode('|', (string) $rowKey, 2);
+                            $productId = (int) $productId;
+                            $grade = strtoupper($grade);
+                        } else {
+                            $productId = (int) $rowKey;
+                            $grade = 'A';
+                        }
+
+                        $fulfillmentType = $fulfillmentTypes[$rowKey] ?? $fulfillmentTypes[$productId] ?? 'warehouse';
 
                         $item = ShopOrderItem::where('shop_order_id', $order->id)
                             ->where('product_id', $productId)
+                            ->where('product_grade', $grade)
                             ->first();
 
                         if ($qty > 0) {
                             $product = Product::find($productId);
                             if ($product) {
-                                $pricePayload = $this->lockedPricePayload($order, $product, $qty);
+                                $pricePayload = $this->lockedPricePayload($order, $product, $qty, $grade);
                                 if ($item) {
                                     $item->update([
                                         'approved_qty' => $qty,
@@ -1426,6 +1506,7 @@ class RequisitionController extends Controller
                                     ShopOrderItem::create([
                                         'shop_order_id' => $order->id,
                                         'product_id' => $productId,
+                                        'product_grade' => $grade,
                                         'requested_qty' => $qty,
                                         'approved_qty' => $qty,
                                         'unit' => $product->unit,
@@ -2103,11 +2184,19 @@ class RequisitionController extends Controller
 
     /**
      * @param  array<string, mixed>  $rawItems
-     * @return array<int, array{product: Product, quantity: float}>
+     * @param  array<string, mixed>  $rawUnits
+     * @param  array<string, mixed>  $rawMeasures
+     * @param  array<string, mixed>  $rawGrades
+     * @return array<int, array{product: Product, quantity: float, grade?: string}>
      */
-    private function resolveRequestedProducts(array $rawItems, array $rawUnits = [], array $rawMeasures = [], bool $allowZero = false): array
-    {
-        return $this->shopOrderItemSyncService->resolveRequestedProducts($rawItems, $rawUnits, $rawMeasures, $allowZero);
+    private function resolveRequestedProducts(
+        array $rawItems,
+        array $rawUnits = [],
+        array $rawMeasures = [],
+        bool $allowZero = false,
+        array $rawGrades = [],
+    ): array {
+        return $this->shopOrderItemSyncService->resolveRequestedProducts($rawItems, $rawUnits, $rawMeasures, $allowZero, $rawGrades);
     }
 
     /**
@@ -2121,9 +2210,11 @@ class RequisitionController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function lockedPricePayload(ShopOrder $order, Product $product, float $quantity): array
+    private function lockedPricePayload(ShopOrder $order, Product $product, float $quantity, string|ProductGrade $grade = ProductGrade::GradeA): array
     {
-        return $this->shopOrderItemSyncService->lockedPricePayload($order, $product, $quantity);
+        $gradeEnum = $grade instanceof ProductGrade ? $grade : (ProductGrade::tryFrom(strtoupper((string) $grade)) ?? ProductGrade::GradeA);
+
+        return $this->shopOrderItemSyncService->lockedPricePayload($order, $product, $quantity, $gradeEnum);
     }
 
     private function authorizeAdminDirectPurchase(Request $request): void
@@ -2149,16 +2240,22 @@ class RequisitionController extends Controller
         $productFulfillmentTypes = [];
         $shopUpdateMeta = [];
         $shopPoStatusMeta = [];
+        $gradesByProduct = [];
+        $gradeMatrix = [];
 
         foreach ($orders as $order) {
             $changedItemsCount = 0;
             $pendingRevision = $order->relationLoaded('latestPendingRevision') ? $order->latestPendingRevision : null;
-            $revisionItems = $pendingRevision?->relationLoaded('items') ? $pendingRevision->items->keyBy('product_id') : collect();
+            $revisionItems = $pendingRevision?->relationLoaded('items')
+                ? $pendingRevision->items->keyBy(fn ($i): string => (string) $i->product_id.'|'.($i->product_grade ?? 'A'))
+                : collect();
 
             foreach ($order->items as $item) {
                 $approvedQty = $item->approved_qty !== null ? (float) $item->approved_qty : null;
                 $requestedQty = (float) $item->requested_qty;
-                $revisionItem = $revisionItems->get($item->product_id);
+                $grade = (string) ($item->product_grade ?? 'A');
+                $revKey = (string) $item->product_id.'|'.$grade;
+                $revisionItem = $revisionItems->get($revKey) ?? ($grade === 'A' ? $revisionItems->get((string) $item->product_id) : null);
                 $baselineQty = $approvedQty;
 
                 if ($baselineQty === null) {
@@ -2172,7 +2269,7 @@ class RequisitionController extends Controller
                     $changedItemsCount++;
                 }
 
-                $matrix[$item->product_id][$order->shop_id] = [
+                $cellData = [
                     'requested_qty' => $requestedQty,
                     'approved_qty' => $approvedQty,
                     'display_qty' => $displayQty,
@@ -2181,19 +2278,32 @@ class RequisitionController extends Controller
                     'order_state' => $order->state,
                     'previous_approved_qty' => $approvedQty,
                     'revision_no' => $pendingRevision?->revision_no,
+                    'product_grade' => $grade,
                 ];
+
+                if ($grade === 'A' || ! isset($matrix[$item->product_id][$order->shop_id])) {
+                    $matrix[$item->product_id][$order->shop_id] = $cellData;
+                }
+
+                $matrix[$item->product_id.'|'.$grade][$order->shop_id] = $cellData;
+                $gradeMatrix[$item->product_id][$grade][$order->shop_id] = $cellData;
+                $gradesByProduct[$item->product_id][$grade] = true;
 
                 if (! isset($productFulfillmentTypes[$item->product_id])) {
                     $productFulfillmentTypes[$item->product_id] = $item->fulfillment_type ?? 'warehouse';
                 }
             }
 
-            foreach ($revisionItems as $productId => $revisionItem) {
-                if (isset($matrix[$productId][$order->shop_id])) {
+            foreach ($revisionItems as $key => $revisionItem) {
+                $productId = (int) $revisionItem->product_id;
+                $grade = (string) ($revisionItem->product_grade ?? 'A');
+                $rowKey = $productId.'|'.$grade;
+
+                if (isset($gradeMatrix[$productId][$grade][$order->shop_id])) {
                     continue;
                 }
 
-                $matrix[$productId][$order->shop_id] = [
+                $cellData = [
                     'requested_qty' => 0.0,
                     'approved_qty' => null,
                     'display_qty' => (float) $revisionItem->new_requested_qty,
@@ -2202,7 +2312,16 @@ class RequisitionController extends Controller
                     'order_state' => $order->state,
                     'previous_approved_qty' => 0.0,
                     'revision_no' => $pendingRevision?->revision_no,
+                    'product_grade' => $grade,
                 ];
+
+                if ($grade === 'A' || ! isset($matrix[$productId][$order->shop_id])) {
+                    $matrix[$productId][$order->shop_id] = $cellData;
+                }
+
+                $matrix[$rowKey][$order->shop_id] = $cellData;
+                $gradeMatrix[$productId][$grade][$order->shop_id] = $cellData;
+                $gradesByProduct[$productId][$grade] = true;
 
                 $changedItemsCount++;
             }
@@ -2241,6 +2360,8 @@ class RequisitionController extends Controller
             'productFulfillmentTypes' => $productFulfillmentTypes,
             'shopUpdateMeta' => $shopUpdateMeta,
             'shopPoStatusMeta' => $shopPoStatusMeta,
+            'gradesByProduct' => $gradesByProduct,
+            'gradeMatrix' => $gradeMatrix,
         ];
     }
 

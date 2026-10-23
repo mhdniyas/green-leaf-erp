@@ -158,6 +158,17 @@ class PurchaseOrder extends Model
             ->exists();
     }
 
+    public function isDirectShopPurchase(): bool
+    {
+        return $this->fulfillment_type === 'shop'
+            || $this->purchaserCart?->purchase_source === 'shop';
+    }
+
+    public function isWarehousePurchase(): bool
+    {
+        return ! $this->isDirectShopPurchase();
+    }
+
     public static function cancelOverdueOrders(Carbon $operationalDate): void
     {
         self::query()

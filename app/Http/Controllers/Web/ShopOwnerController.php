@@ -51,6 +51,7 @@ use App\Services\Finance\ShopLoanService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\ShopVendorReportService;
+use App\Services\Requisition\MultiGradeOrderGate;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Services\ShopOrders\DeliveryPriceReadinessService;
 use App\Services\ShopOrders\DeliveryVerificationEligibility;
@@ -87,6 +88,7 @@ class ShopOwnerController extends Controller
         private readonly ShopSettlementService $shopSettlementService,
         private readonly ShopVendorReportService $vendorReportService,
         private readonly ShopCashbookSalarySectionService $shopCashbookSalarySectionService,
+        private readonly MultiGradeOrderGate $multiGradeOrderGate,
     ) {}
 
     public function dashboard(Request $request): View
@@ -2818,6 +2820,8 @@ class ShopOwnerController extends Controller
             'cutoffPassed' => $this->businessDayService->hasRolledOver(),
             'cutoffLabel' => $this->businessDayService->cutoffLabel(),
             'purchaseOrdersLockedForTomorrow' => $tomorrowOrder?->linkedPurchaseOrdersHaveGoodsReceived() ?? false,
+            'multiGradeOrderingEnabled' => $this->multiGradeOrderGate->isFeatureEnabled(),
+            'allowedProductGrades' => $this->multiGradeOrderGate->allowedGradesForShop($shop),
         ];
     }
 

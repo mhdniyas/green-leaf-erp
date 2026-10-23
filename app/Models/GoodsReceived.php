@@ -329,6 +329,24 @@ class GoodsReceived extends Model
         return max(0.0, round($this->received_base_qty - $this->bill_matched_base_qty, 3));
     }
 
+    public function isDirectShopPurchase(): bool
+    {
+        if ($this->purchaseOrder !== null) {
+            return $this->purchaseOrder->isDirectShopPurchase();
+        }
+
+        if ($this->purchaserCart !== null) {
+            return $this->purchaserCart->purchase_source === 'shop';
+        }
+
+        return false;
+    }
+
+    public function isWarehousePurchase(): bool
+    {
+        return ! $this->isDirectShopPurchase();
+    }
+
     public function isWarehouseAdvance(): bool
     {
         return $this->receipt_type === 'warehouse_advance';

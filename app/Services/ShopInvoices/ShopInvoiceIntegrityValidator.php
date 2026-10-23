@@ -45,20 +45,23 @@ class ShopInvoiceIntegrityValidator
             ]);
         }
 
+        $itemGrade = (string) ($item->product_grade ?? 'A');
         $approvedPrice = $this->approvedDailyPriceResolver->resolve(
             $item->product,
             $invoice->shop,
             $invoice->business_date,
+            $itemGrade,
         );
 
         $invoicePrice = round((float) $item->unit_price, 2);
         $priceSource = (string) ($approvedPrice['source'] ?? 'normal');
+        $productLabel = $itemGrade !== 'A' ? "{$item->product_name} (Grade {$itemGrade})" : $item->product_name;
 
         if (abs($invoicePrice - $approvedPrice['price']) > 0.0001) {
             throw ValidationException::withMessages([
                 'invoice' => sprintf(
                     'Invoice price mismatch for %s. Invoice has %.2f but approved %s price is %.2f.',
-                    $item->product_name,
+                    $productLabel,
                     $invoicePrice,
                     $priceSource === 'special' ? 'special' : $approvedPrice['category_code'],
                     $approvedPrice['price'],
@@ -73,7 +76,7 @@ class ShopInvoiceIntegrityValidator
             throw ValidationException::withMessages([
                 'invoice' => sprintf(
                     'Invoice unit mismatch for %s. Invoice uses %s but approved daily price uses %s.',
-                    $item->product_name,
+                    $productLabel,
                     strtoupper($invoicePriceUnit),
                     strtoupper($approvedPriceUnit),
                 ),

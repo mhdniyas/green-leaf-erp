@@ -11,6 +11,7 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Services\Pricing\PriceBoardService;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\ValidationException;
 
 class ShopOrderItemSyncService
 {
@@ -22,13 +23,15 @@ class ShopOrderItemSyncService
      * @param  array<string, mixed>  $rawItems
      * @param  array<string, mixed>  $rawUnits
      * @param  array<string, mixed>  $rawMeasures
-     * @return array<int, array{product: Product, quantity: float, line_key?: string, requested_product_unit_id?: ?int, unit?: string, requested_unit?: string, requested_unit_label?: string, requested_unit_quantity?: float, requested_unit_conversion_to_base?: ?float}>
+     * @param  array<string, mixed>  $rawGrades
+     * @return array<int, array{product: Product, quantity: float, grade: string, line_key?: string, requested_product_unit_id?: ?int, unit?: string, requested_unit?: string, requested_unit_label?: string, requested_unit_quantity?: float, requested_unit_conversion_to_base?: ?float}>
      */
     public function resolveRequestedProducts(
         array $rawItems,
         array $rawUnits = [],
         array $rawMeasures = [],
         bool $allowZero = false,
+        array $rawGrades = [],
     ): array {
         $requestedQuantities = [];
         $lineMeta = [];
@@ -39,8 +42,34 @@ class ShopOrderItemSyncService
             }
 
             $normalizedLineKey = (string) $lineKey;
-            [$normalizedSku, $embeddedMeasure] = array_pad(explode('|', $normalizedLineKey, 2), 2, null);
-            $normalizedSku = (string) $normalizedSku;
+            $parts = explode('|', $normalizedLineKey);
+            $normalizedSku = (string) ($parts[0] ?? '');
+            $embeddedGrade = null;
+            $embeddedMeasure = null;
+
+            $allGradeValues = array_map(fn (ProductGrade $g): string => $g->value, ProductGrade::cases());
+
+            if (count($parts) === 2) {
+                $possibleGrade = strtoupper(trim((string) $parts[1]));
+                if (in_array($possibleGrade, $allGradeValues, true)) {
+                    $embeddedGrade = $possibleGrade;
+                } else {
+                    $embeddedMeasure = $parts[1];
+                }
+            } elseif (count($parts) >= 3) {
+                $possibleGrade = strtoupper(trim((string) $parts[1]));
+                if (in_array($possibleGrade, $allGradeValues, true)) {
+                    $embeddedGrade = $possibleGrade;
+                    $embeddedMeasure = $parts[2];
+                } else {
+                    $embeddedMeasure = $parts[1];
+                }
+            }
+
+            $resolvedGrade = filled($rawGrades[$normalizedLineKey] ?? null)
+                ? strtoupper(trim((string) $rawGrades[$normalizedLineKey]))
+                : ($embeddedGrade ?: ProductGrade::GradeA->value);
+
             $numericQuantity = (float) $quantity;
 
             if ($allowZero ? $numericQuantity < 0 : $numericQuantity <= 0) {
@@ -50,6 +79,7 @@ class ShopOrderItemSyncService
             $requestedQuantities[$normalizedLineKey] = $numericQuantity;
             $lineMeta[$normalizedLineKey] = [
                 'sku' => $normalizedSku,
+                'grade' => $resolvedGrade,
                 'measure' => filled($rawMeasures[$normalizedLineKey] ?? null)
                     ? (string) $rawMeasures[$normalizedLineKey]
                     : ($embeddedMeasure ?: null),
@@ -83,6 +113,9 @@ class ShopOrderItemSyncService
                 requestedUnit: strtolower(trim((string) ($rawUnits[$lineKey] ?? $rawUnits[$sku] ?? $product->unit))),
             );
 
+            $gradeValue = $lineMeta[$lineKey]['grade'] ?? ProductGrade::GradeA->value;
+            $resolvedGradeEnum = ProductGrade::tryResolve($gradeValue) ?? ProductGrade::GradeA;
+
             $requestedUnit = strtolower((string) ($selectedMeasure?->unit ?? $product->unit));
             $requestedUnitLabel = $selectedMeasure?->label ?: strtoupper($requestedUnit);
             $conversionToBase = $selectedMeasure
@@ -93,6 +126,7 @@ class ShopOrderItemSyncService
             $resolvedItems[] = [
                 'product' => $product,
                 'line_key' => $lineKey,
+                'grade' => $resolvedGradeEnum->value,
                 'requested_product_unit_id' => $selectedMeasure?->id,
                 'quantity' => $baseQuantity,
                 'unit' => $conversionToBase !== null ? $product->unit : $requestedUnit,
@@ -117,7 +151,7 @@ class ShopOrderItemSyncService
     }
 
     /**
-     * @param  array<int, array{product: Product, quantity: float}>  $items
+     * @param  array<int, array{product: Product, quantity: float, grade?: string|ProductGrade}>  $items
      */
     public function syncShopOrderItems(ShopOrder $order, array $items): void
     {
@@ -130,15 +164,19 @@ class ShopOrderItemSyncService
             }
 
             $product = $item['product'];
+            $grade = $item['grade'] ?? ProductGrade::GradeA->value;
+            $gradeEnum = $grade instanceof ProductGrade ? $grade : (ProductGrade::tryResolve((string) $grade) ?? ProductGrade::GradeA);
             $incomingKey = $this->resolvedOrderItemKey($item);
             $incomingKeys[] = $incomingKey;
 
             /** @var ShopOrderItem|null $existingItem */
             $existingItem = $existingItems->get($incomingKey);
 
+            $pricePayload = $this->lockedPricePayload($order, $product, (float) $item['quantity'], $gradeEnum);
+
             if ($existingItem) {
-                $pricePayload = $this->lockedPricePayload($order, $product, (float) $item['quantity']);
                 $existingItem->update([
+                    'product_grade' => $gradeEnum->value,
                     'requested_qty' => $item['quantity'],
                     'unit' => $item['unit'] ?? $product->unit,
                     'requested_product_unit_id' => $item['requested_product_unit_id'] ?? null,
@@ -152,10 +190,10 @@ class ShopOrderItemSyncService
                 continue;
             }
 
-            $pricePayload = $this->lockedPricePayload($order, $product, (float) $item['quantity']);
             ShopOrderItem::create([
                 'shop_order_id' => $order->id,
                 'product_id' => $product->id,
+                'product_grade' => $gradeEnum->value,
                 'requested_qty' => $item['quantity'],
                 'unit' => $item['unit'] ?? $product->unit,
                 'requested_product_unit_id' => $item['requested_product_unit_id'] ?? null,
@@ -180,12 +218,22 @@ class ShopOrderItemSyncService
     /**
      * @return array<string, mixed>
      */
-    public function lockedPricePayload(ShopOrder $order, Product $product, float $quantity): array
-    {
-        $price = $this->priceBoardService->sellingPriceFor($product, $order->shop, ProductGrade::GradeA);
+    public function lockedPricePayload(
+        ShopOrder $order,
+        Product $product,
+        float $quantity,
+        ProductGrade $grade = ProductGrade::GradeA,
+    ): array {
+        $price = $this->priceBoardService->sellingPriceFor($product, $order->shop, $grade);
+
+        if ($grade !== ProductGrade::GradeA && (float) $price['price'] <= 0.0) {
+            throw ValidationException::withMessages([
+                'items' => "Selling price is not available for {$product->name} (Grade {$grade->value}).",
+            ]);
+        }
 
         return [
-            'product_grade' => ProductGrade::GradeA->value,
+            'product_grade' => $grade->value,
             'locked_price_group_id' => $price['group']->id,
             'locked_selling_price' => $price['price'],
             'locked_price_source' => $price['source'],
@@ -212,18 +260,22 @@ class ShopOrderItemSyncService
     }
 
     /**
-     * @param  array{product: Product, requested_product_unit_id?: ?int, requested_unit?: string}  $item
+     * @param  array{product: Product, requested_product_unit_id?: ?int, requested_unit?: string, grade?: string|ProductGrade}  $item
      */
     private function resolvedOrderItemKey(array $item): string
     {
         $product = $item['product'];
         $measureId = $item['requested_product_unit_id'] ?? null;
+        $grade = $item['grade'] ?? ProductGrade::GradeA->value;
+        $gradeValue = $grade instanceof ProductGrade ? $grade->value : (string) $grade;
 
-        return $product->id.'|'.($measureId ?: ($item['requested_unit'] ?? $product->unit));
+        return $product->id.'|'.$gradeValue.'|'.($measureId ?: ($item['requested_unit'] ?? $product->unit));
     }
 
     private function shopOrderItemKey(ShopOrderItem $item): string
     {
-        return $item->product_id.'|'.($item->requested_product_unit_id ?: ($item->requested_unit ?? $item->unit));
+        $gradeValue = (string) ($item->product_grade ?: ProductGrade::GradeA->value);
+
+        return $item->product_id.'|'.$gradeValue.'|'.($item->requested_product_unit_id ?: ($item->requested_unit ?? $item->unit));
     }
 }

@@ -630,6 +630,29 @@ class WarehouseReceiverController extends Controller
             'warehouse_confirmed_by' => $request->user()->id,
         ]);
 
+        if ($batch->grading_mode === 'fixed_purchase_grade' && (float) $batch->total_kg > 0) {
+            StockMovement::query()->firstOrCreate(
+                [
+                    'batch_id' => $batch->id,
+                    'type' => StockMovementType::In->value,
+                    'grade' => $batch->purchase_grade,
+                ],
+                [
+                    'product_id' => $batch->product_id,
+                    'warehouse_id' => (int) $validated['warehouse_id'],
+                    'created_by' => (int) $request->user()->id,
+                    'quantity' => (float) $batch->total_kg,
+                    'cost_per_unit' => $batch->cost_per_kg,
+                    'notes' => "Fixed Grade {$batch->purchase_grade} receipt confirmed",
+                ],
+            );
+
+            $batch->update([
+                'status' => BatchStatus::Sorted,
+                'sorted_at' => now(),
+            ]);
+        }
+
         activity()
             ->performedOn($batch)
             ->causedBy($request->user()->id)
@@ -676,6 +699,29 @@ class WarehouseReceiverController extends Controller
                 'warehouse_confirmed_at' => now(),
                 'warehouse_confirmed_by' => $userId,
             ]);
+
+            if ($batch->grading_mode === 'fixed_purchase_grade' && (float) $batch->total_kg > 0) {
+                StockMovement::query()->firstOrCreate(
+                    [
+                        'batch_id' => $batch->id,
+                        'type' => StockMovementType::In->value,
+                        'grade' => $batch->purchase_grade,
+                    ],
+                    [
+                        'product_id' => $batch->product_id,
+                        'warehouse_id' => (int) $warehouseId,
+                        'created_by' => $userId,
+                        'quantity' => (float) $batch->total_kg,
+                        'cost_per_unit' => $batch->cost_per_kg,
+                        'notes' => "Fixed Grade {$batch->purchase_grade} receipt confirmed",
+                    ],
+                );
+
+                $batch->update([
+                    'status' => BatchStatus::Sorted,
+                    'sorted_at' => now(),
+                ]);
+            }
         }
 
         foreach ($grnIds as $grnId) {
@@ -713,7 +759,8 @@ class WarehouseReceiverController extends Controller
         $order->load(['shop', 'items.product']);
 
         foreach ($order->items as $item) {
-            $item->inventory_stock = $this->stockLedgerService->availableSortedStockForProduct($item->product_id) + (float) $item->loaded_qty;
+            $itemGrade = ProductGrade::tryResolve($item->product_grade ?? 'A') ?? ProductGrade::GradeA;
+            $item->inventory_stock = $this->stockLedgerService->availableSortedStockForProduct($item->product_id, null, $itemGrade) + (float) $item->loaded_qty;
         }
 
         return view('warehouse-receiver.loadout_details', compact('order'));
@@ -750,12 +797,16 @@ class WarehouseReceiverController extends Controller
                 $userId = $request->user()->id;
 
                 if ($loadedQty > 0) {
+                    $itemGrade = ProductGrade::tryResolve($item->product_grade ?? 'A') ?? ProductGrade::GradeA;
                     $this->stockLedgerService->consumeStockForProductAllowingNegative(
                         $item->product_id,
                         $loadedQty,
                         $userId,
                         StockMovementType::Out,
-                        "Loadout: Shop Order {$item->order->order_number} to {$item->order->shop->name}"
+                        "Loadout: Shop Order {$item->order->order_number} to {$item->order->shop->name}",
+                        $item->id,
+                        null,
+                        $itemGrade,
                     );
                 }
 
@@ -795,8 +846,9 @@ class WarehouseReceiverController extends Controller
                 $userId = $request->user()->id;
 
                 foreach ($pendingItems as $item) {
+                    $itemGrade = ProductGrade::tryResolve($item->product_grade ?? 'A') ?? ProductGrade::GradeA;
                     $approvedQty = $item->approved_qty > 0 ? (float) $item->approved_qty : (float) $item->requested_qty;
-                    $availableStock = $this->stockLedgerService->availableSortedStockForProduct($item->product_id);
+                    $availableStock = $this->stockLedgerService->availableSortedStockForProduct($item->product_id, null, $itemGrade);
 
                     // Skip if skip_unavailable is checked and available stock is less than approved quantity
                     if ($skipUnavailable && $availableStock < $approvedQty) {
@@ -819,7 +871,10 @@ class WarehouseReceiverController extends Controller
                         $qtyToLoad,
                         $userId,
                         StockMovementType::Out,
-                        "Loadout: Shop Order {$order->order_number} to {$order->shop->name}"
+                        "Loadout: Shop Order {$order->order_number} to {$order->shop->name}",
+                        $item->id,
+                        null,
+                        $itemGrade,
                     );
 
                     $item->update([
@@ -1086,6 +1141,7 @@ class WarehouseReceiverController extends Controller
                     $discrepancyType = $grnItem?->discrepancy_type ?? 'none';
                     $discrepancyNote = $grnItem?->discrepancy_note;
                     $itemWarehouseId = (int) ($items[$grnItem?->id]['warehouse_id'] ?? $fallbackWarehouseId);
+                    $targetGradingMode = $items[$grnItem?->id]['grading_mode'] ?? $batch->grading_mode;
 
                     // Check if Advance matches already cover part or all of this item
                     $alreadyMatchedBase = $grnItem ? (float) AdvanceReceiveMatch::query()
@@ -1099,12 +1155,13 @@ class WarehouseReceiverController extends Controller
                     $batch->update([
                         'warehouse_id' => $itemWarehouseId,
                         'total_kg' => $newTotalKg,
+                        'grading_mode' => $targetGradingMode,
                         'warehouse_receive_pending' => false,
                         'warehouse_confirmed_at' => now(),
                         'warehouse_confirmed_by' => $userId,
                     ]);
 
-                    if ($batch->grading_mode === 'fixed_purchase_grade' && $newTotalKg > 0) {
+                    if ($targetGradingMode === 'fixed_purchase_grade' && $newTotalKg > 0) {
                         StockMovement::query()->firstOrCreate(
                             [
                                 'batch_id' => $batch->id,

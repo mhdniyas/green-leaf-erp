@@ -42,6 +42,14 @@ class WarehouseScopedLoadoutController extends Controller
         Warehouse $warehouse,
         ShopOrder $shopOrder,
     ): JsonResponse {
+        if ($shopOrder->hasMultiGradeItems() && ! $this->isCompatibleMultiGradeClient($request)) {
+            return response()->json([
+                'success' => false,
+                'code' => 'MULTI_GRADE_MOBILE_RESTRICTED',
+                'message' => 'This order contains multi-grade items (Grade B/C). Mobile warehouse loadout is restricted for this order. Please complete loadout using the Web Warehouse portal.',
+            ], 422);
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Warehouse loadout items saved successfully.',
@@ -56,10 +64,26 @@ class WarehouseScopedLoadoutController extends Controller
 
     public function complete(Request $request, Warehouse $warehouse, ShopOrder $shopOrder): JsonResponse
     {
+        if ($shopOrder->hasMultiGradeItems() && ! $this->isCompatibleMultiGradeClient($request)) {
+            return response()->json([
+                'success' => false,
+                'code' => 'MULTI_GRADE_MOBILE_RESTRICTED',
+                'message' => 'Completing multi-grade orders is restricted on mobile. Please complete loadout using the Web Warehouse portal.',
+            ], 422);
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Warehouse loadout completed successfully.',
             ...$this->completionService->complete($request->user(), $warehouse, $shopOrder),
         ]);
+    }
+
+    private function isCompatibleMultiGradeClient(Request $request): bool
+    {
+        return $request->header('X-Client-Supports-Multi-Grade') === 'true'
+            || $request->header('X-Client-Supports-Multi-Grade') === '1'
+            || $request->header('X-Warehouse-Client-Supports-Multi-Grade') === 'true'
+            || $request->header('X-Warehouse-Client-Supports-Multi-Grade') === '1';
     }
 }

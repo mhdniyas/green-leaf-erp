@@ -884,10 +884,16 @@
             document.getElementById('mb-credit').textContent = data.creditAmount;
             document.getElementById('mb-grn').textContent = data.grnNumber;
 
-            // Grade B badge
+            // Grade badge
             const gradeBadge = document.getElementById('mb-grade-badge');
             if (gradeBadge) {
                 if ((data.purchaseGrade ?? 'A') === 'B') {
+                    gradeBadge.textContent = 'Grade B Direct Purchase';
+                    gradeBadge.className = 'rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-blue-700';
+                    gradeBadge.classList.remove('hidden');
+                } else if ((data.purchaseGrade ?? 'A') === 'MIXED') {
+                    gradeBadge.textContent = 'Mixed Lot Purchase (Warehouse Sorting Required)';
+                    gradeBadge.className = 'rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-indigo-700';
                     gradeBadge.classList.remove('hidden');
                 } else {
                     gradeBadge.classList.add('hidden');
@@ -903,9 +909,12 @@
             if (itemsList) {
                 if (data.items.length > 0) {
                     itemsList.innerHTML = data.items.map(item => {
-                        const gradeBadge = (item.grade ?? 'A') === 'B'
+                        const itemGrade = item.grade ?? 'A';
+                        const gradeBadge = itemGrade === 'B'
                             ? `<span style="display:inline-flex;align-items:center;margin-left:3px;border-radius:3px;padding:0 4px;background:#dbeafe;color:#1d4ed8;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;">Grade B</span>`
-                            : '';
+                            : (itemGrade === 'MIXED'
+                                ? `<span style="display:inline-flex;align-items:center;margin-left:3px;border-radius:3px;padding:0 4px;background:#e0e7ff;color:#4338ca;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;">Mixed Lot</span>`
+                                : '');
                         return `
                         <div class="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0 text-xs">
                             <div class="min-w-0 pr-2">

@@ -1,4 +1,4 @@
-<x-layouts.app title="Daily Prices">
+<x-layouts.app title="Daily Prices (Grade A)">
     <style>
         .daily-price-list {
             width: 100%;
@@ -9,13 +9,13 @@
 
         .daily-price-row {
             display: grid;
-            grid-template-columns: minmax(105px, 1.25fr) 56px 84px 82px;
+            grid-template-columns: minmax(130px, 1.4fr) 52px 76px 84px 84px 84px;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
 
             width: 100%;
             min-height: 56px;
-            padding: 8px 10px;
+            padding: 8px 12px;
 
             background: #fff;
             border: 1px solid #e5edf5;
@@ -93,7 +93,7 @@
         }
 
         .previous-price {
-            width: 56px;
+            width: 52px;
             white-space: nowrap;
             font-size: 12px;
             font-weight: 600;
@@ -116,7 +116,7 @@
             border-radius: 6px;
             font-size: 10px;
             font-weight: 700;
-            max-width: 84px;
+            max-width: 80px;
             overflow: hidden;
             text-overflow: ellipsis;
             text-align: center;
@@ -147,8 +147,8 @@
         }
 
         .price-input-wrap {
-            width: 82px;
-            height: 38px;
+            width: 84px;
+            height: 36px;
             display: flex;
             align-items: center;
 
@@ -165,9 +165,32 @@
             box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
         }
 
+        .price-col-a, .grade-cell {
+            width: 100%;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .updater-name-tag {
+            display: block;
+            width: 100%;
+            max-width: 84px;
+            min-height: 13px;
+            font-size: 9px;
+            font-weight: 600;
+            color: #64748b;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
         .price-currency {
             padding-left: 6px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 700;
             color: #94a3b8;
             user-select: none;
@@ -175,9 +198,9 @@
         }
 
         .price-input {
-            width: 58px;
+            width: calc(100% - 16px);
             min-width: 0;
-            padding: 0 7px 0 2px;
+            padding: 0 6px 0 2px;
 
             border: 0;
             outline: 0;
@@ -188,16 +211,52 @@
             font-weight: 700;
             color: #172033;
         }
+
+        @media (max-width: 767px) {
+            .daily-price-row {
+                display: grid;
+                grid-template-columns: 1fr 1fr 1fr;
+                grid-template-areas:
+                    "product product product"
+                    "prev prev status"
+                    "pricea priceb pricec";
+                gap: 8px;
+                padding: 10px;
+            }
+            .product-cell { grid-area: product; }
+            .previous-price {
+                grid-area: prev;
+                width: auto;
+                text-align: left;
+                font-size: 11px;
+            }
+            .price-status-col {
+                grid-area: status;
+                justify-content: flex-end;
+            }
+            .price-col-a { grid-area: pricea; }
+            .grade-b-cell { grid-area: priceb; }
+            .grade-c-cell { grid-area: pricec; }
+            .price-input-wrap {
+                width: 100%;
+                max-width: 100%;
+            }
+            .updater-name-tag {
+                max-width: 100%;
+            }
+        }
     </style>
 
     @php
-        function formatPriceCompactPHP(?float $val): string {
-            if ($val === null || $val <= 0) return '';
-            return $val == (int)$val ? (string)(int)$val : rtrim(rtrim(number_format($val, 2, '.', ''), '0'), '.');
+        if (!function_exists('formatPriceCompactPHP')) {
+            function formatPriceCompactPHP(?float $val): string {
+                if ($val === null || $val <= 0) return '';
+                return $val == (int)$val ? (string)(int)$val : rtrim(rtrim(number_format($val, 2, '.', ''), '0'), '.');
+            }
         }
     @endphp
 
-    <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-2 lg:max-w-4xl lg:gap-3 lg:px-4 lg:py-3">
+    <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-2 lg:max-w-5xl xl:max-w-6xl lg:gap-3 lg:px-4 lg:py-3">
         @include('purchasing.purchaser.partials.feedback')
 
         <div id="global-save-info" class="hidden rounded-xl border border-teal-200/90 bg-teal-50/90 px-4 py-2 text-xs font-bold text-teal-900 shadow-2xs"></div>
@@ -208,7 +267,8 @@
                 <div class="flex items-center justify-between gap-2">
                     <div>
                         <p class="text-[9px] font-black uppercase tracking-[0.2em] text-teal-300">Purchaser Pricing</p>
-                        <h1 class="text-base sm:text-lg font-black tracking-tight text-white">Daily Prices</h1>
+                        <h1 class="text-base sm:text-lg font-black tracking-tight text-white">Daily Prices (Grades A / B / C)</h1>
+                        <p class="text-[10px] text-teal-200/80">Manage Grade A, B, and C Selling Prices (Group A) for shops. Auto-calculated with manual overrides.</p>
                     </div>
                     
                     {{-- Interactive Date Picker --}}
@@ -297,12 +357,14 @@
             </div>
         @else
             <div class="daily-price-list flex flex-col gap-1.5">
-                {{-- Column Header Title Bar --}}
-                <div class="grid grid-cols-[minmax(105px,1.25fr)_56px_84px_82px] items-center gap-[6px] px-[10px] pb-1 pt-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400 select-none">
+                {{-- Column Header Title Bar (Desktop) --}}
+                <div class="hidden md:grid grid-cols-[minmax(130px,1.4fr)_52px_76px_84px_84px_84px] items-center gap-2 px-3 pb-1 pt-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400 select-none">
                     <div>PRODUCT</div>
-                    <div class="text-right">PREV</div>
+                    <div class="text-right">PREV (A)</div>
                     <div class="text-center">CHANGE</div>
-                    <div class="text-right">{{ strtoupper($operationalDate->format('d M')) }}</div>
+                    <div class="text-center">SELLING A ({{ strtoupper($operationalDate->format('d M')) }})</div>
+                    <div class="text-center">GRADE B</div>
+                    <div class="text-center">GRADE C</div>
                 </div>
 
                 @foreach ($products as $product)
@@ -353,7 +415,7 @@
                             </div>
                             <div id="row-selling-a-{{ $product['id'] }}" class="updater-info">
                                 @if (($product['selling_price_a'] ?? null) !== null)
-                                    Selling A: ₹{{ formatPriceCompactPHP($product['selling_price_a']) }} <span class="text-[9px] font-semibold text-slate-400 bg-slate-100 border border-slate-200/50 rounded-sm px-1 py-0.25 ml-1">Updates Shop Order</span>
+                                    Selling A: ₹{{ formatPriceCompactPHP($product['selling_price_a']) }} <span class="text-[9px] font-semibold text-slate-400 bg-slate-100 border border-slate-200/50 rounded-sm px-1 py-0.25 ml-1">Grade A · Group A</span>
                                 @endif
                             </div>
                             @if (!empty($doubleCheck))
@@ -372,6 +434,7 @@
 
                         {{-- Col 2: Compact Previous Price --}}
                         <div class="previous-price" id="row-prev-{{ $product['id'] }}">
+                            <span class="md:hidden text-[9px] font-extrabold uppercase text-slate-400 mr-1">Prev:</span>
                             @if ($product['previous_price'])
                                 ₹{{ formatPriceCompactPHP($product['previous_price']) }}
                             @else
@@ -379,7 +442,7 @@
                             @endif
                         </div>
 
-                        {{-- Col 3: Price Status / Change Badge (Centered) --}}
+                        {{-- Col 3: Price Status / Change Badge --}}
                         <div class="price-status-col" id="row-badge-{{ $product['id'] }}">
                             @if ($product['price_state'] === 'not_set')
                                 <div class="price-status not-set">Not set</div>
@@ -394,16 +457,58 @@
                             @endif
                         </div>
 
-                        {{-- Col 4: Price Input Wrap (82px width, 58px input) --}}
-                        <div class="price-input-wrap">
-                            <span class="price-currency">₹</span>
-                            <input type="text"
-                                   inputmode="decimal"
-                                   id="price-{{ $product['id'] }}"
-                                   value="{{ formatPriceCompactPHP($product['price_today']) }}"
-                                   placeholder="—"
-                                   oninput="handlePriceInput(this, {{ $product['id'] }})"
-                                   class="price-input">
+                        {{-- Col 4: Selling A --}}
+                        <div class="price-col-a">
+                            <span class="md:hidden text-[9px] font-extrabold uppercase tracking-wider text-slate-400">Selling A</span>
+                            <div class="price-input-wrap" id="wrap-a-{{ $product['id'] }}">
+                                <span class="price-currency">₹</span>
+                                <input type="text"
+                                       inputmode="decimal"
+                                       id="price-{{ $product['id'] }}"
+                                       value="{{ formatPriceCompactPHP($product['price_today']) }}"
+                                       placeholder="—"
+                                       oninput="handlePriceInput(this, {{ $product['id'] }})"
+                                       class="price-input">
+                            </div>
+                            <span id="updater-a-{{ $product['id'] }}" class="updater-name-tag text-[9px] font-semibold text-slate-400 truncate max-w-[84px] text-center" title="{{ $product['updated_by_name'] ?? '' }}">
+                                {{ $product['updated_by_name'] ?? '' }}
+                            </span>
+                        </div>
+
+                        {{-- Col 5: Grade B --}}
+                        <div class="grade-cell grade-b-cell" id="grade-b-cell-{{ $product['id'] }}">
+                            <span class="md:hidden text-[9px] font-extrabold uppercase tracking-wider text-slate-400">Grade B</span>
+                            <div class="price-input-wrap" id="wrap-b-{{ $product['id'] }}">
+                                <span class="price-currency">₹</span>
+                                <input type="text"
+                                       inputmode="decimal"
+                                       id="price-b-{{ $product['id'] }}"
+                                       value="{{ formatPriceCompactPHP($product['selling_price_b'] ?? $product['calc_price_b']) }}"
+                                       placeholder="—"
+                                       oninput="handleGradeInput(this, {{ $product['id'] }}, 'B')"
+                                       class="price-input">
+                            </div>
+                            <span id="updater-b-{{ $product['id'] }}" class="updater-name-tag text-[9px] font-semibold text-slate-400 truncate max-w-[84px] text-center" title="{{ $product['updated_by_b'] ?? '' }}">
+                                {{ $product['updated_by_b'] ?? '' }}
+                            </span>
+                        </div>
+
+                        {{-- Col 6: Grade C --}}
+                        <div class="grade-cell grade-c-cell" id="grade-c-cell-{{ $product['id'] }}">
+                            <span class="md:hidden text-[9px] font-extrabold uppercase tracking-wider text-slate-400">Grade C</span>
+                            <div class="price-input-wrap" id="wrap-c-{{ $product['id'] }}">
+                                <span class="price-currency">₹</span>
+                                <input type="text"
+                                       inputmode="decimal"
+                                       id="price-c-{{ $product['id'] }}"
+                                       value="{{ formatPriceCompactPHP($product['selling_price_c'] ?? $product['calc_price_c']) }}"
+                                       placeholder="—"
+                                       oninput="handleGradeInput(this, {{ $product['id'] }}, 'C')"
+                                       class="price-input">
+                            </div>
+                            <span id="updater-c-{{ $product['id'] }}" class="updater-name-tag text-[9px] font-semibold text-slate-400 truncate max-w-[84px] text-center" title="{{ $product['updated_by_c'] ?? '' }}">
+                                {{ $product['updated_by_c'] ?? '' }}
+                            </span>
                         </div>
                     </div>
                 @endforeach
@@ -431,7 +536,7 @@
                 {{-- 1. SET TODAY'S PRICE (ON TOP) - Clean White/Light Card --}}
                 <div class="rounded-2xl border border-teal-200/80 bg-teal-50/40 p-4 space-y-3 shadow-2xs">
                     <div class="flex items-center justify-between">
-                        <label for="modal-price-input" class="block text-[10px] font-black uppercase tracking-wider text-teal-900">SET PRICE FOR {{ $operationalDate->format('d M Y') }}</label>
+                        <label for="modal-price-input" class="block text-[10px] font-black uppercase tracking-wider text-teal-900">SET GRADE A SELLING PRICE (GROUP A) FOR {{ $operationalDate->format('d M Y') }}</label>
                         <span id="modal-save-status" class="text-[10px] font-bold text-teal-700"></span>
                     </div>
                     <div class="relative flex items-center">
@@ -447,7 +552,7 @@
                             id="modal-save-btn"
                             onclick="triggerModalSave()"
                             class="w-full rounded-xl bg-teal-600 hover:bg-teal-700 active:scale-98 text-white font-black text-xs uppercase tracking-wider py-2.5 transition-all shadow-sm cursor-pointer">
-                        SAVE PRICE
+                        SAVE GRADE A PRICE
                     </button>
                     <button type="button"
                             id="modal-refresh-invoices-btn"
@@ -462,11 +567,11 @@
                 <div class="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 space-y-3">
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">PRICE FOR {{ $operationalDate->format('d M') }}</p>
+                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">GRADE A SELLING PRICE ({{ $operationalDate->format('d M') }})</p>
                             <p id="modal-today-price" class="text-base font-black text-slate-900 mt-0.5">₹0.00</p>
                         </div>
                         <div>
-                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">PREVIOUS PRICE</p>
+                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">PREVIOUS GRADE A PRICE</p>
                             <p id="modal-previous-price" class="text-base font-black text-slate-900 mt-0.5">₹0.00</p>
                         </div>
                     </div>
@@ -482,7 +587,7 @@
 
                 {{-- 3. Recent Price History (Top 3 Recent) --}}
                 <div class="rounded-2xl border border-slate-200/80 bg-white p-4 space-y-2.5 shadow-2xs">
-                    <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">RECENT PRICE HISTORY (TOP 3)</p>
+                    <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">RECENT GRADE A PRICE HISTORY (TOP 3)</p>
                     <div id="modal-history-list" class="divide-y divide-slate-100 text-xs font-semibold text-slate-700">
                         <!-- Populated dynamically by JS -->
                     </div>
@@ -506,6 +611,17 @@
         let activeModalProduct = null;
         let lastScrollY = 0;
 
+        const productPriceMeta = {
+            @foreach ($products as $p)
+                {{ $p['id'] }}: {
+                    percentage_b: {{ (float) ($p['percentage_b'] ?? $globalPercentageB ?? 90) }},
+                    percentage_c: {{ (float) ($p['percentage_c'] ?? $globalPercentageC ?? 80) }},
+                    is_manual_b: {{ $p['is_manual_b'] ? 'true' : 'false' }},
+                    is_manual_c: {{ $p['is_manual_c'] ? 'true' : 'false' }},
+                },
+            @endforeach
+        };
+
         function formatPriceCompactJS(val) {
             if (val === null || val === undefined || isNaN(val) || val <= 0) return '';
             const num = parseFloat(val);
@@ -515,6 +631,25 @@
 
         function handlePriceInput(inputEl, productId) {
             const val = parseFloat(inputEl.value);
+            const meta = productPriceMeta[productId];
+
+            // In real-time, recalculate non-manual Grade B & C
+            if (meta) {
+                if (!meta.is_manual_b) {
+                    const inputB = document.getElementById('price-b-' + productId);
+                    if (inputB) {
+                        const calcB = (!isNaN(val) && val > 0) ? Math.round(val * (meta.percentage_b / 100) * 100) / 100 : '';
+                        inputB.value = formatPriceCompactJS(calcB);
+                    }
+                }
+                if (!meta.is_manual_c) {
+                    const inputC = document.getElementById('price-c-' + productId);
+                    if (inputC) {
+                        const calcC = (!isNaN(val) && val > 0) ? Math.round(val * (meta.percentage_c / 100) * 100) / 100 : '';
+                        inputC.value = formatPriceCompactJS(calcC);
+                    }
+                }
+            }
 
             if (debounceTimers[productId]) {
                 clearTimeout(debounceTimers[productId]);
@@ -535,6 +670,76 @@
             debounceTimers[productId] = setTimeout(() => {
                 savePriceAuto(inputEl, productId, val);
             }, 600);
+        }
+
+        function handleGradeInput(inputEl, productId, grade) {
+            const timerKey = `${productId}_${grade}`;
+            if (debounceTimers[timerKey]) {
+                clearTimeout(debounceTimers[timerKey]);
+            }
+
+            const val = parseFloat(inputEl.value);
+            if (isNaN(val) || val <= 0) return;
+
+            debounceTimers[timerKey] = setTimeout(() => {
+                saveGradePrice(inputEl, productId, grade, val, true);
+            }, 600);
+        }
+
+        function saveGradePrice(inputEl, productId, grade, priceVal, isManual = true) {
+            const gradeLower = grade.toLowerCase();
+            const updaterCol = document.getElementById(`updater-${gradeLower}-${productId}`);
+            const updaterRow = document.getElementById('row-updater-' + productId);
+
+            fetch(updateUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken
+                },
+                body: JSON.stringify({
+                    date: currentDate,
+                    prices: [{
+                        product_id: productId,
+                        grade: grade,
+                        price: priceVal,
+                        is_manual: isManual
+                    }]
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    const meta = productPriceMeta[productId];
+                    if (meta) meta['is_manual_' + gradeLower] = true;
+
+                    if (inputEl) {
+                        const wrap = inputEl.closest('.price-input-wrap');
+                        if (wrap) {
+                            wrap.style.borderColor = '#10b981';
+                            wrap.style.backgroundColor = '#ecfdf5';
+                            setTimeout(() => {
+                                wrap.style.borderColor = '#d9e2ec';
+                                wrap.style.backgroundColor = '#f8fafc';
+                            }, 1200);
+                        }
+                    }
+
+                    const updaterName = data.updated_by_name || 'Saved';
+                    if (updaterCol) {
+                        updaterCol.textContent = updaterName;
+                        updaterCol.title = updaterName;
+                    }
+                    if (updaterRow) {
+                        updaterRow.textContent = `${updaterName} · ${data.updated_time || ''}`;
+                    }
+                }
+            })
+            .catch(err => {
+                console.error('Save grade price error:', err);
+                if (updaterCol) updaterCol.textContent = 'Failed';
+            });
         }
 
         function handleModalPriceInput(modalInputEl) {
@@ -780,6 +985,12 @@
                 updaterEl.textContent = `${data.updated_by_name} · ${data.updated_time}`;
             }
 
+            const updaterA = document.getElementById('updater-a-' + pId);
+            if (updaterA && data.updated_by_name) {
+                updaterA.textContent = data.updated_by_name;
+                updaterA.title = data.updated_by_name;
+            }
+
             if (costEl) {
                 if (data.purchaser_avg_price) {
                     costEl.textContent = `Cost Avg: ₹${formatPriceCompactJS(data.purchaser_avg_price)}`;
@@ -801,6 +1012,23 @@
                     purchaseCheckEl.textContent = `Purchase: ₹${formatPriceCompactJS(data.purchase_today)}`;
                 } else {
                     purchaseCheckEl.textContent = '';
+                }
+            }
+
+            // Sync Grade B and Grade C values if non-manual
+            const meta = productPriceMeta[pId];
+            if (meta) {
+                if (!meta.is_manual_b && data.calc_price_b !== undefined) {
+                    const inputB = document.getElementById('price-b-' + pId);
+                    if (inputB) {
+                        inputB.value = formatPriceCompactJS(data.selling_price_b ?? data.calc_price_b);
+                    }
+                }
+                if (!meta.is_manual_c && data.calc_price_c !== undefined) {
+                    const inputC = document.getElementById('price-c-' + pId);
+                    if (inputC) {
+                        inputC.value = formatPriceCompactJS(data.selling_price_c ?? data.calc_price_c);
+                    }
                 }
             }
         }
@@ -834,22 +1062,7 @@
             }
 
             // Populate top 3 recent price history
-            const historyListEl = document.getElementById('modal-history-list');
-            if (product.history && product.history.length > 0) {
-                let hHtml = '';
-                product.history.slice(0, 3).forEach(item => {
-                    hHtml += `
-                        <div class="flex items-center justify-between py-2">
-                            <span class="font-bold text-slate-600">${item.date}</span>
-                            <span class="font-black text-slate-900">₹${formatPriceCompactJS(item.price)}</span>
-                            <span class="font-semibold text-slate-500">${item.updated_by}</span>
-                        </div>
-                    `;
-                });
-                historyListEl.innerHTML = hHtml;
-            } else {
-                historyListEl.innerHTML = `<div class="py-3 text-center text-slate-400 italic">No previous price history available</div>`;
-            }
+            renderModalHistory(product.history);
 
             // Audit Info Footer
             const auditInfo = document.getElementById('modal-audit-info');
@@ -862,6 +1075,26 @@
             }
         }
 
+        function renderModalHistory(history) {
+            const historyListEl = document.getElementById('modal-history-list');
+            if (!historyListEl) return;
+            if (history && history.length > 0) {
+                let hHtml = '';
+                history.slice(0, 3).forEach(item => {
+                    hHtml += `
+                        <div class="flex items-center justify-between py-2">
+                            <span class="font-bold text-slate-600">${item.date}</span>
+                            <span class="font-black text-slate-900">₹${formatPriceCompactJS(item.price)}</span>
+                            <span class="font-semibold text-slate-500">${item.updated_by}</span>
+                        </div>
+                    `;
+                });
+                historyListEl.innerHTML = hHtml;
+            } else {
+                historyListEl.innerHTML = `<div class="py-3 text-center text-slate-400 italic">No previous price history available</div>`;
+            }
+        }
+
         function openProductModal(product) {
             activeModalProduct = product;
             lastScrollY = window.scrollY;
@@ -870,6 +1103,34 @@
 
             const modal = document.getElementById('product-modal');
             modal.classList.remove('hidden');
+
+            if (!product.history || product.history.length === 0) {
+                const historyListEl = document.getElementById('modal-history-list');
+                if (historyListEl) {
+                    historyListEl.innerHTML = `<div class="py-3 text-center text-slate-400 text-xs animate-pulse">Loading history...</div>`;
+                }
+
+                fetch(`{{ url('/purchaser/daily-prices') }}/${product.id}/history?date=${currentDate}`, {
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success && activeModalProduct && activeModalProduct.id === product.id) {
+                        product.history = data.history || [];
+                        renderModalHistory(product.history);
+                    }
+                })
+                .catch(() => {
+                    if (activeModalProduct && activeModalProduct.id === product.id) {
+                        const historyListEl = document.getElementById('modal-history-list');
+                        if (historyListEl) {
+                            historyListEl.innerHTML = `<div class="py-3 text-center text-slate-400 italic">No previous price history available</div>`;
+                        }
+                    }
+                });
+            }
         }
 
         function closeProductModal() {

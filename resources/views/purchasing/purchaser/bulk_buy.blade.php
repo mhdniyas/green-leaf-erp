@@ -7,18 +7,37 @@
             <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.28),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#134e4a_100%)] px-4 py-4 sm:px-5 lg:px-4 lg:py-5">
                 <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div class="min-w-0">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-teal-200 sm:text-[11px] sm:tracking-[0.22em]">Grade {{ $purchaseGrade }} Purchaser Flow</p>
-                        <h1 class="mt-1 text-xl font-black tracking-tight sm:mt-2 sm:text-2xl">{{ $purchaseGrade === 'B' ? 'B Grade ' : '' }}Bulk Purchase (Step 1)</h1>
-                        <p class="mt-2 max-w-2xl text-sm font-medium text-slate-200">Select multiple products you want to buy, then proceed to enter quantities and prices.</p>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-teal-200 sm:text-[11px] sm:tracking-[0.22em]">{{ $purchaseGrade === 'ALL' ? 'All Grades' : 'Grade ' . $purchaseGrade }} Purchaser Flow</p>
+                        <h1 class="mt-1 text-xl font-black tracking-tight sm:mt-2 sm:text-2xl">{{ $purchaseGrade === 'B' ? 'B Grade ' : ($purchaseGrade === 'C' ? 'C Grade ' : ($purchaseGrade === 'A' ? 'A Grade ' : '')) }}Bulk Purchase (Step 1)</h1>
+                        <p class="mt-2 max-w-2xl text-sm font-medium text-slate-200">Select multiple products you want to buy, or purchase individual grades directly.</p>
                     </div>
-                    <div class="shrink-0">
-                        <span class="rounded-xl bg-white/10 px-3.5 py-2 text-sm font-bold text-white block lg:rounded-2xl">
-                            {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}
-                        </span>
+                    <div class="shrink-0 flex items-center gap-2">
+                        <form method="GET" action="{{ route('purchaser.bulk-buy') }}" id="bulk-buy-date-form" class="flex items-center gap-2">
+                            @if ($purchaseGrade !== 'ALL')
+                                <input type="hidden" name="purchase_grade" value="{{ $purchaseGrade }}">
+                            @endif
+                            <input type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="rounded-xl border border-white/20 bg-white/10 px-3.5 py-2 text-xs font-bold text-white focus:outline-none focus:ring-2 focus:ring-teal-400 cursor-pointer lg:rounded-2xl">
+                        </form>
                     </div>
                 </div>
             </div>
         </section>
+
+        {{-- Grade Filter Navigation --}}
+        <div class="flex items-center gap-2 overflow-x-auto pb-0.5">
+            <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => 'ALL']) }}" class="shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all {{ $purchaseGrade === 'ALL' ? 'bg-teal-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' }}">
+                All Grades
+            </a>
+            <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => 'A']) }}" class="shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all {{ $purchaseGrade === 'A' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' }}">
+                Grade A
+            </a>
+            <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => 'B']) }}" class="shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all {{ $purchaseGrade === 'B' ? 'bg-amber-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' }}">
+                Grade B
+            </a>
+            <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => 'C']) }}" class="shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all {{ $purchaseGrade === 'C' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' }}">
+                Grade C
+            </a>
+        </div>
 
         {{-- Filter bar --}}
         <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
@@ -63,7 +82,7 @@
         <form action="{{ route('purchaser.bulk-buy.details') }}" method="GET" id="bulk-buy-form" class="pb-24">
             <input type="hidden" name="date" value="{{ $date }}">
             <input type="hidden" name="purchase_grade" value="{{ $purchaseGrade }}">
-            
+
             {{-- Professional Tabs switcher --}}
             <div class="mb-3 flex rounded-xl bg-slate-100 p-1 lg:rounded-2xl">
                 <button type="button" onclick="switchTab('pending')" id="tab-btn-pending" class="flex-1 rounded-lg py-2.5 text-center text-xs font-black uppercase tracking-wider transition-all bg-white text-slate-900 shadow-xs focus:outline-none">
@@ -86,35 +105,166 @@
                 {{-- Pending Demand Items --}}
                 <div id="pending-container" class="space-y-3">
                     @foreach ($pendingSummary as $summary)
-                        <label class="product-item block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:bg-slate-50 cursor-pointer"
-                               data-tab="pending"
-                               data-name="{{ $summary['product_name'] }}"
-                               data-sku="{{ $summary['sku'] }}"
-                               data-category="{{ $summary['category_name'] }}"
-                               data-frequent="{{ $summary['is_frequent'] ? 'true' : 'false' }}">
-                            <div class="flex items-center gap-3">
-                                <div class="flex items-center shrink-0">
+                        @php
+                            $hasNonAGrades = ! empty($summary['has_non_a_grades']) && ! empty($summary['grade_breakdown']);
+                            $isFrequent = ! empty($summary['is_frequent']);
+                        @endphp
+                        <div class="product-item block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:bg-slate-50/50 cursor-pointer"
+                             data-tab="pending"
+                             data-name="{{ $summary['product_name'] }}"
+                             data-sku="{{ $summary['sku'] }}"
+                             data-category="{{ $summary['category_name'] }}"
+                             data-frequent="{{ $isFrequent ? 'true' : 'false' }}">
+                            <div class="flex items-start gap-3">
+                                <div class="flex items-center shrink-0 pt-0.5">
                                     <input type="checkbox" name="product_ids[]" value="{{ $summary['product_id'] }}" class="product-checkbox h-5 w-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer">
                                 </div>
                                 <div class="min-w-0 flex-1">
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <h3 class="min-w-0 break-words font-black text-slate-900 text-sm">{{ $summary['product_name'] }}</h3>
-                                        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">{{ $summary['category_name'] ?: 'Other' }}</span>
-                                        @if (! empty($summary['is_addon']))
-                                            <span class="rounded-full bg-teal-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-teal-700 font-bold border border-teal-200">ADD-ON</span>
-                                        @endif
-                                        @if ($summary['draft_qty'] > 0)
-                                            <span class="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black text-amber-700">In Cart: {{ number_format($summary['draft_qty'], 1) }} {{ $summary['unit'] }}</span>
-                                        @endif
+                                    <div class="flex flex-wrap items-center justify-between gap-2">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <h3 class="min-w-0 break-words font-black text-slate-900 text-sm">{{ $summary['product_name'] }}</h3>
+                                            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">{{ $summary['category_name'] ?: 'Other' }}</span>
+                                            @if ($hasNonAGrades)
+                                                <span class="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-700 border border-amber-200/60">Multi-grade</span>
+                                            @endif
+                                            @if (! empty($summary['is_addon']))
+                                                <span class="rounded-full bg-teal-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-teal-700 font-bold border border-teal-200">ADD-ON</span>
+                                            @endif
+                                            @if ($summary['draft_qty'] > 0)
+                                                <span class="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black text-amber-700">In Cart: {{ number_format($summary['draft_qty'], 1) }} {{ $summary['unit'] }}</span>
+                                            @endif
+                                        </div>
+                                        <div class="flex items-center gap-2.5">
+                                            @if ($hasNonAGrades)
+                                                <div class="text-xs font-bold text-slate-500">
+                                                    Total Approved: <span class="text-slate-900 font-black">{{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}</span>
+                                                </div>
+                                                <button type="button"
+                                                        onclick="event.stopPropagation(); openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', {{ $summary['remaining_qty'] }}, {{ $summary['draft_qty'] }}, '{{ $summary['unit'] === 'kg' ? '0.5' : '1' }}', '', 'mixed', 'MIXED')"
+                                                        class="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-indigo-600 px-2.5 text-[10px] font-black text-white hover:bg-indigo-500 shadow-xs transition-colors cursor-pointer">
+                                                    Buy Mixed
+                                                </button>
+                                            @endif
+                                        </div>
                                     </div>
-                                    <div class="mt-2 flex items-center gap-4 text-xs font-semibold text-slate-500">
-                                        <span>Need: {{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}</span>
-                                        <span>Bought: {{ number_format($summary['bought_qty'], 1) }}</span>
-                                        <span class="text-teal-600 font-bold">Left: {{ number_format($summary['remaining_qty'], 1) }}</span>
+
+                                    {{-- Prominent Stock --}}
+                                    <div class="mt-1 text-xs font-black text-slate-900">
+                                        Stock: <span class="font-black text-teal-700">{{ number_format($summary['warehouse_balance'] ?? 0, 1) }} kg</span>
                                     </div>
+
+                                    @if ($hasNonAGrades)
+                                        <div class="mt-1 flex items-center justify-between gap-4 text-xs font-semibold text-slate-500">
+                                            <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+                                                <span>Need: {{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}</span>
+                                                <span>Bought: {{ number_format($summary['bought_qty'], 1) }}</span>
+                                                <span class="text-teal-600 font-bold">Left: {{ number_format($summary['remaining_qty'], 1) }}</span>
+                                            </div>
+                                        </div>
+
+                                        {{-- Multi-grade breakdown table --}}
+                                        <div class="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/70">
+                                            <table class="w-full text-left text-xs">
+                                                <thead class="border-b border-slate-200 bg-slate-100/80 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                                    <tr>
+                                                        <th class="px-3 py-2">Quality Grade</th>
+                                                        <th class="px-3 py-2 text-right">Approved</th>
+                                                        <th class="px-3 py-2 text-right">Purchased</th>
+                                                        <th class="px-3 py-2 text-right">Remaining</th>
+                                                        <th class="px-3 py-2 text-right">Whse Stock</th>
+                                                        <th class="px-3 py-2 text-right">Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-slate-200/70 bg-white">
+                                                    @foreach ($summary['grade_breakdown'] as $gb)
+                                                        @php
+                                                            $gradeBadgeClass = match($gb['grade']) {
+                                                                'A' => 'bg-emerald-100 text-emerald-800 border-emerald-200',
+                                                                'B' => 'bg-amber-100 text-amber-800 border-amber-200',
+                                                                'C' => 'bg-indigo-100 text-indigo-800 border-indigo-200',
+                                                                default => 'bg-slate-100 text-slate-800 border-slate-200',
+                                                            };
+                                                        @endphp
+                                                        <tr class="hover:bg-slate-50/70 transition-colors">
+                                                            <td class="px-3 py-2 font-black text-slate-900">
+                                                                <span class="inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider {{ $gradeBadgeClass }}">
+                                                                    Grade {{ $gb['grade'] }}
+                                                                </span>
+                                                            </td>
+                                                            <td class="px-3 py-2 text-right font-semibold text-slate-700">
+                                                                {{ number_format($gb['approved_qty'], 1) }} {{ $summary['unit'] }}
+                                                            </td>
+                                                            <td class="px-3 py-2 text-right font-semibold text-slate-700">
+                                                                {{ number_format($gb['bought_qty'], 1) }} {{ $summary['unit'] }}
+                                                            </td>
+                                                            <td class="px-3 py-2 text-right font-black {{ $gb['remaining_qty'] > 0 ? 'text-teal-700' : 'text-slate-400' }}">
+                                                                {{ number_format($gb['remaining_qty'], 1) }} {{ $summary['unit'] }}
+                                                            </td>
+                                                            <td class="px-3 py-2 text-right font-black text-slate-800">
+                                                                {{ number_format($gb['warehouse_balance'] ?? 0, 1) }} kg
+                                                            </td>
+                                                            <td class="px-3 py-2 text-right">
+                                                                @if ($gb['remaining_qty'] > 0)
+                                                                    <button type="button"
+                                                                            onclick="event.stopPropagation(); openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', {{ $gb['remaining_qty'] }}, {{ $gb['draft_qty'] }}, '{{ $summary['unit'] === 'kg' ? '0.5' : '1' }}', '', 'shop_order', '{{ $gb['grade'] }}')"
+                                                                            class="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-teal-600 px-2.5 text-[10px] font-black text-white hover:bg-teal-500 shadow-xs transition-colors cursor-pointer">
+                                                                        Buy {{ $gb['grade'] }}
+                                                                    </button>
+                                                                @else
+                                                                    <span class="inline-flex h-7 items-center justify-center rounded-lg bg-slate-100 px-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                                                        Done
+                                                                    </span>
+                                                                @endif
+                                                            </td>
+                                                        </tr>
+                                                    @endforeach
+                                                    <tr class="bg-indigo-50/40 border-t border-indigo-100/80 hover:bg-indigo-50/70 transition-colors">
+                                                        <td class="px-3 py-2 font-black text-indigo-950">
+                                                            <span class="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-indigo-800">
+                                                                Mixed Lot
+                                                            </span>
+                                                        </td>
+                                                        <td colspan="2" class="px-3 py-2 text-[11px] font-semibold text-indigo-700">
+                                                            Ungraded purchase (warehouse physical sorting into A/B/C)
+                                                        </td>
+                                                        <td class="px-3 py-2 text-right font-black text-indigo-900 text-xs" colspan="2">
+                                                            @if (($summary['unsorted_warehouse_balance'] ?? 0) > 0)
+                                                                Unsorted: {{ number_format($summary['unsorted_warehouse_balance'], 1) }} kg
+                                                            @else
+                                                                -
+                                                            @endif
+                                                        </td>
+                                                        <td class="px-3 py-2 text-right">
+                                                            <button type="button"
+                                                                    onclick="event.stopPropagation(); openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', {{ $summary['remaining_qty'] }}, {{ $summary['draft_qty'] }}, '{{ $summary['unit'] === 'kg' ? '0.5' : '1' }}', '', 'mixed', 'MIXED')"
+                                                                    class="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-indigo-600 px-2.5 text-[10px] font-black text-white hover:bg-indigo-500 shadow-xs transition-colors cursor-pointer">
+                                                                Buy Mixed
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    @else
+                                        {{-- Compact single grade layout --}}
+                                        <div class="mt-1 flex items-center justify-between gap-4 text-xs font-semibold text-slate-500">
+                                            <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+                                                <span>Need: {{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}</span>
+                                                <span>Bought: {{ number_format($summary['bought_qty'], 1) }}</span>
+                                                <span class="text-teal-600 font-bold">Left: {{ number_format($summary['remaining_qty'], 1) }}</span>
+                                            </div>
+                                            @if ($summary['remaining_qty'] > 0)
+                                                <button type="button"
+                                                        onclick="event.stopPropagation(); openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', {{ $summary['remaining_qty'] }}, {{ $summary['draft_qty'] }}, '{{ $summary['unit'] === 'kg' ? '0.5' : '1' }}', '', 'shop_order', '{{ $purchaseGrade === 'ALL' ? 'A' : $purchaseGrade }}')"
+                                                        class="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-teal-600 px-2.5 text-[10px] font-black text-white hover:bg-teal-500 shadow-xs transition-colors cursor-pointer">
+                                                    Buy {{ $purchaseGrade === 'ALL' ? 'A' : $purchaseGrade }}
+                                                </button>
+                                            @endif
+                                        </div>
+                                    @endif
                                 </div>
                             </div>
-                        </label>
+                        </div>
                     @endforeach
                 </div>
 
@@ -124,7 +274,7 @@
                 {{-- Add-ons Product Picker Container (Lazy Loaded) --}}
                 <div id="addons-container" class="space-y-3 hidden">
                     <div id="addons-list" class="space-y-3"></div>
-                    
+
                     {{-- Skeleton / Loading indicator --}}
                     <div id="addons-loading" class="hidden py-8 text-center">
                         <div class="inline-flex items-center gap-2 text-sm font-bold text-slate-500">
@@ -144,7 +294,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <div id="no-results-msg" class="hidden rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm font-bold text-slate-500 lg:rounded-[2rem] lg:px-4 lg:py-12">
                 No products match the selected filters.
             </div>
@@ -330,7 +480,7 @@
             try {
                 const response = await fetch(`{{ route('purchaser.bulk-buy.product-search') }}?${params.toString()}`);
                 const result = await response.json();
-                
+
                 const products = Array.isArray(result) ? result : (result.data || []);
                 addonsCurrentPage = result.current_page || page;
                 addonsHasMore = Boolean(result.has_more);
@@ -585,7 +735,7 @@
                     const container = trigger.closest('.custom-select-container');
                     const optionsList = container.querySelector('.custom-select-options');
                     const arrow = trigger.querySelector('svg');
-                    
+
                     document.querySelectorAll('.custom-select-options').forEach(el => {
                         if (el !== optionsList) {
                             el.classList.add('hidden');
@@ -593,7 +743,7 @@
                             if (otherTrigger) otherTrigger.classList.remove('rotate-180');
                         }
                     });
-                    
+
                     optionsList.classList.toggle('hidden');
                     if (arrow) arrow.classList.toggle('rotate-180');
                     return;
@@ -605,12 +755,12 @@
                     const input = container.querySelector('#filter-select');
                     const label = container.querySelector('.custom-select-label');
                     const optionsList = container.querySelector('.custom-select-options');
-                    
+
                     const val = option.getAttribute('data-value');
-                    
+
                     input.value = val;
                     label.textContent = `Filter: ${val}`;
-                    
+
                     container.querySelectorAll('.custom-select-option').forEach(opt => {
                         const check = opt.querySelector('.checkmark');
                         if (opt === option) {
@@ -619,11 +769,11 @@
                             check.classList.add('hidden');
                         }
                     });
-                    
+
                     optionsList.classList.add('hidden');
                     const arrow = container.querySelector('.custom-select-trigger svg');
                     if (arrow) arrow.classList.remove('rotate-180');
-                    
+
                     if (window.filterItems) {
                         window.filterItems();
                     }
@@ -679,8 +829,8 @@
                 const category = filterSelect ? filterSelect.value : 'All';
                 let visibleCount = 0;
 
-                const targetItems = activeTab === 'fulfilled' 
-                    ? document.querySelectorAll('#fulfilled-container .product-item') 
+                const targetItems = activeTab === 'fulfilled'
+                    ? document.querySelectorAll('#fulfilled-container .product-item')
                     : staticItems;
 
                 targetItems.forEach(item => {
@@ -712,8 +862,8 @@
                     if (visibleCount === 0) {
                         noResultsMsg.classList.remove('hidden');
                         if (query === '' && category === 'All') {
-                            noResultsMsg.textContent = activeTab === 'fulfilled' 
-                                ? 'No fulfilled products for this date.' 
+                            noResultsMsg.textContent = activeTab === 'fulfilled'
+                                ? 'No fulfilled products for this date.'
                                 : 'No pending products for this date.';
                         } else {
                             noResultsMsg.textContent = 'No products match the selected filters.';
@@ -777,5 +927,330 @@
             updateAddonsSelectionCount();
             window.filterItems();
         });
+
+        // Add to Cart Modal Helpers
+        let currentProductUnit = 'kg';
+        let currentModalBasis = 'kg';
+        let currentPurchaseGrade = 'A';
+
+        function openAddToCartModal(productId, productName, productUnit, remainingQty, draftQty, step, draftPurchasers, purchaseSource = 'shop_order', purchaseGrade = 'A') {
+            document.getElementById('add-to-cart-product-id').value = productId;
+            document.getElementById('add-to-cart-purchase-source').value = purchaseSource;
+            document.getElementById('add-to-cart-purchase-grade').value = purchaseGrade;
+            currentPurchaseGrade = purchaseGrade || 'A';
+
+            let displayName = productName;
+            if (purchaseGrade) {
+                if (purchaseGrade === 'MIXED') {
+                    displayName += ' (Mixed Lot)';
+                } else {
+                    displayName += ` (Grade ${purchaseGrade})`;
+                }
+            }
+            document.getElementById('add-to-cart-product-name').textContent = displayName;
+            currentProductUnit = productUnit;
+
+            // Filter cart options by grade
+            const cartSelect = document.getElementById('add-to-cart-cart-id');
+            if (cartSelect) {
+                Array.from(cartSelect.options).forEach(opt => {
+                    if (!opt.value) {
+                        opt.hidden = false;
+                    } else {
+                        opt.hidden = opt.getAttribute('data-grade') !== purchaseGrade;
+                    }
+                });
+                cartSelect.value = '';
+            }
+
+            const basisContainer = document.getElementById('modal-basis-container');
+            if (productUnit === 'kg') {
+                basisContainer.classList.remove('hidden');
+            } else {
+                basisContainer.classList.add('hidden');
+            }
+
+            const inCartLabel = document.getElementById('add-to-cart-in-cart-label');
+            if (parseFloat(draftQty) > 0) {
+                let labelText = `${parseFloat(draftQty).toFixed(2)} ${productUnit} in cart`;
+                if (draftPurchasers) {
+                    labelText += ` (by ${draftPurchasers})`;
+                }
+                inCartLabel.textContent = `(${labelText})`;
+                inCartLabel.classList.remove('hidden');
+            } else {
+                inCartLabel.classList.add('hidden');
+            }
+
+            const defaultQty = Math.max(0, parseFloat(remainingQty) - parseFloat(draftQty || 0));
+            const qtyInput = document.getElementById('add-to-cart-quantity');
+            qtyInput.value = defaultQty > 0 ? defaultQty.toFixed(2) : parseFloat(step || 1).toFixed(2);
+            document.getElementById('add-to-cart-price').value = '';
+
+            setModalBasis('kg');
+
+            document.getElementById('add-to-cart-modal').classList.remove('hidden');
+            document.body.classList.add('overflow-hidden');
+            setTimeout(() => {
+                const targetFocus = currentPurchaseGrade === 'MIXED' ? document.getElementById('add-to-cart-price') : qtyInput;
+                if (targetFocus) targetFocus.focus();
+            }, 50);
+        }
+
+        function closeAddToCartModal() {
+            document.getElementById('add-to-cart-modal').classList.add('hidden');
+            document.body.classList.remove('overflow-hidden');
+        }
+
+        function setModalBasis(basis) {
+            currentModalBasis = basis;
+            const btnKg = document.getElementById('modal-basis-kg-btn');
+            const btnBox = document.getElementById('modal-basis-box-btn');
+            const qtyLabel = document.getElementById('add-to-cart-qty-label');
+            const priceLabel = document.getElementById('add-to-cart-price-label');
+            const calcLabel = document.getElementById('add-to-cart-calc-label');
+            const convContainer = document.getElementById('modal-conversion-container');
+            const qtyInput = document.getElementById('add-to-cart-quantity');
+            const priceInput = document.getElementById('add-to-cart-price');
+
+            const isMixed = currentPurchaseGrade === 'MIXED';
+
+            if (basis === 'box') {
+                btnKg.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50 cursor-pointer';
+                btnBox.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs cursor-pointer';
+                qtyLabel.textContent = 'Quantity (Boxes)';
+                convContainer.classList.remove('hidden');
+                qtyInput.step = 'any';
+                qtyInput.min = '0.01';
+
+                if (isMixed) {
+                    priceLabel.textContent = 'Total Amount (₹)';
+                    priceInput.placeholder = 'e.g. 3000';
+                    if (calcLabel) calcLabel.textContent = 'Calculated Rate (Per Box / kg)';
+                } else {
+                    priceLabel.textContent = 'Price (Per Box)';
+                    priceInput.placeholder = 'Price';
+                    if (calcLabel) calcLabel.textContent = 'Calculated Total';
+                }
+            } else {
+                btnBox.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50 cursor-pointer';
+                btnKg.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs cursor-pointer';
+                qtyLabel.textContent = `Quantity (${currentProductUnit})`;
+                convContainer.classList.add('hidden');
+                qtyInput.step = 'any';
+                qtyInput.min = '0.01';
+
+                if (isMixed) {
+                    priceLabel.textContent = 'Total Amount (₹)';
+                    priceInput.placeholder = 'e.g. 3000';
+                    if (calcLabel) calcLabel.textContent = `Calculated Price (Per ${currentProductUnit})`;
+                } else {
+                    priceLabel.textContent = `Price (Per ${currentProductUnit})`;
+                    priceInput.placeholder = 'Price';
+                    if (calcLabel) calcLabel.textContent = 'Calculated Total';
+                }
+            }
+            updateModalTotalPrice();
+        }
+
+        function updateModalTotalPrice() {
+            const qtyInput = document.getElementById('add-to-cart-quantity');
+            const priceInput = document.getElementById('add-to-cart-price');
+            const convInput = document.getElementById('add-to-cart-conversion');
+            const display = document.getElementById('add-to-cart-total-display');
+
+            if (!display) return;
+
+            const isMixed = currentPurchaseGrade === 'MIXED';
+
+            if (isMixed) {
+                const totalAmount = parseFloat(priceInput?.value) || 0;
+                const qty = parseFloat(qtyInput?.value) || 0;
+
+                if (currentModalBasis === 'box') {
+                    const boxes = qty;
+                    const kgPerBox = parseFloat(convInput?.value) || 1;
+                    const totalKg = boxes * kgPerBox;
+
+                    const ratePerBox = boxes > 0 ? (totalAmount / boxes) : 0;
+                    const ratePerKg = totalKg > 0 ? (totalAmount / totalKg) : 0;
+
+                    if (totalAmount > 0 && boxes > 0) {
+                        display.textContent = `₹ ${ratePerBox.toFixed(2)} / box  (₹ ${ratePerKg.toFixed(2)} / kg)`;
+                    } else {
+                        display.textContent = '₹ 0.00 / kg';
+                    }
+                } else {
+                    const ratePerUnit = qty > 0 ? (totalAmount / qty) : 0;
+                    if (totalAmount > 0 && qty > 0) {
+                        display.textContent = `₹ ${ratePerUnit.toFixed(2)} / ${currentProductUnit}`;
+                    } else {
+                        display.textContent = `₹ 0.00 / ${currentProductUnit}`;
+                    }
+                }
+            } else {
+                const quantity = parseFloat(qtyInput?.value) || 0;
+                const price = parseFloat(priceInput?.value) || 0;
+                const total = quantity * price;
+
+                display.textContent = '₹ ' + total.toLocaleString('en-IN', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                });
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const qtyEl = document.getElementById('add-to-cart-quantity');
+            const priceEl = document.getElementById('add-to-cart-price');
+            const convEl = document.getElementById('add-to-cart-conversion');
+            if (qtyEl) qtyEl.addEventListener('input', updateModalTotalPrice);
+            if (priceEl) priceEl.addEventListener('input', updateModalTotalPrice);
+            if (convEl) convEl.addEventListener('input', updateModalTotalPrice);
+
+            const modalForm = document.querySelector('#add-to-cart-modal form');
+            if (modalForm) {
+                modalForm.addEventListener('submit', (e) => {
+                    const totalEl = document.getElementById('add-to-cart-total-amount');
+                    const isMixed = currentPurchaseGrade === 'MIXED';
+
+                    if (isMixed) {
+                        const totalAmount = parseFloat(priceEl?.value) || 0;
+                        if (totalEl) {
+                            totalEl.value = totalAmount > 0 ? totalAmount.toFixed(2) : '';
+                        }
+
+                        if (currentProductUnit === 'kg' && currentModalBasis === 'box') {
+                            const boxes = parseFloat(qtyEl?.value) || 0;
+                            const kgPerBox = parseFloat(convEl?.value) || 1;
+                            const totalKg = boxes * kgPerBox;
+                            const ratePerKg = totalKg > 0 ? (totalAmount / totalKg) : 0;
+
+                            if (qtyEl) qtyEl.value = totalKg.toFixed(3);
+                            if (priceEl) priceEl.value = ratePerKg.toFixed(4);
+                        } else {
+                            const qty = parseFloat(qtyEl?.value) || 0;
+                            const ratePerUnit = qty > 0 ? (totalAmount / qty) : 0;
+
+                            if (priceEl) priceEl.value = ratePerUnit.toFixed(4);
+                        }
+                    } else {
+                        if (totalEl) totalEl.value = '';
+
+                        if (currentProductUnit === 'kg' && currentModalBasis === 'box') {
+                            const boxes = parseFloat(qtyEl?.value) || 0;
+                            const kgPerBox = parseFloat(convEl?.value) || 1;
+                            const pricePerBox = parseFloat(priceEl?.value) || 0;
+
+                            const submitQty = boxes * kgPerBox;
+                            const submitPrice = kgPerBox > 0 ? (pricePerBox / kgPerBox) : 0;
+
+                            if (qtyEl) qtyEl.value = submitQty.toFixed(3);
+                            if (priceEl) priceEl.value = submitPrice.toFixed(4);
+                        }
+                    }
+                });
+            }
+        });
     </script>
+
+    {{-- Add to Cart Modal --}}
+    <div id="add-to-cart-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs hidden" onclick="if(event.target === this) closeAddToCartModal()">
+        <div class="relative w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-xl flex flex-col">
+            {{-- Header --}}
+            <div class="flex items-center justify-between pb-2 border-b border-slate-100 mb-3">
+                <div class="min-w-0 flex-1">
+                    <h3 class="text-sm font-black text-slate-950 truncate" id="add-to-cart-product-name">Product Name</h3>
+                    <p class="text-[10px] font-semibold text-slate-500 mt-0.5 flex flex-wrap items-center gap-1">
+                        <span>Add to draft cart</span>
+                        <span id="add-to-cart-in-cart-label" class="text-amber-600 font-bold hidden"></span>
+                    </p>
+                </div>
+                <button type="button" onclick="closeAddToCartModal()" class="text-slate-400 hover:text-slate-600 focus:outline-none transition-colors">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <form action="{{ route('purchaser.cart-items.store') }}" method="POST" class="space-y-3">
+                @csrf
+                <input type="hidden" name="business_date" value="{{ $date }}">
+                <input type="hidden" id="add-to-cart-product-id" name="product_id" value="">
+                <input type="hidden" id="add-to-cart-purchase-source" name="purchase_source" value="shop_order">
+                <input type="hidden" id="add-to-cart-total-amount" name="total_amount" value="">
+                <input type="hidden" name="return_to" value="bulk-buy">
+                <input type="hidden" name="return_grade" value="{{ $purchaseGrade }}">
+                <input id="add-to-cart-purchase-grade" type="hidden" name="purchase_grade" value="{{ $purchaseGrade === 'ALL' ? 'A' : $purchaseGrade }}">
+
+                {{-- Target Cart / Vendor Selector --}}
+                <div class="space-y-1">
+                    <label for="add-to-cart-cart-id" class="block text-[9px] font-black uppercase tracking-wider text-slate-500">
+                        Target Cart / Vendor
+                    </label>
+                    <select name="cart_id" id="add-to-cart-cart-id" class="w-full h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-955 focus:border-teal-500 focus:bg-white focus:outline-none">
+                        <option value="">New Cart (Automatic)</option>
+                        @foreach ($draftCarts as $cart)
+                            <option value="{{ $cart->id }}" data-grade="{{ $cart->purchase_grade }}">
+                                {{ $cart->cart_number }} ({{ $cart->purchase_grade === 'MIXED' ? 'Mixed Lot' : 'Grade ' . $cart->purchase_grade }}){{ $cart->supplier ? ' - ' . $cart->supplier->name : '' }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+
+                {{-- Price Basis Selector --}}
+                <div id="modal-basis-container" class="space-y-1 hidden">
+                    <label class="block text-[9px] font-black uppercase tracking-wider text-slate-500">Price Basis</label>
+                    <div class="flex items-center gap-1 rounded-lg bg-slate-100 p-0.5 w-max">
+                        <button type="button" id="modal-basis-kg-btn" onclick="setModalBasis('kg')" class="rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs">
+                            Per Kg
+                        </button>
+                        <button type="button" id="modal-basis-box-btn" onclick="setModalBasis('box')" class="rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50">
+                            Per Box
+                        </button>
+                    </div>
+                </div>
+
+                {{-- Quantity input --}}
+                <div class="space-y-1">
+                    <label for="add-to-cart-quantity" class="block text-[9px] font-black uppercase tracking-wider text-slate-500">
+                        <span id="add-to-cart-qty-label">Quantity (kg)</span> <span class="text-rose-500">*</span>
+                    </label>
+                    <input type="number" step="0.01" min="0.01" id="add-to-cart-quantity" name="quantity" required class="w-full h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-955 focus:border-teal-500 focus:bg-white focus:outline-none">
+                </div>
+
+                {{-- Box Conversion input --}}
+                <div id="modal-conversion-container" class="space-y-1 hidden">
+                    <label for="add-to-cart-conversion" class="block text-[9px] font-black uppercase tracking-wider text-slate-500">
+                        kg/Box <span class="text-rose-500">*</span>
+                    </label>
+                    <input type="number" step="0.1" min="0.1" id="add-to-cart-conversion" value="15" class="w-full h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-955 focus:border-teal-500 focus:bg-white focus:outline-none">
+                </div>
+
+                {{-- Price input --}}
+                <div class="space-y-1">
+                    <label for="add-to-cart-price" class="block text-[9px] font-black uppercase tracking-wider text-slate-500">
+                        <span id="add-to-cart-price-label">Price (Per kg)</span>
+                    </label>
+                    <input type="number" step="0.01" min="0.01" id="add-to-cart-price" name="unit_price" class="w-full h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-955 focus:border-teal-500 focus:bg-white focus:outline-none" placeholder="Price">
+                </div>
+
+                {{-- Calculated Total --}}
+                <div class="space-y-1">
+                    <label class="block text-[9px] font-black uppercase tracking-wider text-slate-500">
+                        <span id="add-to-cart-calc-label">Calculated Total</span>
+                    </label>
+                    <div id="add-to-cart-total-display" class="flex h-8 w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-100 px-2.5 text-xs font-bold text-slate-700">
+                        ₹ 0.00
+                    </div>
+                </div>
+
+                <div class="pt-1">
+                    <button type="submit" class="w-full h-9 rounded-lg bg-teal-600 text-xs font-black text-white hover:bg-teal-500 shadow-sm transition-colors cursor-pointer">
+                        Add to Cart
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 </x-layouts.app>

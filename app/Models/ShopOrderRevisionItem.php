@@ -17,6 +17,7 @@ class ShopOrderRevisionItem extends Model
     protected $fillable = [
         'shop_order_revision_id',
         'product_id',
+        'product_grade',
         /**
          * Stores the previously *approved* quantity at the time the revision was created
          * (sourced from ShopOrderItem::approved_qty ?? requested_qty).
@@ -30,6 +31,7 @@ class ShopOrderRevisionItem extends Model
     ];
 
     protected $casts = [
+        'product_grade' => 'string',
         'old_requested_qty' => 'decimal:2',
         'new_requested_qty' => 'decimal:2',
         'delta_qty' => 'decimal:2',

@@ -27,7 +27,7 @@
                     <p class="text-[9px] font-black uppercase tracking-[0.18em] text-slate-500">Stage 4</p>
                     <h1 class="mt-0.5 text-lg font-black text-slate-950">Bill invoice</h1>
                     <p class="mt-0.5 text-xs font-semibold text-slate-600">{{ $cart->cart_number }} • {{ $supplier?->name ?: 'Draft Cart' }} • {{ $billDate->format('d M Y') }}</p>
-                    <span class="mt-2 inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase {{ ($cart->purchase_grade ?? 'A') === 'B' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800' }}">Grade {{ $cart->purchase_grade ?? 'A' }}</span>
+                    <span class="mt-2 inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase {{ ($cart->purchase_grade ?? 'A') === 'B' ? 'bg-blue-100 text-blue-800' : (($cart->purchase_grade ?? 'A') === 'MIXED' ? 'bg-indigo-100 text-indigo-800' : 'bg-emerald-100 text-emerald-800') }}">{{ ($cart->purchase_grade ?? 'A') === 'MIXED' ? 'Mixed Lot' : 'Grade ' . ($cart->purchase_grade ?? 'A') }}</span>
                 </div>
                 <div class="flex flex-wrap gap-1.5">
                     <a href="{{ route('purchaser.cart', ['date' => $date, 'cart' => $cart->id]) }}" class="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 px-3 text-xs font-black text-slate-700 hover:bg-slate-50">Back to Cart</a>
@@ -104,6 +104,10 @@
                     @if (($cart->purchase_grade ?? 'A') === 'B')
                         <div class="mb-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-blue-700">
                             Grade B Direct Purchase
+                        </div>
+                    @elseif (($cart->purchase_grade ?? 'A') === 'MIXED')
+                        <div class="mb-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-indigo-700">
+                            Mixed Lot Purchase (Warehouse Sorting Required)
                         </div>
                     @endif
 

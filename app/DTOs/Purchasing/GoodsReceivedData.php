@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace App\DTOs\Purchasing;
 
+use App\Enums\Inventory\ProductGrade;
 use Illuminate\Http\Request;
 
 final readonly class GoodsReceivedData
 {
     /**
-     * @param  array<int, array{purchase_order_item_id: ?int, product_id: int, received_qty: float, received_unit?: ?string}>  $items
+     * @param  array<int, array{purchase_order_item_id: ?int, product_id: int, received_qty: float, received_unit?: ?string, grade?: ?string, grading_mode?: ?string}>  $items
      * @param  array<int, array{advance_goods_received_id: int, advance_goods_received_item_id?: ?int, purchase_order_item_id?: ?int, product_id: int, matched_qty: float, unit?: ?string}>  $advanceMatches
      */
     public function __construct(
@@ -29,6 +30,8 @@ final readonly class GoodsReceivedData
         public bool $autoAdvanceClear = false,
         public ?int $businessDayId = null,
         public ?string $carryForwardUuid = null,
+        public ?string $purchaseGrade = null,
+        public ?string $gradingMode = null,
     ) {}
 
     public static function fromRequest(Request $request): self
@@ -41,11 +44,16 @@ final readonly class GoodsReceivedData
                 ? (string) $item['received_unit']
                 : (isset($item['unit']) && $item['unit'] !== null && trim((string) $item['unit']) !== '' ? (string) $item['unit'] : null);
 
+            $rawGrade = isset($item['grade']) && filled($item['grade']) ? (string) $item['grade'] : null;
+            $rawGradingMode = isset($item['grading_mode']) && filled($item['grading_mode']) ? (string) $item['grading_mode'] : null;
+
             $items[] = [
                 'purchase_order_item_id' => isset($item['purchase_order_item_id']) && $item['purchase_order_item_id'] !== null ? (int) $item['purchase_order_item_id'] : null,
                 'product_id' => (int) ($item['product_id'] ?? 0),
                 'received_qty' => (float) ($item['received_qty'] ?? 0.000),
                 'received_unit' => $rawUnit,
+                'grade' => $rawGrade,
+                'grading_mode' => $rawGradingMode,
             ];
         }
 
@@ -74,6 +82,8 @@ final readonly class GoodsReceivedData
         $clientSubId = $request->filled('client_submission_id') ? (string) $request->input('client_submission_id') : null;
         $businessDayId = $request->filled('business_day_id') ? (int) $request->input('business_day_id') : null;
         $carryForwardUuid = $request->filled('carry_forward_uuid') ? (string) $request->input('carry_forward_uuid') : null;
+        $rawPurchaseGrade = $request->filled('purchase_grade') ? (string) $request->input('purchase_grade') : ($request->filled('grade') ? (string) $request->input('grade') : null);
+        $rawGradingMode = $request->filled('grading_mode') ? (string) $request->input('grading_mode') : null;
 
         return new self(
             purchaseOrderId: $poId,
@@ -91,6 +101,8 @@ final readonly class GoodsReceivedData
             receiptType: $request->filled('receipt_type') ? (string) $request->input('receipt_type') : null,
             businessDayId: $businessDayId,
             carryForwardUuid: $carryForwardUuid,
+            purchaseGrade: $rawPurchaseGrade,
+            gradingMode: $rawGradingMode,
         );
     }
 
@@ -103,14 +115,30 @@ final readonly class GoodsReceivedData
                 return $cmp;
             }
 
-            return ($a['purchase_order_item_id'] ?? 0) <=> ($b['purchase_order_item_id'] ?? 0);
+            $cmpPo = ($a['purchase_order_item_id'] ?? 0) <=> ($b['purchase_order_item_id'] ?? 0);
+            if ($cmpPo !== 0) {
+                return $cmpPo;
+            }
+
+            $gradeA = isset($a['grade']) && filled($a['grade']) ? (ProductGrade::tryResolve((string) $a['grade'])?->value ?? (string) $a['grade']) : '';
+            $gradeB = isset($b['grade']) && filled($b['grade']) ? (ProductGrade::tryResolve((string) $b['grade'])?->value ?? (string) $b['grade']) : '';
+
+            return $gradeA <=> $gradeB;
         });
 
-        $normalizedItems = array_map(fn (array $item): array => [
-            'product_id' => (int) ($item['product_id'] ?? 0),
-            'purchase_order_item_id' => isset($item['purchase_order_item_id']) && $item['purchase_order_item_id'] !== null ? (int) $item['purchase_order_item_id'] : null,
-            'received_qty' => number_format((float) ($item['received_qty'] ?? 0), 3, '.', ''),
-        ], $canonicalItems);
+        $normalizedItems = array_map(function (array $item): array {
+            $res = [
+                'product_id' => (int) ($item['product_id'] ?? 0),
+                'purchase_order_item_id' => isset($item['purchase_order_item_id']) && $item['purchase_order_item_id'] !== null ? (int) $item['purchase_order_item_id'] : null,
+                'grade' => isset($item['grade']) && filled($item['grade']) ? (ProductGrade::tryResolve((string) $item['grade'])?->value ?? (string) $item['grade']) : null,
+                'received_qty' => number_format((float) ($item['received_qty'] ?? 0), 3, '.', ''),
+            ];
+            if (isset($item['grading_mode']) && filled($item['grading_mode'])) {
+                $res['grading_mode'] = (string) $item['grading_mode'];
+            }
+
+            return $res;
+        }, $canonicalItems);
 
         $canonicalMatches = $this->advanceMatches;
         usort($canonicalMatches, function (array $a, array $b): int {

@@ -55,11 +55,23 @@
                     @php
                         $existingReceipt = $grnItems->get($item->id);
                         $receivedQty = old("items.{$index}.received_qty", $existingReceipt ? number_format((float) $existingReceipt->received_qty, 3, '.', '') : number_format((float) $item->quantity, 3, '.', ''));
+                        $existingGrade = $existingReceipt?->grade;
+                        $existingGradingMode = $existingReceipt?->grading_mode;
+                        $selectedGrade = old("items.{$index}.grade", $existingReceipt ? $existingGrade : 'U');
+
+                        if (old("items.{$index}.grading_mode") !== null) {
+                            $itemGradingMode = old("items.{$index}.grading_mode");
+                        } elseif ($existingReceipt) {
+                            $itemGradingMode = $existingGradingMode;
+                        } else {
+                            $itemGradingMode = 'sort_required';
+                        }
                     @endphp
                     <div class="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-4">
                         <input type="hidden" name="items[{{ $index }}][purchase_order_item_id]" value="{{ $item->id }}">
                         <input type="hidden" name="items[{{ $index }}][product_id]" value="{{ $item->product_id }}">
-                        <div class="grid gap-4 md:grid-cols-[minmax(0,2fr)_140px_160px] md:items-end">
+                        <input type="hidden" name="items[{{ $index }}][grading_mode]" id="items_{{ $index }}_grading_mode" value="{{ $itemGradingMode }}">
+                        <div class="grid gap-4 md:grid-cols-[minmax(0,2fr)_140px_160px_160px] md:items-end">
                             <div>
                                 <p class="font-bold text-slate-900">{{ $item->product->name }}</p>
                                 <p class="mt-1 text-xs text-slate-500">{{ $item->product->sku }}</p>
@@ -67,6 +79,15 @@
                             <div>
                                 <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Ordered Qty</p>
                                 <p class="mt-2 text-lg font-black text-slate-950">{{ number_format((float) $item->quantity, 3) }} kg</p>
+                            </div>
+                            <div>
+                                <label for="items_{{ $index }}_grade" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Quality Grade</label>
+                                <select id="items_{{ $index }}_grade" name="items[{{ $index }}][grade]" onchange="document.getElementById('items_{{ $index }}_grading_mode').value = (this.value === 'U' || this.value === 'MIXED') ? 'sort_required' : 'fixed_purchase_grade'" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs font-bold text-slate-900 focus:border-cyan-500 focus:outline-none">
+                                    <option value="U" @selected(in_array($selectedGrade, ['U', 'MIXED'], true))>Mixed / Unsegregated (Default)</option>
+                                    <option value="A" @selected($selectedGrade === 'A')>Grade A — Premium</option>
+                                    <option value="B" @selected($selectedGrade === 'B')>Grade B — Standard</option>
+                                    <option value="C" @selected($selectedGrade === 'C')>Grade C — Economy</option>
+                                </select>
                             </div>
                             <div>
                                 <label class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Received Qty</label>

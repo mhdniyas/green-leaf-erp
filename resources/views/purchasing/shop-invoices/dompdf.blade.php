@@ -304,12 +304,15 @@
                             $displayQty = rtrim(rtrim(number_format($qty, 4), '0'), '.');
                             $price = round((float) $item->unit_price, 2);
                             $productName = $item->product?->name ?? $item->product_name;
+                            $itemGrade = (string) ($item->product_grade ?? 'A');
+                            $showGrade = $itemGrade !== 'A' || $items->where('product_id', $item->product_id)->count() > 1;
+                            $displayProductName = $showGrade ? "{$productName} — Grade {$itemGrade}" : $productName;
                             $lineTotal = $lineAmount($item);
                         @endphp
                         <tr>
                             <td style="color: #64748b; font-weight: bold;">{{ $loop->iteration }}</td>
                             <td>
-                                <div class="product-name">{{ $productName }}</div>
+                                <div class="product-name">{{ $displayProductName }}</div>
                             </td>
                             <td class="text-right" style="font-weight: bold; color: #1e293b;">{{ $displayQty }}</td>
                             <td style="font-weight: bold; color: #475569;">{{ $formatUnit($item->unit) }}</td>

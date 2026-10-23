@@ -80,6 +80,8 @@
                                     <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase text-amber-800">Draft</span>
                                     @if (($cart->purchase_grade ?? 'A') === 'B')
                                         <span class="rounded-full bg-blue-100 px-2 py-0.5 text-[9px] font-black uppercase text-blue-800">Grade B</span>
+                                    @elseif (($cart->purchase_grade ?? 'A') === 'MIXED')
+                                        <span class="rounded-full bg-indigo-100 px-2 py-0.5 text-[9px] font-black uppercase text-indigo-800">Mixed Lot</span>
                                     @endif
                                 </div>
                                 <p class="mt-0.5 truncate text-[11px] font-semibold text-slate-500">
@@ -117,6 +119,8 @@
                                 </div>
                                 @if (($cart->purchase_grade ?? 'A') === 'B')
                                     <span class="inline-flex rounded-full bg-blue-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-blue-800">Grade B</span>
+                                @elseif (($cart->purchase_grade ?? 'A') === 'MIXED')
+                                    <span class="inline-flex rounded-full bg-indigo-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-indigo-800">Mixed Lot</span>
                                 @else
                                     <span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-800">Grade A</span>
                                 @endif

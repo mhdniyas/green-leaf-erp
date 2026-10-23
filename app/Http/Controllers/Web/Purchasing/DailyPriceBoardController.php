@@ -65,6 +65,7 @@ class DailyPriceBoardController extends Controller
         $currentApprovals = DailyPriceApproval::query()
             ->whereDate('business_date', $targetBusinessDate)
             ->whereIn('product_id', $pageProductIds)
+            ->where('grade', 'A')
             ->orderByRaw("CASE WHEN status = 'approved' THEN 0 ELSE 1 END")
             ->orderByDesc('id')
             ->get()
@@ -75,6 +76,7 @@ class DailyPriceBoardController extends Controller
             ->with('product.category')
             ->whereDate('business_date', '<', $targetBusinessDate)
             ->whereIn('product_id', $pageProductIds)
+            ->where('grade', 'A')
             ->where('status', 'approved')
             ->orderByDesc('business_date')
             ->get()
@@ -211,11 +213,13 @@ class DailyPriceBoardController extends Controller
 
                 $approval = DailyPriceApproval::query()
                     ->where('product_id', $productId)
+                    ->where('grade', 'A')
                     ->whereDate('business_date', $dateStr)
                     ->first();
 
                 $previousApproval = DailyPriceApproval::query()
                     ->where('product_id', $productId)
+                    ->where('grade', 'A')
                     ->whereDate('business_date', '<', $dateStr)
                     ->where('status', 'approved')
                     ->orderByDesc('business_date')
@@ -226,6 +230,7 @@ class DailyPriceBoardController extends Controller
                     $approval = new DailyPriceApproval([
                         'product_id' => $productId,
                         'business_date' => $dateStr,
+                        'grade' => 'A',
                         'purchase_price' => $purchasePrice ?? (float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price)),
                         'price_unit' => ProductUnit::normalizeUnit((string) ($product->unit ?: 'kg')),
                         'price_a' => $effectiveA,
@@ -343,49 +348,42 @@ class DailyPriceBoardController extends Controller
             return;
         }
 
-        $grades = [
-            'A' => 1.00,
-            'B' => 0.90,
-            'C' => 0.80,
-        ];
+        $gradeVal = 'A';
+        $calculatedPrice = round($priceGradeA, 2);
 
-        foreach ($grades as $gradeVal => $multiplier) {
-            $calculatedPrice = round($priceGradeA * $multiplier, 2);
+        $activePrice = DailyProductPrice::firstOrNew([
+            'product_id' => $product->id,
+            'shop_price_group_id' => $group->id,
+            'grade' => $gradeVal,
+        ]);
 
-            $activePrice = DailyProductPrice::firstOrNew([
+        $oldPrice = $activePrice->exists ? (float) $activePrice->selling_price : null;
+
+        $activePrice->fill([
+            'selling_price' => $calculatedPrice,
+            'price_source' => 'manual',
+            'margin_percent' => null,
+            'manual_override' => true,
+            'override_reason' => 'Purchaser updated daily price board',
+            'changed_by' => $userId,
+        ]);
+        $activePrice->save();
+
+        if ($oldPrice === null || abs($oldPrice - $calculatedPrice) > 0.0001) {
+            DailyProductPriceRevision::create([
+                'daily_product_price_id' => $activePrice->id,
                 'product_id' => $product->id,
                 'shop_price_group_id' => $group->id,
                 'grade' => $gradeVal,
-            ]);
-
-            $oldPrice = $activePrice->exists ? (float) $activePrice->selling_price : null;
-
-            $activePrice->fill([
-                'selling_price' => $calculatedPrice,
-                'price_source' => 'manual',
-                'margin_percent' => null,
-                'manual_override' => true,
-                'override_reason' => 'Purchaser updated daily price board',
+                'old_price' => $oldPrice,
+                'new_price' => $calculatedPrice,
+                'old_margin_percent' => null,
+                'new_margin_percent' => null,
+                'change_type' => 'manual',
+                'reason' => 'Purchaser updated daily price board',
                 'changed_by' => $userId,
+                'changed_at' => now(),
             ]);
-            $activePrice->save();
-
-            if ($oldPrice === null || abs($oldPrice - $calculatedPrice) > 0.0001) {
-                DailyProductPriceRevision::create([
-                    'daily_product_price_id' => $activePrice->id,
-                    'product_id' => $product->id,
-                    'shop_price_group_id' => $group->id,
-                    'grade' => $gradeVal,
-                    'old_price' => $oldPrice,
-                    'new_price' => $calculatedPrice,
-                    'old_margin_percent' => null,
-                    'new_margin_percent' => null,
-                    'change_type' => 'manual',
-                    'reason' => 'Purchaser updated daily price board',
-                    'changed_by' => $userId,
-                    'changed_at' => now(),
-                ]);
-            }
         }
     }
 

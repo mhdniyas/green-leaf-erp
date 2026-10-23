@@ -38,7 +38,9 @@ class PurchaseOrderController extends Controller
             'date_before' => ['nullable', 'date'],
             'period' => ['nullable', 'in:today,older,all'],
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'product_id' => ['nullable', 'integer', 'exists:products,id'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'fulfillment_type' => ['nullable', 'string', 'in:warehouse,shop,all'],
         ]);
 
         if (isset($validated['warehouse_id'])) {

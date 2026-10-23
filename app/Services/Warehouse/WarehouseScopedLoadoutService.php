@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Warehouse;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\ShopOrderLoadoutState;
@@ -309,8 +310,11 @@ class WarehouseScopedLoadoutService
             'sorting_status' => $item->sorting_status,
             'is_not_available' => $item->sorting_status === 'not_available',
             'note' => $item->loadout_discrepancy_note,
-            'available_stock' => $this->stockLedgerService->availableSortedStockForProduct($item->product_id, $warehouse->id)
-                + (float) ($item->loaded_qty ?? 0),
+            'available_stock' => $this->stockLedgerService->availableLoadoutStockBreakdown(
+                $item->product_id,
+                $warehouse->id,
+                ProductGrade::tryResolve($item->product_grade) ?? ProductGrade::GradeA
+            )['available_stock'] + (float) ($item->loaded_qty ?? 0),
         ];
     }
 

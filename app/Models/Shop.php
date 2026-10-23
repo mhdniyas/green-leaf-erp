@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
@@ -37,6 +38,7 @@ class Shop extends Model
         'contact_name',
         'contact_phone',
         'allow_grade_b_purchase',
+        'allowed_product_grades',
         'shop_purchasing_enabled',
         'allow_vendor_creation',
         'vendor_purchase_edit_window_value',
@@ -49,6 +51,7 @@ class Shop extends Model
             'approved_at' => 'datetime',
             'accounting_enabled' => 'boolean',
             'allow_grade_b_purchase' => 'boolean',
+            'allowed_product_grades' => 'array',
             'shop_purchasing_enabled' => 'boolean',
             'allow_vendor_creation' => 'boolean',
             'vendor_purchase_edit_window_value' => 'integer',
@@ -56,6 +59,44 @@ class Shop extends Model
             'reserve_amount' => 'decimal:2',
             'default_petty_cash_amount' => 'decimal:2',
         ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public function allowedProductGrades(): array
+    {
+        $grades = $this->allowed_product_grades;
+        if (is_array($grades) && $grades !== []) {
+            $orderableGradeValues = [
+                ProductGrade::GradeA->value,
+                ProductGrade::GradeB->value,
+                ProductGrade::GradeC->value,
+            ];
+
+            $valid = array_values(array_unique(array_filter(
+                array_map('strtoupper', array_map('trim', $grades)),
+                fn (string $g): bool => in_array($g, $orderableGradeValues, true)
+            )));
+
+            if (! in_array(ProductGrade::GradeA->value, $valid, true)) {
+                array_unshift($valid, ProductGrade::GradeA->value);
+            }
+
+            return $valid;
+        }
+
+        return [ProductGrade::GradeA->value];
+    }
+
+    public function canOrderGrade(string|ProductGrade $grade): bool
+    {
+        $val = $grade instanceof ProductGrade ? $grade->value : strtoupper(trim($grade));
+        if ($val === ProductGrade::GradeA->value) {
+            return true;
+        }
+
+        return in_array($val, $this->allowedProductGrades(), true);
     }
 
     protected static function booted(): void

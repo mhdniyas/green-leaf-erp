@@ -31,6 +31,7 @@
         <form method="POST" action="{{ route('admin.company-settings.update') }}" class="space-y-5">
             @csrf
             @method('PATCH')
+            <input type="hidden" name="active_tab" id="settings-active-tab" value="{{ request('tab', 'company') }}">
 
             <section class="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
                 <div class="flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-2" role="tablist" aria-label="Company settings sections">
@@ -146,6 +147,63 @@
                             @enderror
                         </div>
 
+                        <div class="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 space-y-3">
+                            <div>
+                                <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-800">
+                                    Grade Selling Price Default Percentages (Customer Group A)
+                                </p>
+                                <p class="mt-1 text-xs font-semibold text-slate-500">
+                                    Auto-calculated selling price percentage applied to Grade A prices when purchasers manage daily prices.
+                                </p>
+                            </div>
+                            <div class="grid gap-4 sm:grid-cols-2">
+                                <div>
+                                    <label for="grade_b_default_percentage" class="text-xs font-bold text-slate-700">
+                                        Grade B Default Percentage (%)
+                                    </label>
+                                    <div class="relative mt-1">
+                                        <input
+                                            id="grade_b_default_percentage"
+                                            type="number"
+                                            step="0.1"
+                                            min="1"
+                                            max="200"
+                                            name="grade_b_default_percentage"
+                                            value="{{ old('grade_b_default_percentage', $companyDetails['grade_b_default_percentage']) }}"
+                                            class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pr-8 text-sm font-bold text-slate-900 focus:border-teal-500 focus:outline-none"
+                                        >
+                                        <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-black text-slate-400">%</span>
+                                    </div>
+                                    <p class="mt-1 text-[11px] text-slate-400 font-semibold">Standard default: 90% of Grade A</p>
+                                    @error('grade_b_default_percentage')
+                                        <p class="mt-1 text-xs font-bold text-rose-600">{{ $message }}</p>
+                                    @enderror
+                                </div>
+                                <div>
+                                    <label for="grade_c_default_percentage" class="text-xs font-bold text-slate-700">
+                                        Grade C Default Percentage (%)
+                                    </label>
+                                    <div class="relative mt-1">
+                                        <input
+                                            id="grade_c_default_percentage"
+                                            type="number"
+                                            step="0.1"
+                                            min="1"
+                                            max="200"
+                                            name="grade_c_default_percentage"
+                                            value="{{ old('grade_c_default_percentage', $companyDetails['grade_c_default_percentage']) }}"
+                                            class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pr-8 text-sm font-bold text-slate-900 focus:border-teal-500 focus:outline-none"
+                                        >
+                                        <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-black text-slate-400">%</span>
+                                    </div>
+                                    <p class="mt-1 text-[11px] text-slate-400 font-semibold">Standard default: 80% of Grade A</p>
+                                    @error('grade_c_default_percentage')
+                                        <p class="mt-1 text-xs font-bold text-rose-600">{{ $message }}</p>
+                                    @enderror
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
                         <label class="flex cursor-pointer items-start gap-3">
                             <input type="hidden" name="allow_historical_invoice_repricing" value="0">
@@ -155,6 +213,31 @@
                                 <span class="mt-1 block text-xs font-semibold leading-5 text-slate-600">When enabled, unlocked invoices from past business dates can be repriced. Finalized invoices stay frozen.</span>
                             </span>
                         </label>
+                        </div>
+
+                        <div class="rounded-2xl border border-purple-200 bg-purple-50/70 p-4 sm:p-5">
+                            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <label class="flex cursor-pointer items-start gap-3 flex-1">
+                                    <input type="hidden" name="enable_multi_grade_ordering" value="0">
+                                    <input
+                                        id="enable_multi_grade_ordering"
+                                        type="checkbox"
+                                        name="enable_multi_grade_ordering"
+                                        value="1"
+                                        {{ old('enable_multi_grade_ordering', $companyDetails['enable_multi_grade_ordering']) ? 'checked' : '' }}
+                                        class="mt-1 h-5 w-5 rounded border-purple-300 text-purple-600 focus:ring-purple-500"
+                                    >
+                                    <div>
+                                        <span class="block text-sm font-black text-slate-900">Enable Multi-Grade Shop Ordering</span>
+                                        <span class="mt-1 block text-xs font-semibold leading-5 text-slate-600">
+                                            Allow selected shops to order products separately by Quality Grade A, B, and C. Only shops with the corresponding grade permissions can order additional grades.
+                                        </span>
+                                    </div>
+                                </label>
+                                <span class="inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-black {{ $companyDetails['enable_multi_grade_ordering'] ? 'bg-purple-100 text-purple-800 border border-purple-300' : 'bg-slate-100 text-slate-600 border border-slate-200' }}">
+                                    {{ $companyDetails['enable_multi_grade_ordering'] ? 'Active (ON)' : 'Disabled (OFF)' }}
+                                </span>
+                            </div>
                         </div>
                     </section>
 
@@ -465,22 +548,36 @@
     </div>
 
     <script>
+        const activeTabInput = document.getElementById('settings-active-tab');
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialTab = urlParams.get('tab') || window.location.hash.replace('#', '') || (activeTabInput ? activeTabInput.value : 'company');
+
+        function activateTab(selectedTab) {
+            document.querySelectorAll('.settings-tab').forEach((item) => {
+                const isSelected = item.dataset.settingsTab === selectedTab;
+                item.setAttribute('aria-selected', String(isSelected));
+                item.className = isSelected
+                    ? 'settings-tab shrink-0 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-black text-white'
+                    : 'settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white';
+            });
+
+            document.querySelectorAll('.settings-panel').forEach((panel) => {
+                panel.classList.toggle('hidden', panel.dataset.settingsPanel !== selectedTab);
+            });
+
+            if (activeTabInput) {
+                activeTabInput.value = selectedTab;
+            }
+        }
+
         document.querySelectorAll('.settings-tab').forEach((tab) => {
             tab.addEventListener('click', () => {
-                const selectedTab = tab.dataset.settingsTab;
-
-                document.querySelectorAll('.settings-tab').forEach((item) => {
-                    const isSelected = item === tab;
-                    item.setAttribute('aria-selected', String(isSelected));
-                    item.className = isSelected
-                        ? 'settings-tab shrink-0 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-black text-white'
-                        : 'settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white';
-                });
-
-                document.querySelectorAll('.settings-panel').forEach((panel) => {
-                    panel.classList.toggle('hidden', panel.dataset.settingsPanel !== selectedTab);
-                });
+                activateTab(tab.dataset.settingsTab);
             });
         });
+
+        if (initialTab && initialTab !== 'company') {
+            activateTab(initialTab);
+        }
     </script>
 </x-layouts.admin>

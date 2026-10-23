@@ -136,6 +136,14 @@ class ShopOrderItem extends Model
         return $this->hasMany(PurchaserCorrectionRequest::class);
     }
 
+    /**
+     * @return HasMany<StockMovement, $this>
+     */
+    public function stockMovements(): HasMany
+    {
+        return $this->hasMany(StockMovement::class, 'shop_order_item_id');
+    }
+
     public function warehouseWorkflowStage(): string
     {
         $order = $this->relationLoaded('order') ? $this->order : null;

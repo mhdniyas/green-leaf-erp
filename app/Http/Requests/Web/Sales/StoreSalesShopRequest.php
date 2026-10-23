@@ -23,6 +23,8 @@ class StoreSalesShopRequest extends FormRequest
             'warehouse_tag' => ['nullable', 'string', 'max:12', Rule::unique('shops', 'warehouse_tag')],
             'shop_price_group_id' => ['nullable', 'integer', 'exists:shop_price_groups,id'],
             'allow_grade_b_purchase' => ['sometimes', 'boolean'],
+            'allowed_product_grades' => ['sometimes', 'nullable', 'array'],
+            'allowed_product_grades.*' => ['string', Rule::in(['A', 'B', 'C'])],
             'shop_purchasing_enabled' => ['sometimes', 'boolean'],
             'destination_type' => ['required', 'string', 'in:client,direct'],
             'client_id' => ['nullable', 'integer', 'exists:clients,id'],
@@ -44,6 +46,19 @@ class StoreSalesShopRequest extends FormRequest
                     && ! $this->filled('client_name')
                 ) {
                     $validator->errors()->add('client_id', 'Select a client or enter a new client name.');
+                }
+
+                if ($this->has('allowed_product_grades')) {
+                    if (! $this->user()?->hasRole('admin')) {
+                        $validator->errors()->add('allowed_product_grades', 'Only administrators can configure allowed product grades.');
+                    }
+
+                    $grades = (array) $this->input('allowed_product_grades', []);
+                    foreach ($grades as $grade) {
+                        if (in_array(strtoupper((string) $grade), ['D', 'U', 'DAMAGE', 'UNSORTED'], true)) {
+                            $validator->errors()->add('allowed_product_grades', 'Damage and unsorted classifications cannot be configured as orderable grades.');
+                        }
+                    }
                 }
             },
         ];

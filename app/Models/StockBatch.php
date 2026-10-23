@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\Inventory\BatchStatus;
+use App\Enums\Inventory\StockMovementType;
 use Database\Factories\StockBatchFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -25,6 +26,7 @@ class StockBatch extends Model
         'warehouse_id',
         'goods_received_id',
         'goods_received_item_id',
+        'parent_batch_id',
         'purchase_grade',
         'grading_mode',
         'created_by',
@@ -51,6 +53,7 @@ class StockBatch extends Model
         'warehouse_id' => 'integer',
         'goods_received_id' => 'integer',
         'goods_received_item_id' => 'integer',
+        'parent_batch_id' => 'integer',
         'received_at' => 'date',
         'total_kg' => 'decimal:3',
         'cost_per_kg' => 'decimal:4',
@@ -117,6 +120,16 @@ class StockBatch extends Model
     public function advanceMatches(): HasMany
     {
         return $this->hasMany(AdvanceReceiveMatch::class, 'advance_stock_batch_id');
+    }
+
+    public function parentBatch(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'parent_batch_id');
+    }
+
+    public function segregatedBatches(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_batch_id');
     }
 
     // Scopes
@@ -215,6 +228,66 @@ class StockBatch extends Model
         $allocated = $this->allocated_qty;
 
         return max(0.0, (float) $this->total_kg - $wasted - $allocated);
+    }
+
+    /**
+     * Original batch quantity prior to any partial segregation.
+     */
+    public function getOriginalTotalKgAttribute(): float
+    {
+        if ($this->relationLoaded('segregatedBatches')) {
+            $segregatedBatches = $this->segregatedBatches;
+            if ($segregatedBatches->isEmpty()) {
+                return round((float) $this->total_kg, 3);
+            }
+
+            $segregatedQty = (float) $segregatedBatches->sum('total_kg');
+
+            return round((float) $this->total_kg + $segregatedQty, 3);
+        }
+
+        $segregatedBatchIds = $this->segregatedBatches()->pluck('id');
+        if ($segregatedBatchIds->isEmpty()) {
+            return round((float) $this->total_kg, 3);
+        }
+
+        $segregatedQty = (float) StockMovement::query()
+            ->whereIn('batch_id', $segregatedBatchIds)
+            ->where('type', StockMovementType::In->value)
+            ->sum('quantity');
+
+        if ($segregatedQty <= 0.0001) {
+            $segregatedQty = (float) $this->segregatedBatches()->sum('total_kg');
+        }
+
+        return round((float) $this->total_kg + $segregatedQty, 3);
+    }
+
+    /**
+     * Current physical available Mixed quantity unallocated and unconsumed.
+     */
+    public function getAvailableMixedQtyAttribute(): float
+    {
+        if ($this->warehouse_receive_pending || $this->status !== BatchStatus::Pending) {
+            return 0.0;
+        }
+
+        $writeOffQuantity = (float) $this->stockMovements()
+            ->whereIn('type', [
+                StockMovementType::Out->value,
+                StockMovementType::Sale->value,
+                StockMovementType::Wastage->value,
+                StockMovementType::Adjustment->value,
+            ])
+            ->sum('quantity');
+
+        $reversalQuantity = (float) $this->stockMovements()
+            ->where('type', StockMovementType::SaleReversal->value)
+            ->sum('quantity');
+
+        $netWriteOff = max(0.0, $writeOffQuantity - $reversalQuantity);
+
+        return round(max(0.0, (float) $this->remaining_qty - $netWriteOff), 3);
     }
 
     public function canBeSorted(): bool

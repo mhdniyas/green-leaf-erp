@@ -373,13 +373,13 @@
                 progressBar.style.width = `${Math.round((i / total) * 100)}%`;
                 logProcessing(displayName, orderNum);
 
-                // 2a. Fetch detail
-                let detail;
+                // 2. Load order via unified AutoLoadAllService
+                let loadResult;
                 try {
-                    detail = await apiGet(`/orders/${orderNum}`);
+                    loadResult = await apiPost(`/orders/${encodeURIComponent(orderNum)}/load`);
                 } catch (e) {
                     failed++;
-                    logFailed(displayName, 'Network error fetching details.', orderNum);
+                    logFailed(displayName, 'Network error loading order.', orderNum);
                     updateChips();
                     if (i < eligible.length - 1) await delay(delaySeconds);
                     continue;
@@ -387,70 +387,17 @@
 
                 if (cancelled) break;
 
-                if (!detail.success || !detail.product_groups) {
-                    failed++;
-                    logFailed(displayName, detail.message ?? 'Could not load order details.', orderNum);
-                    updateChips();
-                    if (i < eligible.length - 1) await delay(delaySeconds);
-                    continue;
-                }
-
-                // 2b. Build load-all payload from product_groups
-                const items        = {};
-                const itemUnitQtys = {};
-                let   hasAnything  = false;
-
-                for (const pg of detail.product_groups) {
-                    const balance = parseFloat(pg.total_balance ?? 0);
-                    if (balance <= 0.001) continue;  // already fully loaded
-                    const pid = pg.product_id;
-                    const approved = parseFloat(pg.total_approved ?? 0);
-                    if (isNaN(approved) || approved <= 0) continue;
-                    items[pid] = approved;
-                    if (pg.has_secondary_unit && pg.default_loaded_order_unit_qty != null) {
-                        const unitQty = parseFloat(pg.default_loaded_order_unit_qty ?? 0);
-                        if (!isNaN(unitQty) && unitQty > 0) {
-                            itemUnitQtys[pid] = unitQty;
-                        }
+                if (loadResult && loadResult.success) {
+                    if (loadResult.skipped) {
+                        skipped++;
+                        logSkipped(displayName, loadResult.message ?? 'Skipped (no pending items).', orderNum);
+                    } else {
+                        loaded++;
+                        logLoaded(displayName, orderNum);
                     }
-                    hasAnything = true;
-                }
-
-                if (!hasAnything) {
-                    skipped++;
-                    logSkipped(displayName, 'All items already loaded or no balance.', orderNum);
-                    updateChips();
-                    if (i < eligible.length - 1) await delay(delaySeconds);
-                    continue;
-                }
-
-                // 2c. Save
-                let saveResult;
-                try {
-                    saveResult = await apiPost(`/orders/${orderNum}/save`, {
-                        items,
-                        item_unit_qtys: itemUnitQtys,
-                    });
-                } catch (e) {
-                    failed++;
-                    logFailed(displayName, 'Network error saving loadout.', orderNum);
-                    updateChips();
-                    if (i < eligible.length - 1) await delay(delaySeconds);
-                    continue;
-                }
-
-                if (cancelled) break;
-
-                if (saveResult && saveResult.success) {
-                    loaded++;
-                    logLoaded(displayName, orderNum);
                 } else {
                     failed++;
-                    let errReason = saveResult?.message || 'Save failed.';
-                    if (saveResult?.errors && typeof saveResult.errors === 'object') {
-                        const firstErr = Object.values(saveResult.errors).flat()[0];
-                        if (firstErr) errReason = firstErr;
-                    }
+                    let errReason = loadResult?.message || 'Load All failed.';
                     logFailed(displayName, errReason, orderNum);
                 }
 

@@ -67,6 +67,7 @@
 
         <form action="{{ route('requisitions.update-request', $tomorrowOrder->order_number) }}" method="POST" class="mt-5 space-y-5" id="shop-owner-order-form">
             @csrf
+            <input type="hidden" name="_form_submission_start" value="1">
             
             <!-- Hidden master reason input to sync with drawers and fields -->
             <textarea name="reason" id="hidden-reason-input" class="hidden">{{ old('reason', $tomorrowOrder->state === 'update_requested' ? $tomorrowOrder->update_reason : '') }}</textarea>
@@ -100,6 +101,7 @@
                     Add Selected to Cart
                 </button>
             </div>
+            <input type="hidden" name="_form_submission_complete" value="1">
         </form>
     @elseif ($tomorrowOrder && $tomorrowOrder->state === 'approved' && $purchaseOrdersLockedForTomorrow)
         <div class="mt-5 rounded-3xl border border-rose-200 bg-rose-50 p-5">
@@ -122,6 +124,7 @@
 
         <form action="{{ $formAction }}" method="POST" class="mt-5 space-y-5" id="shop-owner-order-form">
             @csrf
+            <input type="hidden" name="_form_submission_start" value="1">
             @if ($isAdminDirectPurchase || $isAdminShopOrder)
                 <input type="hidden" name="business_date" value="{{ $tomorrowDate->format('Y-m-d') }}">
             @endif
@@ -146,6 +149,7 @@
                     {{ $pageSubmitLabel }}
                 </button>
             </div>
+            <input type="hidden" name="_form_submission_complete" value="1">
         </form>
     @endif
 </section>

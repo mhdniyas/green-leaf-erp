@@ -127,6 +127,9 @@
                         $finalQty = $finalQuantity($item);
                         $price = round((float) $item->unit_price, 2);
                         $productName = $item->product?->name ?? $item->product_name;
+                        $itemGrade = (string) ($item->product_grade ?? 'A');
+                        $showGrade = $itemGrade !== 'A' || $items->where('product_id', $item->product_id)->count() > 1;
+                        $displayProductName = $showGrade ? "{$productName} — Grade {$itemGrade}" : $productName;
                         $lineTotal = $lineAmount($item);
                         $itemChange = $itemChanges->get((int) $item->id);
                         $itemChangeLines = $itemChange ? $changeLines($itemChange) : [];
@@ -141,7 +144,7 @@
                             data-order-item-id="{{ $item->shop_order_item_id }}"
                             data-action="{{ route('purchasing.shop-invoices.items.update', [$invoice, $item]) }}"
                             data-product-id="{{ $item->product_id }}"
-                            data-product-name="{{ $productName }}"
+                            data-product-name="{{ $displayProductName }}"
                             data-unit="{{ $formatUnit($item->unit) }}"
                             data-price-unit="{{ $item->price_unit ?: $item->unit }}"
                             data-original-qty="{{ $originalQty }}"
@@ -153,10 +156,10 @@
                         >
                             <span class="hidden text-xs font-bold text-slate-500 sm:block">{{ $loop->iteration }}</span>
                             <span class="min-w-0">
-                                <span class="block truncate text-sm font-black text-slate-950">{{ $productName }}</span>
+                                <span class="block truncate text-sm font-black text-slate-950">{{ $displayProductName }}</span>
                                 <span class="mt-1 block text-xs font-semibold text-slate-500 sm:hidden">#{{ $loop->iteration }} · {{ $displayQty }} {{ $formatUnit($item->unit) }} at {{ $money($price) }}</span>
                                 @if ($itemChangeLines !== [])
-                                    <span class="mt-1 block text-xs font-bold text-amber-700" data-change-product="{{ $productName }}">Changed: {{ implode(' | ', $itemChangeLines) }}</span>
+                                    <span class="mt-1 block text-xs font-bold text-amber-700" data-change-product="{{ $displayProductName }}">Changed: {{ implode(' | ', $itemChangeLines) }}</span>
                                 @endif
                             </span>
                             <span class="text-right text-sm font-black text-slate-950 sm:hidden" data-row-amount>{{ $money($lineTotal) }}</span>
@@ -169,10 +172,10 @@
                         <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 py-3 text-left sm:grid-cols-[2.5rem_minmax(0,1fr)_5rem_4rem_6rem_7rem] sm:gap-3 print:grid-cols-[2.5rem_minmax(0,1fr)_5rem_4rem_6rem_7rem] print:gap-3">
                             <span class="hidden text-xs font-bold text-slate-500 sm:block print:block">{{ $loop->iteration }}</span>
                             <span class="min-w-0">
-                                <span class="block truncate text-sm font-black text-slate-950">{{ $productName }}</span>
+                                <span class="block truncate text-sm font-black text-slate-950">{{ $displayProductName }}</span>
                                 <span class="mt-1 block text-xs font-semibold text-slate-500 sm:hidden print:hidden">#{{ $loop->iteration }} · {{ $displayQty }} {{ $formatUnit($item->unit) }} at {{ $money($price) }}</span>
                                 @if ($itemChangeLines !== [])
-                                    <span class="mt-1 block text-xs font-bold text-amber-700" data-change-product="{{ $productName }}">Changed: {{ implode(' | ', $itemChangeLines) }}</span>
+                                    <span class="mt-1 block text-xs font-bold text-amber-700" data-change-product="{{ $displayProductName }}">Changed: {{ implode(' | ', $itemChangeLines) }}</span>
                                 @endif
                             </span>
                             <span class="text-right text-sm font-black text-slate-950 sm:hidden print:hidden">{{ $money($lineTotal) }}</span>

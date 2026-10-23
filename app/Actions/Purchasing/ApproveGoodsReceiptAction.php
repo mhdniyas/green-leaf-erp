@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Purchasing;
 
 use App\Enums\Inventory\BatchStatus;
+use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Purchasing\POStatus;
 use App\Models\AdvanceReceiveMatch;
@@ -37,6 +38,10 @@ class ApproveGoodsReceiptAction
      */
     public function executeAndConfirmReceive(GoodsReceived $grn, int $userId, ?int $targetWarehouseId = null): GoodsReceived
     {
+        if ($grn->isDirectShopPurchase()) {
+            throw new \InvalidArgumentException("Direct shop purchase {$grn->grn_number} cannot be received into central warehouse inventory.");
+        }
+
         return DB::transaction(function () use ($grn, $userId, $targetWarehouseId): GoodsReceived {
             $approvedGrn = $grn->status === 'approved' ? $grn : $this->execute($grn, $userId);
             $approvedGrn->loadMissing('items');
@@ -59,7 +64,7 @@ class ApproveGoodsReceiptAction
                 ->each(function (StockBatch $batch) use ($approvedGrn, $targetWarehouse, $userId): void {
                     $grnItem = $batch->goods_received_item_id
                         ? $approvedGrn->items->firstWhere('id', $batch->goods_received_item_id)
-                        : $approvedGrn->items->firstWhere('product_id', $batch->product_id);
+                        : $approvedGrn->items->first(fn ($it) => (int) $it->product_id === (int) $batch->product_id && (ProductGrade::tryResolve($it->grade)?->value ?? $it->grade ?? 'U') === (ProductGrade::tryResolve($batch->purchase_grade)?->value ?? $batch->purchase_grade ?? 'U'));
 
                     $itemWarehouseId = $targetWarehouse ?? $batch->warehouse_id ?? $approvedGrn->warehouse_id ?? Warehouse::query()->value('id');
                     $itemWarehouseId = $itemWarehouseId !== null ? (int) $itemWarehouseId : null;
@@ -69,9 +74,10 @@ class ApproveGoodsReceiptAction
                         ->where('bill_goods_received_item_id', $grnItem->id)
                         ->sum(DB::raw('COALESCE(base_qty, matched_qty, 0)')) : 0.0;
 
+                    $itemReceivedQty = $grnItem ? (float) $grnItem->received_qty : (float) $batch->total_kg;
                     $newTotalKg = $alreadyMatchedBase > 0
-                        ? max(0.0, round((float) $batch->total_kg - $alreadyMatchedBase, 3))
-                        : (float) $batch->total_kg;
+                        ? max(0.0, round($itemReceivedQty - $alreadyMatchedBase, 3))
+                        : $itemReceivedQty;
 
                     $batch->update([
                         'warehouse_id' => $itemWarehouseId,
@@ -119,6 +125,10 @@ class ApproveGoodsReceiptAction
      */
     public function execute(GoodsReceived $grn, int $userId): GoodsReceived
     {
+        if ($grn->isDirectShopPurchase()) {
+            throw new \InvalidArgumentException("Direct shop purchase {$grn->grn_number} cannot be received into central warehouse inventory.");
+        }
+
         return DB::transaction(function () use ($grn, $userId): GoodsReceived {
             $this->clearExistingArtifacts($grn);
 
@@ -157,15 +167,21 @@ class ApproveGoodsReceiptAction
                 }
 
                 $isWarehouseAdvance = $grn->receipt_type === 'warehouse_advance';
+                $rawItemGrade = $item->grade ?? $grn->purchase_grade ?? 'U';
+                $resolvedGrade = ProductGrade::tryResolve((string) $rawItemGrade)?->value ?? 'U';
+                $isDirectGraded = $isWarehouseAdvance
+                    ? in_array($resolvedGrade, ['A', 'B', 'C'], true)
+                    : in_array($resolvedGrade, ['B', 'C'], true);
+                $gradingMode = $item->grading_mode ?? ($isDirectGraded ? 'fixed_purchase_grade' : 'sort_required');
 
                 // Create StockBatch in inventory
-                $this->stockBatchRepository->create([
+                $batch = $this->stockBatchRepository->create([
                     'product_id' => $item->product_id,
                     'warehouse_id' => $grn->warehouse_id,
                     'goods_received_id' => $grn->id,
                     'goods_received_item_id' => $item->id,
-                    'purchase_grade' => $item->grade ?? $grn->purchase_grade ?? 'A',
-                    'grading_mode' => ($item->grade ?? $grn->purchase_grade ?? 'A') === 'B' ? 'fixed_purchase_grade' : 'sort_required',
+                    'purchase_grade' => $item->grade ?? $grn->purchase_grade ?? $resolvedGrade,
+                    'grading_mode' => $gradingMode,
                     'created_by' => $userId,
                     'reference' => $this->stockBatchRepository->generateReference(),
                     'received_at' => $grn->received_at,
@@ -179,6 +195,29 @@ class ApproveGoodsReceiptAction
                     'warehouse_confirmed_by' => $isWarehouseAdvance ? $userId : null,
                     'notes' => "Auto-created from GRN: {$grn->grn_number}",
                 ]);
+
+                if ($isWarehouseAdvance && $gradingMode === 'fixed_purchase_grade' && $receivedQty > 0) {
+                    StockMovement::query()->firstOrCreate(
+                        [
+                            'batch_id' => $batch->id,
+                            'type' => StockMovementType::In->value,
+                            'grade' => $batch->purchase_grade,
+                        ],
+                        [
+                            'product_id' => $batch->product_id,
+                            'warehouse_id' => $grn->warehouse_id,
+                            'created_by' => $userId,
+                            'quantity' => $receivedQty,
+                            'cost_per_unit' => $batch->cost_per_kg,
+                            'notes' => "Fixed Grade {$batch->purchase_grade} advance receipt from {$grn->grn_number}",
+                        ],
+                    );
+
+                    $batch->update([
+                        'status' => BatchStatus::Sorted,
+                        'sorted_at' => now(),
+                    ]);
+                }
             }
 
             $gradeAProductIds = $grn->items
@@ -299,13 +338,21 @@ class ApproveGoodsReceiptAction
 
             $costPerKg = $this->calculateWeightedAvgPrice($item->product_id, $date, $item);
 
+            $isWarehouseAdvance = $grn->receipt_type === 'warehouse_advance';
+            $rawItemGrade = $item->grade ?? $grn->purchase_grade ?? 'U';
+            $resolvedGrade = ProductGrade::tryResolve((string) $rawItemGrade)?->value ?? 'U';
+            $isDirectGraded = $isWarehouseAdvance
+                ? in_array($resolvedGrade, ['A', 'B', 'C'], true)
+                : in_array($resolvedGrade, ['B', 'C'], true);
+            $gradingMode = $item->grading_mode ?? ($isDirectGraded ? 'fixed_purchase_grade' : 'sort_required');
+
             $this->stockBatchRepository->create([
                 'product_id' => $item->product_id,
                 'warehouse_id' => $warehouseId,
                 'goods_received_id' => $grn->id,
                 'goods_received_item_id' => $item->id,
-                'purchase_grade' => $item->grade ?? $grn->purchase_grade ?? 'A',
-                'grading_mode' => ($item->grade ?? $grn->purchase_grade ?? 'A') === 'B' ? 'fixed_purchase_grade' : 'sort_required',
+                'purchase_grade' => $item->grade ?? $grn->purchase_grade ?? $resolvedGrade,
+                'grading_mode' => $gradingMode,
                 'created_by' => $userId,
                 'reference' => $this->stockBatchRepository->generateReference(),
                 'received_at' => $grn->received_at,

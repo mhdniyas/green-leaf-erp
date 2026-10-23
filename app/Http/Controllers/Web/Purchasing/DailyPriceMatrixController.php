@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Purchasing;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Exports\DailyPriceMatrixExport;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
@@ -48,7 +49,7 @@ class DailyPriceMatrixController extends Controller
     {
         $this->authorizeBoardAccess();
 
-        $data = $this->buildMatrixViewData($request);
+        $data = $this->buildMatrixViewData($request, forExport: true);
         $scope = $this->exportScope($request);
         $scopeLabel = str_replace('_', '-', $scope);
         $filename = "selling-price-matrix-{$scopeLabel}-{$data['targetBusinessDate']}.xlsx";
@@ -61,7 +62,7 @@ class DailyPriceMatrixController extends Controller
     {
         $this->authorizeBoardAccess();
 
-        $data = $this->buildMatrixViewData($request);
+        $data = $this->buildMatrixViewData($request, forExport: true);
         $scope = $this->exportScope($request);
 
         return view('purchase-manager.prices.matrix-pdf', [
@@ -78,7 +79,7 @@ class DailyPriceMatrixController extends Controller
     {
         $this->authorizeBoardAccess();
 
-        $data = $this->buildMatrixViewData($request);
+        $data = $this->buildMatrixViewData($request, forExport: true);
         $scope = $this->exportScope($request);
 
         return redirect()->away('https://api.whatsapp.com/send?text='.rawurlencode($this->buildMatrixShareText($data, $scope)));
@@ -87,7 +88,7 @@ class DailyPriceMatrixController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function buildMatrixViewData(Request $request): array
+    private function buildMatrixViewData(Request $request, bool $forExport = false): array
     {
         $purchaseDate = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
         $targetBusinessDate = Carbon::parse($purchaseDate)->toDateString();
@@ -120,14 +121,18 @@ class DailyPriceMatrixController extends Controller
             $matrixCategory = 'a';
         }
 
-        $weekStart = $request->filled('week_start')
-            ? Carbon::parse((string) $request->input('week_start'))->startOfWeek(Carbon::MONDAY)
-            : $selectedDate->copy()->startOfWeek(Carbon::MONDAY);
-        $weekEnd = $weekStart->copy()->addDays(6);
+        $qualityGrade = strtoupper((string) ($request->input('quality_grade', $request->input('grade', 'A'))));
+        if (! in_array($qualityGrade, ['A', 'B', 'C'], true)) {
+            $qualityGrade = 'A';
+        }
+
+        // Window: previous 2 days and current day (3 days total)
+        $matrixStartDate = $selectedDate->copy()->subDays(2);
+        $matrixEndDate = $selectedDate->copy();
 
         $matrixDates = [];
-        $currentDate = $weekStart->copy();
-        while ($currentDate->lte($weekEnd)) {
+        $currentDate = $matrixStartDate->copy();
+        while ($currentDate->lte($matrixEndDate)) {
             $matrixDates[$currentDate->toDateString()] = [
                 'date_string' => $currentDate->toDateString(),
                 'label' => $currentDate->format('d-M'),
@@ -175,22 +180,34 @@ class DailyPriceMatrixController extends Controller
             });
         }
 
-        $products = $productQuery->get(['id', 'category_id', 'name', 'sku', 'unit', 'base_price']);
-        $productIds = $products->pluck('id')->values();
+        if ($forExport) {
+            $products = $productQuery->get(['id', 'category_id', 'name', 'sku', 'unit', 'base_price']);
+            $paginatedProducts = null;
+            $productIds = $products->pluck('id')->values();
+            $slNo = 1;
+        } else {
+            $perPage = 40;
+            $paginatedProducts = $productQuery->paginate($perPage, ['id', 'category_id', 'name', 'sku', 'unit', 'base_price'])->withQueryString();
+            $products = $paginatedProducts->items();
+            $productIds = collect($products)->pluck('id')->values();
+            $slNo = $paginatedProducts->firstItem() ?? 1;
+        }
 
         $monthApprovals = DailyPriceApproval::query()
             ->whereIn('product_id', $productIds)
-            ->whereBetween('business_date', [$weekStart->toDateString(), $weekEnd->toDateString()])
+            ->where('grade', $qualityGrade)
+            ->whereBetween('business_date', [$matrixStartDate->toDateString(), $matrixEndDate->toDateString()])
             ->get()
             ->groupBy('product_id');
 
         $matrixProducts = [];
         $slNo = 1;
 
-        // Get previous day's prices for comparison and copying
-        $previousDate = $weekStart->copy()->subDay()->toDateString();
+        // Baseline comparison: day before the 3-day matrix window
+        $previousDate = $matrixStartDate->copy()->subDay()->toDateString();
         $previousDayApprovals = DailyPriceApproval::query()
             ->whereIn('product_id', $productIds)
+            ->where('grade', $qualityGrade)
             ->where('business_date', $previousDate)
             ->get()
             ->keyBy('product_id');
@@ -201,10 +218,13 @@ class DailyPriceMatrixController extends Controller
                 ->keyBy(fn (DailyPriceApproval $item): string => $item->business_date->toDateString());
             $unitOptions = $this->measurementUnitOptionsForProduct($product);
 
+            /** @var DailyPriceApproval|null $prevDayApp */
+            $prevDayApp = $previousDayApprovals->get($pId);
+
             $dailyPrices = [];
-            $prevPriceA = null;
-            $prevPriceB = null;
-            $prevPriceC = null;
+            $prevPriceA = $prevDayApp && $prevDayApp->price_a !== null ? (float) $prevDayApp->price_a : null;
+            $prevPriceB = $prevDayApp && $prevDayApp->price_b !== null ? (float) $prevDayApp->price_b : null;
+            $prevPriceC = $prevDayApp && $prevDayApp->price_c !== null ? (float) $prevDayApp->price_c : null;
 
             foreach ($matrixDates as $dateStr => $dateInfo) {
                 /** @var DailyPriceApproval|null $app */
@@ -242,8 +262,43 @@ class DailyPriceMatrixController extends Controller
                 ];
             }
 
-            /** @var DailyPriceApproval|null $prevDayApp */
-            $prevDayApp = $previousDayApprovals->get($pId);
+            $latestApprovedDate = null;
+            $latestApprovedPrice = null;
+            foreach ($matrixDates as $dateStr => $dateInfo) {
+                $cellData = $dailyPrices[$dateStr] ?? null;
+                if (! $cellData || ($cellData['status'] ?? 'none') !== 'approved') {
+                    continue;
+                }
+                $candidatePrice = match ($matrixCategory) {
+                    'a' => $cellData['price_a'] ?? null,
+                    'b' => $cellData['price_b'] ?? null,
+                    'c' => $cellData['price_c'] ?? null,
+                    default => null,
+                };
+                if ($candidatePrice === null) {
+                    continue;
+                }
+                if ($latestApprovedDate === null || $dateStr > $latestApprovedDate) {
+                    $latestApprovedDate = $dateStr;
+                    $latestApprovedPrice = (float) $candidatePrice;
+                }
+            }
+
+            $rowUnitOptions = collect($unitOptions ?: [
+                ['unit' => strtolower((string) ($product->unit ?? 'kg')), 'label' => strtoupper((string) ($product->unit ?? 'kg'))],
+            ]);
+            $unitsUsedInWeek = collect($dailyPrices)
+                ->map(fn ($priceRow) => strtolower((string) ($priceRow['unit'] ?? '')))
+                ->filter()
+                ->map(fn ($unit) => [
+                    'unit' => $unit,
+                    'label' => strtoupper(str_replace('_', ' ', $unit)),
+                ]);
+            $rowUnitOptions = $rowUnitOptions
+                ->merge($unitsUsedInWeek)
+                ->unique(fn ($opt) => strtolower((string) ($opt['unit'] ?? '')))
+                ->values()
+                ->all();
 
             $matrixProducts[] = [
                 'sl_no' => $slNo++,
@@ -252,6 +307,9 @@ class DailyPriceMatrixController extends Controller
                 'sku' => $product->sku,
                 'unit' => $product->unit,
                 'unit_options' => $unitOptions,
+                'row_unit_options' => $rowUnitOptions,
+                'latest_approved_date' => $latestApprovedDate,
+                'latest_approved_price' => $latestApprovedPrice,
                 'base_price' => (float) $product->base_price,
                 'prices' => $dailyPrices,
                 'previous_day' => [
@@ -274,11 +332,17 @@ class DailyPriceMatrixController extends Controller
             'categories' => Category::query()->orderBy('name')->get(['id', 'name']),
             'matrixDates' => $matrixDates,
             'matrixProducts' => $matrixProducts,
+            'paginatedProducts' => $paginatedProducts,
             'matrixCategory' => $matrixCategory,
-            'weekStartDate' => $weekStart->toDateString(),
-            'weekEndDate' => $weekEnd->toDateString(),
-            'previousWeekStartDate' => $weekStart->copy()->subWeek()->toDateString(),
-            'nextWeekStartDate' => $weekStart->copy()->addWeek()->toDateString(),
+            'qualityGrade' => $qualityGrade,
+            'weekStartDate' => $matrixStartDate->toDateString(),
+            'weekEndDate' => $matrixEndDate->toDateString(),
+            'previousWeekStartDate' => $selectedDate->copy()->subDays(3)->toDateString(),
+            'nextWeekStartDate' => $selectedDate->copy()->addDays(3)->toDateString(),
+            'matrixStartDate' => $matrixStartDate->toDateString(),
+            'matrixEndDate' => $matrixEndDate->toDateString(),
+            'previousRangeDate' => $selectedDate->copy()->subDays(3)->toDateString(),
+            'nextRangeDate' => $selectedDate->copy()->addDays(3)->toDateString(),
             'previousDate' => $previousDate,
             'isPublished' => DailyPricePublication::isPublishedForDate($targetBusinessDate),
         ];
@@ -295,6 +359,8 @@ class DailyPriceMatrixController extends Controller
             'price_category' => ['required', 'string', 'in:a,b,c,A,B,C'],
             'price' => ['nullable', 'numeric', 'min:0'],
             'price_unit' => ['nullable', 'string', 'max:20'],
+            'product_grade' => ['nullable', 'string', 'in:a,b,c,A,B,C'],
+            'grade' => ['nullable', 'string', 'in:a,b,c,A,B,C'],
         ]);
 
         $user = $request->user();
@@ -304,28 +370,37 @@ class DailyPriceMatrixController extends Controller
         $dateStr = Carbon::parse($validated['date'])->toDateString();
         $cat = strtolower($validated['price_category']);
         $submittedUnit = ProductUnit::normalizeUnit((string) ($validated['price_unit'] ?? ''));
+        $qualityGrade = strtoupper((string) ($validated['product_grade'] ?? $validated['grade'] ?? 'A'));
+        $gradeEnum = ProductGrade::tryResolve($qualityGrade) ?? ProductGrade::GradeA;
+        $gradeStr = $gradeEnum->value;
         $newPrice = isset($validated['price']) && $validated['price'] !== '' && $validated['price'] !== null
             ? round((float) $validated['price'], 2)
             : null;
 
         $approval = DailyPriceApproval::query()
             ->where('product_id', $product->id)
+            ->where('grade', $gradeStr)
             ->whereDate('business_date', $dateStr)
             ->first();
 
-        $previousApproval = $this->previousApprovedApprovalFor($product->id, $dateStr);
+        $previousApproval = $this->previousApprovedApprovalFor($product->id, $dateStr, $gradeEnum);
 
         if (! $approval) {
+            $defaultPurchase = $gradeStr === 'A'
+                ? (float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price))
+                : (float) ($previousApproval?->purchase_price ?? 0);
+
             $approval = new DailyPriceApproval([
                 'product_id' => $product->id,
                 'business_date' => $dateStr,
-                'purchase_price' => (float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price)),
+                'grade' => $gradeStr,
+                'purchase_price' => $defaultPurchase,
                 'price_unit' => $submittedUnit !== ''
                     ? $submittedUnit
                     : ProductUnit::normalizeUnit((string) ($this->detectPrimaryOrderedUnit((int) $product->id, $dateStr) ?? $product->unit ?: 'kg')),
-                'price_a' => $newPrice ?? (float) ($previousApproval?->price_a ?? $product->base_price),
-                'price_b' => $newPrice ?? (float) ($previousApproval?->price_b ?? $product->base_price),
-                'price_c' => $newPrice ?? (float) ($previousApproval?->price_c ?? $product->base_price),
+                'price_a' => $newPrice ?? (float) ($previousApproval?->price_a ?? ($gradeStr === 'A' ? $product->base_price : 0)),
+                'price_b' => $newPrice ?? (float) ($previousApproval?->price_b ?? ($gradeStr === 'A' ? $product->base_price : 0)),
+                'price_c' => $newPrice ?? (float) ($previousApproval?->price_c ?? ($gradeStr === 'A' ? $product->base_price : 0)),
                 'status' => 'approved',
             ]);
         }
@@ -366,10 +441,11 @@ class DailyPriceMatrixController extends Controller
         if ($request->wantsJson()) {
             return response()->json([
                 'success' => true,
-                'message' => "{$product->name} price for {$dateStr} saved.",
+                'message' => "{$product->name} (Grade {$gradeStr}) price for {$dateStr} saved.",
                 'product_id' => $product->id,
                 'date' => $dateStr,
                 'price_category' => $cat,
+                'product_grade' => $gradeStr,
                 'price_a' => $approval->price_a,
                 'price_b' => $approval->price_b,
                 'price_c' => $approval->price_c,
@@ -377,7 +453,7 @@ class DailyPriceMatrixController extends Controller
             ]);
         }
 
-        return redirect()->back()->with('success', "Price for {$product->name} on {$dateStr} saved.");
+        return redirect()->back()->with('success', "Price for {$product->name} (Grade {$gradeStr}) on {$dateStr} saved.");
     }
 
     public function fillForward(Request $request): RedirectResponse
@@ -392,6 +468,7 @@ class DailyPriceMatrixController extends Controller
             'category_ids' => ['nullable'],
             'week_start' => ['required', 'date'],
             'matrix_category' => ['required', 'string', 'in:a,b,c,A,B,C'],
+            'quality_grade' => ['nullable', 'string', 'in:a,b,c,A,B,C'],
             'all_product_ids' => ['required', 'array', 'min:1'],
             'all_product_ids.*' => ['integer', 'exists:products,id'],
             'all_dates' => ['required', 'array', 'min:1'],
@@ -400,6 +477,8 @@ class DailyPriceMatrixController extends Controller
 
         $userId = (int) $request->user()->id;
         $matrixCategory = strtolower((string) $validated['matrix_category']);
+        $qualityGrade = strtoupper((string) ($validated['quality_grade'] ?? $request->input('quality_grade', 'A')));
+        $gradeEnum = ProductGrade::tryResolve($qualityGrade) ?? ProductGrade::GradeA;
         $productIds = collect($validated['all_product_ids'])
             ->map(fn ($id): int => (int) $id)
             ->filter(fn (int $id): bool => $id > 0)
@@ -427,6 +506,7 @@ class DailyPriceMatrixController extends Controller
         $lastDate = $dateStrings->last();
         $existingApprovals = DailyPriceApproval::query()
             ->whereIn('product_id', $productIds)
+            ->where('grade', $gradeEnum->value)
             ->whereBetween('business_date', [$firstDate, $lastDate])
             ->get()
             ->groupBy('product_id')
@@ -442,6 +522,7 @@ class DailyPriceMatrixController extends Controller
             $products,
             $existingApprovals,
             $userId,
+            $gradeEnum,
             &$filledRows,
             &$filledCells,
             &$publishedDates
@@ -453,7 +534,7 @@ class DailyPriceMatrixController extends Controller
                     continue;
                 }
 
-                $carryApproval = $this->previousApprovedApprovalFor((int) $productId, (string) $dateStrings->first());
+                $carryApproval = $this->previousApprovedApprovalFor((int) $productId, (string) $dateStrings->first(), $gradeEnum);
                 $productApprovals = $existingApprovals->get((int) $productId) ?? collect();
 
                 foreach ($dateStrings as $dateStr) {
@@ -472,10 +553,15 @@ class DailyPriceMatrixController extends Controller
                         continue;
                     }
 
+                    if (! $carryApproval instanceof DailyPriceApproval || ! $this->hasUsableSellingPrice($carryApproval)) {
+                        continue;
+                    }
+
                     if (! $approval instanceof DailyPriceApproval) {
                         $approval = DailyPriceApproval::query()->firstOrNew([
                             'product_id' => (int) $productId,
                             'business_date' => $dateStr,
+                            'grade' => $gradeEnum->value,
                         ]);
                     }
 
@@ -537,6 +623,7 @@ class DailyPriceMatrixController extends Controller
             'category_id' => ['nullable', 'integer'],
             'week_start' => ['required', 'date'],
             'matrix_category' => ['required', 'string', 'in:a,b,c,A,B,C'],
+            'quality_grade' => ['nullable', 'string', 'in:a,b,c,A,B,C'],
             'all_product_ids' => ['required', 'array', 'min:1'],
             'all_product_ids.*' => ['integer', 'exists:products,id'],
             'all_dates' => ['required', 'array', 'min:1'],
@@ -544,6 +631,8 @@ class DailyPriceMatrixController extends Controller
         ]);
 
         $matrixCategory = strtolower((string) $validated['matrix_category']);
+        $qualityGrade = strtoupper((string) ($validated['quality_grade'] ?? $request->input('quality_grade', 'A')));
+        $gradeEnum = ProductGrade::tryResolve($qualityGrade) ?? ProductGrade::GradeA;
         $selectedDate = Carbon::parse((string) $validated['date'])->toDateString();
         $productIds = collect($validated['all_product_ids'])
             ->map(fn ($id): int => (int) $id)
@@ -561,6 +650,7 @@ class DailyPriceMatrixController extends Controller
         if ($productIds->isNotEmpty() && $futureDates->isNotEmpty()) {
             $deletedRows = DailyPriceApproval::query()
                 ->whereIn('product_id', $productIds)
+                ->where('grade', $gradeEnum->value)
                 ->whereDate('business_date', '>', $selectedDate)
                 ->whereDate('business_date', '<=', (string) $futureDates->max())
                 ->delete();
@@ -646,6 +736,7 @@ class DailyPriceMatrixController extends Controller
             'category_id' => ['nullable', 'integer'],
             'week_start' => ['nullable', 'date'],
             'matrix_category' => ['required', 'string', 'in:a,b,c,A,B,C'],
+            'quality_grade' => ['nullable', 'string', 'in:a,b,c,A,B,C'],
             'action' => ['required', 'string', 'in:update'],
             'matrix_prices' => ['nullable', 'array'],
             'matrix_prices.*' => ['nullable', 'array'],
@@ -662,6 +753,8 @@ class DailyPriceMatrixController extends Controller
         $user = $request->user();
         $userId = (int) $user->id;
         $matrixCategory = strtolower((string) $validated['matrix_category']);
+        $qualityGrade = strtoupper((string) ($validated['quality_grade'] ?? $request->input('quality_grade', 'A')));
+        $gradeEnum = ProductGrade::tryResolve($qualityGrade) ?? ProductGrade::GradeA;
         $rawMatrixPrices = collect((array) ($validated['matrix_prices'] ?? []));
         $rawMatrixPriceUnits = collect((array) ($validated['matrix_price_units'] ?? []));
 
@@ -694,6 +787,7 @@ class DailyPriceMatrixController extends Controller
             $products,
             $matrixCategory,
             $userId,
+            $gradeEnum,
             &$publishedDates,
             &$updatedCells
         ): void {
@@ -724,12 +818,13 @@ class DailyPriceMatrixController extends Controller
                     $newPrice = ($priceValue === null || $priceValue === '')
                         ? null
                         : round((float) $priceValue, 2);
-                    $previousApproval = $this->previousApprovedApprovalFor((int) $product->id, $businessDate);
+                    $previousApproval = $this->previousApprovedApprovalFor((int) $product->id, $businessDate, $gradeEnum);
 
                     $approval = DailyPriceApproval::query()
                         ->firstOrNew([
                             'product_id' => $product->id,
                             'business_date' => $businessDate,
+                            'grade' => $gradeEnum->value,
                         ]);
 
                     // Determine price_unit: use submitted unit, or auto-detect from orders, or fall back to product unit
@@ -738,11 +833,15 @@ class DailyPriceMatrixController extends Controller
                         : (ProductUnit::normalizeUnit((string) ($this->detectPrimaryOrderedUnit((int) $product->id, $businessDate) ?? $product->unit ?: 'kg')));
 
                     if (! $approval->exists) {
-                        $approval->purchase_price = (float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price));
+                        $defaultPurchase = $gradeEnum->value === 'A'
+                            ? (float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price))
+                            : (float) ($previousApproval?->purchase_price ?? 0);
+
+                        $approval->purchase_price = $defaultPurchase;
                         $approval->price_unit = $priceUnit;
-                        $approval->price_a = (float) ($previousApproval?->price_a ?? $product->base_price);
-                        $approval->price_b = (float) ($previousApproval?->price_b ?? $product->base_price);
-                        $approval->price_c = (float) ($previousApproval?->price_c ?? $product->base_price);
+                        $approval->price_a = (float) ($previousApproval?->price_a ?? ($gradeEnum->value === 'A' ? $product->base_price : 0));
+                        $approval->price_b = (float) ($previousApproval?->price_b ?? ($gradeEnum->value === 'A' ? $product->base_price : 0));
+                        $approval->price_c = (float) ($previousApproval?->price_c ?? ($gradeEnum->value === 'A' ? $product->base_price : 0));
                     } else {
                         // Update price_unit on existing approval if submitted or auto-detected differs
                         if (! empty($submittedUnit) || $this->detectPrimaryOrderedUnit((int) $product->id, $businessDate)) {
@@ -805,6 +904,7 @@ class DailyPriceMatrixController extends Controller
             'search' => $validated['search'] ?? null,
             'week_start' => $validated['week_start'] ?? null,
             'matrix_category' => strtolower((string) ($validated['matrix_category'] ?? 'a')),
+            'quality_grade' => strtoupper((string) ($validated['quality_grade'] ?? $request->input('quality_grade', 'A'))),
         ];
 
         if ($request->has('category_ids')) {
@@ -826,10 +926,11 @@ class DailyPriceMatrixController extends Controller
         abort_unless(auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('admin'), 403);
     }
 
-    private function previousApprovedApprovalFor(int $productId, string $businessDate): ?DailyPriceApproval
+    private function previousApprovedApprovalFor(int $productId, string $businessDate, ProductGrade $grade = ProductGrade::GradeA): ?DailyPriceApproval
     {
         return DailyPriceApproval::query()
             ->where('product_id', $productId)
+            ->where('grade', $grade->value)
             ->whereDate('business_date', '<', Carbon::parse($businessDate)->toDateString())
             ->where('status', 'approved')
             ->whereNotNull('approved_at')
@@ -894,55 +995,47 @@ class DailyPriceMatrixController extends Controller
             : $merged->all();
     }
 
-    private function updateActivePricesForGroup(Product $product, ?ShopPriceGroup $group, float $priceGradeA, int $userId): void
+    private function updateActivePricesForGroup(Product $product, ?ShopPriceGroup $group, float $price, string $gradeVal, int $userId): void
     {
         if (! $group) {
             return;
         }
 
-        $grades = [
-            'A' => 1.00,
-            'B' => 0.90,
-            'C' => 0.80,
-        ];
+        $calculatedPrice = round($price, 2);
 
-        foreach ($grades as $gradeVal => $multiplier) {
-            $calculatedPrice = round($priceGradeA * $multiplier, 2);
+        $activePrice = DailyProductPrice::firstOrNew([
+            'product_id' => $product->id,
+            'shop_price_group_id' => $group->id,
+            'grade' => $gradeVal,
+        ]);
 
-            $activePrice = DailyProductPrice::firstOrNew([
+        $oldPrice = $activePrice->exists ? (float) $activePrice->selling_price : null;
+
+        $activePrice->fill([
+            'selling_price' => $calculatedPrice,
+            'price_source' => 'manual',
+            'margin_percent' => null,
+            'manual_override' => true,
+            'override_reason' => 'Purchaser updated matrix final price',
+            'changed_by' => $userId,
+        ]);
+        $activePrice->save();
+
+        if ($oldPrice === null || abs($oldPrice - $calculatedPrice) > 0.0001) {
+            DailyProductPriceRevision::create([
+                'daily_product_price_id' => $activePrice->id,
                 'product_id' => $product->id,
                 'shop_price_group_id' => $group->id,
                 'grade' => $gradeVal,
-            ]);
-
-            $oldPrice = $activePrice->exists ? (float) $activePrice->selling_price : null;
-
-            $activePrice->fill([
-                'selling_price' => $calculatedPrice,
-                'price_source' => 'manual',
-                'margin_percent' => null,
-                'manual_override' => true,
-                'override_reason' => 'Purchaser updated matrix final price',
+                'old_price' => $oldPrice,
+                'new_price' => $calculatedPrice,
+                'old_margin_percent' => null,
+                'new_margin_percent' => null,
+                'change_type' => 'manual',
+                'reason' => 'Purchaser updated matrix final price',
                 'changed_by' => $userId,
+                'changed_at' => now(),
             ]);
-            $activePrice->save();
-
-            if ($oldPrice === null || abs($oldPrice - $calculatedPrice) > 0.0001) {
-                DailyProductPriceRevision::create([
-                    'daily_product_price_id' => $activePrice->id,
-                    'product_id' => $product->id,
-                    'shop_price_group_id' => $group->id,
-                    'grade' => $gradeVal,
-                    'old_price' => $oldPrice,
-                    'new_price' => $calculatedPrice,
-                    'old_margin_percent' => null,
-                    'new_margin_percent' => null,
-                    'change_type' => 'manual',
-                    'reason' => 'Purchaser updated matrix final price',
-                    'changed_by' => $userId,
-                    'changed_at' => now(),
-                ]);
-            }
         }
     }
 
@@ -952,10 +1045,15 @@ class DailyPriceMatrixController extends Controller
         $groupB = ShopPriceGroup::query()->where('name', 'B')->first();
         $groupC = ShopPriceGroup::query()->where('name', 'C')->first();
 
-        $this->updateActivePricesForGroup($product, $groupA, (float) $approval->price_a, $userId);
-        $this->updateActivePricesForGroup($product, $groupB, (float) $approval->price_b, $userId);
-        $this->updateActivePricesForGroup($product, $groupC, (float) $approval->price_c, $userId);
-        $this->vendorPriceService->syncPrice($product->id, (float) $approval->purchase_price);
+        $gradeVal = $approval->grade instanceof ProductGrade ? $approval->grade->value : (string) ($approval->grade ?? 'A');
+
+        $this->updateActivePricesForGroup($product, $groupA, (float) $approval->price_a, $gradeVal, $userId);
+        $this->updateActivePricesForGroup($product, $groupB, (float) $approval->price_b, $gradeVal, $userId);
+        $this->updateActivePricesForGroup($product, $groupC, (float) $approval->price_c, $gradeVal, $userId);
+
+        if ($gradeVal === 'A') {
+            $this->vendorPriceService->syncPrice($product->id, (float) $approval->purchase_price);
+        }
     }
 
     private function exportScope(Request $request): string

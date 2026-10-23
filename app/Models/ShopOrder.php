@@ -237,6 +237,22 @@ class ShopOrder extends Model
             || $this->is_delivered;
     }
 
+    public function hasMultiGradeItems(): bool
+    {
+        if ($this->relationLoaded('items')) {
+            return $this->items->contains(function (ShopOrderItem $item): bool {
+                $grade = $item->product_grade;
+
+                return $grade !== null && $grade !== '' && strtoupper(trim((string) $grade)) !== 'A';
+            });
+        }
+
+        return $this->items()
+            ->whereNotNull('product_grade')
+            ->where('product_grade', '!=', 'A')
+            ->exists();
+    }
+
     public function nextRevisionNumber(): int
     {
         return max(1, (int) $this->latest_revision_no) + 1;

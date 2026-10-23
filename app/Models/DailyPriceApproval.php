@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\Inventory\ProductGrade;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,9 +17,14 @@ class DailyPriceApproval extends Model
 
     public ?float $comparison_purchase_price = null;
 
+    protected $attributes = [
+        'grade' => 'A',
+    ];
+
     protected $fillable = [
         'product_id',
         'business_date',
+        'grade',
         'purchase_price',
         'price_unit',
         'price_a',
@@ -34,6 +40,7 @@ class DailyPriceApproval extends Model
 
     protected $casts = [
         'business_date' => 'date',
+        'grade' => ProductGrade::class,
         'purchase_price' => 'decimal:4',
         'price_a' => 'decimal:2',
         'price_b' => 'decimal:2',

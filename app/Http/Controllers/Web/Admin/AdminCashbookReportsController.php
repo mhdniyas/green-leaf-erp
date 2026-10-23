@@ -2075,6 +2075,11 @@ class AdminCashbookReportsController extends Controller
                     if ($candidate['type'] === 'po') {
                         /** @var PurchaseOrder $po */
                         $po = $candidate['record'];
+                        if ($po->isDirectShopPurchase()) {
+                            $skippedCount++;
+
+                            return;
+                        }
                         $po->loadMissing(['items.product', 'goodsReceiveds.stockBatches']);
 
                         // Lock and check if a GRN already exists or was created concurrently
@@ -2136,6 +2141,11 @@ class AdminCashbookReportsController extends Controller
                     } elseif ($candidate['type'] === 'grn') {
                         /** @var GoodsReceived $grn */
                         $grn = $candidate['record'];
+                        if ($grn->isDirectShopPurchase()) {
+                            $skippedCount++;
+
+                            return;
+                        }
 
                         $lockedGrn = GoodsReceived::query()->whereKey($grn->id)->lockForUpdate()->first();
                         if ($lockedGrn === null) {
@@ -2199,6 +2209,9 @@ class AdminCashbookReportsController extends Controller
         $pos = PurchaseOrder::query()
             ->whereDate('order_date', $date)
             ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
+            ->where('fulfillment_type', '!=', 'shop')
+
+            ->whereDoesntHave('purchaserCart', fn (Builder $cart) => $cart->where('purchase_source', 'shop'))
             ->when($selectedWarehouseId !== null, function (Builder $q) use ($selectedWarehouseId): void {
                 $q->whereHas('items.product', fn (Builder $pq) => $pq->where('default_warehouse_id', $selectedWarehouseId));
             })
@@ -2237,6 +2250,8 @@ class AdminCashbookReportsController extends Controller
         $standaloneGrns = GoodsReceived::query()
             ->whereNull('purchase_order_id')
             ->whereDate('received_at', $date)
+
+            ->whereDoesntHave('purchaserCart', fn (Builder $cart) => $cart->where('purchase_source', 'shop'))
             ->where(function (Builder $sub): void {
                 $sub->where('receipt_type', '!=', 'warehouse_advance')
                     ->orWhereNull('receipt_type');
@@ -2399,6 +2414,7 @@ class AdminCashbookReportsController extends Controller
         $grn = DB::transaction(function () use ($type, $id, $requestedWarehouseId, $approveAction, $userId): GoodsReceived {
             if ($type === 'po') {
                 $po = PurchaseOrder::query()->with(['items.product'])->findOrFail($id);
+                abort_if($po->isDirectShopPurchase(), 422, 'Direct shop purchase orders cannot be received into central warehouse inventory.');
 
                 // Re-check if GRN was already created
                 $existingGrn = GoodsReceived::query()
@@ -2440,13 +2456,14 @@ class AdminCashbookReportsController extends Controller
                         'received_qty' => (float) $poItem->quantity,
                         'received_unit' => $poItem->purchase_unit ?: ($poItem->product?->unit ?? 'kg'),
                         'variance' => 0.0,
-                        'grade' => 'A',
+                        'grade' => $poItem->grade ?? ($po->purchase_grade ?? 'A'),
                     ]);
                 }
 
                 return $approveAction->executeAndConfirmReceive($newGrn, $userId, $effectiveWh);
             } else {
                 $lockedGrn = GoodsReceived::query()->whereKey($id)->lockForUpdate()->firstOrFail();
+                abort_if($lockedGrn->isDirectShopPurchase(), 422, 'Direct shop purchases cannot be received into central warehouse inventory.');
                 $effectiveWh = $requestedWarehouseId ?? $lockedGrn->warehouse_id ?? $lockedGrn->items->first()?->product?->default_warehouse_id;
 
                 return $approveAction->executeAndConfirmReceive($lockedGrn, $userId, $effectiveWh);

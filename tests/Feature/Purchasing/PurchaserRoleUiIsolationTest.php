@@ -14,6 +14,7 @@ use App\Models\Warehouse;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 class PurchaserRoleUiIsolationTest extends TestCase
@@ -79,7 +80,8 @@ class PurchaserRoleUiIsolationTest extends TestCase
             ->assertSee('Today')
             ->assertSee('Business Days')
             ->assertSee('Daily')
-            ->assertSee('B Grade Purchase')
+            ->assertDontSee('B Grade Purchase')
+            ->assertDontSee('B Grade Prices')
             ->assertSee('Daily Prices')
             ->assertSee('Products')
             ->assertSee('Shop Orders')
@@ -189,5 +191,31 @@ class PurchaserRoleUiIsolationTest extends TestCase
         $this->assertMatchesRegularExpression('/href="[^"]*purchaser\/bulk-buy"[^>]*class="[^"]*bg-cyan-500[^"]*"[^>]*title="Buy"/', $content);
         // Cart link must NOT have bg-cyan-500 active state
         $this->assertMatchesRegularExpression('/href="[^"]*purchaser\/cart"[^>]*class="[^"]*bg-transparent[^"]*"[^>]*title="Cart"/', $content);
+    }
+
+    public function test_legacy_b_grade_prices_routes_are_not_registered(): void
+    {
+        $this->assertFalse(
+            Route::has('purchaser.purchase-grade-prices.index'),
+            'Legacy route purchaser.purchase-grade-prices.index should not exist.'
+        );
+        $this->assertFalse(
+            Route::has('purchaser.purchase-grade-prices.update'),
+            'Legacy route purchaser.purchase-grade-prices.update should not exist.'
+        );
+        $this->assertFalse(
+            Route::has('purchaser.purchase-grade-prices.copy-a-to-b'),
+            'Legacy route purchaser.purchase-grade-prices.copy-a-to-b should not exist.'
+        );
+
+        $response = $this->actingAs($this->purchaserUser)->get('/purchaser/purchase-grade-prices');
+        $response->assertNotFound();
+    }
+
+    public function test_purchaser_daily_prices_page_renders_successfully(): void
+    {
+        $response = $this->actingAs($this->purchaserUser)->get(route('purchaser.daily-prices'));
+        $response->assertOk();
+        $response->assertSee('Daily Prices');
     }
 }

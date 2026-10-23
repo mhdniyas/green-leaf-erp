@@ -425,6 +425,9 @@
                 <div class="space-y-2" id="loadout-product-list">
                     @foreach($productGroups as $group)
                         @php
+                            $rowKey = $group['row_key'] ?? ((string) $group['product_id']);
+                            $rowKeyId = str_replace(['|', ' '], '_', (string) $rowKey);
+                            $productGrade = $group['product_grade'] ?? 'A';
                             $isFullyLoaded = $group['is_fully_loaded'];
                             $isPartial = $group['is_partially_loaded'];
                             $loadoutRowStatus = $isFullyLoaded ? 'loaded' : ($isPartial ? 'partial' : 'pending');
@@ -460,7 +463,7 @@
 
                             @if($useDualMeasurementInputs)
                                 {{-- Collapsible Card Header for Dual Measurement --}}
-                                <button type="button" onclick="toggleProductCard({{ $group['product_id'] }})"
+                                <button type="button" onclick="toggleProductCard('{{ $rowKeyId }}')"
                                     class="flex w-full items-start justify-between gap-2 p-3 text-left border-none bg-transparent transition-colors cursor-pointer hover:bg-slate-50/60">
                                     <div class="flex-1 min-w-0">
                                         <h3 class="truncate text-sm font-black text-slate-900">
@@ -470,6 +473,9 @@
                                             <span
                                                 class="inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-black text-slate-700 mr-1">#{{ $group['product']->sku ?: $group['product_id'] }}</span>
                                             {{ $group['product']->name }}
+                                            @if($productGrade !== 'A')
+                                                <span class="ml-1 inline-block rounded-md bg-blue-100 px-1.5 py-0.5 text-[9px] font-black uppercase text-blue-800">Grade {{ $productGrade }}</span>
+                                            @endif
                                         </h3>
 
                                         <div
@@ -494,7 +500,7 @@
                                             <span
                                                 class="inline-flex items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-800 border border-sky-200">
                                                 Info Stock: <span class="font-black">{{ number_format($available, 2) }}
-                                                    {{ strtoupper($group['unit']) }}</span>
+                                                        {{ strtoupper($group['unit']) }}</span>
                                             </span>
                                             @if($isItemNotAvailable)
                                                 <span
@@ -515,7 +521,7 @@
                                     </div>
 
                                     <div class="flex items-center gap-1.5 mt-0.5 shrink-0">
-                                        <svg id="arrow-{{ $group['product_id'] }}"
+                                        <svg id="arrow-{{ $rowKeyId }}"
                                             class="h-4 w-4 text-slate-400 transition-transform duration-200" fill="none"
                                             viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
@@ -524,15 +530,15 @@
                                 </button>
 
                                 {{-- Hidden fields for status & note --}}
-                                <input type="hidden" id="status-field-{{ $group['product_id'] }}"
-                                    name="item_status[{{ $group['product_id'] }}]"
+                                <input type="hidden" id="status-field-{{ $rowKeyId }}"
+                                    name="item_status[{{ $rowKey }}]"
                                     value="{{ $isItemNotAvailable ? 'not_available' : 'loaded' }}">
-                                <input type="hidden" id="note-field-{{ $group['product_id'] }}"
-                                    name="item_notes[{{ $group['product_id'] }}]"
+                                <input type="hidden" id="note-field-{{ $rowKeyId }}"
+                                    name="item_notes[{{ $rowKey }}]"
                                     value="{{ $firstItem->loadout_discrepancy_note ?? '' }}">
 
                                 {{-- Collapsible Body (COLLAPSED BY DEFAULT) --}}
-                                <div id="card-body-{{ $group['product_id'] }}"
+                                <div id="card-body-{{ $rowKeyId }}"
                                     class="product-card-body collapsible-body hidden border-t border-slate-100 p-3 pt-2 bg-slate-50/40">
                                     <div class="grid gap-2 sm:grid-cols-2">
                                         {{-- 1. Loaded Secondary Unit Count Stepper --}}
@@ -541,16 +547,16 @@
                                             <span class="text-[11px] font-black text-slate-700">Loaded
                                                 {{ $requestedUnitName }}:</span>
                                             <div class="flex items-center gap-1">
-                                                <button type="button" onclick="stepUnitQty({{ $group['product_id'] }}, -1)"
+                                                <button type="button" onclick="stepUnitQty('{{ $rowKeyId }}', -1)"
                                                     class="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-sm">-</button>
-                                                <input type="number" id="unit-qty-{{ $group['product_id'] }}"
-                                                    name="item_unit_qtys[{{ $group['product_id'] }}]"
+                                                <input type="number" id="unit-qty-{{ $rowKeyId }}"
+                                                    name="item_unit_qtys[{{ $rowKey }}]"
                                                     value="{{ number_format($loadedUnitQty, 2, '.', '') }}" min="0" step="any"
                                                     inputmode="decimal"
                                                     data-approved-unit="{{ number_format($orderedUnitQty, 2, '.', '') }}"
                                                     class="h-7 w-14 rounded-md border border-slate-200 bg-white text-center text-[11px] font-black text-slate-900 focus:outline-none"
                                                     {{ $isItemNotAvailable ? 'readonly' : '' }}>
-                                                <button type="button" onclick="stepUnitQty({{ $group['product_id'] }}, 1)"
+                                                <button type="button" onclick="stepUnitQty('{{ $rowKeyId }}', 1)"
                                                     class="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-sm">+</button>
                                             </div>
                                         </div>
@@ -560,8 +566,8 @@
                                             class="flex items-center justify-between gap-2 rounded-lg bg-white border border-slate-200 p-2">
                                             <span class="text-[11px] font-black text-slate-700">Actual Weight:</span>
                                             <div class="flex items-center gap-1.5 flex-1 max-w-[170px]">
-                                                <input type="number" id="qty-{{ $group['product_id'] }}"
-                                                    name="items[{{ $group['product_id'] }}]"
+                                                <input type="number" id="qty-{{ $rowKeyId }}"
+                                                    name="items[{{ $rowKey }}]"
                                                     value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any"
                                                     inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}"
                                                     data-available="{{ number_format($available, 2, '.', '') }}"
@@ -576,8 +582,8 @@
                                     </div>
 
                                     <div class="mt-2 flex items-center justify-end gap-2 border-t border-slate-200/80 pt-2">
-                                        <button type="button" id="not-avail-btn-{{ $group['product_id'] }}"
-                                            onclick="toggleNotAvailable({{ $group['product_id'] }})"
+                                        <button type="button" id="not-avail-btn-{{ $rowKeyId }}"
+                                            onclick="toggleNotAvailable('{{ $rowKeyId }}')"
                                             class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none">
                                             {{ $isItemNotAvailable ? 'Re-enable Item' : 'Not Available' }}
                                         </button>
@@ -587,17 +593,17 @@
                                 {{-- Single Input for Direct Base Unit (Strict Single Row Mobile Layout & Modal Support) --}}
                                 <div class="p-2 sm:p-2.5">
                                     {{-- Hidden fields for status & note --}}
-                                    <input type="hidden" id="status-field-{{ $group['product_id'] }}"
-                                        name="item_status[{{ $group['product_id'] }}]"
+                                    <input type="hidden" id="status-field-{{ $rowKeyId }}"
+                                        name="item_status[{{ $rowKey }}]"
                                         value="{{ $isItemNotAvailable ? 'not_available' : 'loaded' }}">
-                                    <input type="hidden" id="note-field-{{ $group['product_id'] }}"
-                                        name="item_notes[{{ $group['product_id'] }}]"
+                                    <input type="hidden" id="note-field-{{ $rowKeyId }}"
+                                        name="item_notes[{{ $rowKey }}]"
                                         value="{{ $firstItem->loadout_discrepancy_note ?? '' }}">
 
                                     <div class="flex items-center justify-between gap-1.5 min-w-0">
                                         {{-- Product info inline in 1 row --}}
                                         <div class="flex items-center gap-1.5 min-w-0 flex-1 cursor-pointer"
-                                            onclick="openSingleQtyModal({{ $group['product_id'] }})">
+                                            onclick="openSingleQtyModal('{{ $rowKeyId }}')">
                                             <span
                                                 class="rounded-md bg-indigo-100 px-1.5 py-0.5 text-[9px] font-black text-indigo-700 shrink-0">SL
                                                 {{ $loop->iteration }}</span>
@@ -606,6 +612,9 @@
 
                                             <h3 class="truncate text-xs font-black text-slate-900 shrink-0 max-w-[100px] sm:max-w-xs"
                                                 title="{{ $group['product']->name }}">{{ $group['product']->name }}</h3>
+                                            @if($productGrade !== 'A')
+                                                <span class="rounded-md bg-blue-100 px-1 py-0.5 text-[8px] font-black uppercase text-blue-800 shrink-0">Grade {{ $productGrade }}</span>
+                                            @endif
 
                                             <div
                                                 class="hidden sm:flex items-center gap-1.5 text-[9px] font-semibold text-slate-500 shrink-0">
@@ -634,13 +643,13 @@
 
                                         {{-- Controls in single row --}}
                                         <div class="flex items-center gap-1 shrink-0">
-                                            <button type="button" onclick="stepQty({{ $group['product_id'] }}, -1)"
+                                            <button type="button" onclick="stepQty('{{ $rowKeyId }}', -1)"
                                                 class="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 active:bg-slate-200 cursor-pointer transition-colors border-none font-bold text-sm">-</button>
 
                                             <div
                                                 class="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white px-1.5 py-0.5 shadow-2xs">
-                                                <input type="number" id="qty-{{ $group['product_id'] }}"
-                                                    name="items[{{ $group['product_id'] }}]"
+                                                <input type="number" id="qty-{{ $rowKeyId }}"
+                                                    name="items[{{ $rowKey }}]"
                                                     value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any"
                                                     inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}"
                                                     data-available="{{ number_format($available, 2, '.', '') }}"
@@ -652,11 +661,11 @@
                                                     class="text-[9px] font-black text-slate-500 uppercase">{{ strtoupper($group['unit']) }}</span>
                                             </div>
 
-                                            <button type="button" onclick="stepQty({{ $group['product_id'] }}, 1)"
+                                            <button type="button" onclick="stepQty('{{ $rowKeyId }}', 1)"
                                                 class="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-600 cursor-pointer transition-colors border-none font-bold text-sm">+</button>
 
-                                            <button type="button" id="not-avail-btn-{{ $group['product_id'] }}"
-                                                onclick="toggleNotAvailable({{ $group['product_id'] }})"
+                                            <button type="button" id="not-avail-btn-{{ $rowKeyId }}"
+                                                onclick="toggleNotAvailable('{{ $rowKeyId }}')"
                                                 class="shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none">
                                                 {{ $isItemNotAvailable ? 'Enable' : 'N/A' }}
                                             </button>

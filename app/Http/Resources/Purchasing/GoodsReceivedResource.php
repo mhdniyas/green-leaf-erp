@@ -24,6 +24,7 @@ class GoodsReceivedResource extends JsonResource
             'warehouse_id' => $this->warehouse_id ?? $this->destination_shop_id ?? $this->purchaseOrder?->destination_shop_id,
             'grn_number' => $this->grn_number,
             'status' => $this->status,
+            'purchase_grade' => $this->purchase_grade ?? 'A',
             'source' => $this->sourceLabel(),
             'bill_number' => $this->bill_number,
             'received_by' => $this->received_by,

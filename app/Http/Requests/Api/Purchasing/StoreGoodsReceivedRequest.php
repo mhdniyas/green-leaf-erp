@@ -39,7 +39,15 @@ class StoreGoodsReceivedRequest extends FormRequest
             'items' => ['required', 'array', 'min:1'],
             'items.*.purchase_order_item_id' => ['nullable', 'integer', 'exists:purchase_order_items,id'],
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
-            'items.*.received_qty' => ['required', 'numeric', 'min:0.001'],
+            'items.*.received_qty' => ['required', 'numeric', 'min:0'],
+            'purchase_grade' => ['sometimes', 'nullable', 'string', 'in:A,B,C,MIXED,U'],
+            'grading_mode' => ['sometimes', 'nullable', 'string', 'in:fixed_purchase_grade,sort_required'],
+            'items.*.grade' => ['sometimes', 'nullable', 'string', 'in:A,B,C,MIXED,U'],
+            'items.*.grading_mode' => ['sometimes', 'nullable', 'string', 'in:fixed_purchase_grade,sort_required'],
+            'items.*.discrepancy_type' => ['sometimes', 'nullable', 'string', 'in:none,wastage,other'],
+            'items.*.discrepancy_note' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'bypass_advance_match' => ['sometimes', 'boolean'],
+            'bypass_reason' => ['sometimes', 'nullable', 'string', 'max:500'],
             'items.*.received_unit' => ['sometimes', 'nullable', 'string', 'max:20'],
             'advance_matches' => ['sometimes', 'array'],
             'advance_matches.*.advance_goods_received_id' => ['required', 'integer', 'exists:goods_received,id'],
@@ -59,7 +67,20 @@ class StoreGoodsReceivedRequest extends FormRequest
 
             $items = (array) $this->input('items', []);
             foreach ($items as $index => $item) {
-                if (empty($item['product_id']) || empty($item['received_unit']) && empty($item['unit'])) {
+                $rawGrade = isset($item['grade']) && filled($item['grade']) ? strtoupper((string) $item['grade']) : null;
+                $gradingMode = isset($item['grading_mode']) && filled($item['grading_mode']) ? (string) $item['grading_mode'] : null;
+
+                if ($gradingMode !== null) {
+                    $resolvedGrade = in_array($rawGrade, ['MIXED', 'U'], true) || $rawGrade === null ? 'U' : $rawGrade;
+
+                    if (in_array($resolvedGrade, ['A', 'B', 'C'], true) && $gradingMode !== 'fixed_purchase_grade') {
+                        $validator->errors()->add("items.{$index}.grading_mode", "Grading mode for Grade {$resolvedGrade} must be fixed_purchase_grade.");
+                    } elseif ($resolvedGrade === 'U' && $gradingMode !== 'sort_required') {
+                        $validator->errors()->add("items.{$index}.grading_mode", 'Grading mode for Mixed / Unsegregated must be sort_required.');
+                    }
+                }
+
+                if (empty($item['product_id']) || (empty($item['received_unit']) && empty($item['unit']))) {
                     continue;
                 }
 
@@ -87,6 +108,17 @@ class StoreGoodsReceivedRequest extends FormRequest
                         "items.{$index}.received_unit",
                         "The received unit '{$rawUnit}' is not allowed for product '{$product->name}'."
                     );
+                }
+            }
+
+            if ($this->filled('grading_mode')) {
+                $topGrade = $this->filled('purchase_grade') ? strtoupper((string) $this->input('purchase_grade')) : ($this->filled('grade') ? strtoupper((string) $this->input('grade')) : null);
+                $resolvedTopGrade = in_array($topGrade, ['MIXED', 'U'], true) || $topGrade === null ? 'U' : $topGrade;
+                $topMode = (string) $this->input('grading_mode');
+                if (in_array($resolvedTopGrade, ['A', 'B', 'C'], true) && $topMode !== 'fixed_purchase_grade') {
+                    $validator->errors()->add('grading_mode', "Grading mode for Grade {$resolvedTopGrade} must be fixed_purchase_grade.");
+                } elseif ($resolvedTopGrade === 'U' && $topMode !== 'sort_required') {
+                    $validator->errors()->add('grading_mode', 'Grading mode for Mixed / Unsegregated must be sort_required.');
                 }
             }
         });

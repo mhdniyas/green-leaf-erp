@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\Inventory\ProductGrade;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,11 +13,16 @@ class ShopInvoiceItem extends Model
 {
     use HasFactory;
 
+    protected $attributes = [
+        'product_grade' => 'A',
+    ];
+
     protected $fillable = [
         'shop_invoice_id',
         'shop_order_item_id',
         'product_id',
         'product_name',
+        'product_grade',
         'unit',
         'price_unit',
         'approved_qty',
@@ -37,6 +43,7 @@ class ShopInvoiceItem extends Model
     protected function casts(): array
     {
         return [
+            'product_grade' => 'string',
             'approved_qty' => 'decimal:2',
             'price_quantity' => 'decimal:4',
             'delivered_qty' => 'decimal:2',
@@ -66,5 +73,10 @@ class ShopInvoiceItem extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function productGrade(): ProductGrade
+    {
+        return ProductGrade::tryResolve($this->product_grade) ?? ProductGrade::GradeA;
     }
 }

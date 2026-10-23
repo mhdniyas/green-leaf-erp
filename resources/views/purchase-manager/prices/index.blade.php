@@ -1,19 +1,19 @@
 @extends('purchase-manager.layouts.app')
 
-@section('title', 'Daily Purchasing Prices')
-@section('page_title', 'Daily Purchasing Prices')
-@section('page_description', 'Daily purchasing cost dashboard with business-day average cost, previous-day comparison, and selling-price reference.')
+@section('title', 'Daily Purchasing Prices (Grade A)')
+@section('page_title', 'Daily Purchasing Prices (Grade A)')
+@section('page_description', 'Daily Grade A purchasing cost dashboard with business-day average cost, previous-day comparison, and customer group selling prices.')
 
 @section('content')
     <div class="space-y-6">
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div class="space-y-2">
-                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-700">Purchasing flow</p>
-                    <h2 class="text-2xl font-black text-slate-950">Daily purchasing price table</h2>
+                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-700">Purchasing flow · Grade A</p>
+                    <h2 class="text-2xl font-black text-slate-950">Daily purchasing price table (Grade A)</h2>
                     <p class="max-w-3xl text-sm font-medium leading-6 text-slate-600">
-                        This page shows buying costs &amp; daily selling prices (A, B, C).
-                        Updating Selling Price A will automatically copy to B &amp; C unless custom values are specified.
+                        This page shows Grade A buying costs &amp; Grade A selling prices for customer groups (Group A, Group B, Group C).
+                        Updating Grade A · Group A will automatically copy to Group B &amp; C unless custom values are specified.
                     </p>
                 </div>
                 <div class="flex flex-wrap items-center gap-3">
@@ -66,7 +66,7 @@
                     </select>
                 </div>
                 <div class="lg:col-span-4 flex flex-wrap items-center justify-between gap-3 pt-1">
-                    <p class="text-xs font-medium text-slate-500">Enter or edit Selling Price A to automatically update B &amp; C. Enter B or C explicitly when tier pricing differs.</p>
+                    <p class="text-xs font-medium text-slate-500">Enter or edit Grade A · Group A selling price to automatically update Group B &amp; C. Enter Group B or C explicitly when tier pricing differs.</p>
                     <button type="submit" class="inline-flex min-h-11 items-center justify-center rounded-2xl bg-cyan-600 px-5 py-3 text-sm font-black text-white hover:bg-cyan-500">Apply Filters</button>
                 </div>
             </form>
@@ -95,9 +95,9 @@
             <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">
                 <div class="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <h3 class="text-sm font-black uppercase tracking-[0.14em] text-slate-900">Product price list &amp; daily updates</h3>
+                        <h3 class="text-sm font-black uppercase tracking-[0.14em] text-slate-900">Grade A product price list &amp; daily updates</h3>
                         <p class="mt-1 text-xs font-medium text-slate-500">
-                            Updating Price A will auto-fill B and C if left blank. User activity is tracked for all price modifications.
+                            Updating Grade A · Group A price will auto-fill Group B and C if left blank. User activity is tracked for all price modifications.
                         </p>
                     </div>
                     <div class="flex items-center gap-3">
@@ -122,12 +122,12 @@
                                 <tr>
                                     <th class="px-4 py-3">Product</th>
                                     <th class="px-4 py-3">Category</th>
-                                    <th class="px-4 py-3 text-right">Purchase Price</th>
+                                    <th class="px-4 py-3 text-right">Grade A Purchase Cost</th>
                                     <th class="px-3 py-3 text-right">Prev Day</th>
                                     <th class="px-3 py-3 text-right">Change</th>
-                                    <th class="px-4 py-3 text-center">Selling A (Main)</th>
-                                    <th class="px-4 py-3 text-center">Selling B</th>
-                                    <th class="px-4 py-3 text-center">Selling C</th>
+                                    <th class="px-4 py-3 text-center">Grade A · Group A (Main)</th>
+                                    <th class="px-4 py-3 text-center">Grade A · Group B</th>
+                                    <th class="px-4 py-3 text-center">Grade A · Group C</th>
                                     <th class="px-3 py-3 text-center">Source</th>
                                     <th class="px-4 py-3 text-center">Action</th>
                                 </tr>
@@ -265,7 +265,7 @@
 
                             <div class="grid grid-cols-2 gap-3 text-xs">
                                 <div class="rounded-2xl bg-white p-3 space-y-1">
-                                    <label class="font-black uppercase text-[10px] tracking-wide text-slate-500 block">Purchase Price</label>
+                                    <label class="font-black uppercase text-[10px] tracking-wide text-slate-500 block">Grade A Purchase Cost</label>
                                     <input
                                         type="number"
                                         step="0.01"
@@ -279,7 +279,7 @@
                                 </div>
 
                                 <div class="rounded-2xl bg-white p-3 space-y-1">
-                                    <label class="font-black uppercase text-[10px] tracking-wide text-slate-500 block">Selling A (Main)</label>
+                                    <label class="font-black uppercase text-[10px] tracking-wide text-slate-500 block">Grade A · Group A</label>
                                     <input
                                         type="number"
                                         step="0.01"
@@ -295,7 +295,7 @@
 
                             <div class="grid grid-cols-2 gap-3 text-xs">
                                 <div class="rounded-2xl bg-white p-3 space-y-1">
-                                    <label class="font-black uppercase text-[10px] tracking-wide text-slate-500 block">Selling B (Optional)</label>
+                                    <label class="font-black uppercase text-[10px] tracking-wide text-slate-500 block">Grade A · Group B</label>
                                     <input
                                         type="number"
                                         step="0.01"
@@ -308,7 +308,7 @@
                                 </div>
 
                                 <div class="rounded-2xl bg-white p-3 space-y-1">
-                                    <label class="font-black uppercase text-[10px] tracking-wide text-slate-500 block">Selling C (Optional)</label>
+                                    <label class="font-black uppercase text-[10px] tracking-wide text-slate-500 block">Grade A · Group C</label>
                                     <input
                                         type="number"
                                         step="0.01"

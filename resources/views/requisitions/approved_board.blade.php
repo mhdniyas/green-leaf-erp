@@ -141,7 +141,7 @@
                 </div>
                 <input type="text" id="board-search" oninput="filterBoardRows()" placeholder="Fuzzy search products by name or SKU..." class="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 focus:bg-white focus:outline-none focus:border-slate-300 transition-all">
             </div>
-            
+
 
 
             <div class="flex shrink-0 items-center gap-3 self-stretch rounded-xl border border-slate-200 bg-white px-3 py-1.5 shadow-sm md:self-auto">
@@ -173,7 +173,7 @@
             @csrf
             <input type="hidden" name="date" value="{{ $date }}">
             <fieldset @disabled($approvedBoardSynced && ! $hasPendingApprovedUpdates) class="{{ $approvedBoardSynced && ! $hasPendingApprovedUpdates ? 'opacity-75' : '' }}">
-            
+
             {{-- Approved Requisitions Allocations Section --}}
             <div class="mb-8 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm" id="allocations-card">
                 <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50/50 px-4 py-4 sm:px-6">
@@ -220,83 +220,184 @@
                             @php $slNo = 1; @endphp
                             @foreach($products as $product)
                                 @php
-                                    $rowTotal = 0;
-                                    foreach ($shops as $shop) {
-                                        $qtyData = $matrix[$product->id][$shop->id] ?? null;
-                                        if ($qtyData) {
-                                            $rowTotal += $qtyData['display_qty'] ?? ($qtyData['approved_qty'] !== null ? $qtyData['approved_qty'] : $qtyData['requested_qty']);
-                                        }
+                                    $productGrades = array_keys($gradesByProduct[$product->id] ?? ['A' => true]);
+                                    if (empty($productGrades)) {
+                                        $productGrades = ['A'];
                                     }
-                                    $selectedSupplierId = $productSupplierMap[$product->id] ?? null;
+                                    sort($productGrades);
+                                    $hasMultiGrades = count($productGrades) > 1 || $productGrades[0] !== 'A';
                                 @endphp
-                                <tr class="hover:bg-slate-50/10 transition-colors product-row" 
-                                    data-product-id="{{ $product->id }}"
-                                    data-sku="{{ strtolower($product->sku) }}" 
-                                    data-name="{{ strtolower($product->name) }}"
-                                    data-category="{{ strtolower($product->category ? $product->category->name : '') }}"
-                                    data-row-total="{{ $rowTotal }}"
-                                    data-fulfillment-type="{{ $productFulfillmentTypes[$product->id] ?? 'warehouse' }}">
-                                    
-                                    {{-- SL NO --}}
-                                    <td class="py-3 px-4 text-center font-bold text-slate-400 sticky left-0 bg-white z-10 row-sl-no">
-                                        {{ $slNo++ }}
-                                    </td>
-                                    
-                                    {{-- Checkbox --}}
-                                    <td class="py-3 px-2 text-center sticky left-[50px] bg-white z-10 border-r border-slate-200">
-                                        <input type="checkbox" name="selected_products[]" value="{{ $product->id }}" @checked(! $approvedBoardSynced || in_array($product->id, $poBackedProductIds ?? [], true)) class="product-select-checkbox rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
-                                    </td>
-                                    
-                                    {{-- Product Name & SKU --}}
-                                    <td class="py-3 px-4 sticky left-[100px] bg-white z-10 border-r border-slate-200 font-bold text-slate-900">
-                                        <div class="truncate max-w-[180px]">{{ $product->name }}</div>
-                                        <span class="block text-[9px] text-slate-400 font-bold tracking-wider mt-0.5">{{ $product->sku }}</span>
-                                    </td>
-
-
-                                    
-                                    {{-- Shops Inputs --}}
-                                    @foreach($shops as $shop)
-                                        @php
+                                @if (! $hasMultiGrades)
+                                    @php
+                                        $rowTotal = 0;
+                                        foreach ($shops as $shop) {
                                             $qtyData = $matrix[$product->id][$shop->id] ?? null;
-                                            $val = null;
-                                            $isAdjusted = false;
                                             if ($qtyData) {
-                                                $val = $qtyData['display_qty'] ?? ($qtyData['approved_qty'] ?? $qtyData['requested_qty']);
-                                                $comparisonBaseline = $qtyData['previous_approved_qty'] ?? $qtyData['approved_qty'] ?? $qtyData['requested_qty'];
-                                                $isAdjusted = abs((float) $val - (float) $comparisonBaseline) > 0.0001;
+                                                $rowTotal += $qtyData['display_qty'] ?? ($qtyData['approved_qty'] !== null ? $qtyData['approved_qty'] : $qtyData['requested_qty']);
                                             }
-                                        @endphp
-                                        <td @class([
-                                            'py-2 px-2 text-center border-r transition-colors',
-                                            'border-slate-100 hover:bg-slate-50/5 hover:z-20' => ! ($shopUpdateMeta[$shop->id]['has_update_request'] ?? false) && ! ($qtyData['needs_attention'] ?? false),
-                                            'border-indigo-100 bg-indigo-50/60 hover:bg-indigo-100/80 hover:z-20' => ($shopUpdateMeta[$shop->id]['has_update_request'] ?? false) || ($qtyData['needs_attention'] ?? false),
-                                        ]) data-shop-column-cell="{{ $shop->id }}">
-                                            <div class="relative inline-flex items-center">
-                                                <input type="number" 
-                                                       step="0.01" 
-                                                       min="0" 
-                                                       name="quantities[{{ $product->id }}][{{ $shop->id }}]" 
-                                                       value="{{ $val > 0 ? $val : '' }}"
-                                                       data-shop-id="{{ $shop->id }}"
-                                                       data-product-id="{{ $product->id }}"
-                                                       oninput="onCellChange(this)"
-                                                       @class([
-                                                           'w-16 rounded-lg border text-center py-1 text-xs font-black transition-all focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500',
-                                                           'border-slate-200 text-slate-800 focus:bg-white bg-slate-50/30' => !$isAdjusted,
-                                                           'border-amber-300 text-amber-900 bg-amber-50/50 focus:bg-white' => $isAdjusted,
-                                                           'ring-1 ring-indigo-300 border-indigo-300 bg-indigo-50 text-indigo-900' => $qtyData['needs_attention'] ?? false,
-                                                       ])
-                                                       placeholder="-">
-                                            </div>
-                                        </td>
-                                    @endforeach
+                                        }
+                                        $selectedSupplierId = $productSupplierMap[$product->id] ?? null;
+                                    @endphp
+                                    <tr class="hover:bg-slate-50/10 transition-colors product-row"
+                                        data-product-id="{{ $product->id }}"
+                                        data-sku="{{ strtolower($product->sku) }}"
+                                        data-name="{{ strtolower($product->name) }}"
+                                        data-category="{{ strtolower($product->category ? $product->category->name : '') }}"
+                                        data-row-total="{{ $rowTotal }}"
+                                        data-fulfillment-type="{{ $productFulfillmentTypes[$product->id] ?? 'warehouse' }}">
 
-                                    {{-- Row Total --}}
-                                    <td class="py-3 px-4 text-right font-black text-slate-900 bg-slate-50/20 text-xs" id="row-total-{{ $product->id }}">
-                                        {{ $rowTotal > 0 ? number_format($rowTotal, 2) : '0.00' }} <span class="text-[10px] text-slate-400 font-semibold">{{ $product->unit }}</span>
-                                    </td>
-                                </tr>
+                                        {{-- SL NO --}}
+                                        <td class="py-3 px-4 text-center font-bold text-slate-400 sticky left-0 bg-white z-10 row-sl-no">
+                                            {{ $slNo++ }}
+                                        </td>
+
+                                        {{-- Checkbox --}}
+                                        <td class="py-3 px-2 text-center sticky left-[50px] bg-white z-10 border-r border-slate-200">
+                                            <input type="checkbox" name="selected_products[]" value="{{ $product->id }}" @checked(! $approvedBoardSynced || in_array($product->id, $poBackedProductIds ?? [], true)) class="product-select-checkbox rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
+                                        </td>
+
+                                        {{-- Product Name & SKU --}}
+                                        <td class="py-3 px-4 sticky left-[100px] bg-white z-10 border-r border-slate-200 font-bold text-slate-900">
+                                            <div class="truncate max-w-[180px]">{{ $product->name }}</div>
+                                            <span class="block text-[9px] text-slate-400 font-bold tracking-wider mt-0.5">{{ $product->sku }}</span>
+                                        </td>
+
+                                        {{-- Shops Inputs --}}
+                                        @foreach($shops as $shop)
+                                            @php
+                                                $qtyData = $matrix[$product->id][$shop->id] ?? null;
+                                                $val = null;
+                                                $isAdjusted = false;
+                                                if ($qtyData) {
+                                                    $val = $qtyData['display_qty'] ?? ($qtyData['approved_qty'] ?? $qtyData['requested_qty']);
+                                                    $comparisonBaseline = $qtyData['previous_approved_qty'] ?? $qtyData['approved_qty'] ?? $qtyData['requested_qty'];
+                                                    $isAdjusted = abs((float) $val - (float) $comparisonBaseline) > 0.0001;
+                                                }
+                                            @endphp
+                                            <td @class([
+                                                'py-2 px-2 text-center border-r transition-colors',
+                                                'border-slate-100 hover:bg-slate-50/5 hover:z-20' => ! ($shopUpdateMeta[$shop->id]['has_update_request'] ?? false) && ! ($qtyData['needs_attention'] ?? false),
+                                                'border-indigo-100 bg-indigo-50/60 hover:bg-indigo-100/80 hover:z-20' => ($shopUpdateMeta[$shop->id]['has_update_request'] ?? false) || ($qtyData['needs_attention'] ?? false),
+                                            ]) data-shop-column-cell="{{ $shop->id }}">
+                                                <div class="relative inline-flex items-center">
+                                                    <input type="number"
+                                                           step="0.01"
+                                                           min="0"
+                                                           name="quantities[{{ $product->id }}][{{ $shop->id }}]"
+                                                           value="{{ $val > 0 ? $val : '' }}"
+                                                           data-shop-id="{{ $shop->id }}"
+                                                           data-product-id="{{ $product->id }}"
+                                                           oninput="onCellChange(this)"
+                                                           @class([
+                                                               'w-16 rounded-lg border text-center py-1 text-xs font-black transition-all focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500',
+                                                               'border-slate-200 text-slate-800 focus:bg-white bg-slate-50/30' => !$isAdjusted,
+                                                               'border-amber-300 text-amber-900 bg-amber-50/50 focus:bg-white' => $isAdjusted,
+                                                               'ring-1 ring-indigo-300 border-indigo-300 bg-indigo-50 text-indigo-900' => $qtyData['needs_attention'] ?? false,
+                                                           ])
+                                                           placeholder="-">
+                                                </div>
+                                            </td>
+                                        @endforeach
+
+                                        {{-- Row Total --}}
+                                        <td class="py-3 px-4 text-right font-black text-slate-900 bg-slate-50/20 text-xs row-total-cell" id="row-total-{{ $product->id }}">
+                                            {{ $rowTotal > 0 ? number_format($rowTotal, 2) : '0.00' }} <span class="text-[10px] text-slate-400 font-semibold">{{ $product->unit }}</span>
+                                        </td>
+                                    </tr>
+                                @else
+                                    @foreach($productGrades as $pGrade)
+                                        @php
+                                            $rowKey = "{$product->id}|{$pGrade}";
+                                            $gradeQtyMap = $gradeMatrix[$product->id][$pGrade] ?? ($matrix[$rowKey] ?? []);
+                                            $rowTotal = 0;
+                                            foreach ($shops as $shop) {
+                                                $qtyData = $gradeQtyMap[$shop->id] ?? null;
+                                                if ($qtyData) {
+                                                    $rowTotal += $qtyData['display_qty'] ?? ($qtyData['approved_qty'] !== null ? $qtyData['approved_qty'] : $qtyData['requested_qty']);
+                                                }
+                                            }
+                                            $gradeBadgeClass = match($pGrade) {
+                                                'A' => 'bg-emerald-100 text-emerald-800',
+                                                'B' => 'bg-amber-100 text-amber-800',
+                                                'C' => 'bg-indigo-100 text-indigo-800',
+                                                default => 'bg-slate-100 text-slate-800',
+                                            };
+                                        @endphp
+                                        <tr class="hover:bg-slate-50/10 transition-colors product-row"
+                                            data-product-id="{{ $product->id }}"
+                                            data-sku="{{ strtolower($product->sku) }}"
+                                            data-name="{{ strtolower($product->name) }}"
+                                            data-category="{{ strtolower($product->category ? $product->category->name : '') }}"
+                                            data-row-total="{{ $rowTotal }}"
+                                            data-fulfillment-type="{{ $productFulfillmentTypes[$product->id] ?? 'warehouse' }}">
+
+                                            {{-- SL NO --}}
+                                            <td class="py-3 px-4 text-center font-bold text-slate-400 sticky left-0 bg-white z-10 row-sl-no">
+                                                {{ $slNo++ }}
+                                            </td>
+
+                                            {{-- Checkbox --}}
+                                            <td class="py-3 px-2 text-center sticky left-[50px] bg-white z-10 border-r border-slate-200">
+                                                @if ($loop->first)
+                                                    <input type="checkbox" name="selected_products[]" value="{{ $product->id }}" @checked(! $approvedBoardSynced || in_array($product->id, $poBackedProductIds ?? [], true)) class="product-select-checkbox rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
+                                                @endif
+                                            </td>
+
+                                            {{-- Product Name & SKU --}}
+                                            <td class="py-3 px-4 sticky left-[100px] bg-white z-10 border-r border-slate-200 font-bold text-slate-900">
+                                                <div class="flex items-center gap-1.5">
+                                                    <div class="truncate max-w-[140px]">{{ $product->name }}</div>
+                                                    <span class="rounded px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider {{ $gradeBadgeClass }}">
+                                                        Grade {{ $pGrade }}
+                                                    </span>
+                                                </div>
+                                                <span class="block text-[9px] text-slate-400 font-bold tracking-wider mt-0.5">{{ $product->sku }}</span>
+                                            </td>
+
+                                            {{-- Shops Inputs --}}
+                                            @foreach($shops as $shop)
+                                                @php
+                                                    $qtyData = $gradeQtyMap[$shop->id] ?? null;
+                                                    $val = null;
+                                                    $isAdjusted = false;
+                                                    if ($qtyData) {
+                                                        $val = $qtyData['display_qty'] ?? ($qtyData['approved_qty'] ?? $qtyData['requested_qty']);
+                                                        $comparisonBaseline = $qtyData['previous_approved_qty'] ?? $qtyData['approved_qty'] ?? $qtyData['requested_qty'];
+                                                        $isAdjusted = abs((float) $val - (float) $comparisonBaseline) > 0.0001;
+                                                    }
+                                                @endphp
+                                                <td @class([
+                                                    'py-2 px-2 text-center border-r transition-colors',
+                                                    'border-slate-100 hover:bg-slate-50/5 hover:z-20' => ! ($shopUpdateMeta[$shop->id]['has_update_request'] ?? false) && ! ($qtyData['needs_attention'] ?? false),
+                                                    'border-indigo-100 bg-indigo-50/60 hover:bg-indigo-100/80 hover:z-20' => ($shopUpdateMeta[$shop->id]['has_update_request'] ?? false) || ($qtyData['needs_attention'] ?? false),
+                                                ]) data-shop-column-cell="{{ $shop->id }}">
+                                                    <div class="relative inline-flex items-center">
+                                                        <input type="number"
+                                                               step="0.01"
+                                                               min="0"
+                                                               name="quantities[{{ $rowKey }}][{{ $shop->id }}]"
+                                                               value="{{ $val > 0 ? $val : '' }}"
+                                                               data-shop-id="{{ $shop->id }}"
+                                                               data-product-id="{{ $product->id }}"
+                                                               oninput="onCellChange(this)"
+                                                               @class([
+                                                                   'w-16 rounded-lg border text-center py-1 text-xs font-black transition-all focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500',
+                                                                   'border-slate-200 text-slate-800 focus:bg-white bg-slate-50/30' => !$isAdjusted,
+                                                                   'border-amber-300 text-amber-900 bg-amber-50/50 focus:bg-white' => $isAdjusted,
+                                                                   'ring-1 ring-indigo-300 border-indigo-300 bg-indigo-50 text-indigo-900' => $qtyData['needs_attention'] ?? false,
+                                                               ])
+                                                               placeholder="-">
+                                                    </div>
+                                                </td>
+                                            @endforeach
+
+                                            {{-- Row Total --}}
+                                            <td class="py-3 px-4 text-right font-black text-slate-900 bg-slate-50/20 text-xs row-total-cell" id="row-total-{{ $product->id }}-{{ $pGrade }}">
+                                                {{ $rowTotal > 0 ? number_format($rowTotal, 2) : '0.00' }} <span class="text-[10px] text-slate-400 font-semibold">{{ $product->unit }}</span>
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                @endif
                             @endforeach
                         </tbody>
                         <tfoot>
@@ -375,7 +476,7 @@
             const hideZero = document.getElementById('filter-has-orders').checked;
             const produceFilter = document.getElementById('filter-produce').value;
             const rows = document.querySelectorAll('.product-row');
-            
+
             rows.forEach(row => {
                 const name = row.getAttribute('data-name');
                 const sku = row.getAttribute('data-sku');
@@ -449,7 +550,7 @@
         function onCellChange(input) {
             const productId = input.getAttribute('data-product-id');
             const row = input.closest('tr');
-            
+
             // Highlight adjustment
             if (input.value > 0) {
                 input.className = "w-16 rounded-lg border text-center py-1 text-xs font-black transition-all focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 border-amber-300 text-amber-900 bg-amber-50/50 focus:bg-white";
@@ -468,7 +569,7 @@
             row.setAttribute('data-row-total', rowTotal);
 
             // Update row total cell
-            const totalCell = document.getElementById(`row-total-${productId}`);
+            const totalCell = row.querySelector('.row-total-cell') || document.getElementById(`row-total-${productId}`);
             if (totalCell) {
                 const unit = totalCell.querySelector('span')?.outerHTML || '';
                 totalCell.innerHTML = `${rowTotal.toFixed(2)} ${unit}`;
@@ -484,7 +585,7 @@
         // Recalculate all column totals and grand total
         function calculateColumnTotals() {
             const shops = @json($shops);
-            
+
             let grandTotal = 0;
             shops.forEach(shop => {
                 let shopTotal = 0;
@@ -492,14 +593,14 @@
                     const val = parseFloat(inp.value) || 0;
                     shopTotal += val;
                 });
-                
+
                 const colCell = document.getElementById(`col-total-${shop.id}`);
                 if (colCell) {
                     colCell.textContent = shopTotal.toFixed(2);
                 }
                 grandTotal += shopTotal;
             });
-            
+
             const grandTotalCell = document.getElementById('grand-total');
             if (grandTotalCell) {
                 grandTotalCell.textContent = grandTotal.toFixed(2);

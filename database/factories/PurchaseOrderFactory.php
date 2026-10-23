@@ -31,6 +31,7 @@ class PurchaseOrderFactory extends Factory
             'order_date' => $this->faker->dateTimeBetween('-30 days', 'today')->format('Y-m-d'),
             'created_by' => User::factory(),
             'notes' => $this->faker->optional()->sentence(),
+            'fulfillment_type' => 'warehouse',
         ];
     }
 }

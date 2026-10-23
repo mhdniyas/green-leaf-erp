@@ -117,20 +117,25 @@ class ShopInvoiceService
 
             $this->normalizeDuplicateInvoiceItems($invoice);
 
-            $existingItems = $invoice->items()->get()->keyBy('product_id');
-            $billableProductIds = [];
+            $existingItems = $invoice->items()->get()->keyBy(
+                fn (ShopInvoiceItem $item): string => $item->product_id.'|'.($item->product_grade ?? 'A')
+            );
+            $billableInvoiceItemIds = [];
 
             $order->items
                 ->filter(fn (ShopOrderItem $orderItem): bool => $this->shouldIncludeOrderItemInInvoice($orderItem))
-                ->groupBy('product_id')
-                ->each(function (Collection $orderItems, int|string $productId) use ($order, $invoice, $existingItems, &$billableProductIds): void {
+                ->groupBy(fn (ShopOrderItem $item): string => $item->product_id.'|'.($item->product_grade ?? 'A'))
+                ->each(function (Collection $orderItems, string $groupKey) use ($order, $invoice, $existingItems, &$billableInvoiceItemIds): void {
                     /** @var ShopOrderItem $firstOrderItem */
                     $firstOrderItem = $orderItems->first();
+                    $productId = (int) $firstOrderItem->product_id;
+                    $productGrade = (string) ($firstOrderItem->product_grade ?? 'A');
 
-                    $invoiceItem = $existingItems->get($productId) ?? new ShopInvoiceItem([
+                    $invoiceItem = $existingItems->get($groupKey) ?? new ShopInvoiceItem([
                         'shop_invoice_id' => $invoice->id,
                         'shop_order_item_id' => $firstOrderItem->id,
-                        'product_id' => (int) $productId,
+                        'product_id' => $productId,
+                        'product_grade' => $productGrade,
                     ]);
 
                     $dailyPrice = $this->dailyPriceForOrderItem($order, $firstOrderItem);
@@ -183,6 +188,7 @@ class ShopInvoiceService
                     $invoiceItem->fill([
                         'shop_order_item_id' => $firstOrderItem->id,
                         'product_name' => $firstOrderItem->product?->name ?? 'Unknown Product',
+                        'product_grade' => $productGrade,
                         'unit' => $firstOrderItem->unit,
                         'price_unit' => $priceUnit,
                         'approved_qty' => $approvedQty,
@@ -200,13 +206,13 @@ class ShopInvoiceService
                         'final_line_total' => round($lineSubtotal - $shortageAmount + $excessAmount, 2),
                     ]);
                     $invoiceItem->save();
-                    $billableProductIds[] = (int) $productId;
+                    $billableInvoiceItemIds[] = (int) $invoiceItem->id;
                 });
 
             $invoice->items()
                 ->when(
-                    $billableProductIds !== [],
-                    fn ($query) => $query->whereNotIn('product_id', $billableProductIds),
+                    $billableInvoiceItemIds !== [],
+                    fn ($query) => $query->whereNotIn('id', $billableInvoiceItemIds),
                     fn ($query) => $query,
                 )
                 ->delete();
@@ -227,12 +233,14 @@ class ShopInvoiceService
 
         return DB::transaction(function () use ($order, $invoice, $deliveredQtys, $userId, $deliveryNote): ShopInvoice {
             $hasDiscrepancy = false;
-            $invoiceItems = $invoice->items()->get()->keyBy('product_id');
+            $invoiceItems = $invoice->items()->get()->keyBy(
+                fn (ShopInvoiceItem $item): string => $item->product_id.'|'.($item->product_grade ?? 'A')
+            );
 
             $order->items
                 ->filter(fn (ShopOrderItem $orderItem): bool => $this->shouldIncludeOrderItemInInvoice($orderItem))
-                ->groupBy('product_id')
-                ->each(function (Collection $orderItems, int|string $productId) use ($invoiceItems, $deliveredQtys, &$hasDiscrepancy): void {
+                ->groupBy(fn (ShopOrderItem $item): string => $item->product_id.'|'.($item->product_grade ?? 'A'))
+                ->each(function (Collection $orderItems, string $groupKey) use ($invoiceItems, $deliveredQtys, &$hasDiscrepancy): void {
                     /** @var ShopOrderItem $firstOrderItem */
                     $firstOrderItem = $orderItems->first();
                     $approvedQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) $item->approved_qty);
@@ -243,7 +251,7 @@ class ShopInvoiceService
                     $excessQty = max(0.00, $deliveredQty - $approvedQty);
                     $hasDiscrepancy = $hasDiscrepancy || $shortageQty > 0.0001 || $excessQty > 0.0001;
 
-                    $invoiceItem = $invoiceItems->get($productId);
+                    $invoiceItem = $invoiceItems->get($groupKey);
                     if (! $invoiceItem) {
                         return;
                     }
@@ -833,8 +841,10 @@ class ShopInvoiceService
             $shortageQty = round(max(0, $approvedQty - $deliveredQty), 2);
             $excessQty = round(max(0, $deliveredQty - $approvedQty), 2);
 
+            $itemGrade = (string) ($invoiceItem->product_grade ?? 'A');
             $productOrderItems = $invoice->order?->items
-                ?->where('product_id', $invoiceItem->product_id);
+                ?->where('product_id', $invoiceItem->product_id)
+                ->filter(fn ($item): bool => (string) ($item->product_grade ?? 'A') === $itemGrade);
             $orderItemContext = $productOrderItems instanceof Collection && $productOrderItems->isNotEmpty() ? $productOrderItems : null;
 
             $deliveredPriceQuantity = $this->priceQuantityFor($invoiceItem->product, $newQty, $priceUnit, $orderItemContext);
@@ -869,6 +879,7 @@ class ShopInvoiceService
             $this->recordInvoiceActivity($invoice, 'item_adjusted', $userId, [
                 'item_id' => $invoiceItem->id,
                 'product_id' => $invoiceItem->product_id,
+                'product_grade' => $itemGrade,
                 'product_name' => $invoiceItem->product?->name ?? $invoiceItem->product_name,
                 'qty' => $beforeQty,
                 'price' => $beforePrice,
@@ -876,6 +887,7 @@ class ShopInvoiceService
             ], [
                 'item_id' => $invoiceItem->id,
                 'product_id' => $invoiceItem->product_id,
+                'product_grade' => $itemGrade,
                 'product_name' => $invoiceItem->product?->name ?? $invoiceItem->product_name,
                 'qty' => $newQty,
                 'price' => $newPrice,
@@ -917,7 +929,7 @@ class ShopInvoiceService
                 ? $invoice->order->items
                     ->filter(fn (ShopOrderItem $item): bool => $this->shouldIncludeOrderItemInInvoice($item))
                     ->filter(fn (ShopOrderItem $item): bool => (bool) ($item->product?->is_active ?? true))
-                    ->groupBy('product_id')
+                    ->groupBy(fn (ShopOrderItem $item): string => $item->product_id.'|'.($item->product_grade ?? 'A'))
                 : collect();
 
             foreach ($invoice->items as $invoiceItem) {
@@ -940,10 +952,11 @@ class ShopInvoiceService
                 }
 
                 try {
-                    $price = $this->approvedDailyPriceResolver->resolve($product, $invoice->shop, $invoice->business_date);
+                    $itemGrade = (string) ($invoiceItem->product_grade ?? 'A');
+                    $price = $this->approvedDailyPriceResolver->resolve($product, $invoice->shop, $invoice->business_date, $itemGrade);
                     $unitPrice = round((float) $price['price'], 2);
                     $priceUnit = (string) $price['price_unit'];
-                    $productOrderItems = $orderItemsByProduct->get((int) $product->id);
+                    $productOrderItems = $orderItemsByProduct->get($product->id.'|'.$itemGrade);
                     $orderItemContext = $productOrderItems instanceof Collection ? $productOrderItems : null;
                     $priceQuantity = $this->priceQuantityFor($product, $approvedQty, $priceUnit, $orderItemContext);
                     $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit, $orderItemContext);
@@ -1461,7 +1474,8 @@ class ShopInvoiceService
             ]);
         }
 
-        $price = $this->approvedDailyPriceResolver->resolve($product, $order->shop, $order->business_date);
+        $itemGrade = (string) ($orderItem->product_grade ?? 'A');
+        $price = $this->approvedDailyPriceResolver->resolve($product, $order->shop, $order->business_date, $itemGrade);
 
         return [
             'price' => round((float) $price['price'], 2),
@@ -1617,14 +1631,20 @@ class ShopInvoiceService
                 }
 
                 try {
-                    $this->approvedDailyPriceResolver->resolve($item->product, $order->shop, $order->business_date);
+                    $grade = (string) ($item->product_grade ?? 'A');
+                    $this->approvedDailyPriceResolver->resolve($item->product, $order->shop, $order->business_date, $grade);
 
                     return false;
                 } catch (ValidationException) {
                     return true;
                 }
             })
-            ->map(fn (ShopOrderItem $item): string => $item->product?->name ?? 'Unknown Product')
+            ->map(function (ShopOrderItem $item): string {
+                $baseName = $item->product?->name ?? 'Unknown Product';
+                $grade = (string) ($item->product_grade ?? 'A');
+
+                return $grade !== 'A' ? "{$baseName} (Grade {$grade})" : $baseName;
+            })
             ->unique()
             ->values()
             ->all();
@@ -1645,14 +1665,20 @@ class ShopInvoiceService
                 }
 
                 try {
-                    $this->approvedDailyPriceResolver->resolve($item->product, $invoice->shop, $invoice->business_date);
+                    $grade = (string) ($item->product_grade ?? 'A');
+                    $this->approvedDailyPriceResolver->resolve($item->product, $invoice->shop, $invoice->business_date, $grade);
 
                     return false;
                 } catch (ValidationException) {
                     return true;
                 }
             })
-            ->map(fn (ShopInvoiceItem $item): string => $item->product?->name ?? 'Unknown Product')
+            ->map(function (ShopInvoiceItem $item): string {
+                $baseName = $item->product?->name ?? $item->product_name ?? 'Unknown Product';
+                $grade = (string) ($item->product_grade ?? 'A');
+
+                return $grade !== 'A' ? "{$baseName} (Grade {$grade})" : $baseName;
+            })
             ->unique()
             ->values()
             ->all();
@@ -1663,7 +1689,7 @@ class ShopInvoiceService
         $invoice->loadMissing('items');
 
         $invoice->items
-            ->groupBy('product_id')
+            ->groupBy(fn (ShopInvoiceItem $item): string => $item->product_id.'|'.($item->product_grade ?? 'A'))
             ->filter(fn (Collection $rows): bool => $rows->count() > 1)
             ->each(function (Collection $rows): void {
                 /** @var ShopInvoiceItem $primary */

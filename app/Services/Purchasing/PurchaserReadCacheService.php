@@ -10,6 +10,7 @@ use DateTimeInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Predis\Client;
 use Throwable;
 
 class PurchaserReadCacheService
@@ -27,9 +28,33 @@ class PurchaserReadCacheService
 
     private float $lastFailureLogAt = 0.0;
 
+    private readonly string $store;
+
     public function __construct(
-        private readonly string $store = self::STORE,
-    ) {}
+        ?string $store = null,
+    ) {
+        $this->store = $store ?? self::resolveWorkingStore();
+    }
+
+    /**
+     * Resolve the active working cache store, falling back to application default when Redis is unavailable.
+     */
+    public static function resolveWorkingStore(): string
+    {
+        $default = (string) config('cache.default', 'file');
+
+        if (config()->has('cache.stores.redis') && (extension_loaded('redis') || class_exists(Client::class))) {
+            try {
+                Cache::store('redis')->get('purchaser:v1:ping');
+
+                return 'redis';
+            } catch (Throwable) {
+                // Redis is not reachable; fall back gracefully
+            }
+        }
+
+        return $default;
+    }
 
     /**
      * Cache or resolve a computed read payload using Redis with graceful fallback.

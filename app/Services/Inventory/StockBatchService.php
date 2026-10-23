@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Services\Inventory;
 
 use App\DTOs\Inventory\StockBatchData;
+use App\Enums\Inventory\StockMovementType;
 use App\Models\StockBatch;
 use App\Repositories\Inventory\StockBatchRepository;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Validation\ValidationException;
 
 class StockBatchService
 {
@@ -41,6 +43,21 @@ class StockBatchService
 
     public function delete(StockBatch $batch): void
     {
+        if ($batch->segregatedBatches()->exists()) {
+            throw ValidationException::withMessages([
+                'batch' => 'Cannot delete batch with active segregated child batches. Reverse segregations first.',
+            ]);
+        }
+
+        if ($batch->stockMovements()->whereIn('type', [
+            StockMovementType::Out->value,
+            StockMovementType::Sale->value,
+        ])->exists()) {
+            throw ValidationException::withMessages([
+                'batch' => 'Cannot delete batch with recorded stock dispatches.',
+            ]);
+        }
+
         $this->repository->delete($batch);
     }
 }

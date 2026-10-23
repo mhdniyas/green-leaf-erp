@@ -80,19 +80,19 @@
     </article>
 @elseif($section === 'purchasers')
     <tr class="hover:bg-slate-50/80 transition">
-        <td class="p-3 font-bold">
+        <td class="p-3 font-bold" data-value="{{ $title }}">
             <a class="text-slate-900 hover:text-emerald-700 hover:underline transition" href="{{ $detailUrl }}">
                 {{ $title }}
             </a>
         </td>
-        <td class="p-3 text-right font-mono font-black text-slate-950 tabular-nums">₹{{ number_format((float) $row->total_purchase, 2) }}</td>
-        <td class="p-3 text-right font-mono text-slate-700 tabular-nums">₹{{ number_format((float) $row->cash_purchase, 2) }}</td>
-        <td class="p-3 text-right font-mono text-slate-700 tabular-nums">₹{{ number_format((float) $row->credit_purchase, 2) }}</td>
-        <td class="p-3 text-right font-mono font-bold text-sky-700 tabular-nums">₹{{ number_format((float) $row->funding, 2) }}</td>
-        <td class="p-3 text-right font-mono text-slate-700 tabular-nums">₹{{ number_format((float) $row->funding_used, 2) }}</td>
-        <td class="p-3 text-right font-mono text-slate-600">{{ $row->transaction_count }}</td>
-        <td class="p-3 text-right font-mono font-bold text-purple-700 tabular-nums">₹{{ number_format((float) $row->balance, 2) }}</td>
-        <td class="p-3 text-right font-mono text-slate-600">{{ $row->invoice_count }}</td>
+        <td class="p-3 text-right font-mono font-black text-slate-950 tabular-nums" data-value="{{ (float) $row->total_purchase }}">₹{{ number_format((float) $row->total_purchase, 2) }}</td>
+        <td class="p-3 text-right font-mono text-slate-700 tabular-nums" data-value="{{ (float) $row->cash_purchase }}">₹{{ number_format((float) $row->cash_purchase, 2) }}</td>
+        <td class="p-3 text-right font-mono text-slate-700 tabular-nums" data-value="{{ (float) $row->credit_purchase }}">₹{{ number_format((float) $row->credit_purchase, 2) }}</td>
+        <td class="p-3 text-right font-mono font-bold text-sky-700 tabular-nums" data-value="{{ (float) $row->funding }}">₹{{ number_format((float) $row->funding, 2) }}</td>
+        <td class="p-3 text-right font-mono text-slate-700 tabular-nums" data-value="{{ (float) $row->funding_used }}">₹{{ number_format((float) $row->funding_used, 2) }}</td>
+        <td class="p-3 text-right font-mono text-slate-600" data-value="{{ (int) $row->transaction_count }}">{{ $row->transaction_count }}</td>
+        <td class="p-3 text-right font-mono font-bold text-purple-700 tabular-nums" data-value="{{ (float) $row->balance }}">₹{{ number_format((float) $row->balance, 2) }}</td>
+        <td class="p-3 text-right font-mono text-slate-600" data-value="{{ (int) $row->invoice_count }}">{{ $row->invoice_count }}</td>
         <td class="p-3 text-center">
             <a href="{{ $detailUrl }}" class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-black text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 transition">
                 <span>View</span>
@@ -105,12 +105,12 @@
         $tags = $allTags->take(3);
     @endphp
     <tr class="hover:bg-slate-50/80 transition">
-        <td class="p-3 font-bold">
+        <td class="p-3 font-bold" data-value="{{ $title }}">
             <a class="text-slate-900 hover:text-emerald-700 hover:underline transition" href="{{ $detailUrl }}">
                 {{ $title }}
             </a>
         </td>
-        <td class="p-3">
+        <td class="p-3" data-value="{{ (string) $row->category_tags }}">
             <div class="flex flex-wrap gap-1">
                 @foreach($tags as $tag)
                     <span class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
@@ -124,11 +124,11 @@
                 @endif
             </div>
         </td>
-        <td class="p-3 text-right font-mono text-slate-700">{{ $row->invoice_count }}</td>
-        <td class="p-3 text-right font-mono text-slate-700 tabular-nums">₹{{ number_format((float) $row->cash_purchase, 2) }}</td>
-        <td class="p-3 text-right font-mono text-slate-700 tabular-nums">₹{{ number_format((float) $row->credit_purchase, 2) }}</td>
-        <td class="p-3 text-right font-mono font-bold text-rose-700 tabular-nums">₹{{ number_format((float) $row->outstanding, 2) }}</td>
-        <td class="p-3 text-right font-mono font-black text-slate-950 tabular-nums">₹{{ number_format((float) $row->total_purchase, 2) }}</td>
+        <td class="p-3 text-right font-mono text-slate-700" data-value="{{ (int) $row->invoice_count }}">{{ $row->invoice_count }}</td>
+        <td class="p-3 text-right font-mono text-slate-700 tabular-nums" data-value="{{ (float) $row->cash_purchase }}">₹{{ number_format((float) $row->cash_purchase, 2) }}</td>
+        <td class="p-3 text-right font-mono text-slate-700 tabular-nums" data-value="{{ (float) $row->credit_purchase }}">₹{{ number_format((float) $row->credit_purchase, 2) }}</td>
+        <td class="p-3 text-right font-mono font-bold text-rose-700 tabular-nums" data-value="{{ (float) $row->outstanding }}">₹{{ number_format((float) $row->outstanding, 2) }}</td>
+        <td class="p-3 text-right font-mono font-black text-slate-950 tabular-nums" data-value="{{ (float) $row->total_purchase }}">₹{{ number_format((float) $row->total_purchase, 2) }}</td>
         <td class="p-3 text-center">
             <a href="{{ $detailUrl }}" class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-black text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 transition">
                 <span>View</span>
@@ -137,28 +137,28 @@
     </tr>
 @elseif($section === 'categories')
     <tr class="hover:bg-slate-50/80 transition">
-        <td class="p-3 font-bold">
+        <td class="p-3 font-bold" data-value="{{ $title }}">
             <a class="text-slate-900 hover:text-emerald-700 hover:underline transition" href="{{ $detailUrl }}">
                 {{ $title }}
             </a>
         </td>
-        <td class="p-3 text-right font-mono font-black text-slate-950 tabular-nums">₹{{ number_format((float) $row->total_purchase, 2) }}</td>
-        <td class="p-3 text-right font-mono text-slate-700 tabular-nums">₹{{ number_format((float) $row->cash_purchase, 2) }}</td>
-        <td class="p-3 text-right font-mono text-slate-700 tabular-nums">₹{{ number_format((float) $row->credit_purchase, 2) }}</td>
-        <td class="p-3 text-right font-mono text-slate-700">{{ $row->vendor_count }}</td>
-        <td class="p-3 text-right font-mono text-slate-700">{{ $row->purchaser_count }}</td>
-        <td class="p-3 text-right font-mono text-slate-700">{{ $row->invoice_count }}</td>
+        <td class="p-3 text-right font-mono font-black text-slate-950 tabular-nums" data-value="{{ (float) $row->total_purchase }}">₹{{ number_format((float) $row->total_purchase, 2) }}</td>
+        <td class="p-3 text-right font-mono text-slate-700 tabular-nums" data-value="{{ (float) $row->cash_purchase }}">₹{{ number_format((float) $row->cash_purchase, 2) }}</td>
+        <td class="p-3 text-right font-mono text-slate-700 tabular-nums" data-value="{{ (float) $row->credit_purchase }}">₹{{ number_format((float) $row->credit_purchase, 2) }}</td>
+        <td class="p-3 text-right font-mono text-slate-700" data-value="{{ (int) $row->vendor_count }}">{{ $row->vendor_count }}</td>
+        <td class="p-3 text-right font-mono text-slate-700" data-value="{{ (int) $row->purchaser_count }}">{{ $row->purchaser_count }}</td>
+        <td class="p-3 text-right font-mono text-slate-700" data-value="{{ (int) $row->invoice_count }}">{{ $row->invoice_count }}</td>
     </tr>
 @else
     <tr class="hover:bg-slate-50/80 transition">
-        <td class="p-3 font-mono font-bold text-slate-600">{{ \Illuminate\Support\Carbon::parse($row->business_date)->format('d M Y') }}</td>
-        <td class="p-3 font-bold font-mono">
+        <td class="p-3 font-mono font-bold text-slate-600" data-date="{{ $row->business_date }}">{{ \Illuminate\Support\Carbon::parse($row->business_date)->format('d M Y') }}</td>
+        <td class="p-3 font-bold font-mono" data-value="{{ $title }}">
             <a class="text-emerald-700 hover:underline" href="{{ $detailUrl }}">{{ $title }}</a>
         </td>
-        <td class="p-3 font-medium text-slate-800">{{ $row->supplier_name }}</td>
-        <td class="p-3 font-medium text-slate-800">{{ $row->purchaser_name }}</td>
-        <td class="p-3 text-slate-600">{{ $row->categories }}</td>
-        <td class="p-3 text-center">
+        <td class="p-3 font-medium text-slate-800" data-value="{{ $row->supplier_name }}">{{ $row->supplier_name }}</td>
+        <td class="p-3 font-medium text-slate-800" data-value="{{ $row->purchaser_name }}">{{ $row->purchaser_name }}</td>
+        <td class="p-3 text-slate-600" data-value="{{ $row->categories }}">{{ $row->categories }}</td>
+        <td class="p-3 text-center" data-value="{{ strtolower($row->payment_class ?? '') }}">
             @if(strtolower($row->payment_class) === 'credit')
                 <span class="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-extrabold uppercase text-amber-800 border border-amber-200">
                     Credit
@@ -169,9 +169,9 @@
                 </span>
             @endif
         </td>
-        <td class="p-3 text-right font-mono font-black text-slate-950 tabular-nums">₹{{ number_format((float) $row->total_purchase, 2) }}</td>
-        <td class="p-3 text-right font-mono text-slate-700 tabular-nums">₹{{ number_format((float) $row->paid_amount, 2) }}</td>
-        <td class="p-3 text-right font-mono font-bold text-rose-700 tabular-nums">₹{{ number_format((float) $row->outstanding, 2) }}</td>
+        <td class="p-3 text-right font-mono font-black text-slate-950 tabular-nums" data-value="{{ (float) $row->total_purchase }}">₹{{ number_format((float) $row->total_purchase, 2) }}</td>
+        <td class="p-3 text-right font-mono text-slate-700 tabular-nums" data-value="{{ (float) $row->paid_amount }}">₹{{ number_format((float) $row->paid_amount, 2) }}</td>
+        <td class="p-3 text-right font-mono font-bold text-rose-700 tabular-nums" data-value="{{ (float) $row->outstanding }}">₹{{ number_format((float) $row->outstanding, 2) }}</td>
         <td class="p-3 text-center">
             <a href="{{ $detailUrl }}" class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-black text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 transition">
                 <span>View</span>

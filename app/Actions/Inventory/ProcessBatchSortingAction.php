@@ -13,6 +13,7 @@ use App\Exceptions\Inventory\BatchAlreadySortedException;
 use App\Exceptions\Inventory\SortingQuantityMismatchException;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
+use App\Models\User;
 use App\Models\WastageEntry;
 use App\Services\Pricing\PriceBoardService;
 use Illuminate\Support\Facades\DB;
@@ -47,13 +48,25 @@ class ProcessBatchSortingAction
         $totalSorted = $data->totalSortedKg();
         $tolerance = 0.01;
 
-        if (abs($totalSorted - (float) $batch->total_kg) > $tolerance) {
+        $writeOffQuantity = (float) StockMovement::query()
+            ->where('batch_id', $batch->id)
+            ->whereIn('type', [
+                StockMovementType::Out->value,
+                StockMovementType::Sale->value,
+                StockMovementType::Wastage->value,
+                StockMovementType::Adjustment->value,
+            ])
+            ->sum('quantity');
+
+        $expectedTotal = round(max(0.0, (float) $batch->total_kg - $writeOffQuantity), 3);
+
+        if (abs($totalSorted - $expectedTotal) > $tolerance) {
             throw new SortingQuantityMismatchException(
-                "Sorted quantity ({$totalSorted} kg) does not match batch total ({$batch->total_kg} kg)"
+                "Sorted quantity ({$totalSorted} kg) does not match batch total ({$expectedTotal} kg)"
             );
         }
 
-        return DB::transaction(function () use ($batch, $data, $userId): StockBatch {
+        return DB::transaction(function () use ($batch, $data, $userId, $expectedTotal): StockBatch {
 
             foreach ($data->grades as $gradeEntry) {
                 /** @var ProductGrade $grade */
@@ -91,6 +104,7 @@ class ProcessBatchSortingAction
 
             // Mark batch as sorted
             $batch->update([
+                'total_kg' => $expectedTotal,
                 'status' => BatchStatus::Sorted,
                 'sorted_at' => now(),
             ]);
@@ -103,7 +117,7 @@ class ProcessBatchSortingAction
 
             activity()
                 ->performedOn($batch)
-                ->causedBy($userId)
+                ->causedBy(User::find($userId))
                 ->withProperties(['grades' => $data->grades])
                 ->log('batch.sorted');
 

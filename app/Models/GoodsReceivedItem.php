@@ -23,6 +23,7 @@ class GoodsReceivedItem extends Model
         'purchase_order_item_id',
         'product_id',
         'grade',
+        'grading_mode',
         'received_unit',
         'received_packet_qty',
         'received_weight_per_packet',

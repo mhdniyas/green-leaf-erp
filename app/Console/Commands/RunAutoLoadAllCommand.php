@@ -2,15 +2,13 @@
 
 namespace App\Console\Commands;
 
-use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutController;
 use App\Models\BusinessSetting;
-use App\Models\ShopOrder;
 use App\Models\User;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use App\Services\Warehouse\AutoLoadAllService;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
-use Illuminate\Http\Request;
 
 #[Signature('greenleaf:auto-load-all {--force : Run now, ignoring configured enable state and trigger time}')]
 #[Description('Run scheduled warehouse Auto Load All for eligible shop orders')]
@@ -47,32 +45,23 @@ class RunAutoLoadAllCommand extends Command
             $businessDate = $businessDate->addDay();
         }
 
-        $orders = ShopOrder::query()
-            ->whereDate('business_date', $businessDate->toDateString())
-            ->whereIn('delivery_status', ['pending_delivery', 'ready_for_dispatch'])
-            ->where('order_source', '!=', 'admin_direct_purchase')
-            ->withCount('items')
-            ->withCount([
-                'items as loaded_items_count' => fn ($query) => $query->where('sorting_status', 'loaded'),
-            ])
-            ->orderBy('id')
-            ->get()
-            ->filter(fn (ShopOrder $order): bool => $order->loaded_items_count < $order->items_count)
-            ->values();
+        $service = app(AutoLoadAllService::class);
+        $orders = $service->eligibleOrders($businessDate->toDateString());
 
         $loaded = 0;
         $failed = 0;
+        $skipped = 0;
         $delaySeconds = (int) ($settings->get('auto_load_all_delay_seconds') ?: 3);
-        $controller = app(ApiWarehouseLoadoutController::class);
 
         foreach ($orders as $index => $order) {
-            $request = Request::create('/internal/auto-load-all', 'POST');
-            $request->setUserResolver(fn (): User => $actor);
-
-            $result = $controller->loadAll($order, $request)->getData(true);
+            $result = $service->loadOrder($order, $actor);
 
             if (($result['success'] ?? false) === true) {
-                $loaded++;
+                if ($result['skipped'] ?? false) {
+                    $skipped++;
+                } else {
+                    $loaded++;
+                }
             } else {
                 $failed++;
             }
@@ -92,13 +81,13 @@ class RunAutoLoadAllCommand extends Command
                 'selected_shops' => $orders->pluck('shop_id')->filter()->unique()->count(),
                 'processed_orders' => $orders->count(),
                 'loaded_orders' => $loaded,
-                'skipped_orders' => 0,
+                'skipped_orders' => $skipped,
                 'failed_orders' => $failed,
                 'notes' => $orders->isEmpty() ? 'No eligible orders found.' : null,
             ])
             ->log('Auto Load All run recorded');
 
-        $this->info("Auto Load All completed for {$businessDate->toDateString()}: {$loaded} loaded, {$failed} failed.");
+        $this->info("Auto Load All completed for {$businessDate->toDateString()}: {$loaded} loaded, {$skipped} skipped, {$failed} failed.");
 
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
     }

@@ -56,6 +56,9 @@ class WarehouseReceiptStateResolver
     {
         if ($state === 'received') {
             return $query->where('goods_received.status', 'approved')
+
+                ->whereDoesntHave('purchaseOrder', fn ($po) => $po->where('fulfillment_type', 'shop'))
+                ->whereDoesntHave('purchaserCart', fn ($cart) => $cart->where('purchase_source', 'shop'))
                 ->where(function (Builder $received): void {
                     $received->where(function (Builder $withBatches): void {
                         $withBatches->whereExists($this->batches()->selectRaw('1')->toBase())
@@ -68,30 +71,54 @@ class WarehouseReceiptStateResolver
                 });
         }
 
-        return $query->where(function (Builder $pending): void {
-            $pending->where('goods_received.status', '!=', 'approved')
-                ->orWhere(function (Builder $incomplete): void {
-                    $incomplete->whereNotExists(
-                        $this->reconciliations()->where('total_new_receive_base_qty', '<=', 0.0001)->selectRaw('1')->toBase()
-                    )->where(function (Builder $batchCheck): void {
-                        $batchCheck->whereNotExists($this->batches()->selectRaw('1')->toBase())
-                            ->orWhereExists($this->batches()->where('warehouse_receive_pending', true)->selectRaw('1')->toBase());
+        return $query
+
+            ->whereDoesntHave('purchaseOrder', fn ($po) => $po->where('fulfillment_type', 'shop'))
+            ->whereDoesntHave('purchaserCart', fn ($cart) => $cart->where('purchase_source', 'shop'))
+            ->where(function (Builder $pending): void {
+                $pending->where('goods_received.status', '!=', 'approved')
+                    ->orWhere(function (Builder $incomplete): void {
+                        $incomplete->whereNotExists(
+                            $this->reconciliations()->where('total_new_receive_base_qty', '<=', 0.0001)->selectRaw('1')->toBase()
+                        )->where(function (Builder $batchCheck): void {
+                            $batchCheck->whereNotExists($this->batches()->selectRaw('1')->toBase())
+                                ->orWhereExists($this->batches()->where('warehouse_receive_pending', true)->selectRaw('1')->toBase());
+                        });
+                    })
+                    ->orWhere(function (Builder $incompleteReconciled): void {
+                        $incompleteReconciled->whereExists(
+                            $this->reconciliations()->where('total_new_receive_base_qty', '>', 0.0001)->selectRaw('1')->toBase()
+                        )->where(function (Builder $batchCheck): void {
+                            $batchCheck->whereNotExists($this->batches()->selectRaw('1')->toBase())
+                                ->orWhereExists($this->batches()->where('warehouse_receive_pending', true)->selectRaw('1')->toBase());
+                        });
                     });
-                })
-                ->orWhere(function (Builder $incompleteReconciled): void {
-                    $incompleteReconciled->whereExists(
-                        $this->reconciliations()->where('total_new_receive_base_qty', '>', 0.0001)->selectRaw('1')->toBase()
-                    )->where(function (Builder $batchCheck): void {
-                        $batchCheck->whereNotExists($this->batches()->selectRaw('1')->toBase())
-                            ->orWhereExists($this->batches()->where('warehouse_receive_pending', true)->selectRaw('1')->toBase());
-                    });
-                });
-        });
+            });
     }
 
     /** @return array<string, mixed> */
     public function forReceipt(GoodsReceived $receipt): array
     {
+        if ($receipt->isDirectShopPurchase()) {
+            return [
+                'receipt_status' => 'not_applicable',
+                'warehouse_receipt_status' => 'not_applicable',
+                'receipt_status_label' => 'DIRECT SHOP PURCHASE (NOT APPLICABLE)',
+                'warehouse_receive_pending' => false,
+                'inventory_posted' => false,
+                'status_label' => 'DIRECT SHOP PURCHASE (NOT APPLICABLE)',
+                'warehouse_confirmed_at' => null,
+                'warehouse_confirmed_by' => null,
+                'bill_status' => 'bill_available',
+                'bill_status_label' => 'BILL AVAILABLE',
+                'is_bill_pending' => false,
+                'can_create_receipt' => false,
+                'can_confirm_receipt' => false,
+                'is_warehouse_receivable' => false,
+                'block_reason' => 'Direct shop purchase fulfilled directly to store counter. Not receivable into central warehouse.',
+            ];
+        }
+
         if (! array_key_exists('receipt_batch_count', $receipt->getAttributes())) {
             $receipt = $this->withFacts(GoodsReceived::query()->select('goods_received.*')->whereKey($receipt->id))->firstOrFail();
         }
@@ -129,19 +156,60 @@ class WarehouseReceiptStateResolver
     /** @return array<string, mixed> */
     public function forOrder(PurchaseOrder $order): array
     {
+        $isDirectShop = $order->isDirectShopPurchase();
+
+        if ($isDirectShop) {
+            $billPending = $order->relationLoaded('goodsReceiveds') && $order->goodsReceiveds->isNotEmpty()
+                ? $order->goodsReceiveds->contains(fn ($g) => $this->forReceipt($g)['is_bill_pending'])
+                : false;
+
+            return [
+                'receipt_status' => 'not_applicable',
+                'warehouse_receipt_status' => 'not_applicable',
+                'receipt_status_label' => 'DIRECT SHOP PURCHASE (NOT APPLICABLE)',
+                'warehouse_receive_pending' => false,
+                'inventory_posted' => false,
+                'status_label' => 'DIRECT SHOP PURCHASE (NOT APPLICABLE)',
+                'bill_status' => $billPending ? 'bill_pending' : 'bill_available',
+                'bill_status_label' => $billPending ? 'BILL PENDING' : 'BILL AVAILABLE',
+                'can_create_receipt' => false,
+                'can_confirm_receipt' => false,
+                'is_warehouse_receivable' => false,
+                'block_reason' => 'Direct shop purchase fulfilled directly to store counter. Not receivable into central warehouse.',
+                'pending_receive_url' => null,
+                'existing_grn_id' => $order->goodsReceiveds->first()?->id,
+                'existing_grn_number' => $order->goodsReceiveds->first()?->grn_number,
+            ];
+        }
+
+        $orderStatus = $order->status->value ?? (string) $order->status;
+        $isCancelledOrRejected = in_array($orderStatus, ['cancelled', 'rejected'], true);
+
         $order->loadMissing(['goodsReceiveds' => fn (Builder|Relation $query) => $this->withFacts($query->select('goods_received.*'))->withCount('purchaseInvoices')]);
         $states = $order->goodsReceiveds->map(fn (GoodsReceived $receipt): array => $this->forReceipt($receipt));
         $received = $states->isNotEmpty() && $states->every(fn (array $state): bool => $state['receipt_status'] === 'received');
         $pendingReceipt = $order->goodsReceiveds->first(fn (GoodsReceived $receipt): bool => $this->forReceipt($receipt)['warehouse_receive_pending']);
         $billPending = $states->isEmpty() || $states->contains(fn (array $state): bool => $state['is_bill_pending']);
-        $canCreate = $pendingReceipt === null && in_array($order->status->value, ['approved', 'sent_to_supplier', 'partially_received'], true);
+
+        $canCreate = ! $isCancelledOrRejected && $pendingReceipt === null && in_array($orderStatus, ['approved', 'sent_to_supplier', 'partially_received'], true);
+        $canConfirm = ! $isCancelledOrRejected && $pendingReceipt !== null;
+
+        $blockReason = null;
+        if ($isCancelledOrRejected) {
+            $blockReason = 'Cancelled or rejected purchase bills cannot be received.';
+        }
 
         return [
             ...$this->stateFields($received),
             'bill_status' => $billPending ? 'bill_pending' : 'bill_available',
             'bill_status_label' => $billPending ? 'BILL PENDING' : 'BILL AVAILABLE',
             'can_create_receipt' => $canCreate,
+            'can_confirm_receipt' => $canConfirm,
+            'is_warehouse_receivable' => ! $isCancelledOrRejected,
+            'block_reason' => $blockReason,
             'pending_receive_url' => $pendingReceipt ? $this->receiveUrl($pendingReceipt) : null,
+            'existing_grn_id' => $pendingReceipt?->id,
+            'existing_grn_number' => $pendingReceipt?->grn_number,
         ];
     }
 
@@ -159,6 +227,7 @@ class WarehouseReceiptStateResolver
     {
         return [
             'receipt_status' => $received ? 'received' : 'pending',
+            'warehouse_receipt_status' => $received ? 'received' : 'pending',
             'receipt_status_label' => $received ? 'RECEIVED' : 'PENDING WAREHOUSE RECEIVE',
             'warehouse_receive_pending' => ! $received,
             /** This receipt API flag means confirmed inventory. Pre-confirmation stock visibility is unchanged. */

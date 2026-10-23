@@ -126,57 +126,256 @@
         </section>
     @else
         <section id="purchase-results" class="rounded-3xl border border-slate-200/80 bg-white p-4 sm:p-6 shadow-xs space-y-4">
-            <div class="hidden overflow-x-auto md:block">
+            <div class="hidden overflow-x-auto md:block"
+                 x-data="{
+                     sortCol: null,
+                     sortAsc: true,
+                     sortTable(colIndex, type = 'num') {
+                         const table = (this.$el && this.$el.closest ? this.$el.closest('table') : null) || (this.$root ? this.$root.querySelector('table') : null);
+                         if (!table) return;
+                         const tbody = table.querySelector('tbody');
+                         if (!tbody) return;
+                         const rows = Array.from(tbody.querySelectorAll('tr:not(.no-sort)'));
+                         if (rows.length <= 1) return;
+
+                         if (this.sortCol === colIndex) {
+                             this.sortAsc = !this.sortAsc;
+                         } else {
+                             this.sortCol = colIndex;
+                             this.sortAsc = (type === 'date' || type === 'num' ? false : true);
+                         }
+
+                         rows.sort((a, b) => {
+                             const cellA = a.children[colIndex];
+                             const cellB = b.children[colIndex];
+                             if (!cellA || !cellB) return 0;
+
+                             let valA = cellA.getAttribute('data-value') ?? cellA.innerText.trim();
+                             let valB = cellB.getAttribute('data-value') ?? cellB.innerText.trim();
+
+                             if (type === 'date') {
+                                 valA = cellA.getAttribute('data-date') || valA;
+                                 valB = cellB.getAttribute('data-date') || valB;
+                                 return this.sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                             }
+
+                             if (type === 'num') {
+                                 const numA = parseFloat(valA.replace(/[^\d.-]/g, '')) || 0;
+                                 const numB = parseFloat(valB.replace(/[^\d.-]/g, '')) || 0;
+                                 return this.sortAsc ? numA - numB : numB - numA;
+                             }
+
+                             return this.sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                         });
+
+                         rows.forEach(row => tbody.appendChild(row));
+                     }
+                 }">
                 <table class="w-full min-w-[58rem] text-left text-xs">
-                    <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500 rounded-xl">
+                    <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500 rounded-xl select-none">
                         @if($section === 'purchasers')
                             <tr>
-                                <th class="p-3">Purchaser</th>
-                                <th class="p-3 text-right">Total Purchase</th>
-                                <th class="p-3 text-right">Cash</th>
-                                <th class="p-3 text-right">Credit</th>
-                                <th class="p-3 text-right">Period Funding</th>
-                                <th class="p-3 text-right">Period Used</th>
-                                <th class="p-3 text-right">Transactions</th>
-                                <th class="p-3 text-right">Current Advance</th>
-                                <th class="p-3 text-right">Invoices</th>
+                                <th @click="sortTable(0, 'text')" class="p-3 cursor-pointer hover:bg-slate-100 transition" title="Sort by Purchaser">
+                                    <div class="flex items-center gap-1">
+                                        <span>Purchaser</span>
+                                        <span class="text-[9px]" :class="sortCol === 0 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 0 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(1, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Total Purchase">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Total Purchase</span>
+                                        <span class="text-[9px]" :class="sortCol === 1 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 1 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(2, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Cash">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Cash</span>
+                                        <span class="text-[9px]" :class="sortCol === 2 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 2 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(3, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Credit">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Credit</span>
+                                        <span class="text-[9px]" :class="sortCol === 3 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 3 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(4, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Period Funding">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Period Funding</span>
+                                        <span class="text-[9px]" :class="sortCol === 4 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 4 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(5, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Period Used">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Period Used</span>
+                                        <span class="text-[9px]" :class="sortCol === 5 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 5 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(6, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Transactions">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Transactions</span>
+                                        <span class="text-[9px]" :class="sortCol === 6 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 6 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(7, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Current Advance">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Current Advance</span>
+                                        <span class="text-[9px]" :class="sortCol === 7 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 7 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(8, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Invoices">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Invoices</span>
+                                        <span class="text-[9px]" :class="sortCol === 8 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 8 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
                                 <th class="p-3 text-center">Action</th>
                             </tr>
                         @endif
                         @if($section === 'vendors')
                             <tr>
-                                <th class="p-3">Vendor</th>
+                                <th @click="sortTable(0, 'text')" class="p-3 cursor-pointer hover:bg-slate-100 transition" title="Sort by Vendor">
+                                    <div class="flex items-center gap-1">
+                                        <span>Vendor</span>
+                                        <span class="text-[9px]" :class="sortCol === 0 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 0 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
                                 <th class="p-3">Categories</th>
-                                <th class="p-3 text-right">Invoices</th>
-                                <th class="p-3 text-right">Cash</th>
-                                <th class="p-3 text-right">Credit</th>
-                                <th class="p-3 text-right">Outstanding</th>
-                                <th class="p-3 text-right">Total Purchase</th>
+                                <th @click="sortTable(2, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Invoices">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Invoices</span>
+                                        <span class="text-[9px]" :class="sortCol === 2 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 2 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(3, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Cash">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Cash</span>
+                                        <span class="text-[9px]" :class="sortCol === 3 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 3 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(4, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Credit">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Credit</span>
+                                        <span class="text-[9px]" :class="sortCol === 4 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 4 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(5, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Outstanding">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Outstanding</span>
+                                        <span class="text-[9px]" :class="sortCol === 5 ? 'text-rose-700 font-black' : 'text-slate-300'" x-text="sortCol === 5 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(6, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Total Purchase">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Total Purchase</span>
+                                        <span class="text-[9px]" :class="sortCol === 6 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 6 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
                                 <th class="p-3 text-center">Action</th>
                             </tr>
                         @endif
                         @if($section === 'categories')
                             <tr>
-                                <th class="p-3">Category</th>
-                                <th class="p-3 text-right">Purchase Value</th>
-                                <th class="p-3 text-right">Cash</th>
-                                <th class="p-3 text-right">Credit</th>
-                                <th class="p-3 text-right">Vendors</th>
-                                <th class="p-3 text-right">Purchasers</th>
-                                <th class="p-3 text-right">Invoices</th>
+                                <th @click="sortTable(0, 'text')" class="p-3 cursor-pointer hover:bg-slate-100 transition" title="Sort by Category">
+                                    <div class="flex items-center gap-1">
+                                        <span>Category</span>
+                                        <span class="text-[9px]" :class="sortCol === 0 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 0 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(1, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Purchase Value">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Purchase Value</span>
+                                        <span class="text-[9px]" :class="sortCol === 1 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 1 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(2, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Cash">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Cash</span>
+                                        <span class="text-[9px]" :class="sortCol === 2 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 2 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(3, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Credit">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Credit</span>
+                                        <span class="text-[9px]" :class="sortCol === 3 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 3 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(4, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Vendors">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Vendors</span>
+                                        <span class="text-[9px]" :class="sortCol === 4 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 4 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(5, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Purchasers">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Purchasers</span>
+                                        <span class="text-[9px]" :class="sortCol === 5 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 5 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(6, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Invoices">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Invoices</span>
+                                        <span class="text-[9px]" :class="sortCol === 6 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 6 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
                             </tr>
                         @endif
                         @if($section === 'invoices')
                             <tr>
-                                <th class="p-3">Date</th>
-                                <th class="p-3">Invoice</th>
-                                <th class="p-3">Vendor</th>
-                                <th class="p-3">Purchaser</th>
-                                <th class="p-3">Categories</th>
-                                <th class="p-3 text-center">Payment</th>
-                                <th class="p-3 text-right">Amount</th>
-                                <th class="p-3 text-right">Paid</th>
-                                <th class="p-3 text-right">Outstanding</th>
+                                <th @click="sortTable(0, 'date')" class="p-3 cursor-pointer hover:bg-slate-100 transition" title="Sort by Date">
+                                    <div class="flex items-center gap-1">
+                                        <span>Date</span>
+                                        <span class="text-[9px]" :class="sortCol === 0 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 0 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(1, 'text')" class="p-3 cursor-pointer hover:bg-slate-100 transition" title="Sort by Invoice">
+                                    <div class="flex items-center gap-1">
+                                        <span>Invoice</span>
+                                        <span class="text-[9px]" :class="sortCol === 1 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 1 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(2, 'text')" class="p-3 cursor-pointer hover:bg-slate-100 transition" title="Sort by Vendor">
+                                    <div class="flex items-center gap-1">
+                                        <span>Vendor</span>
+                                        <span class="text-[9px]" :class="sortCol === 2 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 2 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(3, 'text')" class="p-3 cursor-pointer hover:bg-slate-100 transition" title="Sort by Purchaser">
+                                    <div class="flex items-center gap-1">
+                                        <span>Purchaser</span>
+                                        <span class="text-[9px]" :class="sortCol === 3 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 3 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(4, 'text')" class="p-3 cursor-pointer hover:bg-slate-100 transition" title="Sort by Categories">
+                                    <div class="flex items-center gap-1">
+                                        <span>Categories</span>
+                                        <span class="text-[9px]" :class="sortCol === 4 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 4 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(5, 'text')" class="p-3 text-center cursor-pointer hover:bg-slate-100 transition" title="Sort by Payment">
+                                    <div class="flex items-center justify-center gap-1">
+                                        <span>Payment</span>
+                                        <span class="text-[9px]" :class="sortCol === 5 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 5 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(6, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Amount">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Amount</span>
+                                        <span class="text-[9px]" :class="sortCol === 6 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 6 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(7, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Paid">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Paid</span>
+                                        <span class="text-[9px]" :class="sortCol === 7 ? 'text-emerald-700 font-black' : 'text-slate-300'" x-text="sortCol === 7 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
+                                <th @click="sortTable(8, 'num')" class="p-3 text-right cursor-pointer hover:bg-slate-100 transition" title="Sort by Outstanding">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <span>Outstanding</span>
+                                        <span class="text-[9px]" :class="sortCol === 8 ? 'text-rose-700 font-black' : 'text-slate-300'" x-text="sortCol === 8 ? (sortAsc ? '▲' : '▼') : '↕'"></span>
+                                    </div>
+                                </th>
                                 <th class="p-3 text-center">Action</th>
                             </tr>
                         @endif

@@ -19,10 +19,16 @@ use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\SalesInvoice;
 use App\Models\SalesOrder;
+use App\Models\ShopInvoice;
+use App\Models\ShopInvoiceItem;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\StockAdjustment;
+use App\Models\StockBatch;
+use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Models\WastageEntry;
 use App\Observers\PurchaserCacheInvalidationObserver;
 use App\Observers\UserObserver;
 use App\Policies\CustomerPolicy;
@@ -95,6 +101,8 @@ class AppServiceProvider extends ServiceProvider
         $purchaserObserver = PurchaserCacheInvalidationObserver::class;
         ShopOrder::observe($purchaserObserver);
         ShopOrderItem::observe($purchaserObserver);
+        ShopInvoice::observe($purchaserObserver);
+        ShopInvoiceItem::observe($purchaserObserver);
         PurchaserCart::observe($purchaserObserver);
         PurchaserCartItem::observe($purchaserObserver);
         PurchaseInvoice::observe($purchaserObserver);
@@ -107,6 +115,10 @@ class AppServiceProvider extends ServiceProvider
         Category::observe($purchaserObserver);
         ProductUnit::observe($purchaserObserver);
         BusinessSetting::observe($purchaserObserver);
+        StockMovement::observe($purchaserObserver);
+        StockBatch::observe($purchaserObserver);
+        StockAdjustment::observe($purchaserObserver);
+        WastageEntry::observe($purchaserObserver);
 
         Activity::creating(function (Activity $activity): void {
             if (app()->runningInConsole() && ! app()->environment('testing')) {

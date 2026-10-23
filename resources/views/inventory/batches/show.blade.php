@@ -56,7 +56,70 @@ $statusColor = $statusColors[$batch->status->value] ?? 'bg-gray-100 text-gray-60
             @if($batch->notes)
             <p class="mt-4 text-sm text-gray-500 border-t border-gray-100 pt-4">{{ $batch->notes }}</p>
             @endif
+
+            @if($batch->parentBatch)
+            <div class="mt-4 bg-brand-50 border border-brand-200 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-brand-800">
+                <span>Partially segregated from parent batch: <strong>{{ $batch->parentBatch->reference }}</strong></span>
+                <a href="{{ route('inventory.batches.show', $batch->parentBatch) }}" class="font-bold underline hover:text-brand-900">
+                    View Parent Batch →
+                </a>
+            </div>
+            @endif
         </div>
+
+        {{-- Segregated Child Batches --}}
+        @if($batch->segregatedBatches->isNotEmpty())
+        <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-gray-900">Segregated Child Batches</h3>
+                <span class="text-xs text-gray-500">{{ $batch->segregatedBatches->count() }} batch(es)</span>
+            </div>
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-gray-100 text-xs text-gray-500">
+                        <th class="px-6 py-3 text-left font-semibold">Reference</th>
+                        <th class="px-6 py-3 text-left font-semibold">Grade</th>
+                        <th class="px-6 py-3 text-right font-semibold">Quantity</th>
+                        <th class="px-6 py-3 text-left font-semibold">Status</th>
+                        <th class="px-6 py-3 text-right font-semibold">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-50">
+                    @foreach($batch->segregatedBatches as $segChild)
+                    <tr>
+                        <td class="px-6 py-3 font-mono font-medium text-gray-900">
+                            <a href="{{ route('inventory.batches.show', $segChild) }}" class="text-brand-600 hover:underline">
+                                {{ $segChild->reference }}
+                            </a>
+                        </td>
+                        <td class="px-6 py-3">
+                            <span class="inline-flex text-xs font-bold px-2 py-0.5 rounded-lg {{ $segChild->purchase_grade === 'A' ? 'bg-green-100 text-green-700' : ($segChild->purchase_grade === 'B' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700') }}">
+                                Grade {{ $segChild->purchase_grade }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-3 text-right font-semibold text-gray-900">
+                            {{ number_format($segChild->total_kg, 3) }} kg
+                        </td>
+                        <td class="px-6 py-3 text-xs text-gray-600">
+                            {{ $segChild->status->label() }}
+                        </td>
+                        <td class="px-6 py-3 text-right">
+                            <form method="POST" action="{{ route('inventory.batches.segregate.reverse', $segChild) }}" class="inline"
+                                  onsubmit="return confirm('Reverse {{ number_format($segChild->total_kg, 3) }} kg back to parent batch?');">
+                                @csrf
+                                <input type="hidden" name="client_submission_id" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
+                                <input type="hidden" name="quantity" value="{{ (float) $segChild->total_kg }}">
+                                <button type="submit" class="text-red-600 hover:text-red-800 font-medium text-xs">
+                                    Reverse Segregation
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+        @endif
 
         {{-- Stock Movements --}}
         @if($batch->stockMovements->isNotEmpty())

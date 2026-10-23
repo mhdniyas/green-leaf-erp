@@ -168,7 +168,7 @@ class PurchaserRouteCachingPhase3Test extends TestCase
         $resA = $this->actingAs($this->purchaser)->get(route('purchaser.daily', ['date' => '2026-08-24', 'chip' => 'All']));
         $resA->assertOk();
 
-        $resB = $this->actingAs($this->purchaser)->get(route('purchaser.b-grade', ['date' => '2026-08-24', 'chip' => 'All']));
+        $resB = $this->actingAs($this->purchaser)->get(route('purchaser.daily', ['date' => '2026-08-24', 'purchase_grade' => 'B', 'chip' => 'All']));
         $resB->assertOk();
         $resB->assertSee('Tomato B');
     }
@@ -422,7 +422,7 @@ class PurchaserRouteCachingPhase3Test extends TestCase
         );
 
         $this->actingAs($this->purchaser)->get(route('purchaser.daily', ['date' => '2026-08-24']))->assertOk();
-        $this->actingAs($this->purchaser)->get(route('purchaser.b-grade', ['date' => '2026-08-24']))->assertOk();
+        $this->actingAs($this->purchaser)->get(route('purchaser.daily', ['date' => '2026-08-24', 'purchase_grade' => 'B']))->assertOk();
         $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', ['date' => '2026-08-24']))->assertOk();
         $this->actingAs($this->purchaser)->get(route('purchaser.daily.share', ['date' => '2026-08-24']))->assertOk();
     }

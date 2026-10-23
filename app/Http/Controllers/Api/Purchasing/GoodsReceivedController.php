@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\Purchasing;
 
 use App\Actions\Purchasing\ApproveGoodsReceiptAction;
 use App\DTOs\Purchasing\GoodsReceivedData;
+use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\Purchasing\StoreGoodsReceivedRequest;
 use App\Http\Resources\Purchasing\GoodsReceivedItemResource;
@@ -15,6 +16,7 @@ use App\Models\AdvanceReceiveMatch;
 use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaseOrderItem;
 use App\Models\Warehouse;
 use App\Services\Purchasing\AdvanceReceiveReconciliationService;
 use App\Services\Purchasing\AutoAdvanceClearExecutionService;
@@ -200,37 +202,196 @@ class GoodsReceivedController extends Controller
         $data = GoodsReceivedData::fromRequest($request);
         $userId = (int) $request->user()->id;
 
-        if (! empty($data->advanceMatches) || $data->receiptType === 'warehouse_advance') {
-            $grn = $this->service->create($data, $userId);
-        } else {
-            $existingPendingGrn = null;
-            if ($data->purchaseOrderId) {
-                $existingPendingGrn = GoodsReceived::query()
-                    ->where('purchase_order_id', $data->purchaseOrderId)
-                    ->where(function ($query) {
-                        $query->where('status', '!=', 'approved')
-                            ->orWhereHas('stockBatches', fn ($q) => $q->where('warehouse_receive_pending', true));
-                    })
-                    ->first();
+        if (! empty($data->clientSubmissionId)) {
+            $existingByClientSub = GoodsReceived::query()
+                ->where('client_submission_id', $data->clientSubmissionId)
+                ->first();
+
+            if ($existingByClientSub !== null) {
+                $existingGrn = $this->service->create($data, $userId);
+
+                return ApiResponse::success(
+                    new GoodsReceivedResource($existingGrn->load(['purchaseOrder.supplier', 'items.product', 'receivedBy'])),
+                    'Goods received note already processed (idempotent)',
+                    201
+                );
+            }
+        }
+
+        if ($data->purchaseOrderId) {
+            /** @var PurchaseOrder $po */
+            $po = PurchaseOrder::query()->with(['items.product', 'goodsReceiveds'])->findOrFail($data->purchaseOrderId);
+            $receiptFacts = app(WarehouseReceiptStateResolver::class)->forOrder($po);
+
+            abort_if(
+                $po->isDirectShopPurchase(),
+                422,
+                'Direct shop purchases are fulfilled directly to retail stores and cannot be received into warehouse inventory.'
+            );
+
+            abort_if(
+                in_array($po->status->value ?? $po->status, ['cancelled', 'rejected'], true),
+                422,
+                'Cancelled or rejected purchase bills cannot be received.'
+            );
+
+            abort_if(
+                ($receiptFacts['receipt_status'] ?? '') === 'received' && ! ($receiptFacts['can_create_receipt'] ?? false),
+                422,
+                'This purchase bill has already been fully received into warehouse inventory.'
+            );
+
+            if (empty($data->advanceMatches)) {
+                $advanceSuggestions = app(AdvanceReceiveReconciliationService::class)->getSuggestionsForOrder($po, $data->warehouseId);
+                $hasAdvanceSuggestions = ($advanceSuggestions['has_advance_match'] ?? false)
+                    || ((float) ($advanceSuggestions['total_matched_base_qty'] ?? 0.0)) > 0.0001;
+
+                if ($hasAdvanceSuggestions) {
+                    $allowDirectOverride = $request->boolean('bypass_advance_match') && $request->filled('bypass_reason');
+                    if (! $allowDirectOverride) {
+                        return ApiResponse::error(
+                            'Open Warehouse Advance receipt exists for this product. You must review and confirm the Advance Match before receiving into warehouse stock.',
+                            [
+                                'has_advance_suggestions' => true,
+                                'suggestions' => $advanceSuggestions,
+                            ],
+                            422
+                        );
+                    }
+                }
             }
 
-            if ($existingPendingGrn !== null) {
-                if ($data->clientSubmissionId && ! $existingPendingGrn->client_submission_id) {
-                    $existingPendingGrn->update(['client_submission_id' => $data->clientSubmissionId]);
+            /** @var GoodsReceived|null $existingPendingGrn */
+            $existingPendingGrn = GoodsReceived::query()
+                ->where('purchase_order_id', $data->purchaseOrderId)
+                ->where(function ($query) {
+                    $query->where('status', '!=', 'approved')
+                        ->orWhereHas('stockBatches', fn ($q) => $q->where('warehouse_receive_pending', true));
+                })
+                ->lockForUpdate()
+                ->first();
+
+            if (! empty($data->advanceMatches)) {
+                if ($existingPendingGrn !== null) {
+                    $itemsMap = [];
+                    foreach ($data->items as $it) {
+                        $id = $it['purchase_order_item_id'] ?? $it['product_id'];
+                        $itemsMap[$id] = [
+                            'received_qty' => (float) ($it['received_qty'] ?? 0.0),
+                            'discrepancy_type' => $it['discrepancy_type'] ?? 'none',
+                            'discrepancy_note' => $it['discrepancy_note'] ?? null,
+                            'warehouse_id' => $data->warehouseId,
+                        ];
+                    }
+
+                    $grn = app(AdvanceReceiveReconciliationService::class)->reconcileExistingGrn(
+                        $existingPendingGrn,
+                        $itemsMap,
+                        $data->advanceMatches,
+                        (int) ($data->warehouseId ?? $existingPendingGrn->warehouse_id ?? 1),
+                        $userId,
+                        false,
+                        $data->clientSubmissionId
+                    );
+                } else {
+                    $grn = $this->service->create($data, $userId);
                 }
-                $grn = $this->approveGoodsReceiptAction->executeAndConfirmReceive(
-                    $existingPendingGrn,
-                    $userId,
-                    $data->warehouseId
-                );
             } else {
-                $grn = $this->service->create($data, $userId);
-                $grn = $this->approveGoodsReceiptAction->executeAndConfirmReceive(
-                    $grn,
-                    $userId,
-                    $data->warehouseId
-                );
+                if ($existingPendingGrn !== null) {
+                    $grn = DB::transaction(function () use ($existingPendingGrn, $data, $userId): GoodsReceived {
+                        if ($data->clientSubmissionId && ! $existingPendingGrn->client_submission_id) {
+                            $existingPendingGrn->update(['client_submission_id' => $data->clientSubmissionId]);
+                        }
+
+                        if ($data->warehouseId) {
+                            $existingPendingGrn->update(['warehouse_id' => $data->warehouseId]);
+                        }
+
+                        $existingPendingGrn->loadMissing(['items.purchaseOrderItem', 'items.product']);
+
+                        foreach ($data->items as $itemInput) {
+                            $poItemId = $itemInput['purchase_order_item_id'] ?? null;
+                            $prodId = (int) ($itemInput['product_id'] ?? 0);
+                            $receivedQty = (float) ($itemInput['received_qty'] ?? 0.0);
+                            $receivedUnit = ! empty($itemInput['received_unit']) ? (string) $itemInput['received_unit'] : null;
+
+                            $rawItemGrade = isset($itemInput['grade']) && filled($itemInput['grade'])
+                                ? (string) $itemInput['grade']
+                                : null;
+                            $normalizedTargetGrade = $rawItemGrade !== null
+                                ? (ProductGrade::tryResolve($rawItemGrade)?->value ?? $rawItemGrade)
+                                : 'U';
+
+                            $grnItem = $poItemId
+                                ? $existingPendingGrn->items->first(fn ($it) => (int) $it->purchase_order_item_id === (int) $poItemId && (ProductGrade::tryResolve($it->grade)?->value ?? $it->grade ?? 'U') === $normalizedTargetGrade)
+                                : $existingPendingGrn->items->first(fn ($it) => (int) $it->product_id === (int) $prodId && (ProductGrade::tryResolve($it->grade)?->value ?? $it->grade ?? 'U') === $normalizedTargetGrade);
+
+                            $targetGradeToStore = $rawItemGrade ?? ($grnItem?->grade ?? 'U');
+
+                            if ($grnItem) {
+                                $originalPurchasedQty = (float) ($grnItem->purchaseOrderItem?->quantity ?? $grnItem->received_qty);
+                                $variance = $receivedQty - (float) ($grnItem->purchaseOrderItem?->quantity ?? 0.0);
+                                $grnItem->update([
+                                    'received_qty' => $receivedQty,
+                                    'variance' => $variance,
+                                    'purchased_qty' => $originalPurchasedQty,
+                                    'received_unit' => $receivedUnit ?: $grnItem->received_unit,
+                                    'grade' => $targetGradeToStore,
+                                    'grading_mode' => $itemInput['grading_mode'] ?? $grnItem->grading_mode,
+                                    'discrepancy_type' => $itemInput['discrepancy_type'] ?? 'none',
+                                    'discrepancy_note' => $itemInput['discrepancy_note'] ?? null,
+                                ]);
+                            } else {
+                                $poItem = $poItemId ? PurchaseOrderItem::find($poItemId) : null;
+                                $variance = $poItem ? ($receivedQty - (float) $poItem->quantity) : 0.0;
+                                $existingPendingGrn->items()->create([
+                                    'purchase_order_item_id' => $poItemId,
+                                    'product_id' => $prodId,
+                                    'received_qty' => $receivedQty,
+                                    'received_unit' => $receivedUnit ?: ($poItem?->purchase_unit ?: 'kg'),
+                                    'variance' => $variance,
+                                    'grade' => $targetGradeToStore,
+                                    'grading_mode' => $itemInput['grading_mode'] ?? null,
+                                    'purchased_qty' => (float) ($poItem?->quantity ?? $receivedQty),
+                                    'discrepancy_type' => $itemInput['discrepancy_type'] ?? 'none',
+                                    'discrepancy_note' => $itemInput['discrepancy_note'] ?? null,
+                                ]);
+                            }
+                        }
+
+                        if ($existingPendingGrn->status !== 'approved') {
+                            $existingPendingGrn = $this->approveGoodsReceiptAction->execute($existingPendingGrn, $userId);
+                        }
+
+                        return $this->approveGoodsReceiptAction->executeAndConfirmReceive(
+                            $existingPendingGrn,
+                            $userId,
+                            $data->warehouseId
+                        );
+                    });
+                } else {
+                    $grn = $this->service->create($data, $userId);
+                    $grn = $this->approveGoodsReceiptAction->executeAndConfirmReceive(
+                        $grn,
+                        $userId,
+                        $data->warehouseId
+                    );
+                }
             }
+        } elseif (! empty($data->advanceMatches) || $data->receiptType === 'warehouse_advance') {
+            $grn = $this->service->create($data, $userId);
+        } else {
+            $grn = $this->service->create($data, $userId);
+            abort_if(
+                $grn->isDirectShopPurchase(),
+                422,
+                'Direct shop purchases cannot be received into central warehouse inventory.'
+            );
+            $grn = $this->approveGoodsReceiptAction->executeAndConfirmReceive(
+                $grn,
+                $userId,
+                $data->warehouseId
+            );
         }
 
         $msg = $grn->bill_status === 'bill_pending'

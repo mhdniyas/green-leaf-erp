@@ -7,7 +7,9 @@ namespace App\Http\Controllers\Web\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\BusinessSetting;
 use App\Models\Shop;
+use App\Models\ShopOrder;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use App\Services\Warehouse\AutoLoadAllService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -16,7 +18,17 @@ class AdminAutoLoadAllController extends Controller
 {
     public function __construct(
         private readonly PurchaserBusinessDayService $businessDayService,
+        private readonly AutoLoadAllService $autoLoadAllService,
     ) {}
+
+    public function loadOrder(Request $request, ShopOrder $shopOrder): JsonResponse
+    {
+        abort_unless($request->user()?->hasRole('admin'), 403);
+
+        $result = $this->autoLoadAllService->loadOrder($shopOrder, $request->user());
+
+        return response()->json($result, ($result['success'] ?? false) ? 200 : 422);
+    }
 
     public function create(Request $request): View
     {

@@ -14,6 +14,7 @@ use App\Models\DailyProductPriceRevision;
 use App\Models\GoodsReceived;
 use App\Models\Product;
 use App\Models\ProductWholesalePrice;
+use App\Models\PurchaseGradePrice;
 use App\Models\Shop;
 use App\Models\ShopPriceGroup;
 use App\Models\StockBatch;
@@ -208,9 +209,9 @@ class PriceBoardService
      *
      * @param  array<int|string, array<int|string, mixed>>  $prices
      */
-    public function updateShopCategoryPrices(array $prices, int $userId, ?string $reason = null): void
+    public function updateShopCategoryPrices(array $prices, int $userId, ?string $reason = null, ProductGrade $grade = ProductGrade::GradeA): void
     {
-        DB::transaction(function () use ($prices, $userId, $reason): void {
+        DB::transaction(function () use ($prices, $userId, $reason, $grade): void {
             $products = Product::query()
                 ->whereIn('id', array_map('intval', array_keys($prices)))
                 ->get()
@@ -236,7 +237,6 @@ class PriceBoardService
                         continue;
                     }
 
-                    $grade = ProductGrade::GradeA;
                     $price = DailyProductPrice::query()->firstOrNew([
                         'product_id' => $product->id,
                         'shop_price_group_id' => $group->id,
@@ -318,22 +318,21 @@ class PriceBoardService
     /**
      * Update the current purchase cost without deriving selling prices from it.
      */
-    public function createOrUpdatePendingApproval(Product $product): void
+    public function createOrUpdatePendingApproval(Product $product, ProductGrade $grade = ProductGrade::GradeA): void
     {
-        $gradeACost = (float) (ProductWholesalePrice::query()
-            ->where('product_id', $product->id)
-            ->where('grade', ProductGrade::GradeA->value)
-            ->value('wholesale_price') ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price));
+        $cost = $this->resolveGradePurchaseCost($product, $grade);
+        $costPrice = (float) ($cost ?? ($grade === ProductGrade::GradeA ? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price) : 0));
 
         $businessDate = app(PurchaserBusinessDayService::class)->currentCalendarDate();
 
         $approval = DailyPriceApproval::query()->firstOrNew([
             'product_id' => $product->id,
             'business_date' => $businessDate,
+            'grade' => $grade->value,
         ]);
 
         $approval->fill([
-            'purchase_price' => $gradeACost,
+            'purchase_price' => $costPrice,
             'price_unit' => $approval->price_unit ?: ($product->unit ?: 'kg'),
             'status' => $approval->exists ? $approval->status : 'pending',
         ]);
@@ -477,24 +476,28 @@ class PriceBoardService
             });
     }
 
-    public function ensureProductApprovalForPurchaseDate(Product $product, string $purchaseDate): DailyPriceApproval
+    public function ensureProductApprovalForPurchaseDate(Product $product, string $purchaseDate, ProductGrade $grade = ProductGrade::GradeA): DailyPriceApproval
     {
         $businessDate = Carbon::parse($purchaseDate)->toDateString();
         $previousApproval = DailyPriceApproval::query()
             ->where('product_id', $product->id)
+            ->where('grade', $grade->value)
             ->whereDate('business_date', '<', $businessDate)
             ->where('status', 'approved')
             ->whereNotNull('approved_at')
             ->orderByDesc('business_date')
             ->first();
 
-        $purchasePrice = round((float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price)), 4);
+        $resolvedCost = $this->resolveGradePurchaseCost($product, $grade, $businessDate);
+        $purchasePrice = round((float) ($previousApproval?->purchase_price ?? ($resolvedCost ?? ($grade === ProductGrade::GradeA ? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price) : 0))), 4);
         $approval = DailyPriceApproval::query()
             ->where('product_id', $product->id)
+            ->where('grade', $grade->value)
             ->whereDate('business_date', $businessDate)
             ->first() ?? new DailyPriceApproval([
                 'product_id' => $product->id,
                 'business_date' => $businessDate,
+                'grade' => $grade->value,
             ]);
 
         if (! $approval->exists || ! $this->hasValidApprovedSellingPrices($approval)) {
@@ -516,8 +519,10 @@ class PriceBoardService
     {
         $approval->loadMissing('product');
 
+        $gradeVal = $approval->grade instanceof ProductGrade ? $approval->grade->value : (string) ($approval->grade ?? 'A');
         $previousApproval = DailyPriceApproval::query()
             ->where('product_id', $approval->product_id)
+            ->where('grade', $gradeVal)
             ->whereDate('business_date', '<', $approval->business_date)
             ->where('status', 'approved')
             ->whereNotNull('approved_at')
@@ -683,17 +688,59 @@ class PriceBoardService
         ];
     }
 
-    private function calculateMarginSellingPrice(Product $product, ProductGrade $grade, float $marginPercent): float
+    public function resolveGradePurchaseCost(Product $product, ProductGrade $grade, ?string $businessDate = null): ?float
     {
-        $base = (float) $product->base_price;
-        $gradeMultiplier = match ($grade) {
-            ProductGrade::GradeA => 1.00,
-            ProductGrade::GradeB => 0.90,
-            ProductGrade::GradeC => 0.80,
-            default => 1.00,
-        };
+        $businessDate = $businessDate ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
 
-        return round(($base * $gradeMultiplier) * (1 + ($marginPercent / 100)), 2);
+        // 1. Check approved PurchaseGradePrice for this grade and date
+        $purchaseGradePrice = PurchaseGradePrice::query()
+            ->where('product_id', $product->id)
+            ->where('grade', $grade->value)
+            ->where('status', 'approved')
+            ->whereDate('business_date', '<=', $businessDate)
+            ->orderByDesc('business_date')
+            ->orderByDesc('id')
+            ->value('purchase_price');
+
+        if ($purchaseGradePrice !== null && (float) $purchaseGradePrice > 0) {
+            return (float) $purchaseGradePrice;
+        }
+
+        // 2. Check ProductWholesalePrice for this grade
+        $wholesalePrice = ProductWholesalePrice::query()
+            ->where('product_id', $product->id)
+            ->where('grade', $grade->value)
+            ->value('wholesale_price');
+
+        if ($wholesalePrice !== null && (float) $wholesalePrice > 0) {
+            return (float) $wholesalePrice;
+        }
+
+        // 3. Check calculated movement/batch cost for this grade
+        $costData = $this->calculateCurrentCost($product, $grade);
+        if ($costData['weighted_average_cost'] > 0 && $costData['sellable_quantity'] > 0) {
+            return (float) $costData['weighted_average_cost'];
+        }
+
+        // 4. For Grade A only, fallback to vendor_price or base_price
+        if ($grade === ProductGrade::GradeA) {
+            $gradeAFallback = (float) ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price);
+
+            return $gradeAFallback > 0 ? $gradeAFallback : null;
+        }
+
+        return null;
+    }
+
+    public function calculateMarginSellingPrice(Product $product, ProductGrade $grade, float $marginPercent, ?string $businessDate = null): float
+    {
+        $cost = $this->resolveGradePurchaseCost($product, $grade, $businessDate);
+
+        if ($cost === null || $cost <= 0) {
+            return 0.0;
+        }
+
+        return round($cost * (1 + ($marginPercent / 100)), 2);
     }
 
     /**

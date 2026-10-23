@@ -7,8 +7,8 @@
                 <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                     <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                         <div class="min-w-0">
-                            <p class="text-[9px] font-black uppercase tracking-[0.16em] text-teal-200">{{ $purchaseGrade === 'B' ? 'Grade B Purchaser Flow' : 'Purchaser Flow' }}</p>
-                            <h1 class="text-base font-black tracking-tight sm:text-lg">{{ $purchaseGrade === 'B' ? 'B Grade Purchase' : 'Daily demand' }}</h1>
+                            <p class="text-[9px] font-black uppercase tracking-[0.16em] text-teal-200">{{ in_array($purchaseGrade, ['B', 'C', 'MIXED'], true) ? "Grade {$purchaseGrade} Purchaser Flow" : 'Purchaser Flow' }}</p>
+                            <h1 class="text-base font-black tracking-tight sm:text-lg">{{ in_array($purchaseGrade, ['B', 'C'], true) ? "Grade {$purchaseGrade} Demand" : 'Daily demand' }}</h1>
                         </div>
                         @if ($purchaseGrade === 'A')
                         <div class="grid grid-cols-4 gap-1.5 text-center">
@@ -33,7 +33,10 @@
                             <span class="rounded-full bg-blue-400/15 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-blue-100">Direct add-on purchase</span>
                         @endif
                     </div>
-                    <form action="{{ $purchaseGrade === 'B' ? route('purchaser.b-grade') : route('purchaser.daily') }}" method="GET" class="w-full lg:w-auto">
+                    <form action="{{ route('purchaser.daily') }}" method="GET" class="w-full lg:w-auto">
+                        @if ($purchaseGrade !== 'A')
+                            <input type="hidden" name="purchase_grade" value="{{ $purchaseGrade }}">
+                        @endif
                         <input id="business-date" type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="h-9 w-full rounded-lg border border-white/10 bg-white/10 px-3 text-xs font-bold text-white outline-none ring-0 lg:w-40">
                     </form>
                 </div>
@@ -47,8 +50,11 @@
         {{-- Single-column layout: product list only --}}
         <div class="flex min-w-0 flex-col gap-4">
             <div class="min-w-0 flex-1 space-y-4">
-                <form action="{{ $purchaseGrade === 'B' ? route('purchaser.b-grade') : route('purchaser.daily') }}" method="GET" id="purchaser-daily-filter-form" class="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:p-3">
+                <form action="{{ route('purchaser.daily') }}" method="GET" id="purchaser-daily-filter-form" class="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:p-3">
                     <input type="hidden" name="date" value="{{ $date }}">
+                    @if ($purchaseGrade !== 'A')
+                        <input type="hidden" name="purchase_grade" value="{{ $purchaseGrade }}">
+                    @endif
                     <input type="hidden" name="chip" id="daily-chip-input" value="{{ $selectedChip }}">
                     <div class="flex min-w-0 gap-2">
                         <input type="search" name="search" value="{{ $search }}" placeholder="Search product..." class="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
@@ -76,10 +82,10 @@
                         <p class="text-xs font-semibold text-slate-600">{{ $dailySummary->count() }} pending products · {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}</p>
                     </div>
                     <div class="grid w-full shrink-0 grid-cols-3 gap-2 sm:w-auto">
-                        <a href="{{ $purchaseGrade === 'B' ? route('purchaser.b-grade', ['date' => $date]) : route('purchaser.add-ons.create', ['date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-3 text-xs font-black text-white sm:w-24">
+                        <a href="{{ route('purchaser.add-ons.create', ['date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-3 text-xs font-black text-white sm:w-24">
                             Add-on
                         </a>
-                        <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => $purchaseGrade]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600 px-3 text-xs font-black text-white sm:w-24">
+                        <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => $purchaseGrade === 'B' ? 'B' : 'ALL']) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600 px-3 text-xs font-black text-white sm:w-24">
                             Bulk
                         </a>
                         <a href="{{ route('purchaser.daily.share', ['date' => $date, 'purchase_grade' => $purchaseGrade]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-3 text-xs font-black text-white sm:w-24">
@@ -125,6 +131,7 @@
                 <input type="hidden" name="business_date" value="{{ $date }}">
                 <input type="hidden" id="add-to-cart-product-id" name="product_id" value="">
                 <input type="hidden" id="add-to-cart-purchase-source" name="purchase_source" value="shop_order">
+                <input type="hidden" id="add-to-cart-total-amount" name="total_amount" value="">
                 <input type="hidden" name="return_to" value="daily">
                 <input type="hidden" name="chip" value="{{ $selectedChip }}">
                 <input type="hidden" name="search" value="{{ $search }}">
@@ -170,7 +177,7 @@
                 {{-- Calculated Total --}}
                 <div class="space-y-1">
                     <label class="block text-[9px] font-black uppercase tracking-wider text-slate-500">
-                        Calculated Total
+                        <span id="add-to-cart-calc-label">Calculated Total</span>
                     </label>
                     <div id="add-to-cart-total-display" class="flex h-8 w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-100 px-2.5 text-xs font-bold text-slate-700">
                         ₹ 0.00
@@ -252,6 +259,7 @@
     <script>
         let currentModalBasis = 'kg';
         let currentProductUnit = 'kg';
+        let currentPurchaseGrade = '{{ $purchaseGrade }}';
 
         function setModalBasis(basis) {
             currentModalBasis = basis;
@@ -259,39 +267,96 @@
             const btnBox = document.getElementById('modal-basis-box-btn');
             const qtyLabel = document.getElementById('add-to-cart-qty-label');
             const priceLabel = document.getElementById('add-to-cart-price-label');
+            const calcLabel = document.getElementById('add-to-cart-calc-label');
             const convContainer = document.getElementById('modal-conversion-container');
             const qtyInput = document.getElementById('add-to-cart-quantity');
+            const priceInput = document.getElementById('add-to-cart-price');
+
+            const isMixed = currentPurchaseGrade === 'MIXED';
 
             if (basis === 'box') {
-                btnKg.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50';
-                btnBox.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs';
+                btnKg.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50 cursor-pointer';
+                btnBox.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs cursor-pointer';
                 qtyLabel.textContent = 'Boxes';
-                priceLabel.textContent = 'Price (Per box)';
                 convContainer.classList.remove('hidden');
-                
                 qtyInput.step = 'any';
                 qtyInput.min = '0.01';
+
+                if (isMixed) {
+                    priceLabel.textContent = 'Total Amount (₹)';
+                    priceInput.placeholder = 'e.g. 3000';
+                    if (calcLabel) calcLabel.textContent = 'Calculated Rate (Per Box / kg)';
+                } else {
+                    priceLabel.textContent = 'Price (Per box)';
+                    priceInput.placeholder = 'Price';
+                    if (calcLabel) calcLabel.textContent = 'Calculated Total';
+                }
             } else {
-                btnBox.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50';
-                btnKg.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs';
+                btnBox.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50 cursor-pointer';
+                btnKg.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs cursor-pointer';
                 qtyLabel.textContent = `Quantity (${currentProductUnit})`;
-                priceLabel.textContent = `Price (Per ${currentProductUnit})`;
                 convContainer.classList.add('hidden');
-                
                 qtyInput.step = 'any';
                 qtyInput.min = '0.01';
+
+                if (isMixed) {
+                    priceLabel.textContent = 'Total Amount (₹)';
+                    priceInput.placeholder = 'e.g. 3000';
+                    if (calcLabel) calcLabel.textContent = `Calculated Price (Per ${currentProductUnit})`;
+                } else {
+                    priceLabel.textContent = `Price (Per ${currentProductUnit})`;
+                    priceInput.placeholder = 'Price';
+                    if (calcLabel) calcLabel.textContent = 'Calculated Total';
+                }
             }
             updateModalTotalPrice();
         }
 
         function updateModalTotalPrice() {
-            const quantity = parseFloat(document.getElementById('add-to-cart-quantity').value) || 0;
-            const price = parseFloat(document.getElementById('add-to-cart-price').value) || 0;
-            const total = quantity * price;
-            document.getElementById('add-to-cart-total-display').textContent = '₹ ' + total.toLocaleString('en-IN', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-            });
+            const qtyInput = document.getElementById('add-to-cart-quantity');
+            const priceInput = document.getElementById('add-to-cart-price');
+            const convInput = document.getElementById('add-to-cart-conversion');
+            const display = document.getElementById('add-to-cart-total-display');
+
+            if (!display) return;
+
+            const isMixed = currentPurchaseGrade === 'MIXED';
+
+            if (isMixed) {
+                const totalAmount = parseFloat(priceInput?.value) || 0;
+                const qty = parseFloat(qtyInput?.value) || 0;
+
+                if (currentModalBasis === 'box') {
+                    const boxes = qty;
+                    const kgPerBox = parseFloat(convInput?.value) || 1;
+                    const totalKg = boxes * kgPerBox;
+
+                    const ratePerBox = boxes > 0 ? (totalAmount / boxes) : 0;
+                    const ratePerKg = totalKg > 0 ? (totalAmount / totalKg) : 0;
+
+                    if (totalAmount > 0 && boxes > 0) {
+                        display.textContent = `₹ ${ratePerBox.toFixed(2)} / box  (₹ ${ratePerKg.toFixed(2)} / kg)`;
+                    } else {
+                        display.textContent = '₹ 0.00 / kg';
+                    }
+                } else {
+                    const ratePerUnit = qty > 0 ? (totalAmount / qty) : 0;
+                    if (totalAmount > 0 && qty > 0) {
+                        display.textContent = `₹ ${ratePerUnit.toFixed(2)} / ${currentProductUnit}`;
+                    } else {
+                        display.textContent = `₹ 0.00 / ${currentProductUnit}`;
+                    }
+                }
+            } else {
+                const quantity = parseFloat(qtyInput?.value) || 0;
+                const price = parseFloat(priceInput?.value) || 0;
+                const total = quantity * price;
+
+                display.textContent = '₹ ' + total.toLocaleString('en-IN', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                });
+            }
         }
 
         document.getElementById('add-to-cart-quantity').addEventListener('input', updateModalTotalPrice);
@@ -303,29 +368,67 @@
             const modalForm = document.querySelector('#add-to-cart-modal form');
             if (modalForm) {
                 modalForm.addEventListener('submit', (e) => {
-                    if (currentProductUnit === 'kg' && currentModalBasis === 'box') {
-                        const qtyInput = document.getElementById('add-to-cart-quantity');
-                        const priceInput = document.getElementById('add-to-cart-price');
-                        const convInput = document.getElementById('add-to-cart-conversion');
+                    const qtyEl = document.getElementById('add-to-cart-quantity');
+                    const priceEl = document.getElementById('add-to-cart-price');
+                    const convEl = document.getElementById('add-to-cart-conversion');
+                    const totalEl = document.getElementById('add-to-cart-total-amount');
 
-                        const boxes = parseFloat(qtyInput.value) || 0;
-                        const kgPerBox = parseFloat(convInput.value) || 1;
-                        const pricePerBox = parseFloat(priceInput.value) || 0;
+                    const isMixed = currentPurchaseGrade === 'MIXED';
 
-                        const submitQty = boxes * kgPerBox;
-                        const submitPrice = kgPerBox > 0 ? (pricePerBox / kgPerBox) : 0;
+                    if (isMixed) {
+                        const totalAmount = parseFloat(priceEl?.value) || 0;
+                        if (totalEl) {
+                            totalEl.value = totalAmount > 0 ? totalAmount.toFixed(2) : '';
+                        }
 
-                        qtyInput.value = submitQty.toFixed(3);
-                        priceInput.value = submitPrice.toFixed(4);
+                        if (currentProductUnit === 'kg' && currentModalBasis === 'box') {
+                            const boxes = parseFloat(qtyEl?.value) || 0;
+                            const kgPerBox = parseFloat(convEl?.value) || 1;
+                            const totalKg = boxes * kgPerBox;
+                            const ratePerKg = totalKg > 0 ? (totalAmount / totalKg) : 0;
+
+                            if (qtyEl) qtyEl.value = totalKg.toFixed(3);
+                            if (priceEl) priceEl.value = ratePerKg.toFixed(4);
+                        } else {
+                            const qty = parseFloat(qtyEl?.value) || 0;
+                            const ratePerUnit = qty > 0 ? (totalAmount / qty) : 0;
+
+                            if (priceEl) priceEl.value = ratePerUnit.toFixed(4);
+                        }
+                    } else {
+                        if (totalEl) totalEl.value = '';
+
+                        if (currentProductUnit === 'kg' && currentModalBasis === 'box') {
+                            const boxes = parseFloat(qtyEl?.value) || 0;
+                            const kgPerBox = parseFloat(convEl?.value) || 1;
+                            const pricePerBox = parseFloat(priceEl?.value) || 0;
+
+                            const submitQty = boxes * kgPerBox;
+                            const submitPrice = kgPerBox > 0 ? (pricePerBox / kgPerBox) : 0;
+
+                            if (qtyEl) qtyEl.value = submitQty.toFixed(3);
+                            if (priceEl) priceEl.value = submitPrice.toFixed(4);
+                        }
                     }
                 });
             }
         });
 
-        function openAddToCartModal(productId, productName, productUnit, remainingQty, draftQty, step, draftPurchasers, purchaseSource = 'shop_order') {
+        function openAddToCartModal(productId, productName, productUnit, remainingQty, draftQty, step, draftPurchasers, purchaseSource = 'shop_order', purchaseGrade = '{{ $purchaseGrade }}') {
             document.getElementById('add-to-cart-product-id').value = productId;
             document.getElementById('add-to-cart-purchase-source').value = purchaseSource;
-            document.getElementById('add-to-cart-product-name').textContent = productName;
+            document.getElementById('add-to-cart-purchase-grade').value = purchaseGrade;
+            currentPurchaseGrade = purchaseGrade || '{{ $purchaseGrade }}';
+
+            let displayName = productName;
+            if (purchaseGrade && purchaseGrade !== 'A') {
+                if (purchaseGrade === 'MIXED') {
+                    displayName += ' (Mixed Lot)';
+                } else {
+                    displayName += ` (Grade ${purchaseGrade})`;
+                }
+            }
+            document.getElementById('add-to-cart-product-name').textContent = displayName;
             currentProductUnit = productUnit;
 
             const basisContainer = document.getElementById('modal-basis-container');
@@ -358,7 +461,10 @@
             
             document.getElementById('add-to-cart-modal').classList.remove('hidden');
             document.body.classList.add('overflow-hidden');
-            setTimeout(() => qtyInput.focus(), 50);
+            setTimeout(() => {
+                const targetFocus = currentPurchaseGrade === 'MIXED' ? document.getElementById('add-to-cart-price') : qtyInput;
+                if (targetFocus) targetFocus.focus();
+            }, 50);
         }
 
         function closeAddToCartModal() {
@@ -490,7 +596,8 @@
                     leftCol.className = 'min-w-0';
                     const namePara = document.createElement('p');
                     namePara.className = `truncate font-black ${isDirect ? 'text-emerald-800' : 'text-slate-900'}`;
-                    namePara.textContent = detail.shop_name;
+                    const gradeSuffix = (detail.product_grade && detail.product_grade !== 'A') ? ` (Grade ${detail.product_grade})` : '';
+                    namePara.textContent = `${detail.shop_name}${gradeSuffix}`;
                     const orderPara = document.createElement('p');
                     orderPara.className = 'truncate text-xs text-slate-500';
                     orderPara.textContent = detail.order_number;

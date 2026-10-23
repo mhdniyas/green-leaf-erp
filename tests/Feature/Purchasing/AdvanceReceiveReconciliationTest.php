@@ -151,6 +151,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
     {
         return PurchaseOrder::factory()->create(array_merge([
             'order_date' => now()->toDateString(),
+            'status' => 'approved',
         ], $attributes));
     }
 
@@ -282,7 +283,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
             'quantity' => 100.0,
         ]);
 
-        $this->postJson('/api/v1/purchasing/grns', [
+        $response = $this->postJson('/api/v1/purchasing/grns', [
             'purchase_order_id' => $order->id,
             'warehouse_id' => $this->warehouse->id,
             'received_at' => now()->toDateString(),
@@ -439,7 +440,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         $order1 = $this->createPurchaseOrder();
         $poItem1 = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order1->id, 'product_id' => $this->tomato->id, 'quantity' => 40.0]);
 
-        $this->postJson('/api/v1/purchasing/grns', [
+        $r1 = $this->postJson('/api/v1/purchasing/grns', [
             'purchase_order_id' => $order1->id,
             'warehouse_id' => $this->warehouse->id,
             'received_at' => now()->toDateString(),

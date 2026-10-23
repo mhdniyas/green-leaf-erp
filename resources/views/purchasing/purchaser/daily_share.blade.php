@@ -15,7 +15,7 @@
                         <a href="{{ route('purchaser.daily.share.presets', ['date' => $date, 'purchase_grade' => $purchaseGrade]) }}" class="inline-flex min-h-9 items-center justify-center rounded-xl border border-white/15 bg-emerald-500/20 px-4 text-sm font-black text-emerald-100 hover:bg-emerald-500/30 transition-colors">
                             Presets
                         </a>
-                        <a href="{{ $purchaseGrade === 'B' ? route('purchaser.b-grade', ['date' => $date]) : route('purchaser.daily', ['date' => $date]) }}" class="inline-flex min-h-9 items-center justify-center rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-black text-white hover:bg-white/20 transition-colors">
+                        <a href="{{ route('purchaser.daily', array_filter(['date' => $date, 'purchase_grade' => $purchaseGrade !== 'A' ? $purchaseGrade : null])) }}" class="inline-flex min-h-9 items-center justify-center rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-black text-white hover:bg-white/20 transition-colors">
                             ← Daily
                         </a>
                     </div>

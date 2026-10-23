@@ -147,8 +147,8 @@
             'A' => ['label' => 'Grade A — Premium', 'color' => 'bg-green-100 text-green-700 border-green-200'],
             'B' => ['label' => 'Grade B — Standard', 'color' => 'bg-blue-100 text-blue-700 border-blue-200'],
             'C' => ['label' => 'Grade C — Economy', 'color' => 'bg-amber-100 text-amber-700 border-amber-200'],
-            'D' => ['label' => 'Grade D — Damage', 'color' => 'bg-red-100 text-red-600 border-red-200'],
-            'Unsorted' => ['label' => 'Unsorted / Pending', 'color' => 'bg-slate-100 text-slate-700 border-slate-200']
+            'Damage' => ['label' => 'Damage — Write-off', 'color' => 'bg-red-100 text-red-600 border-red-200'],
+            'Unsorted' => ['label' => 'Mixed / Unsegregated', 'color' => 'bg-slate-100 text-slate-700 border-slate-200']
         ] as $grade => $info)
         <span class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border {{ $info['color'] }}">
             <span class="w-2 h-2 rounded-full bg-current opacity-60"></span>
@@ -278,7 +278,7 @@
                             <p class="mt-0.5 font-mono text-xs font-black text-emerald-950">{{ number_format($sortedStock, 2) }} <span class="text-[9px]">{{ $productUnit }}</span></p>
                         </div>
                         <div class="rounded-lg bg-slate-100 px-2.5 py-2 text-center">
-                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-600">Unsorted</p>
+                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-600">Mixed</p>
                             <p class="mt-0.5 font-mono text-xs font-black text-slate-900">{{ number_format($unsortedStock, 2) }} <span class="text-[9px]">{{ $productUnit }}</span></p>
                         </div>
                     </div>
@@ -296,7 +296,7 @@
                                 'D' => 'bg-rose-50 text-rose-700 border-rose-200',
                                 default => 'bg-slate-100 text-slate-700 border-slate-200',
                             };
-                            $gradeLabel = in_array($entry->grade, ['Unsorted', 'U'], true) ? 'Unsorted' : 'Grade ' . $entry->grade;
+                            $gradeLabel = in_array($entry->grade, ['Unsorted', 'U', 'MIXED'], true) ? 'Mixed / Unsegregated' : 'Grade ' . $entry->grade;
                         @endphp
                         <div class="flex items-center justify-between px-2 py-1 rounded-lg border text-xs {{ $color }}">
                             <span class="text-[10px] font-extrabold uppercase tracking-tight">{{ $gradeLabel }}</span>
@@ -411,7 +411,7 @@
                 wastage: ['Damaged or spoiled stock', 'Expired / unsellable stock', 'Handling or sorting loss', 'Missing stock after count', 'Other wastage'],
             };
             function openStockAdjustmentModal(productKey, productName, systemQty, warehouseId, unit, grade = '') {
-                document.getElementById('stock-adjustment-title').textContent = productName + (grade ? ' (' + (['Unsorted', 'U'].includes(grade) ? 'Unsorted' : 'Grade ' + grade) + ')' : '');
+                document.getElementById('stock-adjustment-title').textContent = productName + (grade ? ' (' + (['Unsorted', 'U', 'MIXED'].includes(grade) ? 'Mixed / Unsegregated' : 'Grade ' + grade) + ')' : '');
                 document.getElementById('stock-adjustment-system-qty').value = systemQty.toFixed(3);
                 document.getElementById('stock-adjustment-warehouse-id').value = warehouseId ?? '';
                 document.getElementById('stock-adjustment-grade').value = grade ?? '';
