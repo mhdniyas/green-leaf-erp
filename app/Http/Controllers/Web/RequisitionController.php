@@ -226,14 +226,14 @@ class RequisitionController extends Controller
                 'success' => true,
                 'order_number' => $order->order_number,
                 'redirect_url' => $user->hasRole('shop')
-                    ? route('shop-owner.orders.show', $order->order_number)
+                    ? route('shop-owner.orders.history')
                     : route('requisitions.show', $order->order_number),
             ]);
         }
 
         return redirect()->route(
-            $user->hasRole('shop') ? 'shop-owner.orders.show' : 'requisitions.show',
-            $order->order_number
+            $user->hasRole('shop') ? 'shop-owner.orders.history' : 'requisitions.show',
+            $user->hasRole('shop') ? [] : $order->order_number
         )
             ->with('success', $outcome['message']);
     }

@@ -268,7 +268,7 @@
         @endforeach
     </div>
 
-    <div id="draft-cart-bar" class="fixed inset-x-0 bottom-16 z-40 hidden border-t border-slate-800 bg-slate-950 px-4 py-3 text-white shadow-[0_-14px_30px_rgba(15,23,42,0.22)] sm:bottom-4 sm:left-1/2 sm:max-w-xl sm:-translate-x-1/2 sm:rounded-2xl sm:border">
+    <div id="draft-cart-bar" class="fixed inset-x-0 bottom-0 z-40 hidden border-t border-slate-800 bg-slate-950 px-4 py-3 text-white shadow-[0_-14px_30px_rgba(15,23,42,0.22)] pb-[max(env(safe-area-inset-bottom),0.75rem)] sm:bottom-4 sm:left-1/2 sm:max-w-xl sm:-translate-x-1/2 sm:rounded-2xl sm:border">
         <div class="mx-auto flex max-w-xl items-center gap-3">
             <div class="min-w-0 flex-1">
                 <p id="draft-cart-summary" class="truncate text-sm font-black">0 selected</p>
@@ -356,13 +356,46 @@
         }
     </style>
 
-    @if ($allowPresetSave ?? true)
-        <form method="POST" action="{{ route('requisitions.presets.store') }}" data-save-preset-form class="hidden" aria-hidden="true">
-            @csrf
-            <input type="hidden" name="redirect_to" value="shop-owner-orders-create">
-            <input type="text" name="name" data-preset-name-input>
-        </form>
-    @endif
+    <!-- Cart Review Drawer Backdrop -->
+    <div id="cart-review-backdrop" class="fixed inset-0 z-[80] bg-slate-950/60 backdrop-blur-sm hidden opacity-0 transition-opacity duration-300"></div>
+
+    <!-- Cart Review Drawer -->
+    <div id="cart-review-drawer" class="fixed inset-x-0 bottom-0 z-[90] flex max-h-[85vh] flex-col overflow-hidden rounded-t-[2.5rem] border-t border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-out transform translate-y-full hidden sm:bottom-6 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-xl sm:rounded-3xl sm:border">
+        <div class="mx-auto my-3 h-1.5 w-16 shrink-0 rounded-full bg-slate-200"></div>
+
+        <div class="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-3">
+            <div>
+                <h3 class="text-base font-black text-slate-900">{{ ($orderFormMode ?? '') === 'admin-direct-purchase' ? 'Direct Purchase Review' : (isset($isUpdateRequest) && $isUpdateRequest ? 'Item Request Review' : 'Cart Review') }}</h3>
+                <p id="review-items-count" class="mt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">0 items selected</p>
+            </div>
+            <button type="button" id="cart-review-close" class="rounded-full bg-slate-100 p-2 text-slate-500 hover:bg-slate-200 transition">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+            <!-- Backend validation error banner -->
+            <div id="cart-review-error-banner" class="hidden rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-800"></div>
+
+            <!-- Review Items List -->
+            <div id="review-items-list" class="divide-y divide-slate-100 space-y-0.5"></div>
+
+
+        </div>
+
+        <div class="shrink-0 border-t border-slate-150 bg-slate-50 p-4">
+            <div class="flex gap-3">
+                <button type="button" id="review-add-more-btn" class="flex-1 rounded-2xl border border-slate-200 bg-white py-3 text-xs font-black uppercase tracking-wider text-slate-700 hover:bg-slate-50 active:scale-95 transition duration-150">
+                    Add Items
+                </button>
+                <button type="button" id="place-order-submit-btn" data-default-label="{{ ($orderFormMode ?? '') === 'admin-direct-purchase' ? 'Create Direct Purchase' : (isset($isUpdateRequest) && $isUpdateRequest ? 'Submit Item Request' : 'Place Order') }}" class="flex-[2] rounded-2xl {{ isset($isUpdateRequest) && $isUpdateRequest ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700' }} py-3 text-xs font-black uppercase tracking-wider text-white shadow-md active:scale-95 transition duration-150">
+                    {{ ($orderFormMode ?? '') === 'admin-direct-purchase' ? 'Create Direct Purchase' : (isset($isUpdateRequest) && $isUpdateRequest ? 'Submit Item Request' : 'Place Order') }}
+                </button>
+            </div>
+        </div>
+    </div>
 
     <script id="shop-owner-product-catalog" type="application/json">
         {!! $allProductsForOrder->values()->toJson() !!}

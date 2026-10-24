@@ -26,6 +26,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const layoutButtons = Array.from(document.querySelectorAll('[data-shop-order-layout-toggle]'));
     const mobileNav = document.getElementById('layout-mobile-nav');
 
+    // Cart Review Drawer elements
+    const cartReviewBackdrop = document.getElementById('cart-review-backdrop');
+    const cartReviewDrawer = document.getElementById('cart-review-drawer');
+    const cartReviewClose = document.getElementById('cart-review-close');
+    const reviewItemsCount = document.getElementById('review-items-count');
+    const reviewItemsList = document.getElementById('review-items-list');
+    const reviewAddMoreBtn = document.getElementById('review-add-more-btn');
+    const placeOrderBtn = document.getElementById('place-order-submit-btn');
+    const cartReviewErrorBanner = document.getElementById('cart-review-error-banner');
+    const reviewSavePresetTrigger = document.getElementById('review-save-preset-trigger');
+
     if (!formNode || !productCatalogNode || quantityInputs.length === 0 || !draftCartBar || !draftCartSummary || !draftCartClear || !draftCartSubmit) {
         return;
     }
@@ -135,7 +146,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const measureInput = measureInputForUnitInput(unitInput);
             const unitDefinition = unitDefinitionForProduct(product, measureInput?.value || unit);
 
-            return product && quantity > 0 ? { input, product, quantity, unitInput, unit, lineKey, unitDefinition } : null;
+            let grade = 'A';
+            if (lineKey.includes('|')) {
+                grade = lineKey.split('|')[1];
+            } else {
+                const gradeInput = input.closest('[data-product-card]')?.querySelector(`[name="item_grades[${lineKey}]"]`);
+                if (gradeInput?.value) {
+                    grade = gradeInput.value;
+                }
+            }
+
+            return product && quantity > 0 ? { input, product, quantity, unitInput, unit, lineKey, unitDefinition, grade } : null;
         })
         .filter(Boolean);
 
@@ -181,6 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 quantity: row.quantity,
                 unit: row.unit,
                 measure: measureInputForUnitInput(row.unitInput)?.value ?? null,
+                grade: row.grade ?? 'A',
             };
         });
 
@@ -216,9 +238,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (count > 0) {
             draftCartSummary.textContent = `${count} selected • ${quantityLabel}`;
             draftCartBar.classList.remove('hidden');
+            if (mobileNav) {
+                mobileNav.classList.add('hidden');
+            }
         } else {
             draftCartSummary.textContent = '0 selected';
             draftCartBar.classList.add('hidden');
+            const isDrawerOpen = cartReviewDrawer && !cartReviewDrawer.classList.contains('hidden');
+            if (mobileNav && !isDrawerOpen) {
+                mobileNav.classList.remove('hidden');
+            }
         }
 
         syncSubmitButtons();
@@ -320,20 +349,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (isHidden) {
             mobileNav.classList.add('hidden');
-            draftCartBar.classList.remove('bottom-16');
-            draftCartBar.classList.add('bottom-0');
 
             return;
         }
 
         mobileNavRestoreTimer = window.setTimeout(() => {
+            const hasSelected = selectedRows().length > 0;
+            const isDrawerOpen = cartReviewDrawer && !cartReviewDrawer.classList.contains('hidden');
+
+            if (hasSelected || isDrawerOpen) {
+                mobileNav.classList.add('hidden');
+
+                return;
+            }
+
             const activeElement = document.activeElement;
             const isStillEditingQuantity = activeElement instanceof HTMLElement && activeElement.matches('[data-inline-qty], [data-inline-unit]');
 
             if (!isStillEditingQuantity) {
                 mobileNav.classList.remove('hidden');
-                draftCartBar.classList.remove('bottom-0');
-                draftCartBar.classList.add('bottom-16');
             }
         }, 120);
     };
@@ -531,38 +565,262 @@ document.addEventListener('DOMContentLoaded', () => {
         clearOrderForm.submit();
     });
 
-    const submitSelectedRows = () => {
+    const openCartReview = () => {
         if (selectedRows().length === 0) {
             syncSubmitButtons();
             return;
         }
 
-        window.localStorage.removeItem(draftStorageKey);
+        window.clearTimeout(mobileNavRestoreTimer);
+        renderReviewDrawerItems();
+
+        document.body.classList.add('overflow-hidden');
+        cartReviewBackdrop?.classList.remove('hidden');
+        cartReviewDrawer?.classList.remove('hidden');
+
+        if (mobileNav) {
+            mobileNav.classList.add('hidden');
+        }
+
+        setTimeout(() => {
+            cartReviewBackdrop?.classList.remove('opacity-0');
+            cartReviewBackdrop?.classList.add('opacity-100');
+            cartReviewDrawer?.classList.remove('translate-y-full');
+        }, 50);
+    };
+
+    const closeCartReview = () => {
+        document.body.classList.remove('overflow-hidden');
+        cartReviewDrawer?.classList.add('translate-y-full');
+        cartReviewBackdrop?.classList.remove('opacity-100');
+        cartReviewBackdrop?.classList.add('opacity-0');
+
+        setTimeout(() => {
+            cartReviewBackdrop?.classList.add('hidden');
+            cartReviewDrawer?.classList.add('hidden');
+
+            const hasSelected = selectedRows().length > 0;
+            if (mobileNav && !hasSelected) {
+                mobileNav.classList.remove('hidden');
+            }
+        }, 300);
+    };
+
+    const renderReviewDrawerItems = () => {
+        if (!reviewItemsList) {
+            return;
+        }
+
+        reviewItemsList.innerHTML = '';
+        const rows = selectedRows();
+
+        if (reviewItemsCount) {
+            const count = rows.length;
+            reviewItemsCount.textContent = `${count} ${count === 1 ? 'line' : 'lines'} selected`;
+        }
+
+        if (rows.length === 0) {
+            closeCartReview();
+            return;
+        }
+
+        rows
+            .sort((a, b) => {
+                if (a.product.name !== b.product.name) {
+                    return a.product.name.localeCompare(b.product.name);
+                }
+                return (a.grade || 'A').localeCompare(b.grade || 'A');
+            })
+            .forEach((row) => {
+                const article = document.createElement('article');
+                article.className = 'py-3 flex items-center justify-between gap-3 border-b border-slate-100 last:border-0';
+
+                const gradeBadge = row.grade && row.grade !== 'A'
+                    ? `<span class="rounded bg-purple-100 px-1.5 py-0.5 text-[9px] font-black text-purple-700">Grade ${row.grade}</span>`
+                    : `<span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-black text-emerald-700">Grade A</span>`;
+
+                const unitLabel = String(row.unitDefinition?.label ?? row.unit ?? row.product.unit).toUpperCase();
+
+                article.innerHTML = `
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2">
+                            <h4 class="font-bold text-slate-900 text-xs sm:text-sm truncate" title="${row.product.name}">${row.product.name}</h4>
+                            ${gradeBadge}
+                        </div>
+                        <p class="text-[10px] text-slate-400 font-mono mt-0.5">${row.product.sku}</p>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <div class="flex items-center gap-1 bg-slate-50 rounded-xl p-1 border border-slate-200">
+                            <button type="button" data-review-decrement="${row.lineKey}" class="flex h-7 w-7 items-center justify-center rounded-lg bg-white border border-slate-200 text-xs font-black text-slate-700 shadow-sm active:scale-95 transition">-</button>
+                            <span class="w-16 text-center text-xs font-black text-slate-950">${formatQuantity(row.quantity)} ${unitLabel}</span>
+                            <button type="button" data-review-increment="${row.lineKey}" class="flex h-7 w-7 items-center justify-center rounded-lg bg-white border border-slate-200 text-xs font-black text-slate-700 shadow-sm active:scale-95 transition">+</button>
+                        </div>
+                        <button type="button" data-review-delete="${row.lineKey}" class="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition" title="Remove line">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </button>
+                    </div>
+                `;
+
+                reviewItemsList.appendChild(article);
+
+                article.querySelector(`[data-review-decrement="${row.lineKey}"]`)?.addEventListener('click', () => {
+                    const step = 1;
+                    const nextQty = Math.max(0, row.quantity - step);
+                    row.input.value = nextQty > 0 ? String(nextQty) : '';
+                    updateRowState(row.input);
+                    syncDraftBar();
+                    saveDraft();
+                    renderReviewDrawerItems();
+                });
+
+                article.querySelector(`[data-review-increment="${row.lineKey}"]`)?.addEventListener('click', () => {
+                    const step = 1;
+                    const nextQty = row.quantity + step;
+                    row.input.value = String(nextQty);
+                    updateRowState(row.input);
+                    syncDraftBar();
+                    saveDraft();
+                    renderReviewDrawerItems();
+                });
+
+                article.querySelector(`[data-review-delete="${row.lineKey}"]`)?.addEventListener('click', () => {
+                    row.input.value = '';
+                    updateRowState(row.input);
+                    syncDraftBar();
+                    saveDraft();
+                    renderReviewDrawerItems();
+                });
+            });
+    };
+
+    const submitSelectedRows = async () => {
+        const rows = selectedRows();
+        if (rows.length === 0) {
+            syncSubmitButtons();
+            return;
+        }
+
+        if (cartReviewErrorBanner) {
+            cartReviewErrorBanner.classList.add('hidden');
+            cartReviewErrorBanner.textContent = '';
+        }
+
+        // Disable place order button and show loading spinner to prevent accidental double-clicks
+        if (placeOrderBtn) {
+            placeOrderBtn.disabled = true;
+            placeOrderBtn.setAttribute('data-submitting', 'true');
+            placeOrderBtn.innerHTML = `
+                <span class="inline-flex items-center gap-2">
+                    <svg class="h-4 w-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Placing Order...
+                </span>
+            `;
+        }
 
         // Eliminate unselected zero-quantity lines to prevent exceeding PHP max_input_vars limit
+        const disabledInputs = [];
         quantityInputs.forEach((input) => {
             const val = parseQty(input.value);
             const hadExistingQty = Boolean(input.defaultValue && parseQty(input.defaultValue) > 0);
 
             if (val === 0 && !hadExistingQty) {
                 input.disabled = true;
+                disabledInputs.push(input);
                 const lineKey = input.getAttribute('data-line-key');
                 if (lineKey) {
                     const row = input.closest('[data-product-card]');
-                    row?.querySelectorAll(`[name="item_units[${lineKey}]"], [name="item_measures[${lineKey}]"], [name="item_grades[${lineKey}]"]`)
-                        .forEach((hiddenInput) => {
-                            hiddenInput.disabled = true;
+                    if (row) {
+                        row.querySelectorAll('input[type="hidden"]').forEach((hiddenInput) => {
+                            const name = hiddenInput.getAttribute('name') || '';
+                            if (
+                                name === `item_units[${lineKey}]` ||
+                                name === `item_measures[${lineKey}]` ||
+                                name === `item_grades[${lineKey}]`
+                            ) {
+                                hiddenInput.disabled = true;
+                                disabledInputs.push(hiddenInput);
+                            }
                         });
+                    }
                 }
             }
         });
 
-        formNode.submit();
+        try {
+            const formData = new FormData(formNode);
+            const response = await fetch(formNode.action, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: formData,
+            });
+
+            if (response.redirected) {
+                window.localStorage.removeItem(draftStorageKey);
+                window.location.href = response.url;
+                return;
+            }
+
+            const data = await response.json().catch(() => null);
+
+            if (response.ok && data?.success) {
+                // Clear draft ONLY on confirmed backend persistence
+                window.localStorage.removeItem(draftStorageKey);
+                window.location.href = data.redirect_url || '/shop-owner/orders/history';
+                return;
+            }
+
+            // Backend validation error or business rejection
+            const errorMsg = data?.error
+                || (data?.errors ? Object.values(data.errors).flat().join(' ') : null)
+                || 'Order submission failed. Please review your selections and try again.';
+
+            if (cartReviewErrorBanner) {
+                cartReviewErrorBanner.textContent = errorMsg;
+                cartReviewErrorBanner.classList.remove('hidden');
+            } else {
+                alert(errorMsg);
+            }
+        } catch (error) {
+            console.error('Order submission network error:', error);
+            const netErrorMsg = 'A network error occurred while submitting your order. Your draft has been preserved. Please try again.';
+            if (cartReviewErrorBanner) {
+                cartReviewErrorBanner.textContent = netErrorMsg;
+                cartReviewErrorBanner.classList.remove('hidden');
+            } else {
+                alert(netErrorMsg);
+            }
+        } finally {
+            // Restore disabled inputs so the user can continue adjusting and retrying
+            disabledInputs.forEach((input) => {
+                input.disabled = false;
+            });
+            if (placeOrderBtn) {
+                placeOrderBtn.disabled = false;
+                placeOrderBtn.removeAttribute('data-submitting');
+                placeOrderBtn.textContent = placeOrderBtn.getAttribute('data-default-label') || 'Place Order';
+            }
+        }
     };
 
-    draftCartSubmit.addEventListener('click', submitSelectedRows);
+    draftCartSubmit.addEventListener('click', openCartReview);
     pageSubmitButtons.forEach((button) => {
-        button.addEventListener('click', submitSelectedRows);
+        button.addEventListener('click', openCartReview);
+    });
+
+    cartReviewBackdrop?.addEventListener('click', closeCartReview);
+    cartReviewClose?.addEventListener('click', closeCartReview);
+    reviewAddMoreBtn?.addEventListener('click', closeCartReview);
+    placeOrderBtn?.addEventListener('click', submitSelectedRows);
+    reviewSavePresetTrigger?.addEventListener('click', () => {
+        document.dispatchEvent(new CustomEvent('shop-owner-save-current-draft-as-preset'));
     });
 
     const applyPreset = () => {

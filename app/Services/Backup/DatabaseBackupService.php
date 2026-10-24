@@ -418,7 +418,12 @@ class DatabaseBackupService
 
         foreach ($files as $file) {
             $filename = $file->getFilename();
-            if (! str_ends_with($filename, '.gz') && ! str_ends_with($filename, '.sql') && ! str_ends_with($filename, '.sqlite')) {
+            if (
+                ! str_ends_with($filename, '.gz') &&
+                ! str_ends_with($filename, '.sql') &&
+                ! str_ends_with($filename, '.sqlite') &&
+                ! str_ends_with($filename, '.zip')
+            ) {
                 continue;
             }
 
@@ -438,6 +443,114 @@ class DatabaseBackupService
         usort($backups, fn ($a, $b) => $b['created_at'] <=> $a['created_at']);
 
         return $backups;
+    }
+
+    /**
+     * Create a pre-restoration safety backup in a dedicated directory.
+     *
+     * @return array{path: string, filename: string, size: int}
+     */
+    public function createSafetyBackup(?string $connectionName = null): array
+    {
+        $connectionName ??= config('database.default');
+        $safetyDir = storage_path('app/backups/safety');
+        if (! File::isDirectory($safetyDir)) {
+            File::makeDirectory($safetyDir, 0755, true);
+        }
+
+        $driver = config("database.connections.{$connectionName}.driver", 'sqlite');
+        $dbName = config("database.connections.{$connectionName}.database", 'database');
+
+        $timestamp = now()->format('Y_m_d_His');
+        $safeDbName = preg_replace('/[^a-zA-Z0-9_-]/', '_', (string) $dbName);
+        $filename = "safety_before_restore_{$safeDbName}_{$timestamp}.sql.gz";
+        $filePath = "{$safetyDir}/{$filename}";
+
+        if ($driver === 'sqlite') {
+            $this->backupSqlite($connectionName, $filePath);
+        } elseif ($driver === 'mysql' || $driver === 'mariadb') {
+            $this->backupMysql($connectionName, $filePath);
+        } else {
+            $this->backupGenericPdo($connectionName, $filePath);
+        }
+
+        if (! file_exists($filePath) || filesize($filePath) === 0) {
+            throw new RuntimeException("Safety backup could not be created or is empty: {$filePath}");
+        }
+
+        // Verify gzip integrity by attempting to read header
+        $gz = @gzopen($filePath, 'rb');
+        if (! $gz) {
+            @unlink($filePath);
+            throw new RuntimeException("Safety backup gzip header is invalid or corrupt: {$filePath}");
+        }
+        $headerCheck = gzread($gz, 64);
+        gzclose($gz);
+
+        if ($headerCheck === false || $headerCheck === '') {
+            @unlink($filePath);
+            throw new RuntimeException("Safety backup content is empty or unreadable: {$filePath}");
+        }
+
+        return [
+            'path' => $filePath,
+            'filename' => $filename,
+            'size' => filesize($filePath),
+        ];
+    }
+
+    /**
+     * Retrieve list of stored safety backups.
+     *
+     * @return array<int, array{filename: string, path: string, size: int, size_formatted: string, created_at: int, created_at_formatted: string}>
+     */
+    public function getSafetyBackups(): array
+    {
+        $safetyDir = storage_path('app/backups/safety');
+        if (! File::isDirectory($safetyDir)) {
+            return [];
+        }
+
+        $files = File::files($safetyDir);
+        $backups = [];
+
+        foreach ($files as $file) {
+            $filename = $file->getFilename();
+            if (! str_ends_with($filename, '.gz') && ! str_ends_with($filename, '.sql')) {
+                continue;
+            }
+
+            $size = $file->getSize();
+            $mtime = $file->getMTime();
+
+            $backups[] = [
+                'filename' => $filename,
+                'path' => $file->getRealPath(),
+                'size' => $size,
+                'size_formatted' => $this->formatBytes($size),
+                'created_at' => $mtime,
+                'created_at_formatted' => date('Y-m-d H:i:s', $mtime),
+            ];
+        }
+
+        usort($backups, fn ($a, $b) => $b['created_at'] <=> $a['created_at']);
+
+        return $backups;
+    }
+
+    /**
+     * Delete a safety backup file.
+     */
+    public function deleteSafetyBackup(string $filename): bool
+    {
+        $safeFilename = basename($filename);
+        $targetPath = storage_path("app/backups/safety/{$safeFilename}");
+
+        if (File::exists($targetPath)) {
+            return File::delete($targetPath);
+        }
+
+        return false;
     }
 
     /**

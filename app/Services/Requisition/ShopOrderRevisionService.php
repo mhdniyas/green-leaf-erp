@@ -471,13 +471,15 @@ class ShopOrderRevisionService
             : $grade;
 
         $price = $this->priceBoardService->sellingPriceFor($product, $order->shop, $resolvedGrade);
+        $sellingPrice = (float) ($price['price'] ?? 0.0);
+        $hasResolvedPrice = $sellingPrice > 0.0;
 
         return [
             'product_grade' => $resolvedGrade->value,
             'locked_price_group_id' => $price['group']->id,
-            'locked_selling_price' => $price['price'],
-            'locked_price_source' => $price['source'],
-            'line_total' => round($quantity * $price['price'], 2),
+            'locked_selling_price' => $hasResolvedPrice ? $sellingPrice : 0.0,
+            'locked_price_source' => $hasResolvedPrice ? (string) ($price['source'] ?? 'margin') : 'unresolved',
+            'line_total' => $hasResolvedPrice ? round($quantity * $sellingPrice, 2) : 0.0,
         ];
     }
 }

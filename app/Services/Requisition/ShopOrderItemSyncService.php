@@ -11,7 +11,6 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Services\Pricing\PriceBoardService;
 use Illuminate\Support\Collection;
-use Illuminate\Validation\ValidationException;
 
 class ShopOrderItemSyncService
 {
@@ -47,19 +46,17 @@ class ShopOrderItemSyncService
             $embeddedGrade = null;
             $embeddedMeasure = null;
 
-            $allGradeValues = array_map(fn (ProductGrade $g): string => $g->value, ProductGrade::cases());
+            $partGradeEnum = ProductGrade::tryResolve($parts[1] ?? null);
 
             if (count($parts) === 2) {
-                $possibleGrade = strtoupper(trim((string) $parts[1]));
-                if (in_array($possibleGrade, $allGradeValues, true)) {
-                    $embeddedGrade = $possibleGrade;
+                if ($partGradeEnum !== null) {
+                    $embeddedGrade = $partGradeEnum->value;
                 } else {
                     $embeddedMeasure = $parts[1];
                 }
             } elseif (count($parts) >= 3) {
-                $possibleGrade = strtoupper(trim((string) $parts[1]));
-                if (in_array($possibleGrade, $allGradeValues, true)) {
-                    $embeddedGrade = $possibleGrade;
+                if ($partGradeEnum !== null) {
+                    $embeddedGrade = $partGradeEnum->value;
                     $embeddedMeasure = $parts[2];
                 } else {
                     $embeddedMeasure = $parts[1];
@@ -67,7 +64,7 @@ class ShopOrderItemSyncService
             }
 
             $resolvedGrade = filled($rawGrades[$normalizedLineKey] ?? null)
-                ? strtoupper(trim((string) $rawGrades[$normalizedLineKey]))
+                ? (ProductGrade::tryResolve($rawGrades[$normalizedLineKey])?->value ?? strtoupper(trim((string) $rawGrades[$normalizedLineKey])))
                 : ($embeddedGrade ?: ProductGrade::GradeA->value);
 
             $numericQuantity = (float) $quantity;
@@ -225,19 +222,15 @@ class ShopOrderItemSyncService
         ProductGrade $grade = ProductGrade::GradeA,
     ): array {
         $price = $this->priceBoardService->sellingPriceFor($product, $order->shop, $grade);
-
-        if ($grade !== ProductGrade::GradeA && (float) $price['price'] <= 0.0) {
-            throw ValidationException::withMessages([
-                'items' => "Selling price is not available for {$product->name} (Grade {$grade->value}).",
-            ]);
-        }
+        $sellingPrice = (float) ($price['price'] ?? 0.0);
+        $hasResolvedPrice = $sellingPrice > 0.0;
 
         return [
             'product_grade' => $grade->value,
             'locked_price_group_id' => $price['group']->id,
-            'locked_selling_price' => $price['price'],
-            'locked_price_source' => $price['source'],
-            'line_total' => round($quantity * $price['price'], 2),
+            'locked_selling_price' => $hasResolvedPrice ? $sellingPrice : 0.0,
+            'locked_price_source' => $hasResolvedPrice ? (string) ($price['source'] ?? 'margin') : 'unresolved',
+            'line_total' => $hasResolvedPrice ? round($quantity * $sellingPrice, 2) : 0.0,
         ];
     }
 

@@ -153,3 +153,11 @@
         </form>
     @endif
 </section>
+
+@if ($allowPresetSave ?? true)
+    <form method="POST" action="{{ route('requisitions.presets.store') }}" data-save-preset-form class="hidden" aria-hidden="true">
+        @csrf
+        <input type="hidden" name="redirect_to" value="shop-owner-orders-create">
+        <input type="text" name="name" data-preset-name-input>
+    </form>
+@endif

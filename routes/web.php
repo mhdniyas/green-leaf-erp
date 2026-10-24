@@ -1437,6 +1437,10 @@ Route::middleware('auth')->group(function () {
         Route::get('backup', [DatabaseBackupController::class, 'index'])->name('backup.index');
         Route::post('backup/email', [DatabaseBackupController::class, 'sendEmail'])->name('backup.email');
         Route::get('backup/download', [DatabaseBackupController::class, 'download'])->name('backup.download');
+        Route::post('backup/preview', [DatabaseBackupController::class, 'preview'])->name('backup.preview');
+        Route::post('backup/restore', [DatabaseBackupController::class, 'restore'])->name('backup.restore');
+        Route::get('backup/safety/{filename}', [DatabaseBackupController::class, 'downloadSafety'])->name('backup.safety.download');
+        Route::delete('backup/safety/{filename}', [DatabaseBackupController::class, 'destroySafety'])->name('backup.safety.delete');
         Route::delete('backup/{filename}', [DatabaseBackupController::class, 'destroy'])->name('backup.delete');
     });
 
