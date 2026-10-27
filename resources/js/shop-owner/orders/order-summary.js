@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     const totalQuantityNode = document.querySelector('[data-order-total-qty]');
     const totalItemsNode = document.querySelector('[data-order-total-items]');
-    const quantityInputs = document.querySelectorAll('[data-master-qty]');
+    const quantityInputs = document.querySelectorAll('[data-inline-qty]');
 
     if (! totalQuantityNode || ! totalItemsNode || quantityInputs.length === 0) {
         return;

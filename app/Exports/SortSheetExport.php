@@ -156,7 +156,7 @@ class SortSheetMainSheet implements FromArray, ShouldAutoSize, WithEvents, WithT
             // Item (merged over 2 rows)
             $itemColLetter = Coordinate::stringFromColumnIndex($itemCol);
             $sheet->mergeCells("{$itemColLetter}{$qtyRow}:{$itemColLetter}{$tagRow}");
-            $sheet->setCellValueByColumnAndRow($itemCol, $qtyRow, $meta['name']);
+            $sheet->setCellValueByColumnAndRow($itemCol, $qtyRow, $meta['display_name'] ?? $meta['name']);
             $sheet->getStyle("{$itemColLetter}{$qtyRow}:{$itemColLetter}{$tagRow}")->applyFromArray([
                 'font' => ['bold' => false, 'size' => 10],
                 'alignment' => ['horizontal' => Alignment::HORIZONTAL_LEFT, 'vertical' => Alignment::VERTICAL_CENTER],

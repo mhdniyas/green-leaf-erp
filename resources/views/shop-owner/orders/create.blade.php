@@ -24,6 +24,10 @@
             'tomorrowDate' => $tomorrowDate,
             'cutoffPassed' => $cutoffPassed,
             'isUpdateRequest' => $isUpdateRequest,
+            'multiGradeOrderingEnabled' => $multiGradeOrderingEnabled ?? false,
+            'allowedProductGrades' => $allowedProductGrades ?? ['A'],
+            'defaultProductGrade' => $defaultProductGrade ?? 'A',
+            'orderedProductGrades' => $orderedProductGrades ?? null,
         ])
     </div>
 @endsection

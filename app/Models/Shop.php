@@ -66,37 +66,82 @@ class Shop extends Model
      */
     public function allowedProductGrades(): array
     {
-        $grades = $this->allowed_product_grades;
-        if (is_array($grades) && $grades !== []) {
-            $orderableGradeValues = [
-                ProductGrade::GradeA->value,
-                ProductGrade::GradeB->value,
-                ProductGrade::GradeC->value,
-            ];
+        $raw = $this->allowed_product_grades;
+        $orderableGradeValues = [
+            ProductGrade::GradeA->value,
+            ProductGrade::GradeB->value,
+            ProductGrade::GradeC->value,
+        ];
+
+        if (is_array($raw) && $raw !== []) {
+            $grades = isset($raw['allowed']) && is_array($raw['allowed'])
+                ? $raw['allowed']
+                : (isset($raw['grades']) && is_array($raw['grades']) ? $raw['grades'] : $raw);
 
             $valid = array_values(array_unique(array_filter(
                 array_map('strtoupper', array_map('trim', $grades)),
                 fn (string $g): bool => in_array($g, $orderableGradeValues, true)
             )));
 
-            if (! in_array(ProductGrade::GradeA->value, $valid, true)) {
-                array_unshift($valid, ProductGrade::GradeA->value);
+            if ($valid !== []) {
+                return $valid;
             }
+        }
 
-            return $valid;
+        if ($this->allow_grade_b_purchase) {
+            return [ProductGrade::GradeA->value, ProductGrade::GradeB->value];
         }
 
         return [ProductGrade::GradeA->value];
     }
 
+    public function defaultProductGrade(): string
+    {
+        $raw = $this->allowed_product_grades;
+        $allowed = $this->allowedProductGrades();
+
+        if (is_array($raw) && isset($raw['default']) && is_string($raw['default'])) {
+            $candidate = strtoupper(trim($raw['default']));
+            if (in_array($candidate, $allowed, true)) {
+                return $candidate;
+            }
+        }
+
+        return $allowed[0] ?? ProductGrade::GradeA->value;
+    }
+
+    public function getDefaultProductGradeAttribute(): string
+    {
+        return $this->defaultProductGrade();
+    }
+
     public function canOrderGrade(string|ProductGrade $grade): bool
     {
         $val = $grade instanceof ProductGrade ? $grade->value : strtoupper(trim($grade));
-        if ($val === ProductGrade::GradeA->value) {
-            return true;
-        }
 
         return in_array($val, $this->allowedProductGrades(), true);
+    }
+
+    /**
+     * @return array{allowed: array<int, string>, default: string, ordered: array<int, string>}
+     */
+    public function resolvedGradeConfiguration(): array
+    {
+        $allowed = $this->allowedProductGrades();
+        $default = $this->defaultProductGrade();
+
+        if (! in_array($default, $allowed, true)) {
+            $default = $allowed[0] ?? ProductGrade::GradeA->value;
+        }
+
+        $remaining = array_values(array_filter($allowed, fn (string $g): bool => $g !== $default));
+        $ordered = array_values(array_merge([$default], $remaining));
+
+        return [
+            'allowed' => $allowed,
+            'default' => $default,
+            'ordered' => $ordered,
+        ];
     }
 
     protected static function booted(): void

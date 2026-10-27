@@ -107,6 +107,10 @@
                 'directPurchaseTitle' => $directPurchaseTitle,
                 'directPurchaseDescription' => $directPurchaseDescription,
                 'adminSubmitLabel' => $tomorrowOrder ? 'Update Order' : 'Create Order',
+                'multiGradeOrderingEnabled' => $multiGradeOrderingEnabled ?? false,
+                'allowedProductGrades' => $allowedProductGrades ?? ['A'],
+                'defaultProductGrade' => $defaultProductGrade ?? 'A',
+                'orderedProductGrades' => $orderedProductGrades ?? null,
             ])
         @endif
     </div>

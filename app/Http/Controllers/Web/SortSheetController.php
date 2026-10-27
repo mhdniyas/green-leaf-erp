@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Exports\SortSheetExport;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
@@ -38,8 +39,9 @@ class SortSheetController extends Controller
         $presetBatches = $this->userPresetBatches($request);
         $surface = 'sort-sheet';
         $defaultDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+        $selectedGrades = $this->resolveSelectedGrades($request);
 
-        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate'));
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate', 'selectedGrades'));
     }
 
     public function segregationIndex(Request $request): View
@@ -51,8 +53,9 @@ class SortSheetController extends Controller
         $presetBatches = $this->userPresetBatches($request);
         $surface = 'segregation';
         $defaultDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+        $selectedGrades = $this->resolveSelectedGrades($request);
 
-        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate'));
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate', 'selectedGrades'));
     }
 
     public function portraitIndex(Request $request): View
@@ -64,8 +67,9 @@ class SortSheetController extends Controller
         $presetBatches = $this->userPresetBatches($request);
         $surface = 'portrait';
         $defaultDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+        $selectedGrades = $this->resolveSelectedGrades($request);
 
-        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate'));
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate', 'selectedGrades'));
     }
 
     public function wideIndex(Request $request): View
@@ -77,8 +81,9 @@ class SortSheetController extends Controller
         $presetBatches = $this->userPresetBatches($request);
         $surface = 'wide';
         $defaultDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+        $selectedGrades = $this->resolveSelectedGrades($request);
 
-        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate'));
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate', 'selectedGrades'));
     }
 
     public function gridIndex(Request $request): View
@@ -90,8 +95,9 @@ class SortSheetController extends Controller
         $presetBatches = $this->userPresetBatches($request);
         $surface = 'grid';
         $defaultDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+        $selectedGrades = $this->resolveSelectedGrades($request);
 
-        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate'));
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate', 'selectedGrades'));
     }
 
     /**
@@ -102,7 +108,7 @@ class SortSheetController extends Controller
         $this->authorizeAccess($request);
 
         [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request, orderedOnly: $request->routeIs('segregation.*'));
-        [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse] = $this->buildMatrixData($request);
+        [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse, $selectedGrades] = $this->buildMatrixData($request);
         $presets = $this->userPresets($request);
         $presetBatches = $this->userPresetBatches($request);
         $filters = $this->filtersFromRequest($request);
@@ -115,7 +121,7 @@ class SortSheetController extends Controller
         };
 
         if (empty($matrix)) {
-            return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'selectedWarehouse'))
+            return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'selectedWarehouse', 'selectedGrades'))
                 ->with('noOrders', true)
                 ->with('filters', $filters);
         }
@@ -138,6 +144,7 @@ class SortSheetController extends Controller
             'date',
             'surface',
             'selectedWarehouse',
+            'selectedGrades',
             'sortSheetShareUrl',
         ))->with('filters', $filters);
     }
@@ -370,7 +377,7 @@ class SortSheetController extends Controller
     {
         $this->authorizeExport($request);
 
-        [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse] = $this->buildMatrixData($request);
+        [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse, $selectedGrades] = $this->buildMatrixData($request);
 
         $generatedBy = $request->user()->name;
         $generatedAt = now()->format('d M Y, h:i A');
@@ -385,6 +392,7 @@ class SortSheetController extends Controller
             'generatedAt',
             'companyName',
             'selectedWarehouse',
+            'selectedGrades',
         ));
     }
 
@@ -549,7 +557,7 @@ class SortSheetController extends Controller
     {
         $this->authorizeAccess($request);
 
-        [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse] = $this->buildMatrixData($request);
+        [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse, $selectedGrades] = $this->buildMatrixData($request);
 
         $generatedBy = $request->user()->name;
         $generatedAt = now()->format('d M Y, h:i A');
@@ -564,6 +572,7 @@ class SortSheetController extends Controller
             'generatedAt',
             'companyName',
             'selectedWarehouse',
+            'selectedGrades',
         ));
     }
 
@@ -625,6 +634,7 @@ class SortSheetController extends Controller
     {
         $filters = $this->filtersFromRequest($request);
         $selectedWarehouseId = $filters['warehouseId'];
+        $selectedGrades = $filters['grades'] ?? $this->resolveSelectedGrades($request);
 
         $shopQuery = Shop::where('status', 'active');
         if ($filters['shopId']) {
@@ -642,7 +652,15 @@ class SortSheetController extends Controller
 
         $products = $orders
             ->flatMap->items
-            ->filter(fn ($item): bool => (float) ($item->approved_qty ?? $item->requested_qty) > 0 && $item->product !== null)
+            ->filter(function ($item) use ($selectedGrades): bool {
+                if ((float) ($item->approved_qty ?? $item->requested_qty) <= 0 || $item->product === null) {
+                    return false;
+                }
+
+                $resolvedGrade = ProductGrade::tryResolve($item->product_grade) ?? ProductGrade::GradeA;
+
+                return in_array($resolvedGrade->value, $selectedGrades, true);
+            })
             ->map(fn ($item): Product => $item->product)
             ->when($selectedWarehouseId !== null, fn ($products) => $products->filter(
                 fn (Product $product): bool => (int) $product->default_warehouse_id === $selectedWarehouseId,
@@ -667,7 +685,7 @@ class SortSheetController extends Controller
     /**
      * Build the pivot matrix from request parameters — shared by export methods.
      *
-     * @return array{0: Collection<int, Shop>, 1: array<int, array<int, float>>, 2: array<int, array<string, mixed>>, 3: string, 4: Warehouse|null}
+     * @return array{0: Collection<int, Shop>, 1: array<int|string, array<int, float>>, 2: array<int|string, array<string, mixed>>, 3: string, 4: Warehouse|null, 5: array<int, string>}
      */
     private function buildMatrixData(Request $request): array
     {
@@ -681,6 +699,7 @@ class SortSheetController extends Controller
         $selectedWarehouse = $filters['warehouseId']
             ? Warehouse::find($filters['warehouseId'])
             : null;
+        $selectedGrades = $filters['grades'] ?? $this->resolveSelectedGrades($request);
 
         $printShopIds = $filters['printShopIds'] ?? null;
         $shopQuery = Shop::where('status', 'active');
@@ -716,6 +735,16 @@ class SortSheetController extends Controller
                 }
 
                 $approvedQuantity = (float) ($item->approved_qty ?? $item->requested_qty);
+                if ($approvedQuantity <= 0) {
+                    continue;
+                }
+
+                $resolvedGrade = ProductGrade::tryResolve($item->product_grade) ?? ProductGrade::GradeA;
+                $itemGrade = $resolvedGrade->value;
+
+                if (! in_array($itemGrade, $selectedGrades, true)) {
+                    continue;
+                }
 
                 if (! empty($categoryIds) && ! in_array((int) $product->category_id, $categoryIds, true)) {
                     continue;
@@ -729,21 +758,42 @@ class SortSheetController extends Controller
 
                 $pid = $product->id;
                 $sid = $order->shop_id;
+                $rowKey = $itemGrade === 'A' ? $pid : "{$pid}_{$itemGrade}";
 
-                if (! isset($matrix[$pid])) {
-                    $matrix[$pid] = [];
-                    $productMeta[$pid] = [
+                if (! isset($matrix[$rowKey])) {
+                    $matrix[$rowKey] = [];
+                    $productMeta[$rowKey] = [
+                        'product_id' => $product->id,
                         'name' => $product->name,
                         'sku' => $product->sku,
                         'unit' => $product->unit,
                         'category_id' => $product->category_id,
                         'category_name' => $product->category?->name ?? '—',
+                        'grade' => $itemGrade,
                     ];
                 }
 
-                $matrix[$pid][$sid] = ($matrix[$pid][$sid] ?? 0) + $approvedQuantity;
+                $matrix[$rowKey][$sid] = ($matrix[$rowKey][$sid] ?? 0) + $approvedQuantity;
             }
         }
+
+        $productGradeCounts = [];
+        foreach ($productMeta as $meta) {
+            $pId = $meta['product_id'];
+            $productGradeCounts[$pId] = ($productGradeCounts[$pId] ?? 0) + 1;
+        }
+
+        foreach ($productMeta as $rowKey => &$meta) {
+            $pId = $meta['product_id'];
+            $grade = $meta['grade'] ?? 'A';
+            $hasOtherGrades = ($productGradeCounts[$pId] ?? 1) > 1;
+            $meta['has_other_grades'] = $hasOtherGrades;
+            $meta['grade_label'] = "Grade {$grade}";
+            $meta['display_name'] = ($grade !== 'A' || $hasOtherGrades)
+                ? "{$meta['name']} (Grade {$grade})"
+                : $meta['name'];
+        }
+        unset($meta);
 
         $this->sortMatrixByCategoryOrderAndItemCode(
             $matrix,
@@ -752,11 +802,11 @@ class SortSheetController extends Controller
             $filters['codeSort'] ?? true,
         );
 
-        return [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse];
+        return [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse, $selectedGrades];
     }
 
     /**
-     * @return array{date: string, shopId: string|null, categoryIds: array<int, int>, productIds: array<int, int>, priceGroupId: string|null, warehouseId: int|null, printShopIds: array<int, int>|null}
+     * @return array{date: string, shopId: string|null, categoryIds: array<int, int>, productIds: array<int, int>, priceGroupId: string|null, warehouseId: int|null, printShopIds: array<int, int>|null, grades: array<int, string>, separateCategoryPages: bool, codeSort: bool, showCode: bool, showCategoryTitles: bool}
      */
     private function filtersFromRequest(Request $request): array
     {
@@ -798,6 +848,7 @@ class SortSheetController extends Controller
             'priceGroupId' => $request->input('price_group_id'),
             'warehouseId' => $request->integer('warehouse_id') ?: null,
             'printShopIds' => $printShopIds,
+            'grades' => $this->resolveSelectedGrades($request),
             'separateCategoryPages' => (bool) $request->boolean('separate_category_pages', false),
             'codeSort' => ! $request->has('code_sort') || (bool) $request->boolean('code_sort'),
             'showCode' => ! $request->has('show_code') || (bool) $request->boolean('show_code'),
@@ -808,26 +859,39 @@ class SortSheetController extends Controller
     }
 
     /**
-     * @param  array<int, array<int, float>>  $matrix
-     * @param  array<int, array<string, mixed>>  $productMeta
+     * @param  array<int|string, array<int, float>>  $matrix
+     * @param  array<int|string, array<string, mixed>>  $productMeta
      * @param  array<int, int>  $categoryIds
      */
     private function sortMatrixByCategoryOrderAndItemCode(array &$matrix, array $productMeta, array $categoryIds = [], bool $codeSort = true): void
     {
-        uksort($matrix, function (int $a, int $b) use ($productMeta, $codeSort): int {
+        uksort($matrix, function (int|string $a, int|string $b) use ($productMeta, $codeSort): int {
             if ($codeSort) {
-                return strcmp(Product::sortableSku((string) ($productMeta[$a]['sku'] ?? '')), Product::sortableSku((string) ($productMeta[$b]['sku'] ?? '')))
-                    ?: strcmp((string) ($productMeta[$a]['name'] ?? ''), (string) ($productMeta[$b]['name'] ?? ''));
+                $skuCmp = strcmp(Product::sortableSku((string) ($productMeta[$a]['sku'] ?? '')), Product::sortableSku((string) ($productMeta[$b]['sku'] ?? '')));
+                if ($skuCmp !== 0) {
+                    return $skuCmp;
+                }
             }
 
-            return strcmp((string) ($productMeta[$a]['name'] ?? ''), (string) ($productMeta[$b]['name'] ?? ''))
-                ?: strcmp(Product::sortableSku((string) ($productMeta[$a]['sku'] ?? '')), Product::sortableSku((string) ($productMeta[$b]['sku'] ?? '')));
+            $nameCmp = strcmp((string) ($productMeta[$a]['name'] ?? ''), (string) ($productMeta[$b]['name'] ?? ''));
+            if ($nameCmp !== 0) {
+                return $nameCmp;
+            }
+
+            if (! $codeSort) {
+                $skuCmp = strcmp(Product::sortableSku((string) ($productMeta[$a]['sku'] ?? '')), Product::sortableSku((string) ($productMeta[$b]['sku'] ?? '')));
+                if ($skuCmp !== 0) {
+                    return $skuCmp;
+                }
+            }
+
+            return strcmp((string) ($productMeta[$a]['grade'] ?? 'A'), (string) ($productMeta[$b]['grade'] ?? 'A'));
         });
     }
 
     /**
-     * @param  array<int, array<int, float>>  $matrix
-     * @param  array<int, array<string, mixed>>  $productMeta
+     * @param  array<int|string, array<int, float>>  $matrix
+     * @param  array<int|string, array<string, mixed>>  $productMeta
      */
     private function buildSortSheetShareText(array $matrix, array $productMeta, string $date): string
     {
@@ -840,7 +904,8 @@ class SortSheetController extends Controller
 
         foreach ($matrix as $productId => $shopQtys) {
             $meta = $productMeta[$productId] ?? [];
-            $lines[] = '*'.($meta['name'] ?? 'Product').'*';
+            $displayName = $meta['display_name'] ?? ($meta['name'] ?? 'Product');
+            $lines[] = '*'.$displayName.'*';
             $lines[] = 'Total '.$this->formatShareQuantity(array_sum($shopQtys), (string) ($meta['unit'] ?? ''));
             $lines[] = '';
         }
@@ -855,5 +920,30 @@ class SortSheetController extends Controller
             : rtrim(rtrim(number_format($quantity, 2, '.', ''), '0'), '.');
 
         return trim($formatted.' '.$unit);
+    }
+
+    /**
+     * Resolve selected quality grades from request.
+     * Defaults to Grade A only on initial view without filter.
+     *
+     * @return array<int, string>
+     */
+    private function resolveSelectedGrades(Request $request): array
+    {
+        if ($request->has('grades')) {
+            $grades = (array) $request->input('grades', []);
+            $valid = array_values(array_intersect(
+                array_map('strtoupper', array_map('trim', $grades)),
+                ['A', 'B', 'C']
+            ));
+
+            return $valid;
+        }
+
+        if ($request->has('grades_filter')) {
+            return [];
+        }
+
+        return ['A'];
     }
 }

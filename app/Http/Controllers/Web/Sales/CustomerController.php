@@ -110,7 +110,7 @@ class CustomerController extends Controller
             'code' => $request->string('code')->toString(),
             'warehouse_tag' => $request->input('warehouse_tag') ?: null,
             'shop_price_group_id' => $request->integer('shop_price_group_id') ?: null,
-            'allow_grade_b_purchase' => $request->boolean('allow_grade_b_purchase'),
+            'allow_grade_b_purchase' => false,
             'shop_purchasing_enabled' => $request->boolean('shop_purchasing_enabled'),
             'client_id' => $destinationType === 'client' ? $client?->id : null,
             'status' => $request->string('status')->toString(),
@@ -123,14 +123,20 @@ class CustomerController extends Controller
 
         if ($request->user()?->hasRole('admin') && $request->has('allowed_product_grades')) {
             $rawGrades = (array) $request->input('allowed_product_grades', ['A']);
+            $orderableGradeValues = ['A', 'B', 'C'];
             $grades = array_values(array_unique(array_filter(
                 array_map(fn ($g) => strtoupper(trim((string) $g)), $rawGrades),
-                fn ($g) => in_array($g, ['A', 'B', 'C'], true)
+                fn ($g) => in_array($g, $orderableGradeValues, true)
             )));
-            if (! in_array('A', $grades, true)) {
-                array_unshift($grades, 'A');
+
+            $defaultGrade = strtoupper(trim((string) $request->input('default_product_grade', '')));
+            if (! in_array($defaultGrade, $grades, true)) {
+                $defaultGrade = $grades[0] ?? 'A';
             }
-            $data['allowed_product_grades'] = $grades;
+
+            $orderedGrades = array_values(array_unique(array_merge([$defaultGrade], $grades)));
+            $data['allowed_product_grades'] = $orderedGrades;
+            $data['allow_grade_b_purchase'] = in_array('B', $orderedGrades, true);
         }
 
         Shop::query()->create($data);
@@ -150,7 +156,7 @@ class CustomerController extends Controller
             'code' => $request->string('code')->toString(),
             'warehouse_tag' => $request->input('warehouse_tag') ?: null,
             'shop_price_group_id' => $request->integer('shop_price_group_id') ?: null,
-            'allow_grade_b_purchase' => $request->boolean('allow_grade_b_purchase'),
+            'allow_grade_b_purchase' => (bool) $shop->allow_grade_b_purchase,
             'shop_purchasing_enabled' => $request->boolean('shop_purchasing_enabled'),
             'client_id' => $destinationType === 'client' ? $client?->id : null,
             'status' => $request->string('status')->toString(),
@@ -163,14 +169,20 @@ class CustomerController extends Controller
 
         if ($request->user()?->hasRole('admin') && $request->has('allowed_product_grades')) {
             $rawGrades = (array) $request->input('allowed_product_grades', ['A']);
+            $orderableGradeValues = ['A', 'B', 'C'];
             $grades = array_values(array_unique(array_filter(
                 array_map(fn ($g) => strtoupper(trim((string) $g)), $rawGrades),
-                fn ($g) => in_array($g, ['A', 'B', 'C'], true)
+                fn ($g) => in_array($g, $orderableGradeValues, true)
             )));
-            if (! in_array('A', $grades, true)) {
-                array_unshift($grades, 'A');
+
+            $defaultGrade = strtoupper(trim((string) $request->input('default_product_grade', '')));
+            if (! in_array($defaultGrade, $grades, true)) {
+                $defaultGrade = $grades[0] ?? 'A';
             }
-            $data['allowed_product_grades'] = $grades;
+
+            $orderedGrades = array_values(array_unique(array_merge([$defaultGrade], $grades)));
+            $data['allowed_product_grades'] = $orderedGrades;
+            $data['allow_grade_b_purchase'] = in_array('B', $orderedGrades, true);
         }
 
         $shop->update($data);

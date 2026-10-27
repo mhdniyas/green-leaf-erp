@@ -168,7 +168,7 @@
                             </tr>
                             <tr class="qty-row">
                                 <td class="sl-cell">{{ $meta['sku'] ?: $productId }}</td>
-                                <td class="item-cell">{{ $meta['name'] }}</td>
+                                <td class="item-cell">{{ $meta['display_name'] ?? $meta['name'] }}</td>
                                 @foreach($filteredShops as $shop)
                                     @php $qty = (float) ($shopQtys[$shop->id] ?? 0); @endphp
                                     <td>{{ $qty > 0 ? $formatQty($qty) : '0' }}</td>

@@ -223,14 +223,17 @@ class StockAdjustmentService
 
             foreach ($lots as $lot) {
                 $availableQuantity = (float) $lot->available_quantity;
+                if ($availableQuantity <= 0.0001) {
+                    continue;
+                }
                 StockMovement::create([
                     'product_id' => $productId,
                     'batch_id' => $lot->batch_id,
                     'warehouse_id' => $lot->warehouse_id,
                     'created_by' => $userId,
                     'grade' => $lot->grade,
-                    'type' => $availableQuantity > 0 ? StockMovementType::Wastage->value : StockMovementType::In->value,
-                    'quantity' => abs($availableQuantity),
+                    'type' => StockMovementType::Wastage->value,
+                    'quantity' => $availableQuantity,
                     'cost_per_unit' => (float) $lot->cost_per_unit,
                     'notes' => 'Global inventory empty process: balance reset to zero',
                 ]);
@@ -240,7 +243,7 @@ class StockAdjustmentService
             $remainingStockRows = $this->stockMovements->currentStockByProductAndGrade(null, null, null, '', $productId);
             foreach ($remainingStockRows as $remRow) {
                 $remQty = (float) $remRow->current_stock;
-                if (abs($remQty) > 0.0001) {
+                if ($remQty > 0.0001) {
                     $targetBatch = StockBatch::query()->where('product_id', $productId)->latest('id')->first();
                     StockMovement::create([
                         'product_id' => $productId,
@@ -248,8 +251,8 @@ class StockAdjustmentService
                         'warehouse_id' => $targetBatch?->warehouse_id,
                         'created_by' => $userId,
                         'grade' => $remRow->grade,
-                        'type' => $remQty > 0 ? StockMovementType::Wastage->value : StockMovementType::In->value,
-                        'quantity' => abs($remQty),
+                        'type' => StockMovementType::Wastage->value,
+                        'quantity' => $remQty,
                         'cost_per_unit' => 0.0,
                         'notes' => 'Global inventory empty process: reconcile remaining balance to zero',
                     ]);

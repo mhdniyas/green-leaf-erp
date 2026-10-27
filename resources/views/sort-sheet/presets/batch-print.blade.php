@@ -309,7 +309,7 @@
                     @endphp
                     <tr>
                         <td>{{ $meta['sku'] }}</td>
-                        <td class="item-cell">{{ $meta['name'] }}</td>
+                        <td class="item-cell">{{ $meta['display_name'] ?? $meta['name'] }}</td>
                         @foreach($filteredShops as $shop)
                         @php $qty = $shopQtys[$shop->id] ?? 0; @endphp
                         <td class="qty-cell {{ $qty <= 0 ? 'zero' : '' }}">

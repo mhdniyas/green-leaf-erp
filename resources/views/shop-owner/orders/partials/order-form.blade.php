@@ -81,6 +81,10 @@
                 'isUpdateRequest' => true,
                 'stickySubmitLabel' => $stickySubmitLabel,
                 'stickySubmitHint' => $stickySubmitHint,
+                'multiGradeOrderingEnabled' => $multiGradeOrderingEnabled ?? false,
+                'allowedProductGrades' => $allowedProductGrades ?? ['A'],
+                'defaultProductGrade' => $defaultProductGrade ?? 'A',
+                'orderedProductGrades' => $orderedProductGrades ?? null,
             ])
 
             <!-- Change Note Area -->
@@ -137,6 +141,10 @@
                 'allowPresetSave' => $allowPresetSave,
                 'stickySubmitLabel' => $stickySubmitLabel,
                 'stickySubmitHint' => $stickySubmitHint,
+                'multiGradeOrderingEnabled' => $multiGradeOrderingEnabled ?? false,
+                'allowedProductGrades' => $allowedProductGrades ?? ['A'],
+                'defaultProductGrade' => $defaultProductGrade ?? 'A',
+                'orderedProductGrades' => $orderedProductGrades ?? null,
             ])
 
             <div class="flex flex-col gap-4 border-t border-slate-100 pt-5 md:flex-row md:items-center md:justify-between">

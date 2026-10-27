@@ -12,6 +12,7 @@ use App\Models\ShopOrder;
 use App\Models\ShopPreset;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use App\Services\Requisition\MultiGradeOrderGate;
 use App\Services\Requisition\ShopOrderItemSyncService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -28,6 +29,7 @@ class AdminShopOrderController extends Controller
         private readonly PriceBoardService $priceBoardService,
         private readonly PurchaserBusinessDayService $businessDayService,
         private readonly ShopOrderItemSyncService $shopOrderItemSyncService,
+        private readonly MultiGradeOrderGate $multiGradeOrderGate,
     ) {}
 
     public function index(Request $request): View
@@ -148,10 +150,15 @@ class AdminShopOrderController extends Controller
                 ->with('error', 'Rejected shop orders cannot be edited from the marketplace. Create a new order or re-open via approval workflow.');
         }
 
+        $gradeConfig = $this->multiGradeOrderGate->resolveGradeConfiguration($shop);
+
         $items = $this->shopOrderItemSyncService->resolveRequestedProducts(
-            $validated['items'],
-            $request->input('item_units', []),
-            $request->input('item_measures', []),
+            rawItems: $validated['items'],
+            rawUnits: (array) $request->input('item_units', []),
+            rawMeasures: (array) $request->input('item_measures', []),
+            allowZero: false,
+            rawGrades: (array) $request->input('item_grades', []),
+            defaultGrade: $gradeConfig['default'],
         );
 
         if ($items === []) {
@@ -160,6 +167,8 @@ class AdminShopOrderController extends Controller
                 ->withErrors(['items' => 'Shop order cannot be empty.'])
                 ->withInput();
         }
+
+        $this->multiGradeOrderGate->validateOrderItems($shop, $items);
 
         $user = $request->user();
 
@@ -229,17 +238,20 @@ class AdminShopOrderController extends Controller
             ->get()
             ->filter(fn (Category $category): bool => $category->products->isNotEmpty());
 
-        $productsByCategory->each(function (Category $category) use ($shop): void {
-            $category->products->each(function ($product) use ($shop): void {
-                $price = $this->priceBoardService->sellingPriceFor($product, $shop, ProductGrade::GradeA);
+        $gradeConfig = $this->multiGradeOrderGate->resolveGradeConfiguration($shop);
+        $defaultGradeEnum = ProductGrade::tryResolve($gradeConfig['default']) ?? ProductGrade::GradeA;
+
+        $productsByCategory->each(function (Category $category) use ($shop, $defaultGradeEnum): void {
+            $category->products->each(function ($product) use ($shop, $defaultGradeEnum): void {
+                $price = $this->priceBoardService->sellingPriceFor($product, $shop, $defaultGradeEnum);
                 $product->setAttribute('effective_price', $price['price']);
             });
         });
 
         $frequentProducts = $this->frequentProducts($shop);
-        $frequentProducts->each(function (array $item) use ($shop): void {
+        $frequentProducts->each(function (array $item) use ($shop, $defaultGradeEnum): void {
             $product = $item['product'];
-            $price = $this->priceBoardService->sellingPriceFor($product, $shop, ProductGrade::GradeA);
+            $price = $this->priceBoardService->sellingPriceFor($product, $shop, $defaultGradeEnum);
             $product->setAttribute('effective_price', $price['price']);
         });
 
@@ -266,6 +278,10 @@ class AdminShopOrderController extends Controller
             'allowPresetSave' => false,
             'directPurchaseTitle' => $shop->name.' Marketplace',
             'directPurchaseDescription' => 'Admin can add products and update quantities for this shop on the selected business date. Changes bypass the shop cutoff.',
+            'multiGradeOrderingEnabled' => count($gradeConfig['allowed']) > 1,
+            'allowedProductGrades' => $gradeConfig['allowed'],
+            'defaultProductGrade' => $gradeConfig['default'],
+            'orderedProductGrades' => $gradeConfig['ordered'],
         ];
     }
 

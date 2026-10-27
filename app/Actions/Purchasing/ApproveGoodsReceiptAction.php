@@ -130,6 +130,10 @@ class ApproveGoodsReceiptAction
         }
 
         return DB::transaction(function () use ($grn, $userId): GoodsReceived {
+            if ($grn->status === 'approved' && StockBatch::query()->where('goods_received_id', $grn->id)->exists()) {
+                return $grn->fresh(['items.product', 'purchaseOrder']);
+            }
+
             $this->clearExistingArtifacts($grn);
 
             // Update GRN status
@@ -229,12 +233,37 @@ class ApproveGoodsReceiptAction
                 $this->priceBoardService->refreshWholesalePricesForProducts($gradeAProductIds, 'grn', $grn->grn_number);
             }
 
-            // Update Purchase Order status to Closed
+            // Update Purchase Order status based on cumulative received quantities
             $po = $grn->purchaseOrder;
             if ($po) {
-                $po->update([
-                    'status' => POStatus::Closed,
-                ]);
+                $po->loadMissing('items');
+                $allFulfilled = true;
+                $anyReceived = false;
+
+                $approvedGrnItems = GoodsReceivedItem::query()
+                    ->whereHas('goodsReceived', function ($query) use ($po): void {
+                        $query->where('purchase_order_id', $po->id)
+                            ->where('status', 'approved');
+                    })
+                    ->get();
+
+                foreach ($po->items as $poItem) {
+                    $receivedQty = (float) $approvedGrnItems
+                        ->filter(fn ($it) => (int) $it->purchase_order_item_id === (int) $poItem->id
+                            || (! $it->purchase_order_item_id && (int) $it->product_id === (int) $poItem->product_id))
+                        ->sum('received_qty');
+
+                    $orderedQty = (float) $poItem->quantity;
+                    if ($receivedQty > 0.001) {
+                        $anyReceived = true;
+                    }
+                    if ($receivedQty < ($orderedQty - 0.001)) {
+                        $allFulfilled = false;
+                    }
+                }
+
+                $newStatus = $allFulfilled ? POStatus::Closed : ($anyReceived ? POStatus::PartiallyReceived : $po->status);
+                $po->update(['status' => $newStatus]);
             }
 
             // Post journal entries

@@ -97,17 +97,16 @@ class StockMovementRepository extends BaseRepository
             ->when($productId !== null, fn ($q) => $q->where('stock_movements.product_id', $productId))
             ->when($productIds !== null, fn ($q) => $q->whereIn('stock_movements.product_id', $productIds))
             ->whereDoesntHave('batch', fn ($batchQuery) => $batchQuery->where('warehouse_receive_pending', true))
+
             ->where(function ($q): void {
                 $q->whereIn('stock_movements.type', [
                     StockMovementType::Out->value,
                     StockMovementType::Sale->value,
                     StockMovementType::Wastage->value,
                     StockMovementType::Adjustment->value,
+                    StockMovementType::SaleReversal->value,
                 ])->orWhere(function ($inQ): void {
-                    $inQ->whereIn('stock_movements.type', [
-                        StockMovementType::In->value,
-                        StockMovementType::SaleReversal->value,
-                    ])
+                    $inQ->where('stock_movements.type', StockMovementType::In->value)
                         ->whereDoesntHave('batch', fn ($batchQuery) => $batchQuery->where('status', BatchStatus::Pending->value));
                 });
             })
@@ -196,6 +195,7 @@ class StockMovementRepository extends BaseRepository
                 'stock_batches.total_kg',
                 'stock_batches.received_at',
                 'stock_batches.warehouse_id',
+                'stock_batches.purchase_grade',
                 'products.public_uuid as product_route_key',
                 'products.name as product_name',
                 'products.sku as product_sku',

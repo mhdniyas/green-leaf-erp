@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Inventory;
 
+use App\Enums\Inventory\BatchStatus;
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
@@ -11,6 +12,10 @@ use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\StockBatch;
+use App\Models\StockMovement;
+use App\Models\Warehouse;
+use App\Services\Inventory\ProductWarehouseResolver;
 use App\Support\ShopOwner\ActiveShopResolver;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -21,6 +26,7 @@ class DeliveryDashboardController extends Controller
 {
     public function __construct(
         private readonly ActiveShopResolver $activeShopResolver,
+        private readonly ProductWarehouseResolver $productWarehouseResolver,
     ) {}
 
     /**
@@ -34,6 +40,11 @@ class DeliveryDashboardController extends Controller
         $selectedShopId = $request->integer('shop_id') ?: null;
         $selectedStatus = (string) $request->input('status', 'all');
         $selectedInvoiceLock = (string) $request->input('invoice_lock', 'all');
+        $warehouses = Warehouse::query()->active()->orderBy('name')->get(['id', 'name', 'code']);
+        $selectedWarehouseId = $request->integer('warehouse_id') ?: null;
+        if ($selectedWarehouseId && ! $warehouses->contains('id', $selectedWarehouseId)) {
+            $selectedWarehouseId = null;
+        }
 
         $user = $request->user();
         $isShop = $user->hasRole('shop');
@@ -248,6 +259,87 @@ class DeliveryDashboardController extends Controller
             ->sortDesc()
             ->first();
 
+        $eligibleBatchesQuery = StockBatch::query()
+            ->where('warehouse_receive_pending', false)
+            ->where('status', BatchStatus::Pending)
+            ->where(function ($q): void {
+                $q->whereIn('purchase_grade', ['U', 'MIXED', 'Unsorted'])
+                    ->orWhereNull('purchase_grade');
+            })
+            ->whereDate('received_at', '<=', $date)
+            ->when($selectedWarehouseId, fn ($q) => $q->where('warehouse_id', $selectedWarehouseId))
+            ->when($selectedCategoryId, fn ($q) => $q->whereHas('product', fn ($pq) => $pq->where('category_id', $selectedCategoryId)))
+            ->with(['product.category', 'warehouse']);
+
+        $eligibleBatches = $eligibleBatchesQuery->get();
+
+        $batchesWithMixed = $eligibleBatches
+            ->filter(fn (StockBatch $b): bool => $b->available_mixed_qty > 0.001);
+
+        $productBatches = $batchesWithMixed->groupBy('product_id');
+
+        $gradeStocks = collect();
+        if ($productBatches->isNotEmpty()) {
+            $gradeStocks = StockMovement::query()
+                ->whereIn('product_id', $productBatches->keys())
+                ->when($selectedWarehouseId, fn ($q) => $q->where('warehouse_id', $selectedWarehouseId))
+                ->where('created_at', '<=', Carbon::parse($date)->endOfDay())
+                ->whereIn('grade', ['A', 'B', 'C'])
+                ->selectRaw("product_id, grade, SUM(CASE WHEN type IN ('in', 'sale_reversal') THEN quantity WHEN type IN ('out', 'wastage', 'sale', 'adjustment') THEN -quantity ELSE 0 END) as net_stock")
+                ->groupBy('product_id', 'grade')
+                ->get();
+        }
+
+        $segregationProducts = $productBatches->map(function ($batches, $productId) use ($gradeStocks, $selectedWarehouseId, $warehouses): array {
+            $firstBatch = $batches->first();
+            $product = $firstBatch->product;
+
+            // L1/L2/L3 Warehouse Priority:
+            // Priority 1 (L1): Explicit warehouse selected by user ($selectedWarehouseId)
+            // Priority 2 (L2): Direct batch warehouse if assigned
+            // Priority 3 (L3): ProductWarehouseResolver canonical domain (category mapping / VEG-WH / FRT-WH)
+            $resolvedWarehouseId = $selectedWarehouseId
+                ?: ($firstBatch->warehouse_id
+                    ?: $this->productWarehouseResolver->resolve(
+                        explicitWarehouse: null,
+                        category: $product->category_id,
+                        produceType: $product->category?->name
+                    ));
+
+            $warehouse = $firstBatch->warehouse
+                ?: ($resolvedWarehouseId ? $warehouses->firstWhere('id', $resolvedWarehouseId) : null);
+
+            $availableMixed = round((float) $batches->sum(fn (StockBatch $b): float => $b->available_mixed_qty), 3);
+            $gradeA = round(max(0.0, (float) $gradeStocks->where('product_id', $productId)->where('grade', 'A')->sum('net_stock')), 3);
+            $gradeB = round(max(0.0, (float) $gradeStocks->where('product_id', $productId)->where('grade', 'B')->sum('net_stock')), 3);
+            $gradeC = round(max(0.0, (float) $gradeStocks->where('product_id', $productId)->where('grade', 'C')->sum('net_stock')), 3);
+            $totalStock = round($availableMixed + $gradeA + $gradeB + $gradeC, 3);
+
+            return [
+                'product_id' => (int) $productId,
+                'product_route_key' => $product->getRouteKey(),
+                'product_name' => $product->name,
+                'product_sku' => $product->sku,
+                'product_unit' => $product->unit ?? 'kg',
+                'category_name' => $product->category?->name ?? 'Produce',
+                'warehouse_id' => (int) ($warehouse->id ?? $resolvedWarehouseId ?? 0),
+                'warehouse_name' => $warehouse->name ?? 'Warehouse',
+                'warehouse_code' => $warehouse->code ?? 'WH',
+                'available_mixed' => $availableMixed,
+                'grade_a' => $gradeA,
+                'grade_b' => $gradeB,
+                'grade_c' => $gradeC,
+                'total_stock' => $totalStock,
+                'batches_count' => $batches->count(),
+                'batches' => $batches->map(fn (StockBatch $b): array => [
+                    'id' => (int) $b->id,
+                    'reference' => $b->reference,
+                    'received_at' => $b->received_at ? $b->received_at->format('d M Y') : 'N/A',
+                    'available_mixed_qty' => round((float) $b->available_mixed_qty, 3),
+                ])->values()->all(),
+            ];
+        })->values();
+
         return response()
             ->view('deliveries.dashboard', compact(
                 'date',
@@ -271,10 +363,13 @@ class DeliveryDashboardController extends Controller
                 'lastUpdatedAt',
                 'categories',
                 'shops',
+                'warehouses',
                 'selectedCategoryId',
                 'selectedShopId',
+                'selectedWarehouseId',
                 'selectedStatus',
-                'selectedInvoiceLock'
+                'selectedInvoiceLock',
+                'segregationProducts'
             ))
             ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
             ->header('Pragma', 'no-cache')

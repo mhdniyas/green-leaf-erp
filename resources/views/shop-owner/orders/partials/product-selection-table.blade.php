@@ -1,10 +1,24 @@
 @php
     $allProductsForOrder = collect();
     $defaultCategory = 'all';
+    $effectiveAllowedGrades = $allowedProductGrades ?? ['A'];
+    $primaryGrade = $defaultProductGrade ?? ($orderedProductGrades[0] ?? $effectiveAllowedGrades[0] ?? 'A');
+    $isPrimaryNonA = $primaryGrade !== 'A';
+    $orderedGradesList = $orderedProductGrades ?? $effectiveAllowedGrades;
+    $additionalGrades = array_values(array_filter($orderedGradesList, fn ($g) => $g !== $primaryGrade));
+    $hasMultipleGrades = count($additionalGrades) > 0;
 
     foreach ($productsByCategory as $category) {
         foreach ($category->products as $product) {
-            $yesterdayItem = $yesterdayOrder?->items->firstWhere('product_id', $product->id);
+            $yesterdayItem = $yesterdayOrder?->items->first(function ($item) use ($product, $primaryGrade): bool {
+                if ((int) $item->product_id !== (int) $product->id) {
+                    return false;
+                }
+                $grade = $item->product_grade instanceof \App\Enums\Inventory\ProductGrade
+                    ? $item->product_grade->value
+                    : (string) ($item->product_grade ?? 'A');
+                return $grade === $primaryGrade;
+            });
             $orderUnits = $product->relationLoaded('orderUnits')
                 ? $product->orderUnits->where('is_orderable', true)->values()
                 : collect();
@@ -29,7 +43,15 @@
                     'conversion_to_base' => $unit->conversion_to_base !== null ? (float) $unit->conversion_to_base : null,
                     'is_base' => (bool) $unit->is_base,
                 ])->values();
-            $existingItem = $tomorrowOrder?->items->firstWhere('product_id', $product->id);
+            $existingItem = $tomorrowOrder?->items->first(function ($item) use ($product, $primaryGrade): bool {
+                if ((int) $item->product_id !== (int) $product->id) {
+                    return false;
+                }
+                $grade = $item->product_grade instanceof \App\Enums\Inventory\ProductGrade
+                    ? $item->product_grade->value
+                    : (string) ($item->product_grade ?? 'A');
+                return $grade === $primaryGrade;
+            });
             $selectedUnitPayload = $orderUnitPayloads
                 ->first(function (array $unitPayload) use ($existingItem): bool {
                     if (! $existingItem) {
@@ -170,7 +192,12 @@
                         {{ $productData['sku'] }}
                     </div>
                     <div class="shop-order-row-title min-w-0">
-                        <h4 class="shop-order-row-name text-[12px] font-black leading-3.5 text-slate-950 sm:text-[13px] sm:leading-4" title="{{ $productData['name'] }}">{{ $productData['name'] }}</h4>
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            <h4 class="shop-order-row-name text-[12px] font-black leading-3.5 text-slate-950 sm:text-[13px] sm:leading-4" title="{{ $productData['name'] }}">{{ $productData['name'] }}</h4>
+                            @if($isPrimaryNonA)
+                                <span class="rounded bg-purple-100 px-1 py-0.5 text-[9px] font-black text-purple-700">Grade {{ $primaryGrade }}</span>
+                            @endif
+                        </div>
                         <p class="truncate text-[10px] font-semibold leading-3 text-slate-500/85 sm:text-[11px]">{{ $productData['category'] }}</p>
                     </div>
                     @if(count($productData['order_units']) > 1)
@@ -206,6 +233,9 @@
                         <input type="hidden" name="item_units[{{ $productData['line_key'] }}]" value="{{ $productData['current_unit'] }}" data-inline-unit data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['line_key'] }}">
                         <input type="hidden" name="item_measures[{{ $productData['line_key'] }}]" value="{{ $productData['current_measure_uuid'] }}" data-inline-measure data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['line_key'] }}">
                     @endif
+                    @if($isPrimaryNonA)
+                        <input type="hidden" name="item_grades[{{ $productData['line_key'] }}]" value="{{ $primaryGrade }}" data-inline-grade data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['line_key'] }}">
+                    @endif
                     <input
                         id="order-qty-{{ $loop->index }}"
                         type="number"
@@ -225,38 +255,46 @@
                     >
                 </div>
 
-                @if(($multiGradeOrderingEnabled ?? false) && count($allowedProductGrades ?? ['A']) > 1)
+                @if($hasMultipleGrades)
                     <div class="mt-2 space-y-1.5 border-t border-slate-100 pt-1.5">
-                        @foreach($allowedProductGrades as $subGrade)
-                            @if($subGrade !== 'A')
-                                @php
-                                    $subGradeKey = $productData['line_key'] . '|' . $subGrade;
-                                    $subExistingItem = $tomorrowOrder?->items->first(fn ($item) => (int) $item->product_id === (int) $productData['id'] && ($item->product_grade?->value ?? (string) $item->product_grade) === $subGrade);
-                                    $subCurrentQty = old("items.{$subGradeKey}", $subExistingItem?->requested_unit_quantity ?? $subExistingItem?->requested_qty ?? '');
-                                @endphp
-                                <div class="flex items-center justify-between gap-2 rounded-lg bg-slate-50/80 px-2 py-1 text-xs">
-                                    <span class="inline-flex items-center gap-1 font-bold text-slate-700">
-                                        <span class="rounded bg-purple-100 px-1 py-0.5 text-[9px] font-black text-purple-700">Grade {{ $subGrade }}</span>
-                                        <span class="text-[10px] text-slate-500">Qty ({{ $productData['current_unit_label'] }})</span>
-                                    </span>
-                                    <input type="hidden" name="item_units[{{ $subGradeKey }}]" value="{{ $productData['current_unit'] }}">
-                                    <input type="hidden" name="item_measures[{{ $subGradeKey }}]" value="{{ $productData['current_measure_uuid'] }}">
-                                    <input type="hidden" name="item_grades[{{ $subGradeKey }}]" value="{{ $subGrade }}">
-                                    <input
-                                        type="number"
-                                        inputmode="decimal"
-                                        step="0.01"
-                                        min="0"
-                                        name="items[{{ $subGradeKey }}]"
-                                        value="{{ $subCurrentQty }}"
-                                        data-inline-qty
-                                        data-product-id="{{ $productData['id'] }}"
-                                        data-line-key="{{ $subGradeKey }}"
-                                        class="h-7 w-20 rounded border border-slate-200 bg-white px-1.5 text-right text-xs font-bold text-slate-900 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
-                                        placeholder="0"
-                                    >
-                                </div>
-                            @endif
+                        @foreach($additionalGrades as $subGrade)
+                            @php
+                                $subGradeKey = $productData['line_key'] . '|' . $subGrade;
+                                $subExistingItem = $tomorrowOrder?->items->first(function ($item) use ($productData, $subGrade): bool {
+                                    if ((int) $item->product_id !== (int) $productData['id']) {
+                                        return false;
+                                    }
+                                    $grade = $item->product_grade instanceof \App\Enums\Inventory\ProductGrade
+                                        ? $item->product_grade->value
+                                        : (string) ($item->product_grade ?? 'A');
+                                    return $grade === $subGrade;
+                                });
+                                $subCurrentQty = old("items.{$subGradeKey}", $subExistingItem?->requested_unit_quantity ?? $subExistingItem?->requested_qty ?? '');
+                            @endphp
+                            <div class="flex items-center justify-between gap-2 rounded-lg bg-slate-50/80 px-2 py-1 text-xs">
+                                <span class="inline-flex items-center gap-1 font-bold text-slate-700">
+                                    <span class="rounded bg-purple-100 px-1 py-0.5 text-[9px] font-black text-purple-700">Grade {{ $subGrade }}</span>
+                                    <span class="text-[10px] text-slate-500">Qty ({{ $productData['current_unit_label'] }})</span>
+                                </span>
+                                <input type="hidden" name="item_units[{{ $subGradeKey }}]" value="{{ $productData['current_unit'] }}">
+                                <input type="hidden" name="item_measures[{{ $subGradeKey }}]" value="{{ $productData['current_measure_uuid'] }}">
+                                <input type="hidden" name="item_grades[{{ $subGradeKey }}]" value="{{ $subGrade }}">
+                                <input
+                                    type="number"
+                                    inputmode="decimal"
+                                    step="0.01"
+                                    min="0"
+                                    name="items[{{ $subGradeKey }}]"
+                                    value="{{ $subCurrentQty }}"
+                                    data-order-qty
+                                    data-master-qty
+                                    data-inline-qty
+                                    data-product-id="{{ $productData['id'] }}"
+                                    data-line-key="{{ $subGradeKey }}"
+                                    class="h-7 w-20 rounded border border-slate-200 bg-white px-1.5 text-right text-xs font-bold text-slate-900 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                    placeholder="0"
+                                >
+                            </div>
                         @endforeach
                     </div>
                 @endif

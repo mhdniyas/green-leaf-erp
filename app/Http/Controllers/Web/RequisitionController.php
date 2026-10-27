@@ -90,12 +90,16 @@ class RequisitionController extends Controller
                 ->withInput();
         }
 
+        $activeShop = $user->hasRole('shop') ? $this->activeShopResolver->resolve($request) : $user->shop;
+        abort_unless($activeShop instanceof Shop, 403, 'User is not associated with any shop.');
+
         $items = $this->resolveRequestedProducts(
             $request->input('items', []),
             $request->input('item_units', []),
             $request->input('item_measures', []),
             allowZero: true,
             rawGrades: (array) $request->input('item_grades', []),
+            defaultGrade: $activeShop->defaultProductGrade(),
         );
 
         if ($items === []) {
@@ -107,9 +111,6 @@ class RequisitionController extends Controller
                 ->withErrors(['items' => 'Requisition cannot be empty.'])
                 ->withInput();
         }
-
-        $activeShop = $user->hasRole('shop') ? $this->activeShopResolver->resolve($request) : $user->shop;
-        abort_unless($activeShop instanceof Shop, 403, 'User is not associated with any shop.');
 
         $this->multiGradeOrderGate->validateOrderItems($activeShop, $items);
 
@@ -661,6 +662,7 @@ class RequisitionController extends Controller
             $request->input('item_measures', []),
             allowZero: true,
             rawGrades: (array) $request->input('item_grades', []),
+            defaultGrade: $order->shop?->defaultProductGrade(),
         );
         if ($items === []) {
             return redirect()->route('shop-owner.orders.create')
@@ -2195,8 +2197,9 @@ class RequisitionController extends Controller
         array $rawMeasures = [],
         bool $allowZero = false,
         array $rawGrades = [],
+        ?string $defaultGrade = null,
     ): array {
-        return $this->shopOrderItemSyncService->resolveRequestedProducts($rawItems, $rawUnits, $rawMeasures, $allowZero, $rawGrades);
+        return $this->shopOrderItemSyncService->resolveRequestedProducts($rawItems, $rawUnits, $rawMeasures, $allowZero, $rawGrades, $defaultGrade);
     }
 
     /**

@@ -78,6 +78,7 @@
         $currentShowCategoryTitles = array_key_exists('showCategoryTitles', $filters)
             ? (bool) $filters['showCategoryTitles']
             : ($surface !== 'grid');
+        $selectedGrades = $selectedGrades ?? ($filters['grades'] ?? ['A']);
         $filterParams = array_filter([
             'date' => $currentDate,
             'shop_id' => $currentShop,
@@ -88,6 +89,8 @@
         $filterParams['code_sort'] = $currentCodeSort ? 1 : 0;
         $filterParams['show_code'] = $currentShowCode ? 1 : 0;
         $filterParams['show_category_titles'] = $currentShowCategoryTitles ? 1 : 0;
+        $filterParams['grades_filter'] = 1;
+        $filterParams['grades'] = $selectedGrades;
         if (! empty($currentCategoryIds)) {
             $filterParams['category_ids'] = $currentCategoryIds;
         }
@@ -385,6 +388,36 @@
 
             <form method="GET" action="{{ $formActionUrl }}" id="sort-sheet-filter-form"
                   class="space-y-4">
+                <input type="hidden" name="grades_filter" value="1">
+
+                {{-- Quality Grade Filters --}}
+                <div class="flex flex-wrap items-center gap-6 rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-2.5">
+                    <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Quality Grade:</span>
+                    <label class="inline-flex cursor-pointer items-center gap-2 text-xs font-bold text-slate-800">
+                        <input type="checkbox" name="grades[]" value="A"
+                               id="grade-filter-a"
+                               {{ in_array('A', $selectedGrades, true) ? 'checked' : '' }}
+                               onchange="this.form.submit()"
+                               class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                        <span>Grade A</span>
+                    </label>
+                    <label class="inline-flex cursor-pointer items-center gap-2 text-xs font-bold text-slate-800">
+                        <input type="checkbox" name="grades[]" value="B"
+                               id="grade-filter-b"
+                               {{ in_array('B', $selectedGrades, true) ? 'checked' : '' }}
+                               onchange="this.form.submit()"
+                               class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                        <span>Grade B</span>
+                    </label>
+                    <label class="inline-flex cursor-pointer items-center gap-2 text-xs font-bold text-slate-800">
+                        <input type="checkbox" name="grades[]" value="C"
+                               id="grade-filter-c"
+                               {{ in_array('C', $selectedGrades, true) ? 'checked' : '' }}
+                               onchange="this.form.submit()"
+                               class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                        <span>Grade C</span>
+                    </label>
+                </div>
 
                 {{-- Row 1: Primary Date & Location Filters --}}
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
@@ -769,6 +802,9 @@
                             </td>
                             <td class="py-2.5 px-4 font-semibold text-slate-900 border-r border-slate-100">
                                 {{ $meta['name'] }}
+                                @if(($meta['grade'] ?? 'A') !== 'A' || ($meta['has_other_grades'] ?? false))
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider {{ ($meta['grade'] ?? 'A') === 'B' ? 'bg-amber-100 text-amber-800' : (($meta['grade'] ?? 'A') === 'C' ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800') }} ml-1">Grade {{ $meta['grade'] ?? 'A' }}</span>
+                                @endif
                                 <span class="block text-[9px] text-slate-400 font-normal">{{ $meta['category_name'] }}</span>
                             </td>
                             @foreach($filteredShops as $shop)

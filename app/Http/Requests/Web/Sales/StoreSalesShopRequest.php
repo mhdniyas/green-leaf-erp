@@ -25,6 +25,7 @@ class StoreSalesShopRequest extends FormRequest
             'allow_grade_b_purchase' => ['sometimes', 'boolean'],
             'allowed_product_grades' => ['sometimes', 'nullable', 'array'],
             'allowed_product_grades.*' => ['string', Rule::in(['A', 'B', 'C'])],
+            'default_product_grade' => ['sometimes', 'nullable', 'string', Rule::in(['A', 'B', 'C'])],
             'shop_purchasing_enabled' => ['sometimes', 'boolean'],
             'destination_type' => ['required', 'string', 'in:client,direct'],
             'client_id' => ['nullable', 'integer', 'exists:clients,id'],
@@ -53,10 +54,23 @@ class StoreSalesShopRequest extends FormRequest
                         $validator->errors()->add('allowed_product_grades', 'Only administrators can configure allowed product grades.');
                     }
 
-                    $grades = (array) $this->input('allowed_product_grades', []);
+                    $rawGrades = (array) $this->input('allowed_product_grades', []);
+                    $grades = array_values(array_filter($rawGrades, fn ($g) => filled($g)));
+                    if ($grades === []) {
+                        $validator->errors()->add('allowed_product_grades', 'At least one product grade must be selected.');
+                    }
+
                     foreach ($grades as $grade) {
                         if (in_array(strtoupper((string) $grade), ['D', 'U', 'DAMAGE', 'UNSORTED'], true)) {
                             $validator->errors()->add('allowed_product_grades', 'Damage and unsorted classifications cannot be configured as orderable grades.');
+                        }
+                    }
+
+                    if ($this->filled('default_product_grade')) {
+                        $defaultGrade = strtoupper(trim((string) $this->input('default_product_grade')));
+                        $normalizedGrades = array_map(fn ($g) => strtoupper(trim((string) $g)), $grades);
+                        if (! in_array($defaultGrade, $normalizedGrades, true)) {
+                            $validator->errors()->add('default_product_grade', 'The default grade must be one of the allowed product grades.');
                         }
                     }
                 }

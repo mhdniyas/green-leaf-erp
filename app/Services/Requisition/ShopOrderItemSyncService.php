@@ -31,6 +31,7 @@ class ShopOrderItemSyncService
         array $rawMeasures = [],
         bool $allowZero = false,
         array $rawGrades = [],
+        ?string $defaultGrade = null,
     ): array {
         $requestedQuantities = [];
         $lineMeta = [];
@@ -63,9 +64,11 @@ class ShopOrderItemSyncService
                 }
             }
 
+            $fallbackGrade = $defaultGrade ?: ProductGrade::GradeA->value;
+
             $resolvedGrade = filled($rawGrades[$normalizedLineKey] ?? null)
                 ? (ProductGrade::tryResolve($rawGrades[$normalizedLineKey])?->value ?? strtoupper(trim((string) $rawGrades[$normalizedLineKey])))
-                : ($embeddedGrade ?: ProductGrade::GradeA->value);
+                : ($embeddedGrade ?: $fallbackGrade);
 
             $numericQuantity = (float) $quantity;
 
@@ -202,8 +205,18 @@ class ShopOrderItemSyncService
             ]);
         }
 
+        $allowedGrades = $order->shop?->allowedProductGrades() ?? [ProductGrade::GradeA->value];
+
         $itemsToDelete = $order->items()->get()
-            ->reject(fn (ShopOrderItem $item): bool => in_array($this->shopOrderItemKey($item), $incomingKeys, true))
+            ->filter(function (ShopOrderItem $item) use ($allowedGrades, $incomingKeys): bool {
+                $itemGrade = $item->product_grade instanceof ProductGrade ? $item->product_grade->value : (string) ($item->product_grade ?? 'A');
+                // Preserve historical items whose grades are not currently permitted/editable for the shop
+                if (! in_array($itemGrade, $allowedGrades, true)) {
+                    return false;
+                }
+
+                return ! in_array($this->shopOrderItemKey($item), $incomingKeys, true);
+            })
             ->pluck('id')
             ->all();
 

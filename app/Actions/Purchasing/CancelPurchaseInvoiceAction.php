@@ -11,6 +11,7 @@ use App\Models\JournalEntry;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseInvoicePayment;
 use App\Models\PurchaserCredit;
+use App\Models\StockBatch;
 use App\Models\User;
 use App\Models\VendorSettlementAllocation;
 use App\Services\Purchasing\DailyInventoryComparisonService;
@@ -70,6 +71,13 @@ class CancelPurchaseInvoiceAction
                 if ($goodsReceived instanceof GoodsReceived) {
                     AdvanceReceiveMatch::query()
                         ->where('bill_goods_received_id', $goodsReceived->id)
+                        ->delete();
+
+                    // If batches have not been confirmed into physical inventory yet,
+                    // remove them so they cannot be confirmed as phantom stock for a cancelled bill.
+                    StockBatch::query()
+                        ->where('goods_received_id', $goodsReceived->id)
+                        ->where('warehouse_receive_pending', true)
                         ->delete();
 
                     $goodsReceived->update([

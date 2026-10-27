@@ -16,7 +16,8 @@ class SegregateBatchRequest extends FormRequest
             && ($this->user()->can('inventory.sorting.process')
                 || $this->user()->can('warehouse.receive.sort')
                 || $this->user()->hasRole('admin')
-                || $this->user()->hasRole('warehouse_receiver'));
+                || $this->user()->hasRole('warehouse_receiver')
+                || $this->user()->hasRole('warehouse'));
     }
 
     /**

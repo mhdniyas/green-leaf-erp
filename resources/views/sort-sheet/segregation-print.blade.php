@@ -150,7 +150,7 @@
                     $meta = $productMeta[$productId];
                     $rows[] = [
                         'code' => $meta['sku'] ?: $productId,
-                        'name' => $meta['name'],
+                        'name' => $meta['display_name'] ?? $meta['name'],
                         'qty' => $formatQty($qty),
                     ];
                 }

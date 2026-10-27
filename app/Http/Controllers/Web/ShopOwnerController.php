@@ -2794,17 +2794,20 @@ class ShopOwnerController extends Controller
             ->get()
             ->filter(fn (Category $category): bool => $category->products->isNotEmpty());
 
-        $productsByCategory->each(function (Category $category) use ($shop): void {
-            $category->products->each(function ($product) use ($shop): void {
-                $price = $this->priceBoardService->sellingPriceFor($product, $shop, ProductGrade::GradeA);
+        $gradeConfig = $this->multiGradeOrderGate->resolveGradeConfiguration($shop);
+        $defaultGradeEnum = ProductGrade::tryResolve($gradeConfig['default']) ?? ProductGrade::GradeA;
+
+        $productsByCategory->each(function (Category $category) use ($shop, $defaultGradeEnum): void {
+            $category->products->each(function ($product) use ($shop, $defaultGradeEnum): void {
+                $price = $this->priceBoardService->sellingPriceFor($product, $shop, $defaultGradeEnum);
                 $product->setAttribute('effective_price', $price['price']);
             });
         });
 
         $frequentProducts = $this->frequentProducts($shop);
-        $frequentProducts->each(function (array $item) use ($shop): void {
+        $frequentProducts->each(function (array $item) use ($shop, $defaultGradeEnum): void {
             $product = $item['product'];
-            $price = $this->priceBoardService->sellingPriceFor($product, $shop, ProductGrade::GradeA);
+            $price = $this->priceBoardService->sellingPriceFor($product, $shop, $defaultGradeEnum);
             $product->setAttribute('effective_price', $price['price']);
         });
 
@@ -2820,8 +2823,10 @@ class ShopOwnerController extends Controller
             'cutoffPassed' => $this->businessDayService->hasRolledOver(),
             'cutoffLabel' => $this->businessDayService->cutoffLabel(),
             'purchaseOrdersLockedForTomorrow' => $tomorrowOrder?->linkedPurchaseOrdersHaveGoodsReceived() ?? false,
-            'multiGradeOrderingEnabled' => $this->multiGradeOrderGate->isFeatureEnabled(),
-            'allowedProductGrades' => $this->multiGradeOrderGate->allowedGradesForShop($shop),
+            'multiGradeOrderingEnabled' => count($gradeConfig['allowed']) > 1,
+            'allowedProductGrades' => $gradeConfig['allowed'],
+            'defaultProductGrade' => $gradeConfig['default'],
+            'orderedProductGrades' => $gradeConfig['ordered'],
         ];
     }
 

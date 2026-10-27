@@ -113,32 +113,13 @@
                         @endforeach
                     </select>
                     @if($showCreateForm) @error('shop_price_group_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror @endif
-                    <label class="mt-3 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900">
-                        <input type="hidden" name="allow_grade_b_purchase" value="0">
-                        <input type="checkbox" name="allow_grade_b_purchase" value="1" @checked(old('allow_grade_b_purchase')) class="rounded border-blue-300 text-blue-600 focus:ring-blue-500">
-                        Allow this shop to request Grade B purchases
-                    </label>
-                    @if(auth()->user()?->hasRole('admin'))
-                    <div class="mt-3 rounded-lg border border-purple-100 bg-purple-50 p-2.5">
-                        <span class="block text-xs font-bold text-purple-900 mb-1.5">Permitted Product Ordering Grades</span>
-                        <div class="flex items-center gap-4 text-xs font-semibold text-purple-900">
-                            <label class="inline-flex items-center gap-1.5 opacity-80 cursor-not-allowed">
-                                <input type="checkbox" name="allowed_product_grades[]" value="A" checked disabled class="rounded border-purple-300 text-purple-600">
-                                <input type="hidden" name="allowed_product_grades[]" value="A">
-                                <span>Grade A (Default)</span>
-                            </label>
-                            <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                                <input type="checkbox" name="allowed_product_grades[]" value="B" @checked(in_array('B', (array) old('allowed_product_grades', []), true)) class="rounded border-purple-300 text-purple-600 focus:ring-purple-500">
-                                <span>Grade B</span>
-                            </label>
-                            <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                                <input type="checkbox" name="allowed_product_grades[]" value="C" @checked(in_array('C', (array) old('allowed_product_grades', []), true)) class="rounded border-purple-300 text-purple-600 focus:ring-purple-500">
-                                <span>Grade C</span>
-                            </label>
-                        </div>
-                    </div>
-                    @endif
                 </div>
+
+                @if(auth()->user()?->hasRole('admin'))
+                <div>
+                    <x-shop-grade-config editPrefix="create-shop" :showEditForm="$showCreateForm" />
+                </div>
+                @endif
 
                 <div>
                     <label for="create-shop-contact-name" class="mb-1.5 block text-xs font-semibold text-gray-700">Contact Name</label>
@@ -386,32 +367,13 @@
                                                     @endforeach
                                                 </select>
                                                 @if($showEditForm) @error('shop_price_group_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror @endif
-                                                <label class="mt-3 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900">
-                                                    <input type="hidden" name="allow_grade_b_purchase" value="0">
-                                                    <input type="checkbox" name="allow_grade_b_purchase" value="1" @checked((bool) ($showEditForm ? old('allow_grade_b_purchase', $shop->allow_grade_b_purchase) : $shop->allow_grade_b_purchase)) class="rounded border-blue-300 text-blue-600 focus:ring-blue-500">
-                                                    Allow Grade B purchases
-                                                </label>
-                                                @if(auth()->user()?->hasRole('admin'))
-                                                <div class="mt-3 rounded-lg border border-purple-100 bg-purple-50 p-2.5">
-                                                    <span class="block text-xs font-bold text-purple-900 mb-1.5">Permitted Product Ordering Grades</span>
-                                                    <div class="flex items-center gap-4 text-xs font-semibold text-purple-900">
-                                                        <label class="inline-flex items-center gap-1.5 opacity-80 cursor-not-allowed">
-                                                            <input type="checkbox" name="allowed_product_grades[]" value="A" checked disabled class="rounded border-purple-300 text-purple-600">
-                                                            <input type="hidden" name="allowed_product_grades[]" value="A">
-                                                            <span>Grade A (Default)</span>
-                                                        </label>
-                                                        <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                                                            <input type="checkbox" name="allowed_product_grades[]" value="B" @checked(in_array('B', old('allowed_product_grades', $shop->allowedProductGrades()), true)) class="rounded border-purple-300 text-purple-600 focus:ring-purple-500">
-                                                            <span>Grade B</span>
-                                                        </label>
-                                                        <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                                                            <input type="checkbox" name="allowed_product_grades[]" value="C" @checked(in_array('C', old('allowed_product_grades', $shop->allowedProductGrades()), true)) class="rounded border-purple-300 text-purple-600 focus:ring-purple-500">
-                                                            <span>Grade C</span>
-                                                        </label>
-                                                    </div>
-                                                </div>
-                                                @endif
                                             </div>
+
+                                            @if(auth()->user()?->hasRole('admin'))
+                                            <div>
+                                                <x-shop-grade-config :shop="$shop" :editPrefix="$editPrefix" :showEditForm="$showEditForm" />
+                                            </div>
+                                            @endif
 
                                             <div>
                                                 <label for="{{ $editPrefix }}-contact-name" class="mb-1.5 block text-xs font-semibold text-gray-700">Contact Name</label>

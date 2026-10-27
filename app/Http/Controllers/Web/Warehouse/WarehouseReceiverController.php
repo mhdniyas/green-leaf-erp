@@ -469,6 +469,19 @@ class WarehouseReceiverController extends Controller
     {
         $this->authorizeReceiverAccess($request);
 
+        if ($grn->status === 'cancelled' || $grn->purchaserCart?->status === 'cancelled') {
+            return redirect()
+                ->back()
+                ->withErrors(['Cannot receive a cancelled vendor sheet.']);
+        }
+
+        $batches = StockBatch::where('goods_received_id', $grn->id)->get();
+        if ($batches->isNotEmpty() && $batches->every(fn (StockBatch $b) => ! $b->warehouse_receive_pending)) {
+            return redirect()
+                ->route('warehouse.receiver.checklist', ['date' => $grn->received_at->format('Y-m-d')])
+                ->with('info', 'Vendor sheet has already been received into warehouse inventory.');
+        }
+
         $validated = $request->validate([
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
             'items' => ['required', 'array'],
@@ -619,6 +632,13 @@ class WarehouseReceiverController extends Controller
             return redirect()->back()->withErrors(['This batch has already been confirmed.']);
         }
 
+        $isCancelled = $batch->goodsReceived?->status === 'cancelled'
+            || $batch->goodsReceived?->purchaserCart?->status === 'cancelled';
+
+        if ($isCancelled) {
+            return redirect()->back()->withErrors(['Cannot receive batch from a cancelled purchase bill.']);
+        }
+
         $validated = $request->validate([
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
         ]);
@@ -679,6 +699,10 @@ class WarehouseReceiverController extends Controller
 
         $pending = StockBatch::where('warehouse_receive_pending', true)
             ->whereDate('received_at', $date)
+            ->whereDoesntHave('goodsReceived', function ($q) {
+                $q->where('status', 'cancelled')
+                    ->orWhereHas('purchaserCart', fn ($cq) => $cq->where('status', 'cancelled'));
+            })
             ->with('product')
             ->get();
 
@@ -1112,10 +1136,20 @@ class WarehouseReceiverController extends Controller
     private function receiveGrnIntoWarehouse(GoodsReceived $grn, array $items, int $fallbackWarehouseId, int $userId): void
     {
         DB::transaction(function () use ($grn, $items, $fallbackWarehouseId, $userId): void {
-            $grn->loadMissing(['items.purchaseOrderItem', 'items.product']);
+            $lockedGrn = GoodsReceived::where('id', $grn->id)->lockForUpdate()->first();
+            if (! $lockedGrn) {
+                return;
+            }
+
+            $existingBatches = StockBatch::where('goods_received_id', $lockedGrn->id)->lockForUpdate()->get();
+            if ($existingBatches->isNotEmpty() && $existingBatches->every(fn (StockBatch $b) => ! $b->warehouse_receive_pending)) {
+                return;
+            }
+
+            $lockedGrn->loadMissing(['items.purchaseOrderItem', 'items.product']);
 
             foreach ($items as $itemId => $itemData) {
-                $item = $grn->items->firstWhere('id', (int) $itemId) ?? $grn->items()->findOrFail((int) $itemId);
+                $item = $lockedGrn->items->firstWhere('id', (int) $itemId) ?? $lockedGrn->items()->findOrFail((int) $itemId);
                 $originalPurchasedQty = (float) ($item->purchaseOrderItem?->quantity ?? $item->received_qty);
                 $receivedQty = (float) $itemData['received_qty'];
                 $variance = $receivedQty - (float) ($item->purchaseOrderItem?->quantity ?? 0.0);
@@ -1129,10 +1163,13 @@ class WarehouseReceiverController extends Controller
                 ]);
             }
 
-            $approvedGrn = app(ApproveGoodsReceiptAction::class)->execute($grn, $userId);
+            $approvedGrn = $lockedGrn->status === 'approved'
+                ? $lockedGrn
+                : app(ApproveGoodsReceiptAction::class)->execute($lockedGrn, $userId);
             $approvedGrn->loadMissing('items');
 
             StockBatch::where('goods_received_id', $approvedGrn->id)
+                ->where('warehouse_receive_pending', true)
                 ->get()
                 ->each(function (StockBatch $batch) use ($approvedGrn, $items, $fallbackWarehouseId, $userId): void {
                     $grnItem = $batch->goods_received_item_id

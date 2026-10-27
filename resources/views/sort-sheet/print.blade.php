@@ -356,6 +356,7 @@
                 <a class="btn-close" href="javascript:window.close()">Close Window</a>
 
                 <span class="badge">Date: {{ \Carbon\Carbon::parse($date)->format('d M Y') }}</span>
+                <span class="badge">Grades: {{ implode(', ', $selectedGrades ?? ['A']) }}</span>
                 @if(isset($selectedWarehouse) && $selectedWarehouse)
                     <span class="badge">Warehouse: {{ $selectedWarehouse->name }} ({{ $selectedWarehouse->code }})</span>
                 @else
@@ -502,6 +503,9 @@
                     <td>{{ $meta['sku'] }}</td>
                     <td class="item-cell">
                         {{ $meta['name'] }}
+                        @if(($meta['grade'] ?? 'A') !== 'A' || ($meta['has_other_grades'] ?? false))
+                            <span class="item-grade" style="font-weight: 700; font-size: 8px; text-transform: uppercase; background: #eee; padding: 1px 3px; border: 1px solid #ccc; border-radius: 3px; margin-left: 3px;">Grade {{ $meta['grade'] ?? 'A' }}</span>
+                        @endif
                         <small class="item-sku">-- [ {{ $meta['sku'] }} ]</small>
                     </td>
                     @foreach($filteredShops as $shop)

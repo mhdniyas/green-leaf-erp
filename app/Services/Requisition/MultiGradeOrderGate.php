@@ -26,41 +26,70 @@ class MultiGradeOrderGate
     }
 
     /**
+     * Determine whether the feature is explicitly disabled via company settings.
+     */
+    public function isFeatureExplicitlyDisabled(): bool
+    {
+        $value = BusinessSetting::query()
+            ->where('key', self::SETTING_KEY)
+            ->value('value');
+
+        return (string) $value === '0';
+    }
+
+    /**
      * Determine whether a specific shop is authorized to order a specific quality grade.
-     * Grade A is always allowed regardless of feature flag or shop settings.
      */
     public function canShopOrderGrade(?Shop $shop, string|ProductGrade $grade): bool
     {
         $gradeValue = $grade instanceof ProductGrade ? $grade->value : strtoupper(trim((string) $grade));
 
-        if ($gradeValue === ProductGrade::GradeA->value) {
-            return true;
-        }
-
-        if (! $this->isFeatureEnabled()) {
-            return false;
-        }
-
         if (! $shop instanceof Shop) {
             return false;
         }
 
-        return $shop->canOrderGrade($gradeValue);
+        return in_array($gradeValue, $this->allowedGradesForShop($shop), true);
+    }
+
+    /**
+     * Resolve the canonical grade configuration for a shop.
+     *
+     * @return array{allowed: array<int, string>, default: string, ordered: array<int, string>}
+     */
+    public function resolveGradeConfiguration(?Shop $shop): array
+    {
+        if (! $shop instanceof Shop) {
+            return [
+                'allowed' => [ProductGrade::GradeA->value],
+                'default' => ProductGrade::GradeA->value,
+                'ordered' => [ProductGrade::GradeA->value],
+            ];
+        }
+
+        if ($this->isFeatureExplicitlyDisabled()) {
+            $allowed = in_array(ProductGrade::GradeA->value, $shop->allowedProductGrades(), true)
+                ? [ProductGrade::GradeA->value]
+                : [];
+            $default = $allowed[0] ?? ProductGrade::GradeA->value;
+
+            return [
+                'allowed' => $allowed,
+                'default' => $default,
+                'ordered' => $allowed,
+            ];
+        }
+
+        return $shop->resolvedGradeConfiguration();
     }
 
     /**
      * Get the list of quality grades the given shop can currently order.
-     * If the feature is disabled globally, returns only Grade A.
      *
      * @return array<int, string>
      */
     public function allowedGradesForShop(?Shop $shop): array
     {
-        if (! $this->isFeatureEnabled() || ! $shop instanceof Shop) {
-            return [ProductGrade::GradeA->value];
-        }
-
-        return $shop->allowedProductGrades();
+        return $this->resolveGradeConfiguration($shop)['allowed'];
     }
 
     /**
@@ -72,21 +101,19 @@ class MultiGradeOrderGate
      */
     public function validateOrderItems(Shop $shop, array $items): void
     {
+        $permittedGrades = $this->allowedGradesForShop($shop);
+
         foreach ($items as $item) {
-            $grade = $item['grade'] ?? ProductGrade::GradeA->value;
+            $grade = $item['grade'] ?? $shop->defaultProductGrade();
             $gradeValue = $grade instanceof ProductGrade ? $grade->value : strtoupper(trim((string) $grade));
 
-            if ($gradeValue === ProductGrade::GradeA->value) {
-                continue;
-            }
-
-            if (! $this->isFeatureEnabled()) {
+            if ($gradeValue !== ProductGrade::GradeA->value && $this->isFeatureExplicitlyDisabled()) {
                 throw ValidationException::withMessages([
                     'items' => 'Multi-grade ordering add-on is currently disabled.',
                 ]);
             }
 
-            if (! $shop->canOrderGrade($gradeValue)) {
+            if (! in_array($gradeValue, $permittedGrades, true)) {
                 throw ValidationException::withMessages([
                     'items' => "Shop {$shop->name} is not permitted to order Grade {$gradeValue}.",
                 ]);

@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutController;
 use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutSettingsController;
 use App\Http\Controllers\Api\Warehouse\WarehouseHomeSummaryController;
 use App\Http\Controllers\Api\Warehouse\WarehouseScopedLoadoutController;
+use App\Http\Controllers\Web\Inventory\GradeStockManagementController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
@@ -108,10 +109,26 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::post('batches/{batch}/segregate/reverse', [SegregateBatchController::class, 'reverse'])
                 ->withTrashed()
                 ->name('batches.segregate.reverse');
+            Route::get('segregation/summary', [SegregateBatchController::class, 'summary'])->name('segregation.summary');
+            Route::get('segregation/batches', [SegregateBatchController::class, 'batches'])->name('segregation.batches');
             Route::get('stock', [StockController::class, 'index'])->name('stock.index');
             Route::get('movements', [StockController::class, 'movements'])->name('movements.index');
             Route::get('wastage', [WastageController::class, 'index'])->name('wastage.index');
             Route::post('wastage', [WastageController::class, 'store'])->name('wastage.store');
+        });
+
+        // ── Warehouse Segregation API ─────────────────────────────────────────
+        Route::prefix('warehouse/segregation')->name('warehouse.segregation.')->group(function () {
+            Route::get('summary', [SegregateBatchController::class, 'summary'])->name('summary');
+            Route::get('batches', [SegregateBatchController::class, 'batches'])->name('batches');
+        });
+
+        // ── Warehouse Grade Stock Management API ───────────────────────────────
+        Route::prefix('warehouse/grade-stock')->name('warehouse.grade-stock.')->group(function () {
+            Route::get('inventory', [GradeStockManagementController::class, 'inventory'])->name('inventory');
+            Route::get('product-details/{product?}', [GradeStockManagementController::class, 'productDetails'])->name('product-details');
+            Route::post('transfer', [GradeStockManagementController::class, 'transfer'])->name('transfer');
+            Route::post('reverse/{childBatch}', [GradeStockManagementController::class, 'reverse'])->name('reverse');
         });
 
         // ── Purchasing ────────────────────────────────────────────────────────

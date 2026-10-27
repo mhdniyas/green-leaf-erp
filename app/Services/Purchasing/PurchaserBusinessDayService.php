@@ -6,6 +6,8 @@ namespace App\Services\Purchasing;
 
 use App\Actions\Purchasing\RecordGoodsReceiptAction;
 use App\DTOs\Purchasing\GoodsReceivedData;
+use App\Enums\Inventory\BatchStatus;
+use App\Enums\Inventory\StockMovementType;
 use App\Enums\Purchasing\POStatus;
 use App\Models\AdvanceReceiveMatch;
 use App\Models\BusinessSetting;
@@ -18,6 +20,7 @@ use App\Models\PurchaseBusinessDayCarryForward;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\StockBatch;
+use App\Models\StockMovement;
 use App\Models\Warehouse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -739,10 +742,42 @@ class PurchaserBusinessDayService
                         ->first();
 
                     if ($batch) {
-                        $batch->update([
-                            'product_id' => $productId,
-                            'total_kg' => $newQty,
-                        ]);
+                        if ($batch->warehouse_receive_pending) {
+                            $batch->update([
+                                'product_id' => $productId,
+                                'total_kg' => $newQty,
+                            ]);
+                        } else {
+                            // Batch was already received into warehouse inventory.
+                            // Never overwrite consumed historical stock movements.
+                            $consumedQty = (float) StockMovement::query()
+                                ->where('batch_id', $batch->id)
+                                ->whereIn('type', [
+                                    StockMovementType::Out,
+                                    StockMovementType::Sale,
+                                    StockMovementType::Wastage,
+                                    StockMovementType::Adjustment,
+                                ])
+                                ->sum('quantity');
+
+                            $hasWastage = $batch->wastageEntries()->exists();
+                            $isSorted = $batch->status === BatchStatus::Sorted && $batch->grading_mode !== 'fixed_purchase_grade';
+
+                            if ($consumedQty <= 0.0001 && ! $hasWastage && ! $isSorted) {
+                                $batch->update([
+                                    'product_id' => $productId,
+                                    'total_kg' => $newQty,
+                                ]);
+
+                                StockMovement::query()
+                                    ->where('batch_id', $batch->id)
+                                    ->where('type', StockMovementType::In->value)
+                                    ->update([
+                                        'quantity' => $newQty,
+                                        'product_id' => $productId,
+                                    ]);
+                            }
+                        }
                     }
                 }
             }
