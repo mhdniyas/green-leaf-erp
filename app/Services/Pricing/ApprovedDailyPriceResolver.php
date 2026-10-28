@@ -93,13 +93,13 @@ class ApprovedDailyPriceResolver
 
         if (! $approval instanceof DailyPriceApproval) {
             throw ValidationException::withMessages([
-                'prices' => "Approved daily price is missing for {$product->name} (Grade {$gradeVal}) on {$businessDate->toDateString()} (Price Group {$group->name}).",
+                'prices' => "Approved daily price is missing for {$product->name} (Grade {$gradeVal}) on {$businessDate->toDateString()} (Shop Price Group {$group->name}).",
             ]);
         }
 
         if ($approval->status !== 'approved' || $approval->approved_at === null) {
             throw ValidationException::withMessages([
-                'prices' => "Daily price for {$product->name} (Grade {$gradeVal}) on {$businessDate->toDateString()} is '{$approval->status}' and not approved by admin.",
+                'prices' => "Daily price for {$product->name} (Grade {$gradeVal}) on {$businessDate->toDateString()} is '{$approval->status}' and not approved by admin (Shop Price Group {$group->name}).",
             ]);
         }
 
@@ -107,7 +107,7 @@ class ApprovedDailyPriceResolver
 
         if ($price <= 0.0) {
             throw ValidationException::withMessages([
-                'prices' => "Approved daily price column '{$priceColumn}' for {$product->name} (Grade {$gradeVal}) on {$businessDate->toDateString()} is zero or not set.",
+                'prices' => "Approved daily price column '{$priceColumn}' (Shop Price Group {$group->name}) for {$product->name} (Grade {$gradeVal}) on {$businessDate->toDateString()} is zero or not set.",
             ]);
         }
 

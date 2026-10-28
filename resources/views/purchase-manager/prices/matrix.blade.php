@@ -88,6 +88,9 @@
 .col-today-header{background:#bae6fd!important;color:#0c4a6e!important}
 .col-prev{background-color:rgba(255,251,235,0.5)}
 .col-prev-header{background:#fef3c7!important;color:#713f12!important}
+.cell-billable{background-color:rgba(236,253,245,0.65)!important}
+.cell-unpriced{background-color:rgba(254,243,199,0.75)!important}
+.cell-unpriced .matrix-cell-input{border-color:#fbbf24!important;background-color:#fffbeb!important}
 .row-approved{background-color:rgba(240,253,244,0.5)}
 
 /* ─── Table sticky shadow ───────────────────────────────────────────────── */
@@ -336,6 +339,13 @@
                     </div>
                 </div>
 
+                <div class="hidden lg:flex items-center gap-1.5 text-[11px] bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
+                    <span class="text-slate-400 font-semibold">Scope:</span>
+                    <span class="font-bold text-sky-800 bg-sky-100/90 px-1.5 py-0.5 rounded text-[10px]">Product Grade {{ $qualityGrade ?? 'A' }}</span>
+                    <span class="text-slate-300">·</span>
+                    <span class="font-bold text-purple-800 bg-purple-100/90 px-1.5 py-0.5 rounded text-[10px]">Shop Price Group {{ strtoupper($matrixCategory) }}</span>
+                </div>
+
                 <div class="flex-1 min-w-0"></div>
 
                 {{-- 3-day window navigation --}}
@@ -515,14 +525,22 @@
                     <tr class="border-b border-slate-200 bg-slate-50 text-slate-600 text-[10px] font-semibold uppercase tracking-wider">
                         <th scope="col" class="sticky left-0 z-30 bg-slate-50 px-2 py-2 text-center border-r border-slate-200 w-9 min-w-[36px] max-w-[36px]">#</th>
                         <th scope="col" class="sticky left-9 z-30 bg-slate-50 px-2 py-2 text-center border-r border-slate-200 w-20 min-w-[80px] max-w-[80px]">SKU</th>
-                        <th scope="col" class="sticky left-[116px] z-30 bg-slate-50 px-2.5 py-2 border-r border-slate-200 w-44 min-w-[176px] max-w-[176px] sticky-shadow">Product</th>
+                        <th scope="col" class="sticky left-[116px] z-30 bg-slate-50 px-2.5 py-2 border-r border-slate-200 w-44 min-w-[176px] max-w-[176px] sticky-shadow">
+                            <div class="flex items-center justify-between gap-1">
+                                <span>Product</span>
+                                <span class="rounded bg-sky-100 px-1.5 py-0.5 text-[8px] font-bold text-sky-800 uppercase" title="Quality Grade {{ $qualityGrade ?? 'A' }}">Grade {{ $qualityGrade ?? 'A' }}</span>
+                            </div>
+                        </th>
                         @foreach ($matrixDates as $dateStr => $dateInfo)
-                            <th scope="col" class="px-2 py-2 text-center border-r border-slate-200 min-w-[96px] {{ $dateInfo['is_selected'] ? 'col-today-header font-bold' : '' }}">
+                            <th scope="col" class="px-2 py-2 text-center border-r border-slate-200 min-w-[104px] {{ $dateInfo['is_selected'] ? 'col-today-header font-bold' : '' }}">
                                 <div class="flex flex-col items-center gap-0.5">
                                     <span class="font-bold">{{ $dateInfo['label'] }}</span>
-                                    @if ($dateInfo['is_selected'])
-                                        <span class="rounded-full bg-sky-700 px-1.5 py-px text-[8px] font-bold text-white uppercase tracking-wide">Today</span>
-                                    @endif
+                                    <div class="flex items-center gap-1">
+                                        @if ($dateInfo['is_selected'])
+                                            <span class="rounded-full bg-sky-700 px-1.5 py-px text-[8px] font-bold text-white uppercase tracking-wide">Today</span>
+                                        @endif
+                                        <span class="text-[8px] font-semibold text-purple-700 bg-purple-50 px-1 rounded border border-purple-200" title="Shop Price Group {{ strtoupper($matrixCategory) }}">Tier {{ strtoupper($matrixCategory) }}</span>
+                                    </div>
                                 </div>
                             </th>
                         @endforeach
@@ -545,11 +563,16 @@
                             <td class="sticky left-[116px] z-20 bg-white px-2.5 py-1.5 border-r border-slate-100 w-44 min-w-[176px] max-w-[176px] sticky-shadow">
                                 <span class="block font-semibold text-slate-900 text-xs leading-snug truncate" title="{{ $prod['name'] }}">{{ $prod['name'] }}</span>
                                 <div class="flex flex-wrap items-center gap-1 mt-0.5">
-                                    @if (($prod['latest_approved_date'] ?? null) !== null && ($prod['latest_approved_price'] ?? null) !== null)
-                                        <span class="inline-flex items-center gap-0.5 rounded border border-emerald-200 bg-emerald-50 px-1 py-px text-[9px] font-semibold text-emerald-700">
+                                    <span class="inline-flex items-center rounded bg-slate-100 px-1 py-px text-[9px] font-bold text-slate-600 border border-slate-200">Grade {{ $qualityGrade ?? 'A' }}</span>
+                                    @if (($prod['latest_approved_date'] ?? null) !== null && ($prod['latest_approved_price'] ?? null) !== null && (float) $prod['latest_approved_price'] > 0)
+                                        <span class="inline-flex items-center gap-0.5 rounded border border-emerald-200 bg-emerald-50 px-1 py-px text-[9px] font-semibold text-emerald-700" title="Latest usable selling price for Grade {{ $qualityGrade ?? 'A' }} (Group {{ strtoupper($matrixCategory) }})">
                                             <svg class="h-2 w-2 text-emerald-600" fill="none"><use href="#mx-check"/></svg>
-                                            {{ number_format($prod['latest_approved_price'], 2) }}
+                                            ₹{{ number_format($prod['latest_approved_price'], 2) }}
                                             <span class="text-emerald-500">({{ \Illuminate\Support\Carbon::parse($prod['latest_approved_date'])->format('d M') }})</span>
+                                        </span>
+                                    @elseif (!empty($prod['has_unpriced_active']))
+                                        <span class="inline-flex items-center gap-0.5 rounded border border-amber-300 bg-amber-50 px-1 py-px text-[9px] font-bold text-amber-700" title="Zero or missing price on approved record for Tier {{ strtoupper($matrixCategory) }}. Not billable.">
+                                            Price Missing
                                         </span>
                                     @endif
                                     @if ($prod['sku'])
@@ -561,28 +584,41 @@
                             {{-- Price cells --}}
                             @foreach ($matrixDates as $dateStr => $dateInfo)
                                 @php
-                                    $cellData    = $prod['prices'][$dateStr] ?? null;
-                                    $priceValA   = $cellData['price_a'] ?? null;
-                                    $priceValB   = $cellData['price_b'] ?? null;
-                                    $priceValC   = $cellData['price_c'] ?? null;
-                                    $cellUnit    = strtolower((string) ($cellData['unit'] ?? 'kg'));
+                                    $cellData        = $prod['prices'][$dateStr] ?? null;
+                                    $priceValA       = $cellData['price_a'] ?? null;
+                                    $priceValB       = $cellData['price_b'] ?? null;
+                                    $priceValC       = $cellData['price_c'] ?? null;
+                                    $cellUnit        = strtolower((string) ($cellData['unit'] ?? 'kg'));
                                     $cellUnitDisplay = strtoupper(str_replace('_', ' ', $cellUnit));
-                                    $hasChangedA = $cellData['changed_a'] ?? false;
-                                    $hasChangedB = $cellData['changed_b'] ?? false;
-                                    $hasChangedC = $cellData['changed_c'] ?? false;
-                                    $activeCellVal = match ($matrixCategory) {
+                                    $hasChangedA     = $cellData['changed_a'] ?? false;
+                                    $hasChangedB     = $cellData['changed_b'] ?? false;
+                                    $hasChangedC     = $cellData['changed_c'] ?? false;
+                                    $activeCellVal   = match ($matrixCategory) {
                                         'b' => $priceValB !== null ? number_format($priceValB, 2, '.', '') : '',
                                         'c' => $priceValC !== null ? number_format($priceValC, 2, '.', '') : '',
                                         default => $priceValA !== null ? number_format($priceValA, 2, '.', '') : '',
                                     };
-                                    $isCellChanged = match ($matrixCategory) {
+                                    $isCellChanged   = match ($matrixCategory) {
                                         'b' => $hasChangedB,
                                         'c' => $hasChangedC,
                                         default => $hasChangedA,
                                     };
-                                    $isApprovedCell = ($prod['latest_approved_date'] ?? null) === $dateStr;
+                                    $activePriceFloat = match ($matrixCategory) {
+                                        'b' => $priceValB,
+                                        'c' => $priceValC,
+                                        default => $priceValA,
+                                    };
+                                    $cellStatus      = $cellData['status'] ?? 'none';
+                                    $isApproved      = ($cellStatus === 'approved');
+                                    $isBillable      = $isApproved && $activePriceFloat !== null && (float) $activePriceFloat > 0.0;
+                                    $isUnpriced      = $isApproved && ($activePriceFloat === null || (float) $activePriceFloat <= 0.0);
                                 @endphp
-                                <td class="p-1.5 border-r border-slate-100 text-center {{ $dateInfo['is_selected'] ? 'col-today' : '' }} {{ $isApprovedCell ? 'bg-emerald-50/60 ring-1 ring-inset ring-emerald-200' : '' }}">
+                                <td class="p-1.5 border-r border-slate-100 text-center {{ $dateInfo['is_selected'] ? 'col-today' : '' }} {{ $isBillable ? 'cell-billable bg-emerald-50/60 ring-1 ring-inset ring-emerald-200' : '' }} {{ $isUnpriced ? 'cell-unpriced bg-amber-50/70 ring-1 ring-inset ring-amber-300' : '' }}"
+                                    data-approval-status="{{ $cellStatus }}"
+                                    data-date="{{ $dateStr }}"
+                                    data-price-a="{{ $priceValA !== null ? number_format($priceValA, 2, '.', '') : '' }}"
+                                    data-price-b="{{ $priceValB !== null ? number_format($priceValB, 2, '.', '') : '' }}"
+                                    data-price-c="{{ $priceValC !== null ? number_format($priceValC, 2, '.', '') : '' }}">
                                     <div class="matrix-cell-container relative space-y-0.5">
                                         <div class="flex items-center gap-0.5">
                                             <input
@@ -599,7 +635,7 @@
                                                 value="{{ $activeCellVal }}"
                                                 onkeydown="if(event.key==='Enter'){event.preventDefault();saveMatrixCell(this.nextElementSibling);}"
                                                 @if (!$canEditPrices) readonly @endif
-                                                class="matrix-cell-input {{ $isCellChanged ? 'is-changed' : 'text-slate-800' }}"
+                                                class="matrix-cell-input {{ $isCellChanged ? 'is-changed' : 'text-slate-800' }} {{ $isUnpriced ? '!border-amber-400 !bg-amber-50/50' : '' }}"
                                             >
                                             @if ($canEditPrices)
                                                 <button type="button" title="Save price" onclick="saveMatrixCell(this)" class="matrix-cell-save-btn">
@@ -607,15 +643,35 @@
                                                 </button>
                                             @endif
                                         </div>
-                                        @if ($canEditPrices)
-                                            <input type="hidden" class="matrix-cell-unit" name="matrix_price_units[{{ $prod['product_id'] }}][{{ $dateStr }}]" value="{{ $cellUnit }}">
-                                            <button type="button" title="Change unit" onclick="toggleUnitSelector(this)" class="matrix-cell-unit-btn">
-                                                <span class="unit-display">{{ $cellUnitDisplay }}</span>
-                                                <svg class="w-2.5 h-2.5 text-slate-400" fill="none"><use href="#mx-chevron-down"/></svg>
-                                            </button>
-                                        @else
-                                            <span class="text-[9px] font-medium text-slate-400">{{ $cellUnitDisplay }}</span>
-                                        @endif
+                                        <div class="flex items-center justify-between gap-1 px-0.5">
+                                            @if ($canEditPrices)
+                                                <input type="hidden" class="matrix-cell-unit" name="matrix_price_units[{{ $prod['product_id'] }}][{{ $dateStr }}]" value="{{ $cellUnit }}">
+                                                <button type="button" title="Change unit" onclick="toggleUnitSelector(this)" class="matrix-cell-unit-btn">
+                                                    <span class="unit-display">{{ $cellUnitDisplay }}</span>
+                                                    <svg class="w-2.5 h-2.5 text-slate-400" fill="none"><use href="#mx-chevron-down"/></svg>
+                                                </button>
+                                            @else
+                                                <span class="text-[9px] font-medium text-slate-400">{{ $cellUnitDisplay }}</span>
+                                            @endif
+
+                                            {{-- Cell status indicator --}}
+                                            <span class="cell-status-indicator">
+                                                @if ($isBillable)
+                                                    <span class="inline-flex items-center gap-0.5 text-[8px] font-bold text-emerald-700 bg-emerald-100/90 px-1 py-0.5 rounded border border-emerald-300" title="Approved & valid for billing (Tier {{ strtoupper($matrixCategory) }})">
+                                                        <svg class="w-2 h-2 text-emerald-600" fill="none"><use href="#mx-check"/></svg>
+                                                        Approved
+                                                    </span>
+                                                @elseif ($isUnpriced)
+                                                    <span class="inline-flex items-center gap-0.5 text-[8px] font-bold text-amber-800 bg-amber-100 px-1 py-0.5 rounded border border-amber-300" title="Approved record has zero/missing price for Tier {{ strtoupper($matrixCategory) }}. Not billable.">
+                                                        Price Missing
+                                                    </span>
+                                                @elseif ($isApproved)
+                                                    <span class="text-[8px] font-medium text-slate-400">
+                                                        Pending
+                                                    </span>
+                                                @endif
+                                            </span>
+                                        </div>
                                     </div>
                                 </td>
                             @endforeach
@@ -753,6 +809,34 @@
         if (form) { showLoadingOverlay(); form.submit(); }
     }
 
+    /* ── Visual update helper for cell status ─────────────────── */
+    function updateCellStatusVisual(td, input, activePrice) {
+        if (!td || !input) return;
+        const isApproved = td.dataset.approvalStatus === 'approved';
+        const numVal = parseFloat(activePrice);
+        const indicator = td.querySelector('.cell-status-indicator');
+
+        td.classList.remove('cell-billable', 'cell-unpriced', 'bg-emerald-50/60', 'ring-emerald-200', 'bg-amber-50/70', 'ring-amber-300');
+        input.classList.remove('!border-amber-400', '!bg-amber-50/50');
+
+        if (isApproved && !isNaN(numVal) && numVal > 0) {
+            td.classList.add('cell-billable', 'bg-emerald-50/60', 'ring-1', 'ring-inset', 'ring-emerald-200');
+            if (indicator) {
+                indicator.innerHTML = '<span class="inline-flex items-center gap-0.5 text-[8px] font-bold text-emerald-700 bg-emerald-100/90 px-1 py-0.5 rounded border border-emerald-300" title="Approved & valid for billing"><svg class="w-2 h-2 text-emerald-600" fill="none"><use href="#mx-check"/></svg> Approved</span>';
+            }
+        } else if (isApproved && (isNaN(numVal) || numVal <= 0)) {
+            td.classList.add('cell-unpriced', 'bg-amber-50/70', 'ring-1', 'ring-inset', 'ring-amber-300');
+            input.classList.add('!border-amber-400', '!bg-amber-50/50');
+            if (indicator) {
+                indicator.innerHTML = '<span class="inline-flex items-center gap-0.5 text-[8px] font-bold text-amber-800 bg-amber-100 px-1 py-0.5 rounded border border-amber-300" title="Approved record has zero/missing price. Not billable.">Price Missing</span>';
+            }
+        } else {
+            if (indicator) {
+                indicator.innerHTML = '<span class="text-[8px] font-medium text-slate-400">Pending</span>';
+            }
+        }
+    }
+
     /* ── Price group (matrix category) switcher ───────────────── */
     function switchMatrixCategory(cat) {
         currentMatrixCategory = cat;
@@ -773,6 +857,11 @@
             input.value = vals[cat] || '';
             input.classList.toggle('is-changed', !!changed[cat]);
             input.classList.toggle('text-slate-800', !changed[cat]);
+
+            const td = input.closest('td');
+            if (td) {
+                updateCellStatusVisual(td, input, vals[cat]);
+            }
         });
     }
 
@@ -816,6 +905,15 @@
                 input.dataset.priceA = data.price_a !== null ? Number(data.price_a).toFixed(2) : '';
                 input.dataset.priceB = data.price_b !== null ? Number(data.price_b).toFixed(2) : '';
                 input.dataset.priceC = data.price_c !== null ? Number(data.price_c).toFixed(2) : '';
+
+                const td = container.closest('td');
+                if (td) {
+                    td.dataset.approvalStatus = data.status || 'approved';
+                    td.dataset.priceA = input.dataset.priceA;
+                    td.dataset.priceB = input.dataset.priceB;
+                    td.dataset.priceC = input.dataset.priceC;
+                    updateCellStatusVisual(td, input, input.value);
+                }
 
                 if (unitInput && data.price_unit) {
                     const normalized = String(data.price_unit).toLowerCase();

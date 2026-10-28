@@ -196,7 +196,8 @@ class DailyPriceMatrixController extends Controller
         $monthApprovals = DailyPriceApproval::query()
             ->whereIn('product_id', $productIds)
             ->where('grade', $qualityGrade)
-            ->whereBetween('business_date', [$matrixStartDate->toDateString(), $matrixEndDate->toDateString()])
+            ->whereDate('business_date', '>=', $matrixStartDate->toDateString())
+            ->whereDate('business_date', '<=', $matrixEndDate->toDateString())
             ->get()
             ->groupBy('product_id');
 
@@ -208,7 +209,7 @@ class DailyPriceMatrixController extends Controller
         $previousDayApprovals = DailyPriceApproval::query()
             ->whereIn('product_id', $productIds)
             ->where('grade', $qualityGrade)
-            ->where('business_date', $previousDate)
+            ->whereDate('business_date', $previousDate)
             ->get()
             ->keyBy('product_id');
 
@@ -248,6 +249,15 @@ class DailyPriceMatrixController extends Controller
                     $prevPriceC = $priceC;
                 }
 
+                $activeTierPrice = match ($matrixCategory) {
+                    'b' => $priceB,
+                    'c' => $priceC,
+                    default => $priceA,
+                };
+                $isApproved = ($app?->status === 'approved');
+                $isBillable = $isApproved && $activeTierPrice !== null && (float) $activeTierPrice > 0.0;
+                $isUnpriced = $isApproved && ($activeTierPrice === null || (float) $activeTierPrice <= 0.0);
+
                 $dailyPrices[$dateStr] = [
                     'approval_id' => $app?->id,
                     'price_a' => $priceA,
@@ -259,11 +269,16 @@ class DailyPriceMatrixController extends Controller
                     'changed_b' => $changedB,
                     'changed_c' => $changedC,
                     'status' => $app?->status ?? 'none',
+                    'is_approved' => $isApproved,
+                    'is_billable' => $isBillable,
+                    'is_unpriced' => $isUnpriced,
+                    'active_price' => $activeTierPrice,
                 ];
             }
 
             $latestApprovedDate = null;
             $latestApprovedPrice = null;
+            $hasUnpricedActive = false;
             foreach ($matrixDates as $dateStr => $dateInfo) {
                 $cellData = $dailyPrices[$dateStr] ?? null;
                 if (! $cellData || ($cellData['status'] ?? 'none') !== 'approved') {
@@ -275,7 +290,9 @@ class DailyPriceMatrixController extends Controller
                     'c' => $cellData['price_c'] ?? null,
                     default => null,
                 };
-                if ($candidatePrice === null) {
+                if ($candidatePrice === null || (float) $candidatePrice <= 0.0) {
+                    $hasUnpricedActive = true;
+
                     continue;
                 }
                 if ($latestApprovedDate === null || $dateStr > $latestApprovedDate) {
@@ -310,6 +327,7 @@ class DailyPriceMatrixController extends Controller
                 'row_unit_options' => $rowUnitOptions,
                 'latest_approved_date' => $latestApprovedDate,
                 'latest_approved_price' => $latestApprovedPrice,
+                'has_unpriced_active' => $hasUnpricedActive,
                 'base_price' => (float) $product->base_price,
                 'prices' => $dailyPrices,
                 'previous_day' => [
@@ -450,6 +468,10 @@ class DailyPriceMatrixController extends Controller
                 'price_b' => $approval->price_b,
                 'price_c' => $approval->price_c,
                 'price_unit' => $approval->price_unit,
+                'status' => $approval->status,
+                'is_approved' => $approval->status === 'approved',
+                'is_billable' => $approval->status === 'approved' && (float) ($cat === 'b' ? $approval->price_b : ($cat === 'c' ? $approval->price_c : $approval->price_a)) > 0,
+                'is_unpriced' => $approval->status === 'approved' && (float) ($cat === 'b' ? $approval->price_b : ($cat === 'c' ? $approval->price_c : $approval->price_a)) <= 0,
             ]);
         }
 
