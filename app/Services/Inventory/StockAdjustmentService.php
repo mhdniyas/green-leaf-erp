@@ -99,6 +99,126 @@ class StockAdjustmentService
         });
     }
 
+    /**
+     * Preview the effects of emptying a warehouse without making any database changes.
+     *
+     * @return array{
+     *     warehouse_id: int,
+     *     warehouse_name: string,
+     *     business_date: string,
+     *     positive_lots_count: int,
+     *     positive_stock_kg: float,
+     *     pending_batches_count: int,
+     *     pending_batches_kg: float,
+     *     unconfirmed_receive_pending_batches_count: int,
+     *     unconfirmed_receive_pending_batches_kg: float,
+     *     negative_balance_lines_count: int,
+     *     negative_balance_kg: float,
+     *     estimated_adjustments_count: int,
+     *     affected_products_count: int
+     * }
+     */
+    public function previewEmptyWarehouse(Warehouse $warehouse, string $businessDate): array
+    {
+        $positiveTypes = [StockMovementType::In->value, StockMovementType::SaleReversal->value];
+        $negativeTypes = [StockMovementType::Out->value, StockMovementType::Wastage->value, StockMovementType::Sale->value, StockMovementType::Adjustment->value];
+
+        $lots = StockMovement::query()
+            ->where('warehouse_id', $warehouse->id)
+            ->selectRaw(
+                'product_id, batch_id, grade, MAX(cost_per_unit) as cost_per_unit, '.
+                'SUM(CASE WHEN type IN (?, ?) THEN quantity WHEN type IN (?, ?, ?, ?) THEN -quantity ELSE 0 END) as available_quantity',
+                [...$positiveTypes, ...$negativeTypes],
+            )
+            ->groupBy('product_id', 'batch_id', 'grade')
+            ->havingRaw('available_quantity > 0.0001')
+            ->get();
+
+        $pendingBatches = StockBatch::query()
+            ->where('warehouse_id', $warehouse->id)
+            ->where('status', BatchStatus::Pending->value)
+            ->where('warehouse_receive_pending', false)
+            ->get();
+
+        $pendingBatchesKg = 0.0;
+        foreach ($pendingBatches as $batch) {
+            $writtenOff = (float) StockMovement::query()
+                ->where('batch_id', $batch->id)
+                ->where('grade', ProductGrade::Unsorted->value)
+                ->whereIn('type', [StockMovementType::Wastage->value, StockMovementType::Adjustment->value])
+                ->sum('quantity');
+            $availableQuantity = max(0.0, (float) $batch->remaining_qty - $writtenOff);
+
+            if ($availableQuantity > 0.0001) {
+                $pendingBatchesKg += $availableQuantity;
+                $lots->push((object) [
+                    'product_id' => $batch->product_id,
+                    'batch_id' => $batch->id,
+                    'grade' => ProductGrade::Unsorted->value,
+                    'cost_per_unit' => $batch->cost_per_kg,
+                    'available_quantity' => $availableQuantity,
+                ]);
+            }
+        }
+
+        $unconfirmedBatches = StockBatch::query()
+            ->where('warehouse_id', $warehouse->id)
+            ->where('status', BatchStatus::Pending->value)
+            ->where('warehouse_receive_pending', true)
+            ->get();
+
+        $currentStocks = $this->stockMovements->currentStockByProductAndGrade(
+            date: $businessDate,
+            warehouseId: $warehouse->id
+        );
+
+        $handledProductIds = $lots->pluck('product_id')->unique()->all();
+        $negativeLines = [];
+        $negativeTotalKg = 0.0;
+
+        foreach ($currentStocks as $row) {
+            $productId = (int) $row->product_id;
+            if (in_array($productId, $handledProductIds, true)) {
+                continue;
+            }
+
+            $currentQty = round((float) $row->current_stock, 3);
+            if (abs($currentQty) > 0.0001) {
+                $handledProductIds[] = $productId;
+                if ($currentQty < 0) {
+                    $negativeTotalKg += abs($currentQty);
+                    $negativeLines[] = [
+                        'product_id' => $productId,
+                        'grade' => $row->grade,
+                        'current_stock' => $currentQty,
+                    ];
+                }
+            }
+        }
+
+        $affectedProductIds = array_unique(array_merge(
+            $lots->pluck('product_id')->all(),
+            $unconfirmedBatches->pluck('product_id')->all(),
+            $handledProductIds
+        ));
+
+        return [
+            'warehouse_id' => (int) $warehouse->id,
+            'warehouse_name' => (string) $warehouse->name,
+            'business_date' => $businessDate,
+            'positive_lots_count' => $lots->count(),
+            'positive_stock_kg' => round((float) $lots->sum('available_quantity'), 3),
+            'pending_batches_count' => $pendingBatches->count(),
+            'pending_batches_kg' => round($pendingBatchesKg, 3),
+            'unconfirmed_receive_pending_batches_count' => $unconfirmedBatches->count(),
+            'unconfirmed_receive_pending_batches_kg' => round((float) $unconfirmedBatches->sum('total_kg'), 3),
+            'negative_balance_lines_count' => count($negativeLines),
+            'negative_balance_kg' => round($negativeTotalKg, 3),
+            'estimated_adjustments_count' => count($handledProductIds),
+            'affected_products_count' => count($affectedProductIds),
+        ];
+    }
+
     public function emptyWarehouse(Warehouse $warehouse, string $businessDate, int $userId): int
     {
         return DB::transaction(function () use ($warehouse, $businessDate, $userId): int {
@@ -140,7 +260,27 @@ class StockAdjustmentService
                         'available_quantity' => $availableQuantity,
                     ]);
                 }
+
+                // Close pre-reset pending batch so it cannot be sorted post-reset
+                $batch->update([
+                    'status' => BatchStatus::Closed,
+                    'notes' => trim(($batch->notes ?? '').' [Closed during warehouse reset baseline isolation]'),
+                ]);
             }
+
+            // Close pre-reset unconfirmed receive-pending batches so they cannot inject stock post-reset
+            StockBatch::query()
+                ->where('warehouse_id', $warehouse->id)
+                ->where('status', BatchStatus::Pending->value)
+                ->where('warehouse_receive_pending', true)
+                ->lockForUpdate()
+                ->get()
+                ->each(function (StockBatch $batch): void {
+                    $batch->update([
+                        'status' => BatchStatus::Closed,
+                        'notes' => trim(($batch->notes ?? '').' [Closed unconfirmed batch during warehouse reset baseline isolation]'),
+                    ]);
+                });
 
             $adjustmentCount = 0;
             $handledProductIds = [];

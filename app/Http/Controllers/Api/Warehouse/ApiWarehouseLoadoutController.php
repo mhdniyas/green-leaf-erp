@@ -20,6 +20,7 @@ use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Services\Warehouse\AutoLoadAllService;
+use App\Services\Warehouse\WarehouseDispatchService;
 use App\Support\PerformanceProbe;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
@@ -36,6 +37,7 @@ class ApiWarehouseLoadoutController extends Controller
         private readonly StockLedgerService $stockLedgerService,
         private readonly PriceBoardService $priceBoardService,
         private readonly ShopInvoiceService $shopInvoiceService,
+        private readonly WarehouseDispatchService $dispatchService,
     ) {}
 
     /**
@@ -869,54 +871,16 @@ class ApiWarehouseLoadoutController extends Controller
 
         $partialDelivery = $request->boolean('partial', false);
 
-        if ($this->duplicateMergeCandidates($shopOrder->items)->isNotEmpty()) {
-            return response()->json(['success' => false, 'message' => 'Duplicate product rows found. Merge duplicates first.'], 422);
-        }
-
-        if ($shopOrder->delivery_status === 'in_transit') {
-            return response()->json(['success' => false, 'message' => 'Order is already in transit.'], 422);
-        }
-
-        if ($shopOrder->delivery_status !== 'ready_for_dispatch') {
-            return response()->json(['success' => false, 'message' => 'Order is not ready for delivery.'], 422);
-        }
-
-        $remainingItems = $shopOrder->items()
-            ->where(function ($query): void {
-                $query->where('sorting_status', '!=', 'loaded')
-                    ->orWhereColumn('loaded_qty', '<', 'approved_qty');
-            })
-            ->get();
-
-        if (! $partialDelivery && $remainingItems->isNotEmpty()) {
-            return response()->json(['success' => false, 'message' => 'Order has short-loaded items. Use partial delivery.'], 422);
-        }
-
-        if ($partialDelivery && $remainingItems->isEmpty()) {
-            return response()->json(['success' => false, 'message' => 'All items are fully loaded. Use regular delivery.'], 422);
-        }
-
         try {
-            DB::transaction(function () use ($shopOrder, $request) {
-                ShopOrder::lockForUpdate()->find($shopOrder->id);
+            $this->dispatchService->dispatch($shopOrder, $request->user(), $partialDelivery);
+        } catch (ValidationException $e) {
+            $firstError = collect($e->errors())->flatten()->first() ?? $e->getMessage();
 
-                $shopOrder->update([
-                    'delivery_status' => 'in_transit',
-                    'is_allocation_completed' => true,
-                ]);
-
-                $userId = (int) $request->user()->id;
-                $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
-                $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
-
-                if (! $invoice->isFinalLocked()) {
-                    $this->shopInvoiceService->repriceInvoice(
-                        $invoice,
-                        $userId,
-                        "Invoice recalculated during delivery transition for order {$shopOrder->order_number}."
-                    );
-                }
-            });
+            return response()->json([
+                'success' => false,
+                'message' => $firstError,
+                'errors' => $e->errors(),
+            ], 422);
         } catch (Throwable $e) {
             return response()->json(['success' => false, 'message' => 'Move to delivery failed: '.$e->getMessage()], 500);
         }

@@ -26,6 +26,7 @@ use App\Services\Inventory\WastageService;
 use App\Services\Purchasing\AdvanceReceiveReconciliationService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
+use App\Services\Warehouse\WarehouseDispatchService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -43,6 +44,7 @@ class WarehouseReceiverController extends Controller
         private readonly StockLedgerService $stockLedgerService,
         private readonly WarehouseReceiveRepository $warehouseReceiveRepository,
         private readonly StockMovementRepository $stockMovementRepository,
+        private readonly WarehouseDispatchService $dispatchService,
     ) {}
 
     /**
@@ -1063,28 +1065,22 @@ class WarehouseReceiverController extends Controller
     {
         $this->authorizeReceiverAccess($request);
 
-        if ($order->delivery_status !== 'ready_for_dispatch') {
-            return redirect()->back()->withErrors(['This order is not ready for dispatch or already dispatched.']);
-        }
+        $partial = $request->boolean('partial', false);
 
         try {
-            DB::transaction(function () use ($order, $request) {
-                $userId = $request->user()->id;
+            $this->dispatchService->dispatch($order, $request->user(), $partial);
 
-                $order->update([
-                    'delivery_status' => 'in_transit',
-                    'is_allocation_completed' => true,
-                ]);
-
-                activity()
-                    ->performedOn($order)
-                    ->causedBy($userId)
-                    ->log('shop_order.marked_out_for_delivery');
-            });
+            $msg = $partial
+                ? "Order {$order->order_number} marked out for delivery as a partial delivery."
+                : "Order {$order->order_number} marked out for delivery successfully.";
 
             return redirect()->route('warehouse.receiver.checklist', ['date' => $order->business_date->format('Y-m-d'), 'tab' => 'confirmed'])
-                ->with('success', "Order {$order->order_number} marked out for delivery successfully.");
-        } catch (\Exception $e) {
+                ->with('success', $msg);
+        } catch (ValidationException $e) {
+            $firstError = collect($e->errors())->flatten()->first() ?? $e->getMessage();
+
+            return redirect()->back()->withErrors([$firstError]);
+        } catch (\Throwable $e) {
             return redirect()->back()->withErrors([$e->getMessage()]);
         }
     }

@@ -18,6 +18,7 @@ use App\Services\Inventory\StockLedgerService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
+use App\Services\Warehouse\WarehouseDispatchService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -34,6 +35,7 @@ class WarehouseLoadoutController extends Controller
         private readonly PriceBoardService $priceBoardService,
         private readonly ShopInvoiceService $shopInvoiceService,
         private readonly ShopOrderLoadoutRepository $shopOrderLoadoutRepository,
+        private readonly WarehouseDispatchService $dispatchService,
     ) {}
 
     /**
@@ -817,76 +819,12 @@ class WarehouseLoadoutController extends Controller
     {
         $this->authorizeAccess($request);
 
-        if ($this->duplicateMergeCandidates($shopOrder->items)->isNotEmpty()) {
-            return redirect()->back()->withErrors(['Duplicate product rows found. Merge duplicates before moving to delivery.']);
-        }
-
-        if ($shopOrder->delivery_status === 'in_transit') {
-            return redirect()->back()->withErrors(['This order is already moved to delivery. Inventory was already updated.']);
-        }
-
-        if ($shopOrder->delivery_status === 'delivered') {
-            return redirect()->back()->withErrors(['This order is already delivered.']);
-        }
-
-        if ($shopOrder->delivery_status !== 'ready_for_dispatch') {
-            return redirect()->back()->withErrors(['Order is not ready for delivery. Save loadout first.']);
-        }
-
-        $loadedItems = $shopOrder->items()
-            ->where('sorting_status', 'loaded')
-            ->where('loaded_qty', '>', 0)
-            ->with('product')
-            ->get();
-
-        $remainingItems = $shopOrder->items()
-            ->where(function ($query): void {
-                $query->where('sorting_status', '!=', 'loaded')
-                    ->orWhereColumn('loaded_qty', '<', 'approved_qty');
-            })
-            ->get();
-
-        if ($loadedItems->isEmpty()) {
-            return redirect()->back()->withErrors(['Please load at least one item before moving to delivery.']);
-        }
-
-        if (! $partialDelivery && $remainingItems->isNotEmpty()) {
-            return redirect()->back()->withErrors(['This order still has unfulfilled items. Use partial delivery instead.']);
-        }
-
-        if ($partialDelivery && $remainingItems->isEmpty()) {
-            return redirect()->back()->withErrors(['All items are fully loaded. Use the regular move to delivery action.']);
-        }
-
         try {
-            DB::transaction(function () use ($shopOrder, $partialDelivery, $remainingItems, $request) {
-                // Lock order
-                ShopOrder::lockForUpdate()->find($shopOrder->id);
-
-                $shopOrder->update([
-                    'delivery_status' => 'in_transit',
-                    'is_allocation_completed' => true,
-                    'delivery_notes' => $partialDelivery
-                        ? 'Moved to delivery as a partial delivery with '.$remainingItems->count().' item(s) still pending loadout.'
-                        : $shopOrder->delivery_notes,
-                ]);
-
-                $userId = (int) $request->user()->id;
-                $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
-                $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
-
-                if (! $invoice->isFinalLocked()) {
-                    $this->shopInvoiceService->repriceInvoice(
-                        $invoice,
-                        $userId,
-                        $partialDelivery
-                            ? "Invoice recalculated during partial delivery transition for order {$shopOrder->order_number}."
-                            : "Invoice recalculated during delivery transition for order {$shopOrder->order_number}."
-                    );
-                }
-            });
+            $this->dispatchService->dispatch($shopOrder, $request->user(), $partialDelivery);
         } catch (ValidationException $e) {
-            return redirect()->back()->withErrors([$e->getMessage() ?: 'Invoice recalculation failed. Delivery move was cancelled.']);
+            $firstError = collect($e->errors())->flatten()->first() ?? $e->getMessage();
+
+            return redirect()->back()->withErrors([$firstError ?: 'Invoice recalculation failed. Delivery move was cancelled.']);
         } catch (Throwable $e) {
             return redirect()->back()->withErrors([$e->getMessage()]);
         }
