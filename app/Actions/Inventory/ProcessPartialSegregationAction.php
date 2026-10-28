@@ -38,7 +38,8 @@ class ProcessPartialSegregationAction
         int $userId,
         ?string $notes = null,
         ?string $clientSubmissionId = null,
-        ?WastageReason $damageReason = null
+        ?WastageReason $damageReason = null,
+        bool $immediateWriteOff = true
     ): array {
         if ($quantity <= 0.001) {
             throw ValidationException::withMessages([
@@ -57,7 +58,7 @@ class ProcessPartialSegregationAction
             ]);
         }
 
-        return DB::transaction(function () use ($batch, $targetGrade, $quantity, $userId, $notes, $clientSubmissionId, $damageReason): array {
+        return DB::transaction(function () use ($batch, $targetGrade, $quantity, $userId, $notes, $clientSubmissionId, $damageReason, $immediateWriteOff): array {
             /** @var StockBatch $lockedBatch */
             $lockedBatch = StockBatch::query()->whereKey($batch->id)->lockForUpdate()->firstOrFail();
 
@@ -152,7 +153,7 @@ class ProcessPartialSegregationAction
             $sourceGradeVal = $lockedBatch->purchase_grade ?: 'U';
 
             // Case A: Segregation to Unsellable Damage (Write-off)
-            if ($targetGrade === ProductGrade::Damage) {
+            if ($targetGrade === ProductGrade::Damage && $immediateWriteOff) {
                 $damageNotes = $notes ?: "Damaged / unsellable write-off from batch {$lockedBatch->reference}";
                 if (! empty($clientSubmissionId)) {
                     $damageNotes .= " [submission_id:{$clientSubmissionId}]";

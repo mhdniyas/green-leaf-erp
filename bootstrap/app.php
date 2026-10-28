@@ -72,10 +72,16 @@ return Application::configure(basePath: dirname(__DIR__))
 
             if ($request->routeIs('admin.accounting.*')) {
                 if (AccountingAccess::canViewDashboard($user)) {
-                    return redirect()->route('admin.accounting.index', ['date' => $navDate])->with('error', $errorMessage);
+                    if (! $request->routeIs('admin.accounting.index')) {
+                        return redirect()->route('admin.accounting.index', ['date' => $navDate])->with('error', $errorMessage);
+                    }
                 }
 
-                return redirect()->route('dashboard')->with('error', $errorMessage);
+                if (! $request->routeIs('dashboard')) {
+                    return redirect()->route('dashboard')->with('error', $errorMessage);
+                }
+
+                return null;
             }
 
             if (
@@ -95,7 +101,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 )
                 && $user?->can('accounting.ledger.view')
             ) {
-                return redirect()->route('finance.vendors.index')->with('error', $errorMessage);
+                if (! $request->routeIs('finance.vendors.index')) {
+                    return redirect()->route('finance.vendors.index')->with('error', $errorMessage);
+                }
             }
 
             if (
@@ -119,7 +127,9 @@ return Application::configure(basePath: dirname(__DIR__))
                     || $user?->can('viewAny', PurchaseInvoice::class)
                 )
             ) {
-                return redirect()->route('purchasing.dashboard')->with('error', $errorMessage);
+                if (! $request->routeIs('purchasing.dashboard')) {
+                    return redirect()->route('purchasing.dashboard')->with('error', $errorMessage);
+                }
             }
 
             if (
@@ -137,10 +147,16 @@ return Application::configure(basePath: dirname(__DIR__))
                 )
                 && $user?->hasAnyPermission(['inventory.product.view', 'inventory.stock.view', 'inventory.sorting.view', 'inventory.wastage.view'])
             ) {
-                return redirect()->route('inventory.dashboard', ['date' => $navDate])->with('error', $errorMessage);
+                if (! $request->routeIs('inventory.dashboard')) {
+                    return redirect()->route('inventory.dashboard', ['date' => $navDate])->with('error', $errorMessage);
+                }
             }
 
-            // Fallback: redirect to main dashboard for all other 403 errors
+            // Fallback: prevent circular redirect loops for dashboard and shop routes
+            if ($request->routeIs('dashboard', 'shop.dashboard', 'shop-owner.*')) {
+                return null;
+            }
+
             return redirect()->route('dashboard')->with('error', $errorMessage);
         };
 

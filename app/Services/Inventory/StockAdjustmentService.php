@@ -143,6 +143,8 @@ class StockAdjustmentService
             }
 
             $adjustmentCount = 0;
+            $handledProductIds = [];
+
             foreach ($lots->groupBy('product_id') as $productId => $productLots) {
                 $systemQty = round((float) $productLots->sum('available_quantity'), 3);
                 $adjustment = StockAdjustment::query()->create([
@@ -171,7 +173,38 @@ class StockAdjustmentService
                     ]);
                 }
 
+                $handledProductIds[] = $productId;
                 $adjustmentCount++;
+            }
+
+            // Also isolate any remaining products with negative or pending stock to zero baseline
+            $currentStocks = $this->stockMovements->currentStockByProductAndGrade(
+                date: $businessDate,
+                warehouseId: $warehouse->id
+            );
+
+            foreach ($currentStocks as $row) {
+                $productId = (int) $row->product_id;
+                if (in_array($productId, $handledProductIds, true)) {
+                    continue;
+                }
+
+                $currentQty = round((float) $row->current_stock, 3);
+                if (abs($currentQty) > 0.0001) {
+                    StockAdjustment::query()->create([
+                        'product_id' => $productId,
+                        'warehouse_id' => $warehouse->id,
+                        'created_by' => $userId,
+                        'business_date' => Carbon::parse($businessDate)->toDateString(),
+                        'system_qty' => $currentQty,
+                        'counted_qty' => 0,
+                        'variance_qty' => -$currentQty,
+                        'category' => $currentQty > 0 ? 'wastage' : 'negative_reconciliation',
+                        'notes' => 'Warehouse reset baseline isolation to zero.',
+                    ]);
+                    $handledProductIds[] = $productId;
+                    $adjustmentCount++;
+                }
             }
 
             return $adjustmentCount;

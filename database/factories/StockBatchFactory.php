@@ -43,6 +43,7 @@ class StockBatchFactory extends Factory
     {
         return $this->state([
             'status' => BatchStatus::Sorted,
+            'warehouse_receive_pending' => false,
             'sorted_at' => now(),
         ]);
     }

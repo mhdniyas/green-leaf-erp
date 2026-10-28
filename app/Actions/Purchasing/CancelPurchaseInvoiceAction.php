@@ -69,9 +69,29 @@ class CancelPurchaseInvoiceAction
                     ->first();
 
                 if ($goodsReceived instanceof GoodsReceived) {
+                    $advanceMatches = AdvanceReceiveMatch::query()
+                        ->where('bill_goods_received_id', $goodsReceived->id)
+                        ->get();
+                    $advanceGrnIds = $advanceMatches->pluck('advance_goods_received_id')->filter()->unique()->all();
+
                     AdvanceReceiveMatch::query()
                         ->where('bill_goods_received_id', $goodsReceived->id)
                         ->delete();
+
+                    foreach ($advanceGrnIds as $advId) {
+                        /** @var GoodsReceived|null $advGrn */
+                        $advGrn = GoodsReceived::find($advId);
+                        if ($advGrn && $advGrn->isWarehouseAdvance()) {
+                            $totalAdvBase = (float) $advGrn->received_base_qty;
+                            $remMatchedBase = (float) AdvanceReceiveMatch::query()
+                                ->where('advance_goods_received_id', $advId)
+                                ->sum('base_qty');
+
+                            if ($remMatchedBase < $totalAdvBase - 0.001) {
+                                $advGrn->update(['bill_status' => 'bill_pending']);
+                            }
+                        }
+                    }
 
                     // If batches have not been confirmed into physical inventory yet,
                     // remove them so they cannot be confirmed as phantom stock for a cancelled bill.

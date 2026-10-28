@@ -216,8 +216,8 @@ class AutoLoadAllService
                         ? ($requestedUnitQty > 0 ? $requestedUnitQty : round($targetQty / $conversionToBase, 2))
                         : null;
 
-                    $currentLoadedQty = (float) ($item->loaded_qty ?? 0.0);
-                    $diff = $targetQty - $currentLoadedQty;
+                    $alreadyDeducted = $this->stockLedgerService->netDeductedQuantityForOrderItem((int) $item->id);
+                    $diff = round($targetQty - $alreadyDeducted, 3);
 
                     if ($diff > 0.001) {
                         $this->stockLedgerService->consumeStockForProductAllowingNegative(
@@ -229,6 +229,13 @@ class AutoLoadAllService
                             $item->id,
                             $itemWarehouseId,
                             $resolvedGrade,
+                        );
+                    } elseif ($diff < -0.001) {
+                        $this->stockLedgerService->reverseStockForOrderItem(
+                            $item->id,
+                            abs($diff),
+                            (int) $actor->id,
+                            "Auto Load All adjustment — Order: {$lockedOrder->order_number}",
                         );
                     }
 

@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web\Admin;
 use App\Actions\Purchasing\ApproveGoodsReceiptAction;
 use App\DTOs\Inventory\WastageEntryData;
 use App\DTOs\Purchasing\GoodsReceivedData;
+use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
 use App\Http\Controllers\Controller;
@@ -3334,7 +3335,7 @@ class AdminCashbookReportsController extends Controller
 
                     $wastageService->record($data, $userId);
 
-                    if ($batch) {
+                    if ($batch && $batch->status === BatchStatus::Sorted) {
                         StockMovement::create([
                             'batch_id' => $batch->id,
                             'warehouse_id' => $targetWarehouseId,

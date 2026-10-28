@@ -71,11 +71,12 @@ class TransferGradeStockAction
             ProductGrade::GradeA,
             ProductGrade::GradeB,
             ProductGrade::GradeC,
+            ProductGrade::Damage,
         ];
 
         if (! in_array($sourceGrade, $validGrades, true) || ! in_array($targetGrade, $validGrades, true)) {
             throw ValidationException::withMessages([
-                'grade' => 'Transfers are only supported between Mixed (U), Grade A, Grade B, and Grade C.',
+                'grade' => 'Transfers are supported between Mixed (U), Grade A, Grade B, Grade C, and Damage (DMG).',
             ]);
         }
 
@@ -158,14 +159,16 @@ class TransferGradeStockAction
 
             // 3. Dispatch to appropriate transfer strategy
             if ($sourceGrade === ProductGrade::Unsorted) {
-                // Group 1: Mixed -> Graded (A, B, C)
+                // Group 1: Mixed -> Graded (A, B, C, DMG)
                 $segregationResult = $this->segregationAction->execute(
-                    $lockedSource,
-                    $targetGrade,
-                    $quantity,
-                    $userId,
-                    $transferNotes,
-                    $clientSubmissionId
+                    batch: $lockedSource,
+                    targetGrade: $targetGrade,
+                    quantity: $quantity,
+                    userId: $userId,
+                    notes: $transferNotes,
+                    clientSubmissionId: $clientSubmissionId,
+                    damageReason: null,
+                    immediateWriteOff: false,
                 );
 
                 $destinationBatch = $segregationResult['child'];

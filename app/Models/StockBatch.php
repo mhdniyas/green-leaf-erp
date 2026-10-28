@@ -276,7 +276,6 @@ class StockBatch extends Model
             ->whereIn('type', [
                 StockMovementType::Out->value,
                 StockMovementType::Sale->value,
-                StockMovementType::Wastage->value,
                 StockMovementType::Adjustment->value,
             ])
             ->sum('quantity');

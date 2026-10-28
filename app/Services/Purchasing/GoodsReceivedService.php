@@ -8,6 +8,7 @@ use App\Actions\Purchasing\ApproveGoodsReceiptAction;
 use App\Actions\Purchasing\RecordGoodsReceiptAction;
 use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Enums\Inventory\BatchStatus;
+use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Purchasing\POStatus;
 use App\Models\AdvanceReceiveMatch;
@@ -557,13 +558,90 @@ class GoodsReceivedService
                         })
                         ->first();
 
+                    $consumedQty = 0.0;
+                    $hasWastage = false;
+                    $isSorted = false;
+
                     if ($batch) {
+                        $consumedQty = (float) StockMovement::query()
+                            ->where('batch_id', $batch->id)
+                            ->whereIn('type', [
+                                StockMovementType::Out,
+                                StockMovementType::Sale,
+                                StockMovementType::Wastage,
+                                StockMovementType::Adjustment,
+                            ])
+                            ->sum('quantity');
+
+                        $hasWastage = $batch->wastageEntries()->exists();
+                        $isSorted = $batch->status === BatchStatus::Sorted && $batch->grading_mode !== 'fixed_purchase_grade';
+                    }
+
+                    $isConsumed = ($consumedQty > 0.0001) || $hasWastage || $isSorted;
+
+                    if ($isConsumed) {
+                        if ($newBaseQty < $consumedQty - 0.0001) {
+                            throw ValidationException::withMessages([
+                                "items.{$index}.received_qty" => "Quantity cannot be reduced below the consumed quantity of {$consumedQty} KG for {$product->name}.",
+                            ]);
+                        }
+                        if ($grnItem->product_id !== $productId) {
+                            throw ValidationException::withMessages([
+                                "items.{$index}.product_id" => "Product {$oldProduct?->name} has consumed stock and cannot be changed.",
+                            ]);
+                        }
+                    }
+
+                    $rawItemGrade = isset($itemInput['grade']) && filled($itemInput['grade'])
+                        ? (string) $itemInput['grade']
+                        : ($grnItem->grade ?? $grn->purchase_grade ?? 'U');
+                    $resolvedGrade = ProductGrade::tryResolve($rawItemGrade)?->value ?? 'U';
+                    $isDirectGraded = in_array($resolvedGrade, ['A', 'B', 'C'], true);
+                    $gradingMode = $itemInput['grading_mode'] ?? ($isDirectGraded ? 'fixed_purchase_grade' : 'sort_required');
+
+                    if ($batch && ! $isConsumed) {
                         $oldBatchTotal = (float) $batch->total_kg;
                         $newBatchTotal = max(0.0, round($oldBatchTotal + $difference, 3));
                         $batch->update([
                             'product_id' => $productId,
                             'total_kg' => $newBatchTotal,
+                            'purchase_grade' => $resolvedGrade,
+                            'grading_mode' => $gradingMode,
+                            'status' => $gradingMode === 'fixed_purchase_grade' ? BatchStatus::Sorted : BatchStatus::Pending,
                         ]);
+
+                        if ($gradingMode === 'fixed_purchase_grade') {
+                            /** @var StockMovement|null $inMovement */
+                            $inMovement = StockMovement::query()
+                                ->where('batch_id', $batch->id)
+                                ->where('type', StockMovementType::In->value)
+                                ->first();
+
+                            if ($inMovement) {
+                                $inMovement->update([
+                                    'quantity' => $newBatchTotal,
+                                    'product_id' => $productId,
+                                    'grade' => $resolvedGrade,
+                                ]);
+                            } else {
+                                StockMovement::query()->create([
+                                    'batch_id' => $batch->id,
+                                    'type' => StockMovementType::In->value,
+                                    'grade' => $resolvedGrade,
+                                    'product_id' => $productId,
+                                    'warehouse_id' => $grn->warehouse_id,
+                                    'created_by' => $userId,
+                                    'quantity' => $newBatchTotal,
+                                    'cost_per_unit' => $batch->cost_per_kg,
+                                    'notes' => "Fixed Grade {$resolvedGrade} advance receipt from {$grn->grn_number}",
+                                ]);
+                            }
+                        } else {
+                            StockMovement::query()
+                                ->where('batch_id', $batch->id)
+                                ->where('type', StockMovementType::In->value)
+                                ->delete();
+                        }
                     }
 
                     // Update item
@@ -572,6 +650,7 @@ class GoodsReceivedService
                         'received_qty' => $newQty,
                         'received_unit' => $newUnit,
                         'variance' => 0.0,
+                        'grade' => $resolvedGrade,
                     ]);
 
                     $auditChanges[] = [
@@ -588,21 +667,29 @@ class GoodsReceivedService
                     ];
                 } else {
                     // New item added to advance
+                    $rawItemGrade = isset($itemInput['grade']) && filled($itemInput['grade'])
+                        ? (string) $itemInput['grade']
+                        : ($grn->purchase_grade ?? 'U');
+                    $resolvedGrade = ProductGrade::tryResolve($rawItemGrade)?->value ?? 'U';
+                    $isDirectGraded = in_array($resolvedGrade, ['A', 'B', 'C'], true);
+                    $gradingMode = $itemInput['grading_mode'] ?? ($isDirectGraded ? 'fixed_purchase_grade' : 'sort_required');
+
                     $newItem = $grn->items()->create([
                         'product_id' => $productId,
                         'received_qty' => $newQty,
                         'received_unit' => $newUnit,
                         'variance' => 0.0,
+                        'grade' => $resolvedGrade,
                     ]);
                     $processedItemIds[] = $newItem->id;
 
-                    $this->stockBatchRepository->create([
+                    $batch = $this->stockBatchRepository->create([
                         'product_id' => $productId,
                         'warehouse_id' => $grn->warehouse_id,
                         'goods_received_id' => $grn->id,
                         'goods_received_item_id' => $newItem->id,
-                        'purchase_grade' => 'A',
-                        'grading_mode' => 'sort_required',
+                        'purchase_grade' => $resolvedGrade,
+                        'grading_mode' => $gradingMode,
                         'created_by' => $userId,
                         'reference' => $this->stockBatchRepository->generateReference(),
                         'received_at' => $data['received_at'] ?? $grn->received_at,
@@ -610,12 +697,30 @@ class GoodsReceivedService
                         'cost_per_kg' => 0.0,
                         'transport_cost' => 0.0,
                         'labour_cost' => 0.0,
-                        'status' => BatchStatus::Pending,
+                        'status' => $gradingMode === 'fixed_purchase_grade' ? BatchStatus::Sorted : BatchStatus::Pending,
                         'warehouse_receive_pending' => false,
                         'warehouse_confirmed_at' => now(),
                         'warehouse_confirmed_by' => $userId,
                         'notes' => "Auto-created from GRN: {$grn->grn_number}",
                     ]);
+
+                    if ($gradingMode === 'fixed_purchase_grade' && $newBaseQty > 0) {
+                        StockMovement::query()->firstOrCreate(
+                            [
+                                'batch_id' => $batch->id,
+                                'type' => StockMovementType::In->value,
+                                'grade' => $batch->purchase_grade,
+                            ],
+                            [
+                                'product_id' => $batch->product_id,
+                                'warehouse_id' => $grn->warehouse_id,
+                                'created_by' => $userId,
+                                'quantity' => $newBaseQty,
+                                'cost_per_unit' => $batch->cost_per_kg,
+                                'notes' => "Fixed Grade {$batch->purchase_grade} advance receipt from {$grn->grn_number}",
+                            ]
+                        );
+                    }
 
                     $auditChanges[] = [
                         'item_id' => $newItem->id,
@@ -643,14 +748,36 @@ class GoodsReceivedService
                         ]);
                     }
 
-                    StockBatch::query()
+                    $batch = StockBatch::query()
                         ->where('goods_received_id', $grn->id)
                         ->where('goods_received_item_id', $oldItem->id)
-                        ->update(['total_kg' => 0.0, 'status' => BatchStatus::Closed]);
-                    StockBatch::query()
-                        ->where('goods_received_id', $grn->id)
-                        ->where('goods_received_item_id', $oldItem->id)
-                        ->delete();
+                        ->first();
+
+                    if ($batch) {
+                        $consumedQty = (float) StockMovement::query()
+                            ->where('batch_id', $batch->id)
+                            ->whereIn('type', [
+                                StockMovementType::Out,
+                                StockMovementType::Sale,
+                                StockMovementType::Wastage,
+                                StockMovementType::Adjustment,
+                            ])
+                            ->sum('quantity');
+
+                        if ($consumedQty > 0.0001 || $batch->wastageEntries()->exists() || ($batch->status === BatchStatus::Sorted && $batch->grading_mode !== 'fixed_purchase_grade')) {
+                            throw ValidationException::withMessages([
+                                'items' => "Cannot remove item {$oldItem->product?->name} because stock has already been consumed downstream.",
+                            ]);
+                        }
+
+                        StockMovement::query()
+                            ->where('batch_id', $batch->id)
+                            ->where('type', StockMovementType::In->value)
+                            ->delete();
+
+                        $batch->update(['total_kg' => 0.0, 'status' => BatchStatus::Closed]);
+                        $batch->delete();
+                    }
 
                     $oldItem->delete();
 

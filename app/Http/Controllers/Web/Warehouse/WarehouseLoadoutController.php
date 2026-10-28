@@ -154,7 +154,8 @@ class WarehouseLoadoutController extends Controller
         $canMoveToLoadout = $shopOrder->delivery_status !== 'delivered' && $shopOrder->delivery_status !== 'pending_delivery';
         $mergeCandidates = $this->duplicateMergeCandidates($shopOrder->items);
         $hasDuplicates = $mergeCandidates->isNotEmpty();
-        $unpricedProductNames = $this->shopInvoiceService->getUnpricedOrderItemNames($shopOrder);
+        $pricingDiagnostics = $this->shopInvoiceService->getPricingDiagnosticsForOrder($shopOrder);
+        $unpricedProductNames = $pricingDiagnostics['unpriced_product_names'];
 
         return view('warehouse.loadout.show', compact(
             'shopOrder',
@@ -169,6 +170,7 @@ class WarehouseLoadoutController extends Controller
             'mergeCandidates',
             'hasDuplicates',
             'unpricedProductNames',
+            'pricingDiagnostics',
         ));
     }
 
@@ -595,9 +597,9 @@ class WarehouseLoadoutController extends Controller
                             ? $actualWeight
                             : max(0.0, (float) ($itemsInput[$key] ?? 0)));
 
-                    // Calculate difference-based deduction
-                    $oldLoadedQty = (float) $rows->where('sorting_status', 'loaded')->sum('loaded_qty');
-                    $diff = $submittedQty - $oldLoadedQty;
+                    // Fix 2: Calculate difference-based deduction against actual net deducted quantity from the ledger
+                    $alreadyDeducted = $this->stockLedgerService->netDeductedQuantityForOrderItems($rows->pluck('id')->all());
+                    $diff = round($submittedQty - $alreadyDeducted, 3);
 
                     $product = Product::find($productId);
                     $warehouseId = $product?->default_warehouse_id;
@@ -717,17 +719,6 @@ class WarehouseLoadoutController extends Controller
                 $anyItemLoaded = $shopOrder->items()->where('sorting_status', 'loaded')->where('loaded_qty', '>', 0)->exists();
                 $newStatus = $anyItemLoaded ? 'ready_for_dispatch' : 'pending_delivery';
                 $shopOrder->update(['delivery_status' => $newStatus]);
-
-                // Synchronize and reprice the invoice immediately on loadout save
-                $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
-                $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
-                if ($invoice && ! $invoice->isFinalLocked()) {
-                    $this->shopInvoiceService->repriceInvoice(
-                        $invoice,
-                        $userId,
-                        "Invoice recalculated during loadout save for order {$shopOrder->order_number}."
-                    );
-                }
             });
         } catch (ValidationException $e) {
             if ($request->wantsJson()) {
@@ -741,15 +732,46 @@ class WarehouseLoadoutController extends Controller
             return redirect()->back()->withErrors($e->errors())->withInput();
         }
 
+        // Synchronize and reprice the invoice immediately on loadout save without rolling back physical saves
+        $invoiceSynced = false;
+        $invoiceError = null;
+
+        try {
+            $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
+            $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
+            if ($invoice && ! $invoice->isFinalLocked()) {
+                $this->shopInvoiceService->repriceInvoice(
+                    $invoice,
+                    $userId,
+                    "Invoice recalculated during loadout save for order {$shopOrder->order_number}."
+                );
+            }
+            $invoiceSynced = true;
+        } catch (ValidationException $e) {
+            $invoiceError = collect($e->errors())->flatten()->first() ?? 'Invoice pricing validation failed';
+        } catch (Throwable $e) {
+            $invoiceError = $e->getMessage();
+        }
+
         $duplicateCount = $this->duplicateMergeCandidates($shopOrder->fresh('items')->items)->count();
 
         if ($request->wantsJson()) {
             return response()->json([
                 'success' => true,
-                'message' => 'Loadout saved successfully.',
+                'loadout_saved' => true,
+                'invoice_synced' => $invoiceSynced,
+                'invoice_error' => $invoiceError,
+                'message' => $invoiceSynced ? 'Loadout saved successfully.' : 'Loadout saved. Invoice sync pending pricing approval: '.$invoiceError,
                 'duplicate_count' => $duplicateCount,
                 'merge_needed' => $duplicateCount > 0,
             ]);
+        }
+
+        if (! $invoiceSynced && $invoiceError) {
+            return redirect()
+                ->route('warehouse.loadout.show', $shopOrder)
+                ->with('success', 'Loadout quantities saved.')
+                ->with('warning', 'Invoice sync pending pricing approval: '.$invoiceError);
         }
 
         return redirect()

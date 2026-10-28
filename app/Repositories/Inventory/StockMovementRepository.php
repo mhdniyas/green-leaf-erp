@@ -102,11 +102,13 @@ class StockMovementRepository extends BaseRepository
                 $q->whereIn('stock_movements.type', [
                     StockMovementType::Out->value,
                     StockMovementType::Sale->value,
-                    StockMovementType::Wastage->value,
                     StockMovementType::Adjustment->value,
                     StockMovementType::SaleReversal->value,
                 ])->orWhere(function ($inQ): void {
                     $inQ->where('stock_movements.type', StockMovementType::In->value)
+                        ->whereDoesntHave('batch', fn ($batchQuery) => $batchQuery->where('status', BatchStatus::Pending->value));
+                })->orWhere(function ($wastageQ): void {
+                    $wastageQ->where('stock_movements.type', StockMovementType::Wastage->value)
                         ->whereDoesntHave('batch', fn ($batchQuery) => $batchQuery->where('status', BatchStatus::Pending->value));
                 });
             })

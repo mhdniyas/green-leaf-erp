@@ -281,12 +281,15 @@ class GradeFirstMixedSecondLoadoutTest extends TestCase
         $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
         $this->assertSame(15.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
 
-        $movements = StockMovement::where('type', StockMovementType::Out->value)->orderBy('id')->get();
-        $this->assertCount(2, $movements);
-        $this->assertSame('B', $movements[0]->grade->value);
-        $this->assertSame(10.0, (float) $movements[0]->quantity);
-        $this->assertSame('U', $movements[1]->grade->value);
-        $this->assertSame(5.0, (float) $movements[1]->quantity);
+        $item = $order->items->first();
+        $this->assertSame(15.0, $this->stockLedgerService->netDeductedQuantityForOrderItem($item->id));
+
+        $itemMovements = StockMovement::where('shop_order_item_id', $item->id)->where('type', StockMovementType::Out->value)->orderBy('id')->get();
+        $this->assertCount(2, $itemMovements);
+        $this->assertSame('B', $itemMovements[0]->grade->value);
+        $this->assertSame(10.0, (float) $itemMovements[0]->quantity);
+        $this->assertSame('B', $itemMovements[1]->grade->value);
+        $this->assertSame(5.0, (float) $itemMovements[1]->quantity);
     }
 
     // -------------------------------------------------------------------------
@@ -309,10 +312,13 @@ class GradeFirstMixedSecondLoadoutTest extends TestCase
         $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
         $this->assertSame(10.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
 
-        $movements = StockMovement::where('type', StockMovementType::Out->value)->get();
-        $this->assertCount(1, $movements);
-        $this->assertSame('U', $movements->first()->grade->value);
-        $this->assertSame(20.0, (float) $movements->first()->quantity);
+        $item = $order->items->first();
+        $this->assertSame(20.0, $this->stockLedgerService->netDeductedQuantityForOrderItem($item->id));
+
+        $itemMovements = StockMovement::where('shop_order_item_id', $item->id)->where('type', StockMovementType::Out->value)->get();
+        $this->assertCount(1, $itemMovements);
+        $this->assertSame('B', $itemMovements->first()->grade->value);
+        $this->assertSame(20.0, (float) $itemMovements->first()->quantity);
     }
 
     // -------------------------------------------------------------------------
@@ -336,10 +342,13 @@ class GradeFirstMixedSecondLoadoutTest extends TestCase
         $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeA));
         $this->assertSame(15.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
 
-        $movements = StockMovement::where('type', StockMovementType::Out->value)->get();
-        $this->assertCount(1, $movements);
-        $this->assertSame('U', $movements->first()->grade->value);
-        $this->assertSame(25.0, (float) $movements->first()->quantity);
+        $item = $order->items->first();
+        $this->assertSame(25.0, $this->stockLedgerService->netDeductedQuantityForOrderItem($item->id));
+
+        $itemMovements = StockMovement::where('shop_order_item_id', $item->id)->where('type', StockMovementType::Out->value)->get();
+        $this->assertCount(1, $itemMovements);
+        $this->assertSame('A', $itemMovements->first()->grade->value);
+        $this->assertSame(25.0, (float) $itemMovements->first()->quantity);
     }
 
     // -------------------------------------------------------------------------
@@ -380,24 +389,17 @@ class GradeFirstMixedSecondLoadoutTest extends TestCase
             ['product' => $this->product, 'grade' => 'B', 'qty' => 15.0, 'selling_price' => 40.0],
         ]);
 
-        $this->actingAs($this->receiver)
+        $response = $this->actingAs($this->receiver)
             ->post(route('warehouse.loadout.save', $order), [
                 'items' => ["{$this->product->id}|B" => 15.0],
-            ])
-            ->assertRedirect();
+            ]);
 
-        $movements = StockMovement::where('type', StockMovementType::Out->value)->orderBy('id')->get();
-        $this->assertCount(3, $movements);
-        $this->assertSame('B', $movements[0]->grade->value);
-        $this->assertSame(5.0, (float) $movements[0]->quantity);
-        $this->assertSame('U', $movements[1]->grade->value);
-        $this->assertSame(5.0, (float) $movements[1]->quantity);
-        // Shortage documented under approved grade B
-        $this->assertSame('B', $movements[2]->grade->value);
-        $this->assertSame(5.0, (float) $movements[2]->quantity);
+        $response->assertSessionHasErrors(['quantity']);
 
-        $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
-        $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
+        // Zero negative stock movements created
+        $this->assertSame(0, StockMovement::where('notes', 'like', '%negative stock allowed%')->count());
+        $this->assertSame(5.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
+        $this->assertSame(5.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
     }
 
     // -------------------------------------------------------------------------
@@ -411,22 +413,19 @@ class GradeFirstMixedSecondLoadoutTest extends TestCase
             ['product' => $this->product, 'grade' => 'B', 'qty' => 10.0, 'selling_price' => 40.0],
         ]);
 
-        $this->actingAs($this->receiver)
+        $response = $this->actingAs($this->receiver)
             ->post(route('warehouse.loadout.save', $order), [
                 'items' => ["{$this->product->id}|B" => 10.0],
-            ])
-            ->assertRedirect();
+            ]);
+
+        $response->assertSessionHasErrors(['quantity']);
 
         // Grade A stock MUST remain untouched at 100.0
         $this->assertSame(100.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeA));
 
-        // Shortage is documented under Grade B (positive available is 0.0)
+        // Available Grade B remains 0.0 with zero negative movements
         $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
-
-        $movements = StockMovement::where('type', StockMovementType::Out->value)->get();
-        $this->assertCount(1, $movements);
-        $this->assertSame('B', $movements->first()->grade->value);
-        $this->assertSame(10.0, (float) $movements->first()->quantity);
+        $this->assertSame(0, StockMovement::where('type', StockMovementType::Out->value)->count());
     }
 
     // -------------------------------------------------------------------------
@@ -755,19 +754,19 @@ class GradeFirstMixedSecondLoadoutTest extends TestCase
         $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
         $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
 
-        // Reversal to 0 kg: returns 10 kg to Mixed, 10 kg to B
+        // Reversal to 0 kg: returns stock to segregated Grade B per Fix 1
         $this->actingAs($this->receiver)
             ->post(route('warehouse.loadout.save', $order), [
                 'items' => ["{$this->product->id}|B" => 0.0],
             ]);
 
-        $this->assertSame(10.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
-        $this->assertSame(10.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
+        $this->assertSame(20.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
+        $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
 
         $reversals = StockMovement::where('type', StockMovementType::SaleReversal->value)->get();
         $this->assertCount(2, $reversals);
-        $revGrades = $reversals->pluck('grade.value')->sort()->values()->all();
-        $this->assertSame(['B', 'U'], $revGrades);
+        $revGrades = $reversals->pluck('grade.value')->unique()->values()->all();
+        $this->assertSame(['B'], $revGrades);
     }
 
     // -------------------------------------------------------------------------
@@ -794,14 +793,13 @@ class GradeFirstMixedSecondLoadoutTest extends TestCase
                 'items' => ["{$this->product->id}|B" => 15.0],
             ]);
 
-        // Grade B was deducted first so it stays fully consumed (0 remaining)
-        $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
-        // Mixed was deducted second, so partial reversal restores 5 kg to Mixed (now 5 remaining)
-        $this->assertSame(5.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
+        // Grade B receives the reversal back to its segregated grade (now 5 remaining)
+        $this->assertSame(5.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
+        $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
 
         $reversals = StockMovement::where('type', StockMovementType::SaleReversal->value)->get();
         $this->assertCount(1, $reversals);
-        $this->assertSame('U', $reversals->first()->grade->value);
+        $this->assertSame('B', $reversals->first()->grade->value);
         $this->assertSame(5.0, (float) $reversals->first()->quantity);
     }
 
@@ -901,10 +899,13 @@ class GradeFirstMixedSecondLoadoutTest extends TestCase
             ])
             ->assertRedirect();
 
-        $movements = StockMovement::where('type', StockMovementType::Out->value)->get();
-        $this->assertCount(1, $movements);
-        $this->assertSame('U', $movements->first()->grade->value);
-        $this->assertSame(20.0, (float) $movements->first()->quantity);
+        $item = $order->items->first();
+        $this->assertSame(20.0, $this->stockLedgerService->netDeductedQuantityForOrderItem($item->id));
+
+        $itemMovements = StockMovement::where('shop_order_item_id', $item->id)->where('type', StockMovementType::Out->value)->get();
+        $this->assertCount(1, $itemMovements);
+        $this->assertSame('B', $itemMovements->first()->grade->value);
+        $this->assertSame(20.0, (float) $itemMovements->first()->quantity);
     }
 
     // -------------------------------------------------------------------------
@@ -927,16 +928,15 @@ class GradeFirstMixedSecondLoadoutTest extends TestCase
             ])
             ->assertRedirect();
 
-        // 15 kg taken from Grade B, remaining 5 kg taken from Mixed
-        $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
-        $this->assertSame(25.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
+        $item = $order->items->first();
+        $this->assertSame(20.0, $this->stockLedgerService->netDeductedQuantityForOrderItem($item->id));
 
-        $movements = StockMovement::where('type', StockMovementType::Out->value)->orderBy('id')->get();
-        $this->assertCount(2, $movements);
-        $this->assertSame('B', $movements[0]->grade->value);
-        $this->assertSame(15.0, (float) $movements[0]->quantity);
-        $this->assertSame('U', $movements[1]->grade->value);
-        $this->assertSame(5.0, (float) $movements[1]->quantity);
+        $itemMovements = StockMovement::where('shop_order_item_id', $item->id)->where('type', StockMovementType::Out->value)->orderBy('id')->get();
+        $this->assertCount(2, $itemMovements);
+        $this->assertSame('B', $itemMovements[0]->grade->value);
+        $this->assertSame(15.0, (float) $itemMovements[0]->quantity);
+        $this->assertSame('B', $itemMovements[1]->grade->value);
+        $this->assertSame(5.0, (float) $itemMovements[1]->quantity);
     }
 
     // -------------------------------------------------------------------------
@@ -1037,11 +1037,11 @@ class GradeFirstMixedSecondLoadoutTest extends TestCase
         $this->assertSame(10.0, (float) $item->loaded_qty);
         $this->assertSame('loaded', $item->sorting_status);
 
-        // Grade A consumed from Mixed stock (U)
-        $movements = StockMovement::where('type', StockMovementType::Out->value)->get();
-        $this->assertCount(1, $movements);
-        $this->assertSame('U', $movements->first()->grade->value);
-        $this->assertSame(10.0, (float) $movements->first()->quantity);
+        // Grade A segregated and consumed from Mixed stock per Fix 1
+        $itemMovements = StockMovement::where('shop_order_item_id', $item->id)->where('type', StockMovementType::Out->value)->get();
+        $this->assertCount(1, $itemMovements);
+        $this->assertSame('A', $itemMovements->first()->grade->value);
+        $this->assertSame(10.0, (float) $itemMovements->first()->quantity);
         $this->assertSame(15.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
     }
 

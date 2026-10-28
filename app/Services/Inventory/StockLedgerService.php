@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Inventory;
 
+use App\Actions\Inventory\ProcessPartialSegregationAction;
 use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
+use App\Enums\Inventory\WastageReason;
+use App\Models\Product;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
@@ -14,9 +17,41 @@ use App\Models\WastageEntry;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class StockLedgerService
 {
+    public function __construct(
+        private readonly ProcessPartialSegregationAction $segregationAction,
+    ) {}
+
+    public function netDeductedQuantityForOrderItem(int $shopOrderItemId): float
+    {
+        return $this->netDeductedQuantityForOrderItems([$shopOrderItemId]);
+    }
+
+    /**
+     * @param  array<int, int>  $shopOrderItemIds
+     */
+    public function netDeductedQuantityForOrderItems(array $shopOrderItemIds): float
+    {
+        if (empty($shopOrderItemIds)) {
+            return 0.0;
+        }
+
+        $out = (float) StockMovement::query()
+            ->whereIn('shop_order_item_id', $shopOrderItemIds)
+            ->where('type', StockMovementType::Out->value)
+            ->sum('quantity');
+
+        $reversals = (float) StockMovement::query()
+            ->whereIn('shop_order_item_id', $shopOrderItemIds)
+            ->where('type', StockMovementType::SaleReversal->value)
+            ->sum('quantity');
+
+        return round(max(0.0, $out - $reversals), 3);
+    }
+
     public function availableSortedStockForProduct(int $productId, ?int $warehouseId = null, ?ProductGrade $grade = null): float
     {
         $lots = $this->sortedLotsForProduct($productId, $warehouseId, $grade);
@@ -115,6 +150,9 @@ class StockLedgerService
         ?int $shopOrderItemId = null,
         ?int $warehouseId = null,
         ?ProductGrade $grade = null,
+        bool $fallbackToUnsorted = true,
+        ?string $wastageDate = null,
+        ?WastageReason $wastageReason = null,
     ): float {
         if ($quantity <= 0.0) {
             return 0.0;
@@ -122,9 +160,21 @@ class StockLedgerService
 
         $targetGrade = $grade ?? ProductGrade::GradeA;
 
-        return DB::transaction(function () use ($productId, $quantity, $userId, $movementType, $notes, $shopOrderItemId, $warehouseId, $targetGrade): float {
+        return DB::transaction(function () use (
+            $productId,
+            $quantity,
+            $userId,
+            $movementType,
+            $notes,
+            $shopOrderItemId,
+            $warehouseId,
+            $targetGrade,
+            $fallbackToUnsorted,
+            $wastageDate,
+            $wastageReason
+        ): float {
             $this->lockStockBatchesForProduct($productId, $warehouseId, $targetGrade);
-            if ($targetGrade !== ProductGrade::Unsorted) {
+            if ($fallbackToUnsorted && $targetGrade !== ProductGrade::Unsorted) {
                 $this->lockStockBatchesForProduct($productId, $warehouseId, ProductGrade::Unsorted);
             }
 
@@ -142,6 +192,8 @@ class StockLedgerService
                 $shopOrderItemId,
                 $warehouseId,
                 $targetGrade,
+                $wastageDate,
+                $wastageReason,
             );
 
             if ($remainingQuantity > 0.0) {
@@ -155,11 +207,13 @@ class StockLedgerService
                     $shopOrderItemId,
                     $warehouseId,
                     $targetGrade,
+                    $wastageDate,
+                    $wastageReason,
                 );
             }
 
-            // 2. Consume remaining from Mixed / Unsorted ('U')
-            if ($remainingQuantity > 0.0 && $targetGrade !== ProductGrade::Unsorted) {
+            // 2. Consume remaining from Mixed / Unsorted ('U') only if fallback enabled
+            if ($fallbackToUnsorted && $remainingQuantity > 0.0 && $targetGrade !== ProductGrade::Unsorted) {
                 [$remainingQuantity, $consumedQuantity] = $this->consumeSortedLots(
                     $productId,
                     $remainingQuantity,
@@ -170,6 +224,8 @@ class StockLedgerService
                     $shopOrderItemId,
                     $warehouseId,
                     ProductGrade::Unsorted,
+                    $wastageDate,
+                    $wastageReason,
                 );
 
                 if ($remainingQuantity > 0.0) {
@@ -183,6 +239,8 @@ class StockLedgerService
                         $shopOrderItemId,
                         $warehouseId,
                         ProductGrade::Unsorted,
+                        $wastageDate,
+                        $wastageReason,
                     );
                 }
             }
@@ -211,6 +269,20 @@ class StockLedgerService
             $this->lockStockBatchesForProduct($productId, $warehouseId, $targetGrade);
             if ($targetGrade !== ProductGrade::Unsorted) {
                 $this->lockStockBatchesForProduct($productId, $warehouseId, ProductGrade::Unsorted);
+            }
+
+            // Fix 4: Validate stock availability before performing deductions or segregation
+            $breakdown = $this->availableLoadoutStockBreakdown($productId, $warehouseId, $targetGrade);
+            $totalAvailable = $breakdown['available_stock'];
+
+            if ($quantity > round($totalAvailable, 3) + 0.001) {
+                $product = Product::find($productId);
+                $productName = $product?->name ?? "Product #{$productId}";
+                $gradeLabel = $targetGrade->value;
+
+                throw ValidationException::withMessages([
+                    'quantity' => "Insufficient stock for {$productName} (Grade {$gradeLabel}). Requested: {$quantity} kg, available: {$totalAvailable} kg (Grade {$gradeLabel}: {$breakdown['grade_stock']} kg, Mixed/U: {$breakdown['mixed_stock']} kg).",
+                ]);
             }
 
             $remainingQuantity = $quantity;
@@ -243,8 +315,98 @@ class StockLedgerService
                 );
             }
 
-            // 2. Consume remaining required quantity from Mixed / Unsorted ('U')
-            if ($remainingQuantity > 0.0 && $targetGrade !== ProductGrade::Unsorted) {
+            // 2. Fix 1: If remaining shortfall exists and requested grade is not Unsorted, auto-segregate from physically available Mixed/U stock into requested grade
+            if ($remainingQuantity > 0.0001 && $targetGrade !== ProductGrade::Unsorted) {
+                // First check pending batches of Unsorted/Mixed
+                foreach ($this->pendingBatchesForProduct($productId, $warehouseId, ProductGrade::Unsorted) as $pendingBatch) {
+                    if ($remainingQuantity <= 0.0001) {
+                        break;
+                    }
+
+                    $availableOnBatch = $this->pendingBatchAvailableQuantity($pendingBatch);
+                    if ($availableOnBatch <= 0.0001) {
+                        continue;
+                    }
+
+                    $segregateQty = min($remainingQuantity, $availableOnBatch);
+                    $segResult = $this->segregationAction->execute(
+                        $pendingBatch,
+                        $targetGrade,
+                        $segregateQty,
+                        $userId,
+                        "Auto-segregated {$segregateQty} kg to {$targetGrade->value} for order item #{$shopOrderItemId}"
+                    );
+
+                    $childBatch = $segResult['child'];
+                    if ($childBatch) {
+                        StockMovement::create([
+                            'product_id' => $productId,
+                            'batch_id' => $childBatch->id,
+                            'created_by' => $userId,
+                            'grade' => $targetGrade->value,
+                            'type' => $movementType->value,
+                            'quantity' => $segregateQty,
+                            'cost_per_unit' => (float) $childBatch->cost_per_kg,
+                            'warehouse_id' => $childBatch->warehouse_id,
+                            'shop_order_item_id' => $shopOrderItemId,
+                            'notes' => $notes,
+                        ]);
+
+                        $remainingQuantity = round($remainingQuantity - $segregateQty, 3);
+                        $consumedQuantity = round($consumedQuantity + $segregateQty, 3);
+                    }
+                }
+
+                // Next check sorted lots of Unsorted/Mixed if shortfall still remains
+                if ($remainingQuantity > 0.0001) {
+                    foreach ($this->sortedLotsForProduct($productId, $warehouseId, ProductGrade::Unsorted) as $sortedLot) {
+                        if ($remainingQuantity <= 0.0001) {
+                            break;
+                        }
+
+                        $availableOnLot = (float) $sortedLot->available_quantity;
+                        if ($availableOnLot <= 0.0001) {
+                            continue;
+                        }
+
+                        $sortedBatch = StockBatch::find($sortedLot->batch_id);
+                        if (! $sortedBatch) {
+                            continue;
+                        }
+
+                        $segregateQty = min($remainingQuantity, $availableOnLot);
+                        $segResult = $this->segregationAction->execute(
+                            $sortedBatch,
+                            $targetGrade,
+                            $segregateQty,
+                            $userId,
+                            "Auto-segregated {$segregateQty} kg to {$targetGrade->value} for order item #{$shopOrderItemId}"
+                        );
+
+                        $childBatch = $segResult['child'];
+                        if ($childBatch) {
+                            StockMovement::create([
+                                'product_id' => $productId,
+                                'batch_id' => $childBatch->id,
+                                'created_by' => $userId,
+                                'grade' => $targetGrade->value,
+                                'type' => $movementType->value,
+                                'quantity' => $segregateQty,
+                                'cost_per_unit' => (float) $childBatch->cost_per_kg,
+                                'warehouse_id' => $childBatch->warehouse_id,
+                                'shop_order_item_id' => $shopOrderItemId,
+                                'notes' => $notes,
+                            ]);
+
+                            $remainingQuantity = round($remainingQuantity - $segregateQty, 3);
+                            $consumedQuantity = round($consumedQuantity + $segregateQty, 3);
+                        }
+                    }
+                }
+            }
+
+            // 3. If targetGrade was Unsorted, consume from Unsorted directly
+            if ($remainingQuantity > 0.0001 && $targetGrade === ProductGrade::Unsorted) {
                 [$remainingQuantity, $consumedQuantity] = $this->consumeSortedLots(
                     $productId,
                     $remainingQuantity,
@@ -257,7 +419,7 @@ class StockLedgerService
                     ProductGrade::Unsorted,
                 );
 
-                if ($remainingQuantity > 0.0) {
+                if ($remainingQuantity > 0.0001) {
                     [$remainingQuantity, $consumedQuantity] = $this->consumePendingBatches(
                         $productId,
                         $remainingQuantity,
@@ -272,27 +434,17 @@ class StockLedgerService
                 }
             }
 
-            if ($remainingQuantity <= 0.0) {
-                return round($consumedQuantity, 3);
+            if ($remainingQuantity > 0.0001) {
+                $product = Product::find($productId);
+                $productName = $product?->name ?? "Product #{$productId}";
+                $gradeLabel = $targetGrade->value;
+
+                throw ValidationException::withMessages([
+                    'quantity' => "Insufficient stock to fulfill loadout for {$productName} (Grade {$gradeLabel}). Unfulfilled shortfall: {$remainingQuantity} kg.",
+                ]);
             }
 
-            // 3. Document remaining shortfall negative quantity under original approved grade
-            $batch = $this->negativeStockBatchForProduct($productId, $userId, $warehouseId, $targetGrade);
-
-            StockMovement::create([
-                'product_id' => $productId,
-                'batch_id' => $batch->id,
-                'created_by' => $userId,
-                'grade' => $targetGrade->value,
-                'type' => $movementType->value,
-                'quantity' => $remainingQuantity,
-                'cost_per_unit' => (float) $batch->cost_per_kg,
-                'warehouse_id' => $batch->warehouse_id,
-                'shop_order_item_id' => $shopOrderItemId,
-                'notes' => $notes.'; negative stock allowed',
-            ]);
-
-            return round($quantity, 3);
+            return round($consumedQuantity, 3);
         });
     }
 
@@ -472,6 +624,8 @@ class StockLedgerService
         ?int $shopOrderItemId = null,
         ?int $warehouseId = null,
         ?ProductGrade $grade = null,
+        ?string $wastageDate = null,
+        ?WastageReason $wastageReason = null,
     ): array {
         foreach ($this->sortedLotsForProduct($productId, $warehouseId, $grade) as $lot) {
             if ($remainingQuantity <= 0.0) {
@@ -499,6 +653,20 @@ class StockLedgerService
                 'notes' => $notes,
             ]);
 
+            if ($movementType === StockMovementType::Wastage) {
+                WastageEntry::create([
+                    'product_id' => $productId,
+                    'batch_id' => (int) $lot->batch_id,
+                    'recorded_by' => $userId,
+                    'grade' => (string) $lot->grade,
+                    'quantity' => $deductionQuantity,
+                    'cost_per_kg' => (float) $lot->cost_per_unit,
+                    'reason' => $wastageReason ?? WastageReason::Unsold,
+                    'wastage_date' => $wastageDate ?? now()->toDateString(),
+                    'notes' => $notes,
+                ]);
+            }
+
             $remainingQuantity -= $deductionQuantity;
             $consumedQuantity += $deductionQuantity;
         }
@@ -519,6 +687,8 @@ class StockLedgerService
         ?int $shopOrderItemId = null,
         ?int $warehouseId = null,
         ?ProductGrade $grade = null,
+        ?string $wastageDate = null,
+        ?WastageReason $wastageReason = null,
     ): array {
         foreach ($this->pendingBatchesForProduct($productId, $warehouseId, $grade) as $batch) {
             if ($remainingQuantity <= 0.0) {
@@ -545,6 +715,20 @@ class StockLedgerService
                 'shop_order_item_id' => $shopOrderItemId,
                 'notes' => $notes,
             ]);
+
+            if ($movementType === StockMovementType::Wastage) {
+                WastageEntry::create([
+                    'product_id' => $productId,
+                    'batch_id' => (int) $batch->id,
+                    'recorded_by' => $userId,
+                    'grade' => $grade?->value ?? ProductGrade::Unsorted->value,
+                    'quantity' => $deductionQuantity,
+                    'cost_per_kg' => (float) $batch->cost_per_kg,
+                    'reason' => $wastageReason ?? WastageReason::Unsold,
+                    'wastage_date' => $wastageDate ?? now()->toDateString(),
+                    'notes' => $notes,
+                ]);
+            }
 
             $remainingQuantity -= $deductionQuantity;
             $consumedQuantity += $deductionQuantity;
@@ -580,8 +764,8 @@ class StockLedgerService
 
     private function pendingBatchAvailableQuantity(StockBatch $batch): float
     {
-        // Pending-batch remaining_qty is the established source for dispatches.
-        // Subtract net write-offs (Out, Sale, Wastage, Adjustment minus SaleReversal).
+        // Pending-batch remaining_qty is the established source for dispatches (already accounts for WastageEntry).
+        // Subtract net write-offs (Out, Sale, Adjustment minus SaleReversal).
         $writeOffQuantity = (float) StockMovement::query()
             ->where('batch_id', $batch->id)
             ->whereIn('type', [

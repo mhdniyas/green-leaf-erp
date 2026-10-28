@@ -83,10 +83,16 @@ class ShopInvoiceService
             return $order->invoice->fresh('items');
         }
 
-        $missingProducts = $this->missingDailyPriceProductNamesForOrder($order);
-        if ($missingProducts !== []) {
+        $diagnostics = $this->getPricingDiagnosticsForOrder($order);
+        if ($diagnostics['has_unpriced']) {
+            $missingProducts = $diagnostics['unpriced_product_names'];
+            $reasons = collect($diagnostics['unpriced_items'])
+                ->map(fn (array $item): string => "{$item['product_name']} (Grade {$item['grade']}): {$item['reason']}")
+                ->unique()
+                ->implode('; ');
+
             throw ValidationException::withMessages([
-                'prices' => 'Daily price matrix is missing for: '.implode(', ', $missingProducts).'. Update daily matrix and reload.',
+                'prices' => 'Daily price matrix is missing or incomplete for: '.implode(', ', $missingProducts).". Date: {$diagnostics['order_business_date']}. Details: {$reasons}",
             ]);
         }
 
@@ -1613,7 +1619,83 @@ class ShopInvoiceService
      */
     public function getUnpricedOrderItemNames(ShopOrder $order): array
     {
-        return $this->missingDailyPriceProductNamesForOrder($order);
+        return $this->getPricingDiagnosticsForOrder($order)['unpriced_product_names'];
+    }
+
+    /**
+     * @return array{
+     *     has_unpriced: bool,
+     *     order_business_date: string,
+     *     price_matrix_date: string,
+     *     shop_price_group: string|null,
+     *     unpriced_product_names: array<int, string>,
+     *     unpriced_items: array<int, array{
+     *         product_id: int,
+     *         product_name: string,
+     *         grade: string,
+     *         price_group: string|null,
+     *         date: string,
+     *         reason: string
+     *     }>
+     * }
+     */
+    public function getPricingDiagnosticsForOrder(ShopOrder $order): array
+    {
+        $order->loadMissing(['shop.priceGroup', 'items.product']);
+        $businessDate = $order->business_date ? $order->business_date->toDateString() : now()->toDateString();
+        $groupName = $order->shop?->priceGroup?->name;
+
+        $unpricedItems = [];
+        $unpricedNames = [];
+
+        foreach ($order->items as $item) {
+            if (! $this->shouldIncludeOrderItemInInvoice($item)) {
+                continue;
+            }
+
+            if (! $item->product || ! $order->shop) {
+                $productName = $item->product?->name ?? 'Unknown Product';
+                $unpricedNames[] = $productName;
+                $unpricedItems[] = [
+                    'product_id' => (int) $item->product_id,
+                    'product_name' => $productName,
+                    'grade' => (string) ($item->product_grade ?? 'A'),
+                    'price_group' => $groupName ? (string) $groupName : 'N/A',
+                    'date' => $businessDate,
+                    'reason' => ! $item->product ? 'Product record not found' : 'Shop record not found',
+                ];
+
+                continue;
+            }
+
+            $grade = (string) ($item->product_grade ?? 'A');
+            try {
+                $this->approvedDailyPriceResolver->resolve($item->product, $order->shop, $order->business_date, $grade);
+            } catch (ValidationException $e) {
+                $firstError = collect($e->errors())->flatten()->first() ?? 'Price not configured';
+                $productLabel = $grade !== 'A' ? "{$item->product->name} (Grade {$grade})" : $item->product->name;
+                $unpricedNames[] = $productLabel;
+                $unpricedItems[] = [
+                    'product_id' => (int) $item->product_id,
+                    'product_name' => $item->product->name,
+                    'grade' => $grade,
+                    'price_group' => $groupName ? (string) $groupName : 'N/A',
+                    'date' => $businessDate,
+                    'reason' => $firstError,
+                ];
+            }
+        }
+
+        $uniqueNames = array_values(array_unique($unpricedNames));
+
+        return [
+            'has_unpriced' => count($unpricedItems) > 0,
+            'order_business_date' => $businessDate,
+            'price_matrix_date' => $businessDate,
+            'shop_price_group' => $groupName ? (string) $groupName : null,
+            'unpriced_product_names' => $uniqueNames,
+            'unpriced_items' => $unpricedItems,
+        ];
     }
 
     /**
@@ -1621,33 +1703,7 @@ class ShopInvoiceService
      */
     private function missingDailyPriceProductNamesForOrder(ShopOrder $order): array
     {
-        $order->loadMissing(['shop.priceGroup', 'items.product']);
-
-        return $order->items
-            ->filter(fn (ShopOrderItem $item): bool => $this->shouldIncludeOrderItemInInvoice($item))
-            ->filter(function (ShopOrderItem $item) use ($order): bool {
-                if (! $item->product || ! $order->shop) {
-                    return true;
-                }
-
-                try {
-                    $grade = (string) ($item->product_grade ?? 'A');
-                    $this->approvedDailyPriceResolver->resolve($item->product, $order->shop, $order->business_date, $grade);
-
-                    return false;
-                } catch (ValidationException) {
-                    return true;
-                }
-            })
-            ->map(function (ShopOrderItem $item): string {
-                $baseName = $item->product?->name ?? 'Unknown Product';
-                $grade = (string) ($item->product_grade ?? 'A');
-
-                return $grade !== 'A' ? "{$baseName} (Grade {$grade})" : $baseName;
-            })
-            ->unique()
-            ->values()
-            ->all();
+        return $this->getPricingDiagnosticsForOrder($order)['unpriced_product_names'];
     }
 
     /**

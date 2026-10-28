@@ -321,6 +321,29 @@ class AdvanceBillLoadoutLifecycleTest extends TestCase
 
     public function test_loadout_records_movement_with_source_warehouse_id(): void
     {
+        $batch = StockBatch::factory()->create([
+            'reference' => 'BATCH-TEST-'.uniqid(),
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'total_kg' => 20.0,
+            'received_at' => '2026-10-15',
+            'status' => BatchStatus::Pending,
+            'warehouse_receive_pending' => false,
+            'purchase_grade' => 'A',
+            'grading_mode' => 'sort_required',
+        ]);
+        StockMovement::create([
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'batch_id' => $batch->id,
+            'type' => StockMovementType::In,
+            'grade' => ProductGrade::GradeA,
+            'quantity' => 20.0,
+            'cost_per_unit' => 10.0,
+            'movement_date' => '2026-10-15',
+            'created_by' => $this->user->id,
+        ]);
+
         $order = ShopOrder::factory()->create([
             'shop_id' => $this->shop->id,
             'business_date' => '2026-10-15',
@@ -337,9 +360,10 @@ class AdvanceBillLoadoutLifecycleTest extends TestCase
             'sorting_status' => 'allocated',
         ]);
 
-        $this->post(route('warehouse.loadout.save', $order), [
+        $response = $this->post(route('warehouse.loadout.save', $order), [
             'items' => [$this->product->id => 15.0],
-        ])->assertRedirect(route('warehouse.loadout.show', $order));
+        ]);
+        $response->assertRedirect(route('warehouse.loadout.show', $order));
 
         $movement = StockMovement::where('product_id', $this->product->id)
             ->where('type', StockMovementType::Out)

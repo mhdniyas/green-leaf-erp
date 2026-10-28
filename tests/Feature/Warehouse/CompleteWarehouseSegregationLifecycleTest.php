@@ -779,9 +779,9 @@ class CompleteWarehouseSegregationLifecycleTest extends TestCase
 
         $this->assertSame(30.0, $reversed);
 
-        // Verification: Both B and Mixed are restored to their exact original physical quantities!
-        $this->assertSame(10.0, $this->stockLedgerService->availableStockForProduct($this->tomato->id, $this->vegWarehouse->id, ProductGrade::GradeB));
-        $this->assertSame(50.0, $this->stockLedgerService->availableStockForProduct($this->tomato->id, $this->vegWarehouse->id, ProductGrade::Unsorted));
+        // Verification: Restored stock returns to segregated Grade B per Fix 1 rule
+        $this->assertSame(30.0, $this->stockLedgerService->availableStockForProduct($this->tomato->id, $this->vegWarehouse->id, ProductGrade::GradeB));
+        $this->assertSame(30.0, $this->stockLedgerService->availableStockForProduct($this->tomato->id, $this->vegWarehouse->id, ProductGrade::Unsorted));
         $this->assertSame(60.0, $this->stockLedgerService->availableStockForProduct($this->tomato->id, $this->vegWarehouse->id));
     }
 
@@ -1248,11 +1248,10 @@ class CompleteWarehouseSegregationLifecycleTest extends TestCase
         $this->assertSame(0.0, $this->stockLedgerService->availableStockForProduct($this->tomato->id, $this->vegWarehouse->id, ProductGrade::GradeB));
         $this->assertSame(70.0, $this->stockLedgerService->availableStockForProduct($this->tomato->id, $this->vegWarehouse->id));
 
-        // Lineage verification: The physical deduction is on the Mixed batch, but shop order item has Grade B
+        // Lineage verification: The physical deduction is on the segregated Grade B batch per Fix 1
         $movement = StockMovement::where('shop_order_item_id', $orderItem->id)->first();
         $this->assertNotNull($movement);
-        $this->assertSame($batchMixed->id, $movement->batch_id);
-        $this->assertSame(ProductGrade::Unsorted, $movement->grade instanceof ProductGrade ? $movement->grade : ProductGrade::tryResolve($movement->grade));
+        $this->assertSame(ProductGrade::GradeB, $movement->grade instanceof ProductGrade ? $movement->grade : ProductGrade::tryResolve($movement->grade));
         $this->assertSame(30.0, (float) $movement->quantity);
         $this->assertSame(25.0, (float) $movement->cost_per_unit);
         $this->assertSame('B', $orderItem->product_grade);
@@ -1300,8 +1299,9 @@ class CompleteWarehouseSegregationLifecycleTest extends TestCase
         );
 
         // Verification of reversal:
-        // Physical Mixed available restores from 30 to 40 kg!
-        $this->assertSame(40.0, $this->stockLedgerService->availableStockForProduct($this->tomato->id, $this->vegWarehouse->id, ProductGrade::Unsorted));
+        // Stock restores to segregated Grade B per Fix 1 (5 kg from regrade + 10 kg from reversal = 15 kg)!
+        $this->assertSame(15.0, $this->stockLedgerService->availableStockForProduct($this->tomato->id, $this->vegWarehouse->id, ProductGrade::GradeB));
+        $this->assertSame(30.0, $this->stockLedgerService->availableStockForProduct($this->tomato->id, $this->vegWarehouse->id, ProductGrade::Unsorted));
         // Total physical available restores from 68 to 78 kg!
         $this->assertSame(78.0, $this->stockLedgerService->availableStockForProduct($this->tomato->id, $this->vegWarehouse->id));
 
@@ -1327,11 +1327,11 @@ class CompleteWarehouseSegregationLifecycleTest extends TestCase
         // Check grade balances sum up exactly to physical available stock
         $gradeBalances = $reconciliation['by_grade'];
         $this->assertSame(15.0, $gradeBalances['A']['available_stock']);
-        $this->assertSame(5.0, $gradeBalances['B']['available_stock']);
+        $this->assertSame(15.0, $gradeBalances['B']['available_stock']);
         $this->assertSame(18.0, $gradeBalances['C']['available_stock']);
-        $this->assertSame(40.0, $gradeBalances['U']['available_stock']);
+        $this->assertSame(30.0, $gradeBalances['U']['available_stock']);
 
-        $sumBalances = 15.0 + 5.0 + 18.0 + 40.0;
+        $sumBalances = 15.0 + 15.0 + 18.0 + 30.0;
         $this->assertSame(78.0, $sumBalances);
         $this->assertSame($reconciliation['total']['physical_available'], $sumBalances);
     }

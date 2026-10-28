@@ -42,7 +42,7 @@ class ApprovedDailyPriceResolver
 
         if (! $group instanceof ShopPriceGroup || ! $group->is_active) {
             throw ValidationException::withMessages([
-                'prices' => 'This shop does not have an active price category assigned.',
+                'prices' => "Shop '{$shop->name}' does not have an active price group assigned.",
             ]);
         }
 
@@ -64,7 +64,7 @@ class ApprovedDailyPriceResolver
 
                 if ($price <= 0.0) {
                     throw ValidationException::withMessages([
-                        'prices' => "Special price for {$product->name} is invalid.",
+                        'prices' => "Special price for {$product->name} on date {$businessDate->toDateString()} is invalid.",
                     ]);
                 }
 
@@ -93,13 +93,13 @@ class ApprovedDailyPriceResolver
 
         if (! $approval instanceof DailyPriceApproval) {
             throw ValidationException::withMessages([
-                'prices' => "Approved daily price is missing for {$product->name} (Grade {$gradeVal}).",
+                'prices' => "Approved daily price is missing for {$product->name} (Grade {$gradeVal}) on {$businessDate->toDateString()} (Price Group {$group->name}).",
             ]);
         }
 
         if ($approval->status !== 'approved' || $approval->approved_at === null) {
             throw ValidationException::withMessages([
-                'prices' => "Daily price for {$product->name} (Grade {$gradeVal}) has not been approved by admin.",
+                'prices' => "Daily price for {$product->name} (Grade {$gradeVal}) on {$businessDate->toDateString()} is '{$approval->status}' and not approved by admin.",
             ]);
         }
 
@@ -107,7 +107,7 @@ class ApprovedDailyPriceResolver
 
         if ($price <= 0.0) {
             throw ValidationException::withMessages([
-                'prices' => "Approved daily price for {$product->name} (Grade {$gradeVal}) is invalid.",
+                'prices' => "Approved daily price column '{$priceColumn}' for {$product->name} (Grade {$gradeVal}) on {$businessDate->toDateString()} is zero or not set.",
             ]);
         }
 

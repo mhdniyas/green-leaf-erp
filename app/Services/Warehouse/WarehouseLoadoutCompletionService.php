@@ -113,21 +113,30 @@ class WarehouseLoadoutCompletionService
                 continue;
             }
 
-            $quantity = (float) ($item->actual_weight ?? $item->loaded_qty ?? 0);
-            if ($quantity <= 0) {
-                continue;
-            }
+            $targetQuantity = (float) ($item->actual_weight ?? $item->loaded_qty ?? 0);
+            $alreadyDeducted = $this->stockLedgerService->netDeductedQuantityForOrderItem($item->id);
+            $diff = round($targetQuantity - $alreadyDeducted, 3);
 
-            $this->stockLedgerService->consumeStockForProductAllowingNegative(
-                $item->product_id,
-                $quantity,
-                $user->id,
-                StockMovementType::Out,
-                "Warehouse loadout completion — Order: {$order->order_number}; Warehouse: {$warehouse->code}",
-                $item->id,
-                $warehouse->id,
-                ProductGrade::from($item->product_grade ?? 'A'),
-            );
+            if ($diff > 0.001) {
+                $itemGrade = ProductGrade::tryResolve($item->product_grade) ?? ProductGrade::GradeA;
+                $this->stockLedgerService->consumeStockForProductAllowingNegative(
+                    $item->product_id,
+                    $diff,
+                    $user->id,
+                    StockMovementType::Out,
+                    "Warehouse loadout completion — Order: {$order->order_number}; Warehouse: {$warehouse->code}",
+                    $item->id,
+                    $warehouse->id,
+                    $itemGrade,
+                );
+            } elseif ($diff < -0.001) {
+                $this->stockLedgerService->reverseStockForOrderItem(
+                    $item->id,
+                    abs($diff),
+                    $user->id,
+                    "Warehouse loadout completion adjustment — Order: {$order->order_number}; Warehouse: {$warehouse->code}",
+                );
+            }
         }
     }
 

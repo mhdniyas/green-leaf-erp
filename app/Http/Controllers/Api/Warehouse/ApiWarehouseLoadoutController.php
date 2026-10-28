@@ -295,7 +295,8 @@ class ApiWarehouseLoadoutController extends Controller
         $canMoveToPartialDelivery = $shopOrder->delivery_status === 'ready_for_dispatch' && $anyLoaded && $hasRemainingBalance;
         $canMoveToLoadout = $shopOrder->delivery_status !== 'delivered' && $shopOrder->delivery_status !== 'pending_delivery';
         $mergeCandidates = $this->duplicateMergeCandidates($shopOrder->items);
-        $unpricedProductNames = $this->shopInvoiceService->getUnpricedOrderItemNames($shopOrder);
+        $pricingDiagnostics = $this->shopInvoiceService->getPricingDiagnosticsForOrder($shopOrder);
+        $unpricedProductNames = $pricingDiagnostics['unpriced_product_names'];
         $loadoutState = $this->loadoutStateSummary($shopOrder, $selectedWarehouseId);
         $probe?->checkpoint('build_status_metadata');
 
@@ -403,6 +404,7 @@ class ApiWarehouseLoadoutController extends Controller
                 'id' => $shopOrder->id,
                 'order_number' => $shopOrder->order_number,
                 'business_date' => $shopOrder->business_date->toDateString(),
+                'price_matrix_date' => $pricingDiagnostics['price_matrix_date'],
                 'delivery_status' => $shopOrder->delivery_status,
                 'display_name' => $shopOrder->loadoutDisplayName(),
                 'delivery_notes' => $shopOrder->delivery_notes,
@@ -411,6 +413,7 @@ class ApiWarehouseLoadoutController extends Controller
                     'name' => $shopOrder->shop->name,
                     'code' => $shopOrder->shop->code,
                     'warehouse_tag' => $shopOrder->shop->warehouse_tag,
+                    'price_group' => $shopOrder->shop->priceGroup?->name,
                 ] : null,
             ],
             'product_groups' => $productGroups,
@@ -426,6 +429,7 @@ class ApiWarehouseLoadoutController extends Controller
             'has_duplicates' => $mergeCandidates->isNotEmpty(),
             'merge_candidates' => $mergeCandidates,
             'unpriced_product_names' => $unpricedProductNames,
+            'pricing_diagnostics' => $pricingDiagnostics,
             'invoice' => $invoiceData,
         ])->setEtag($etag);
     }
@@ -666,8 +670,9 @@ class ApiWarehouseLoadoutController extends Controller
                             ? $actualWeight
                             : max(0.0, (float) ($itemsInput[$key] ?? 0)));
 
-                    $oldLoadedQty = (float) $rows->where('sorting_status', 'loaded')->sum('loaded_qty');
-                    $diff = $submittedQty - $oldLoadedQty;
+                    // Fix 2: Calculate difference-based deduction against actual net deducted quantity from the ledger
+                    $alreadyDeducted = $this->stockLedgerService->netDeductedQuantityForOrderItems($rows->pluck('id')->all());
+                    $diff = round($submittedQty - $alreadyDeducted, 3);
 
                     $product = Product::find($productId);
                     $warehouseId = $product?->default_warehouse_id;
@@ -785,19 +790,8 @@ class ApiWarehouseLoadoutController extends Controller
                 $anyItemLoaded = $shopOrder->items()->where('sorting_status', 'loaded')->where('loaded_qty', '>', 0)->exists();
                 $newStatus = $anyItemLoaded ? 'ready_for_dispatch' : 'pending_delivery';
                 $shopOrder->update(['delivery_status' => $newStatus]);
-
-                // Synchronize and reprice the invoice immediately on loadout save
-                $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
-                $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
-                if ($invoice && ! $invoice->isFinalLocked()) {
-                    $this->shopInvoiceService->repriceInvoice(
-                        $invoice,
-                        $userId,
-                        "Invoice recalculated during loadout save for order {$shopOrder->order_number}."
-                    );
-                }
             });
-            $probe?->checkpoint('transaction_save_and_invoice_sync');
+            $probe?->checkpoint('transaction_save_items');
         } catch (ValidationException $e) {
             $firstError = collect($e->errors())->flatten()->first() ?? 'Validation error';
 
@@ -813,17 +807,48 @@ class ApiWarehouseLoadoutController extends Controller
             ], 500);
         }
 
+        // Synchronize and reprice the invoice immediately on loadout save without rolling back physical saves
+        $invoiceSynced = false;
+        $invoiceError = null;
+
+        try {
+            $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
+            $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
+            if ($invoice && ! $invoice->isFinalLocked()) {
+                $this->shopInvoiceService->repriceInvoice(
+                    $invoice,
+                    $userId,
+                    "Invoice recalculated during loadout save for order {$shopOrder->order_number}."
+                );
+            }
+            $invoiceSynced = true;
+        } catch (ValidationException $e) {
+            $invoiceError = collect($e->errors())->flatten()->first() ?? 'Invoice pricing validation failed';
+        } catch (Throwable $e) {
+            $invoiceError = $e->getMessage();
+        }
+
         $duplicateCount = $this->duplicateMergeCandidates($shopOrder->fresh('items')->items)->count();
+        $pricingDiagnostics = $this->shopInvoiceService->getPricingDiagnosticsForOrder($shopOrder);
         $probe?->checkpoint('duplicate_check');
         $probe?->finish([
             'duplicate_count' => $duplicateCount,
         ]);
 
+        $message = $invoiceSynced
+            ? 'Loadout saved successfully.'
+            : 'Loadout saved. Invoice sync pending pricing approval: '.$invoiceError;
+
         return response()->json([
             'success' => true,
-            'message' => 'Loadout saved successfully.',
+            'loadout_saved' => true,
+            'invoice_synced' => $invoiceSynced,
+            'invoice_error' => $invoiceError,
+            'message' => $message,
             'duplicate_count' => $duplicateCount,
             'merge_needed' => $duplicateCount > 0,
+            'pricing_diagnostics' => $pricingDiagnostics,
+            'unpriced_product_names' => $pricingDiagnostics['unpriced_product_names'],
         ]);
     }
 
@@ -1367,6 +1392,23 @@ class ApiWarehouseLoadoutController extends Controller
             ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
             ->max('updated_at');
 
+        $productIds = $shopOrder->items()->pluck('product_id')->filter()->unique()->all();
+        $orderDate = $shopOrder->business_date ? $shopOrder->business_date->toDateString() : now()->toDateString();
+        $priceApprovalMax = ! empty($productIds)
+            ? (string) DB::table('daily_price_approvals')
+                ->whereIn('product_id', $productIds)
+                ->whereDate('business_date', $orderDate)
+                ->max('updated_at')
+            : '';
+        $specialPriceMax = (! empty($productIds) && $shopOrder->shop_id)
+            ? (string) DB::table('shop_daily_product_prices')
+                ->where('shop_id', $shopOrder->shop_id)
+                ->whereIn('product_id', $productIds)
+                ->whereDate('business_date', $orderDate)
+                ->max('updated_at')
+            : '';
+        $priceVersion = max($priceApprovalMax, $specialPriceMax);
+
         return sha1(implode('|', [
             'loadout-editor-v1',
             $shopOrder->id,
@@ -1375,6 +1417,7 @@ class ApiWarehouseLoadoutController extends Controller
             $itemVersion,
             $invoiceVersion,
             $stateVersion,
+            $priceVersion,
         ]));
     }
 

@@ -20,7 +20,10 @@
                             </h1>
                             <p class="text-[9px] font-semibold text-indigo-300">
                                 Order: <span class="font-mono">{{ $shopOrder->order_number }}</span>
-                                &middot; {{ $shopOrder->business_date->format('d M Y') }}
+                                &middot; Date: <span class="font-bold text-white">{{ $shopOrder->business_date->format('d M Y') }}</span>
+                                @if(isset($pricingDiagnostics['price_matrix_date']))
+                                    &middot; Price Matrix: <span class="font-bold text-amber-300">{{ \Carbon\Carbon::parse($pricingDiagnostics['price_matrix_date'])->format('d M Y') }}</span>
+                                @endif
                             </p>
                         </div>
                     </div>
@@ -225,25 +228,56 @@
 
         @if(!empty($unpricedProductNames))
             <section class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 shadow-sm">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-[0.14em] text-amber-700">Pricing Issue</p>
-                        <h2 class="mt-1 text-sm font-black text-amber-900">{{ count($unpricedProductNames) }} item(s) have
-                            no approved selling price</h2>
-                        <p class="mt-1 text-xs font-semibold text-amber-800">{{ implode(', ', $unpricedProductNames) }}</p>
-                        <p class="mt-1 text-[11px] text-amber-700">These items are blocking invoice generation. Remove them
-                            to proceed with delivery.</p>
+                <div class="flex flex-col gap-3">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[10px] font-black uppercase tracking-[0.14em] text-amber-700">Pricing Issue</span>
+                                <span class="rounded bg-amber-200/70 px-1.5 py-0.5 text-[9px] font-bold text-amber-900">
+                                    Matrix Date: {{ isset($pricingDiagnostics['price_matrix_date']) ? \Carbon\Carbon::parse($pricingDiagnostics['price_matrix_date'])->format('d M Y') : $shopOrder->business_date->format('d M Y') }}
+                                </span>
+                                @if(isset($pricingDiagnostics['shop_price_group']))
+                                    <span class="rounded bg-amber-200/70 px-1.5 py-0.5 text-[9px] font-bold text-amber-900">
+                                        Group: {{ $pricingDiagnostics['shop_price_group'] }}
+                                    </span>
+                                @endif
+                            </div>
+                            <h2 class="mt-1 text-sm font-black text-amber-900">{{ count($unpricedProductNames) }} item(s) have
+                                no approved selling price</h2>
+                            <p class="mt-1 text-[11px] text-amber-700">Physical loadout quantities can be saved, but invoice generation and delivery transition require approved prices.</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <a href="{{ request()->fullUrl() }}"
+                                class="inline-flex items-center justify-center rounded-xl bg-slate-900 px-3 py-2 text-[11px] font-black uppercase tracking-wider text-white hover:bg-slate-800 border-none cursor-pointer text-decoration-none">
+                                Refresh Prices
+                            </a>
+                            <form action="{{ route('warehouse.loadout.remove-unpriced-items', $shopOrder) }}" method="POST"
+                                class="loadout-confirm-form" data-confirm-title="Remove unpriced items"
+                                data-confirm-message="Remove {{ count($unpricedProductNames) }} item(s) with no approved selling price from this order? This cannot be undone."
+                                data-confirm-button="Remove Items">
+                                @csrf
+                                <button type="submit"
+                                    class="inline-flex items-center justify-center rounded-xl bg-amber-600 px-3 py-2 text-[11px] font-black uppercase tracking-wider text-white hover:bg-amber-700 border-none cursor-pointer whitespace-nowrap">
+                                    Remove Unpriced Items
+                                </button>
+                            </form>
+                        </div>
                     </div>
-                    <form action="{{ route('warehouse.loadout.remove-unpriced-items', $shopOrder) }}" method="POST"
-                        class="loadout-confirm-form" data-confirm-title="Remove unpriced items"
-                        data-confirm-message="Remove {{ count($unpricedProductNames) }} item(s) with no approved selling price from this order? This cannot be undone."
-                        data-confirm-button="Remove Items">
-                        @csrf
-                        <button type="submit"
-                            class="inline-flex items-center justify-center rounded-xl bg-amber-600 px-4 py-2 text-[11px] font-black uppercase tracking-wider text-white hover:bg-amber-700 border-none cursor-pointer whitespace-nowrap">
-                            Remove Unpriced Items
-                        </button>
-                    </form>
+
+                    @if(!empty($pricingDiagnostics['unpriced_items']))
+                        <div class="mt-2 rounded-xl bg-white/80 border border-amber-200 p-2.5 space-y-1.5">
+                            @foreach($pricingDiagnostics['unpriced_items'] as $unpricedItem)
+                                <div class="flex items-start justify-between text-xs text-amber-950">
+                                    <div>
+                                        <span class="font-bold">{{ $unpricedItem['product_name'] }}</span>
+                                        <span class="rounded bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px] font-bold ml-1">Grade {{ $unpricedItem['grade'] }}</span>
+                                        <p class="text-[11px] text-rose-700 mt-0.5">{{ $unpricedItem['reason'] }}</p>
+                                    </div>
+                                    <span class="text-[10px] text-slate-500 font-mono">{{ $unpricedItem['date'] }}</span>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
                 </div>
             </section>
         @endif

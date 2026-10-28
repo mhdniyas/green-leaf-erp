@@ -486,9 +486,8 @@ class OptionalPartialWarehouseSegregationTest extends TestCase
         $this->assertNotNull($gradeAMovement);
         $this->assertSame(30.0, (float) $gradeAMovement->quantity);
 
-        $mixedMovement = $outMovements->firstWhere('grade', 'U');
-        $this->assertNotNull($mixedMovement);
-        $this->assertSame(15.0, (float) $mixedMovement->quantity);
+        // Both deductions for the order item are Grade A per Fix 1 (30 kg from existing A, 15 kg from newly segregated A)
+        $this->assertSame(45.0, (float) $outMovements->where('grade', 'A')->sum('quantity'));
 
         // Remaining inventory: 0 Grade A, 55 kg Mixed. Total = 55 kg. (100 - 45 = 55 kg)
         $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeA));

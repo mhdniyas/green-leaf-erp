@@ -20,6 +20,7 @@ use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\WastageEntry;
 use App\Repositories\Inventory\StockMovementRepository;
+use App\Support\ShopOwner\ActiveShopResolver;
 use App\Support\StaffAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -30,6 +31,7 @@ class DashboardController extends Controller
 {
     public function __construct(
         private readonly StockMovementRepository $stockMovements,
+        private readonly ActiveShopResolver $activeShopResolver,
     ) {}
 
     public function __invoke(Request $request): View|RedirectResponse
@@ -41,6 +43,10 @@ class DashboardController extends Controller
         }
 
         if ($user->hasRole('shop')) {
+            if ($this->activeShopResolver->authorizedShops($user)->isEmpty()) {
+                abort(403, 'No authorized shop assigned to your account. Please contact an administrator.');
+            }
+
             return redirect()->route('shop.dashboard');
         }
 
