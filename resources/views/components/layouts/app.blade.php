@@ -712,7 +712,7 @@
                     auth()->user()->can('sort.sheet.view')
                 )
                 @php
-                    $isAdminActive = request()->routeIs('admin.*') || request()->routeIs('sort-sheet.*') || request()->routeIs('segregation.*');
+                    $isAdminActive = request()->routeIs('admin.*') || request()->routeIs('sort-sheet.*') || request()->routeIs('segregation.*') || request()->routeIs('print.*');
                 @endphp
                 <div class="sidebar-group space-y-1">
                     <button
@@ -774,6 +774,9 @@
                         @can('sort.sheet.view')
                         <x-nav-item href="{{ route('sort-sheet.index') }}" :active="request()->routeIs('sort-sheet.*') || request()->routeIs('segregation.*')" :sub="true">
                             Print Dashboard
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('print.dashboard') }}" :active="request()->routeIs('print.*')" :sub="true">
+                            Printing V1
                         </x-nav-item>
                         @endcan
                     </div>

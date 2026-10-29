@@ -1488,4 +1488,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/grid-print', [SortSheetController::class, 'segregationGridPrint'])->name('grid-print');
         Route::get('/print', [SortSheetController::class, 'segregationPdf'])->name('print');
     });
+
+    // ── Printing V1 ─────────────────────────────────────────────────────────────
+    require __DIR__.'/print_v1.php';
 });
