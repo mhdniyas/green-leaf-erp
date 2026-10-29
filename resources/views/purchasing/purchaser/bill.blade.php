@@ -127,16 +127,14 @@
                                 @foreach ($cart->items as $item)
                                     @php
                                         $vendorPriceHint = $vendorPriceHints[$item->product_id] ?? 0;
+                                        $itemGrade = $item->grade ?? $cart->purchase_grade ?? null;
                                     @endphp
                                     <tr class="align-top">
                                         <td class="py-2 pr-1 font-bold">{{ $loop->iteration }}</td>
                                         <td class="py-2 pr-2">
-                                            <p class="font-black text-slate-950">{{ $item->product->name }}</p>
+                                            <p class="font-black text-slate-950">{{ \App\Enums\Inventory\ProductGrade::formatNameWithGrade($item->product->name, $itemGrade) }}</p>
                                             <p class="mt-0.5 text-[10px] font-semibold text-slate-500">
                                                 {{ $item->product->unit }}{{ $vendorPriceHint > 0 ? ' • Prev Rs. '.$formatBillValue((float) $vendorPriceHint) : '' }}
-                                                @if (($item->grade ?? 'A') === 'B')
-                                                    <span class="ml-1 inline-flex items-center rounded px-1 py-0.5 bg-blue-100 text-blue-700 font-black uppercase tracking-wide text-[9px]">Grade B</span>
-                                                @endif
                                             </p>
                                         </td>
                                         <td class="py-2 pr-1 text-right">

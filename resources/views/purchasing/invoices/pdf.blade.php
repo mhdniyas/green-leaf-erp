@@ -57,9 +57,10 @@
         };
 
         $lineItems = collect();
-        if ($invoice->purchaserCart?->items?->isNotEmpty()) {
-            $lineItems = $invoice->purchaserCart->items->map(fn($item) => [
-                'name' => $item->product?->name ?? 'Item',
+        $cart = $invoice->purchaserCart ?: ($invoice->purchaser_cart_id ? \App\Models\PurchaserCart::with('items.product')->find($invoice->purchaser_cart_id) : null);
+        if ($cart?->items?->isNotEmpty()) {
+            $lineItems = $cart->items->map(fn($item) => [
+                'name' => \App\Enums\Inventory\ProductGrade::formatNameWithGrade($item->product?->name ?? 'Item', $item->grade ?? null),
                 'grade' => \App\Enums\Inventory\ProductGrade::formatForInvoice($item->grade ?? null),
                 'grade_badge_class' => \App\Enums\Inventory\ProductGrade::invoiceBadgeClass($item->grade ?? null),
                 'unit' => $item->product?->unit ?? '',
@@ -69,7 +70,7 @@
             ]);
         } elseif ($invoice->goodsReceived?->items?->isNotEmpty()) {
             $lineItems = $invoice->goodsReceived->items->map(fn($item) => [
-                'name' => $item->product?->name ?? 'Item',
+                'name' => \App\Enums\Inventory\ProductGrade::formatNameWithGrade($item->product?->name ?? 'Item', $item->grade ?? null),
                 'grade' => \App\Enums\Inventory\ProductGrade::formatForInvoice($item->grade ?? null),
                 'grade_badge_class' => \App\Enums\Inventory\ProductGrade::invoiceBadgeClass($item->grade ?? null),
                 'unit' => $item->product?->unit ?? 'kg',
@@ -146,7 +147,6 @@
                         <tr>
                             <th class="w-7 py-1 pr-1">SN</th>
                             <th class="py-1 pr-2">ITEM</th>
-                            <th class="w-20 py-1 pr-1">GRADE</th>
                             <th class="w-14 py-1 pr-1 text-right">QTY</th>
                             <th class="w-16 py-1 pr-1 text-right">PRICE</th>
                             <th class="w-20 py-1 text-right">AMT</th>
@@ -160,18 +160,13 @@
                                     <p class="font-black text-slate-950">{{ $item['name'] }}</p>
                                     <p class="mt-0.5 text-[10px] font-semibold text-slate-500">{{ $item['unit'] }}</p>
                                 </td>
-                                <td class="py-2 pr-1">
-                                    <span class="inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider {{ $item['grade_badge_class'] }}">
-                                        {{ $item['grade'] }}
-                                    </span>
-                                </td>
                                 <td class="py-2 pr-1 text-right font-bold text-slate-900">{{ number_format($item['quantity'], 2) }}</td>
                                 <td class="py-2 pr-1 text-right text-slate-700">₹{{ number_format($item['unit_price'], 2) }}</td>
                                 <td class="py-2 text-right font-black text-slate-950">Rs. {{ number_format($item['line_total'], 2) }}</td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="py-4 text-center font-semibold text-slate-500">No items matched on bill.</td>
+                                <td colspan="5" class="py-4 text-center font-semibold text-slate-500">No items matched on bill.</td>
                             </tr>
                         @endforelse
                     </tbody>

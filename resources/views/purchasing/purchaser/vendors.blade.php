@@ -142,7 +142,7 @@
                                     @if ($cart->supplier && $cart->supplier->mobile_number)
                                         @php
                                             $supplierPhoneDigits = preg_replace('/\D+/', '', $cart->supplier->mobile_number);
-                                            $shareItemsText = $cart->items->map(fn($item, $idx) => ($idx+1).'. '.$item->product->name.': '.(float)$item->quantity.' '.$item->product->unit.' @ Rs. '.(float)$item->unit_price)->implode("\n");
+                                            $shareItemsText = $cart->items->map(fn($item, $idx) => ($idx+1).'. '.\App\Enums\Inventory\ProductGrade::formatNameWithGrade($item->product->name, $item->grade ?? $cart->purchase_grade ?? null).': '.(float)$item->quantity.' '.$item->product->unit.' @ Rs. '.(float)$item->unit_price)->implode("\n");
                                             $formattedDateStr = $cart->business_date?->format('d M Y') ?: \Carbon\Carbon::parse($date)->format('d M Y');
                                             $shareMessage = "Green Leaf ERP - Purchase Order\nDate: {$formattedDateStr}\nCart: {$cart->cart_number}\n\n{$shareItemsText}\n\nTotal: Rs. ".number_format($cart->items->sum('line_total') - $cart->discount_amount, 2);
                                             $waLink = 'https://wa.me/'.$supplierPhoneDigits.'?text='.rawurlencode($shareMessage);
@@ -209,7 +209,7 @@
                                             <tr class="align-top">
                                                 <td class="py-2.5 pr-1 text-[11px] font-bold text-slate-400">{{ $loop->iteration }}</td>
                                                 <td class="py-2.5 pr-2">
-                                                    <p class="font-bold text-slate-900 text-xs leading-snug break-words">{{ $item->product->name }}</p>
+                                                    <p class="font-bold text-slate-900 text-xs leading-snug break-words">{{ \App\Enums\Inventory\ProductGrade::formatNameWithGrade($item->product->name, $item->grade ?? $cart->purchase_grade ?? null) }}</p>
                                                     <p class="mt-0.5 text-[10px] font-semibold text-slate-500">
                                                         {{ $item->product->unit }}
                                                         @if ($vendorPriceHint > 0)

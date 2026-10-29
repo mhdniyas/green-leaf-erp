@@ -68,6 +68,44 @@ enum ProductGrade: string
     }
 
     /**
+     * Get short display suffix for bill and invoice items (e.g. '(A)', '(B)', '(C)', '(Mixed)').
+     */
+    public function suffix(): string
+    {
+        return match ($this) {
+            self::GradeA => '(A)',
+            self::GradeB => '(B)',
+            self::GradeC => '(C)',
+            self::Unsorted => '(Mixed)',
+            self::Damage => '(DMG)',
+        };
+    }
+
+    /**
+     * Format a product name with its grade suffix, preventing duplicate suffixes.
+     */
+    public static function formatNameWithGrade(string $productName, string|self|null $grade): string
+    {
+        $trimmedName = trim($productName);
+        if ($grade === null || trim((string) ($grade instanceof self ? $grade->value : $grade)) === '') {
+            return $trimmedName;
+        }
+
+        $resolved = self::tryResolve($grade);
+        if (! $resolved) {
+            return $trimmedName;
+        }
+
+        $suffix = $resolved->suffix();
+
+        if (str_ends_with($trimmedName, $suffix) || str_ends_with($trimmedName, " ({$resolved->value})")) {
+            return $trimmedName;
+        }
+
+        return "{$trimmedName} {$suffix}";
+    }
+
+    /**
      * Format grade for invoice display.
      */
     public static function formatForInvoice(string|self|null $grade): string
