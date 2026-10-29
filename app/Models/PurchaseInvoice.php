@@ -298,9 +298,8 @@ class PurchaseInvoice extends Model
 
     public function itemsGrossTotal(): float
     {
-        $cart = $this->purchaserCart ?: ($this->purchaser_cart_id ? PurchaserCart::with('items')->find($this->purchaser_cart_id) : null);
-        if ($cart?->items?->isNotEmpty()) {
-            return round((float) $cart->items->sum(
+        if ($this->purchaserCart?->items?->isNotEmpty()) {
+            return round((float) $this->purchaserCart->items->sum(
                 fn ($item) => (float) $item->quantity * (float) $item->unit_price
             ), 2);
         }

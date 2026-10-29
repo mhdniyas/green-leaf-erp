@@ -57,12 +57,9 @@
         };
 
         $lineItems = collect();
-        $cart = $invoice->purchaserCart ?: ($invoice->purchaser_cart_id ? \App\Models\PurchaserCart::with('items.product')->find($invoice->purchaser_cart_id) : null);
-        if ($cart?->items?->isNotEmpty()) {
-            $lineItems = $cart->items->map(fn($item) => [
-                'name' => \App\Enums\Inventory\ProductGrade::formatNameWithGrade($item->product?->name ?? 'Item', $item->grade ?? null),
-                'grade' => \App\Enums\Inventory\ProductGrade::formatForInvoice($item->grade ?? null),
-                'grade_badge_class' => \App\Enums\Inventory\ProductGrade::invoiceBadgeClass($item->grade ?? null),
+        if ($invoice->purchaserCart?->items?->isNotEmpty()) {
+            $lineItems = $invoice->purchaserCart->items->map(fn($item) => [
+                'name' => $item->product?->name ?? 'Item',
                 'unit' => $item->product?->unit ?? '',
                 'quantity' => (float) $item->quantity,
                 'unit_price' => (float) $item->unit_price,
@@ -70,9 +67,7 @@
             ]);
         } elseif ($invoice->goodsReceived?->items?->isNotEmpty()) {
             $lineItems = $invoice->goodsReceived->items->map(fn($item) => [
-                'name' => \App\Enums\Inventory\ProductGrade::formatNameWithGrade($item->product?->name ?? 'Item', $item->grade ?? null),
-                'grade' => \App\Enums\Inventory\ProductGrade::formatForInvoice($item->grade ?? null),
-                'grade_badge_class' => \App\Enums\Inventory\ProductGrade::invoiceBadgeClass($item->grade ?? null),
+                'name' => $item->product?->name ?? 'Item',
                 'unit' => $item->product?->unit ?? 'kg',
                 'quantity' => (float) $item->received_qty,
                 'unit_price' => (float) ($item->purchaseOrderItem?->unit_price ?? 0),

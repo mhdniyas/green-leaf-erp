@@ -107,7 +107,7 @@
                             <tr class="align-top">
                                 <td class="py-2.5 pr-1 text-[11px] font-bold text-slate-400">{{ $loop->iteration }}</td>
                                 <td class="py-2.5 pr-2">
-                                    <p class="font-bold text-slate-900 text-xs leading-snug break-words">{{ \App\Enums\Inventory\ProductGrade::formatNameWithGrade($item->product->name, $item->grade ?? $cart->purchase_grade ?? null) }}</p>
+                                    <p class="font-bold text-slate-900 text-xs leading-snug break-words">{{ $item->product->name }}</p>
                                     <p class="mt-0.5 text-[10px] font-semibold text-slate-500">Unit: {{ $item->product->unit }}</p>
                                 </td>
                                 <td class="py-2.5 pr-1 text-right font-mono font-bold text-slate-800">

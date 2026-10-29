@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web\Purchasing;
 
 use App\Actions\Purchasing\CancelPurchaseInvoiceAction;
-use App\Enums\Inventory\ProductGrade;
 use App\Enums\Purchasing\InvoiceStatus;
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
@@ -2328,11 +2327,8 @@ class PurchaserDashboardController extends Controller
                 $itemCount = (int) $cart->items->count();
                 $totalQuantity = round((float) $cart->items->sum('quantity'), 2);
                 $itemSummary = $cart->items
-                    ->map(function ($item) use ($cart): array {
-                        $productName = ProductGrade::formatNameWithGrade(
-                            $item->product?->name ?? 'Product',
-                            $item->grade ?? $cart->purchase_grade ?? null
-                        );
+                    ->map(function ($item): array {
+                        $productName = $item->product?->name ?? 'Product';
                         $quantity = (float) $item->quantity;
                         $unit = $item->product?->unit ?? '';
                         $price = (float) $item->unit_price;
