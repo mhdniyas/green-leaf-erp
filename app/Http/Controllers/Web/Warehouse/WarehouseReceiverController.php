@@ -1181,9 +1181,10 @@ class WarehouseReceiverController extends Controller
                         ->where('bill_goods_received_item_id', $grnItem->id)
                         ->sum(DB::raw('COALESCE(base_qty, matched_qty, 0)')) : 0.0;
 
+                    $itemReceivedQty = $grnItem ? (float) $grnItem->received_qty : (float) $batch->total_kg;
                     $newTotalKg = $alreadyMatchedBase > 0
-                        ? max(0.0, round((float) $batch->total_kg - $alreadyMatchedBase, 3))
-                        : (float) $batch->total_kg;
+                        ? max(0.0, round($itemReceivedQty - $alreadyMatchedBase, 3))
+                        : $itemReceivedQty;
 
                     $batch->update([
                         'warehouse_id' => $itemWarehouseId,

@@ -586,7 +586,7 @@ final class GradesReportService
     /**
      * Compute available mixed stock for given products in a set-based manner.
      *
-     * @param array<int> $productIds
+     * @param  array<int>  $productIds
      * @return array<int, float>
      */
     public function calculateAvailableMixedStockForProducts(array $productIds, ?int $warehouseId = null): array
@@ -741,7 +741,7 @@ final class GradesReportService
     /**
      * Compute authoritative metrics for a specific product and grade.
      *
-     * @param array<int, float>|null $precomputedMixedStock
+     * @param  array<int, float>|null  $precomputedMixedStock
      * @return array<string, mixed>
      */
     public function calculateGradeMetrics(

@@ -233,7 +233,7 @@
     </div>
 
     <!-- MAIN KPI CARDS (SECTION 1) -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         <!-- 1. Selling Below Cost -->
         <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div class="flex items-center justify-between text-slate-500 mb-2">
@@ -324,6 +324,37 @@
                 @endif
             </div>
         </div>
+
+        <!-- 5. Purchaser Bills Not Received (Clickable) -->
+        <a
+            href="{{ route('admin.cashbook.reports-v1.pending-bills') }}"
+            class="group cursor-pointer rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-indigo-400 hover:shadow-md focus:outline-hidden focus:ring-2 focus:ring-indigo-500 flex flex-col justify-between"
+        >
+            <div>
+                <div class="flex items-center justify-between text-slate-500 mb-2">
+                    <span class="text-xs font-bold uppercase tracking-wider group-hover:text-indigo-600 transition">Purchaser Bills Not Received</span>
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition">
+                        <i data-lucide="truck" class="h-4 w-4"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span class="text-2xl font-black text-slate-900 tracking-tight group-hover:text-indigo-600 transition">
+                        {{ number_format($purchaserBillsNotReceived['count'] ?? 0) }}
+                    </span>
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">bills</span>
+                </div>
+            </div>
+            <div class="mt-3 border-t border-slate-100 pt-2 space-y-1">
+                <div class="flex items-center justify-between text-xs text-slate-500">
+                    <span>Awaiting Receiving:</span>
+                    <span class="font-bold text-indigo-700 font-mono">{{ number_format($purchaserBillsNotReceived['total_outstanding_qty'] ?? 0, 1) }} kg</span>
+                </div>
+                <div class="flex items-center justify-between text-[11px] text-indigo-600 font-semibold group-hover:translate-x-0.5 transition">
+                    <span>Manage pending bills</span>
+                    <i data-lucide="arrow-right" class="h-3 w-3 inline"></i>
+                </div>
+            </div>
+        </a>
     </div>
 
     <!-- NAVIGATION TABS -->

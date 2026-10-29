@@ -50,6 +50,20 @@
         {{-- Single-column layout: product list only --}}
         <div class="flex min-w-0 flex-col gap-4">
             <div class="min-w-0 flex-1 space-y-4">
+                <div class="flex items-center gap-2 overflow-x-auto pb-1">
+                    @foreach ([
+                        'ALL' => 'All Grades',
+                        'A' => 'Grade A',
+                        'B' => 'Grade B',
+                        'C' => 'Grade C',
+                    ] as $gradeKey => $gradeLabel)
+                        <a href="{{ route('purchaser.daily', array_filter(['date' => $date, 'purchase_grade' => $gradeKey !== 'A' ? $gradeKey : null, 'chip' => $selectedChip !== 'All' ? $selectedChip : null, 'search' => $search ?: null])) }}"
+                           class="shrink-0 rounded-xl px-3.5 py-1.5 text-xs font-black uppercase tracking-wider transition-all {{ $purchaseGrade === $gradeKey ? 'bg-teal-700 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' }}">
+                            {{ $gradeLabel }}
+                        </a>
+                    @endforeach
+                </div>
+
                 <form action="{{ route('purchaser.daily') }}" method="GET" id="purchaser-daily-filter-form" class="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:p-3">
                     <input type="hidden" name="date" value="{{ $date }}">
                     @if ($purchaseGrade !== 'A')
@@ -85,7 +99,7 @@
                         <a href="{{ route('purchaser.add-ons.create', ['date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-3 text-xs font-black text-white sm:w-24">
                             Add-on
                         </a>
-                        <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => $purchaseGrade === 'B' ? 'B' : 'ALL']) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600 px-3 text-xs font-black text-white sm:w-24">
+                        <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => in_array($purchaseGrade, ['B', 'C', 'ALL'], true) ? $purchaseGrade : ($purchaseGrade === 'MIXED' ? 'ALL' : 'A')]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600 px-3 text-xs font-black text-white sm:w-24">
                             Bulk
                         </a>
                         <a href="{{ route('purchaser.daily.share', ['date' => $date, 'purchase_grade' => $purchaseGrade]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-3 text-xs font-black text-white sm:w-24">

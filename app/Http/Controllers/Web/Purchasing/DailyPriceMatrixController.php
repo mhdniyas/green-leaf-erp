@@ -17,6 +17,7 @@ use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\ShopOrderItem;
 use App\Models\ShopPriceGroup;
+use App\Services\Pricing\DailyPriceInheritanceService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\VendorPriceService;
 use App\Services\ShopInvoices\ShopInvoiceService;
@@ -416,9 +417,9 @@ class DailyPriceMatrixController extends Controller
                 'price_unit' => $submittedUnit !== ''
                     ? $submittedUnit
                     : ProductUnit::normalizeUnit((string) ($this->detectPrimaryOrderedUnit((int) $product->id, $dateStr) ?? $product->unit ?: 'kg')),
-                'price_a' => $newPrice ?? (float) ($previousApproval?->price_a ?? ($gradeStr === 'A' ? $product->base_price : 0)),
-                'price_b' => $newPrice ?? (float) ($previousApproval?->price_b ?? ($gradeStr === 'A' ? $product->base_price : 0)),
-                'price_c' => $newPrice ?? (float) ($previousApproval?->price_c ?? ($gradeStr === 'A' ? $product->base_price : 0)),
+                'price_a' => DailyPriceInheritanceService::previousPrice($previousApproval, 'price_a') ?? 0.0,
+                'price_b' => DailyPriceInheritanceService::previousPrice($previousApproval, 'price_b') ?? 0.0,
+                'price_c' => DailyPriceInheritanceService::previousPrice($previousApproval, 'price_c') ?? 0.0,
                 'status' => 'approved',
             ]);
         }
@@ -427,19 +428,7 @@ class DailyPriceMatrixController extends Controller
             $approval->price_unit = $submittedUnit;
         }
 
-        if ($cat === 'a') {
-            $approval->price_a = $newPrice;
-            if ($approval->price_b === null || (float) $approval->price_b <= 0) {
-                $approval->price_b = (float) ($previousApproval?->price_b ?? $newPrice);
-            }
-            if ($approval->price_c === null || (float) $approval->price_c <= 0) {
-                $approval->price_c = (float) ($previousApproval?->price_c ?? $newPrice);
-            }
-        } elseif ($cat === 'b') {
-            $approval->price_b = $newPrice;
-        } elseif ($cat === 'c') {
-            $approval->price_c = $newPrice;
-        }
+        DailyPriceInheritanceService::applyCategoryPrice($approval, $cat, $newPrice, $previousApproval, $product);
 
         $approval->status = 'approved';
         $approval->approved_by = $userId;
@@ -729,9 +718,20 @@ class DailyPriceMatrixController extends Controller
 
     private function carriedSellingPriceFor(?DailyPriceApproval $approval, string $field): float
     {
-        $price = (float) ($approval?->{$field} ?? 0);
+        $price = DailyPriceInheritanceService::previousPrice($approval, $field);
 
-        return $price > 0 ? round($price, 2) : self::MISSING_PRICE_FALLBACK;
+        if ($price !== null) {
+            return $price;
+        }
+
+        if ($field === 'price_b' || $field === 'price_c') {
+            $priceA = DailyPriceInheritanceService::previousPrice($approval, 'price_a');
+            if ($priceA !== null) {
+                return $priceA;
+            }
+        }
+
+        return self::MISSING_PRICE_FALLBACK;
     }
 
     private function carriedPurchasePriceFor(?DailyPriceApproval $approval, Product $product): float
@@ -861,9 +861,9 @@ class DailyPriceMatrixController extends Controller
 
                         $approval->purchase_price = $defaultPurchase;
                         $approval->price_unit = $priceUnit;
-                        $approval->price_a = (float) ($previousApproval?->price_a ?? ($gradeEnum->value === 'A' ? $product->base_price : 0));
-                        $approval->price_b = (float) ($previousApproval?->price_b ?? ($gradeEnum->value === 'A' ? $product->base_price : 0));
-                        $approval->price_c = (float) ($previousApproval?->price_c ?? ($gradeEnum->value === 'A' ? $product->base_price : 0));
+                        $approval->price_a = DailyPriceInheritanceService::previousPrice($previousApproval, 'price_a') ?? 0.0;
+                        $approval->price_b = DailyPriceInheritanceService::previousPrice($previousApproval, 'price_b') ?? 0.0;
+                        $approval->price_c = DailyPriceInheritanceService::previousPrice($previousApproval, 'price_c') ?? 0.0;
                     } else {
                         // Update price_unit on existing approval if submitted or auto-detected differs
                         if (! empty($submittedUnit) || $this->detectPrimaryOrderedUnit((int) $product->id, $businessDate)) {
@@ -872,19 +872,7 @@ class DailyPriceMatrixController extends Controller
                     }
 
                     if ($newPrice !== null) {
-                        if ($matrixCategory === 'a') {
-                            $approval->price_a = $newPrice;
-                            if ($approval->price_b === null || (float) $approval->price_b <= 0) {
-                                $approval->price_b = (float) ($previousApproval?->price_b ?? $newPrice);
-                            }
-                            if ($approval->price_c === null || (float) $approval->price_c <= 0) {
-                                $approval->price_c = (float) ($previousApproval?->price_c ?? $newPrice);
-                            }
-                        } elseif ($matrixCategory === 'b') {
-                            $approval->price_b = $newPrice;
-                        } else {
-                            $approval->price_c = $newPrice;
-                        }
+                        DailyPriceInheritanceService::applyCategoryPrice($approval, $matrixCategory, $newPrice, $previousApproval, $product);
                     }
 
                     $approval->status = 'approved';

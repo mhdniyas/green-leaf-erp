@@ -37,6 +37,7 @@ use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Finance\JournalService;
+use App\Services\Pricing\DailyPriceInheritanceService;
 use App\Services\Pricing\GradeSellingPriceService;
 use App\Services\Purchasing\BulkPaymentService;
 use App\Services\Purchasing\DailyInventoryComparisonService;
@@ -319,12 +320,7 @@ class PurchaserDashboardController extends Controller
         $search = trim($request->string('search')->toString());
         $user = $request->user();
         $rawGrade = $request->string('purchase_grade')->upper()->toString();
-        $purchaseGrade = match ($rawGrade) {
-            'ALL' => 'ALL',
-            'B' => 'B',
-            'C' => 'C',
-            default => 'A',
-        };
+        $purchaseGrade = $this->resolvePurchaseGrade($rawGrade, 'A');
 
         $warehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
 
@@ -438,12 +434,17 @@ class PurchaserDashboardController extends Controller
             return $date;
         }
 
+        $rawGrade = $request->string('purchase_grade')->upper()->toString();
+        if (in_array($rawGrade, ['MIXED', 'U'], true)) {
+            return redirect()
+                ->route('purchaser.daily.share', array_merge($request->query(), ['purchase_grade' => 'ALL']))
+                ->with('info', 'Mixed grade is not applicable for shop-order demand. Showing All Grades.');
+        }
+
         $user = $request->user();
-        $purchaseGrade = $request->string('purchase_grade')->upper()->toString() === 'B' ? 'B' : 'A';
+        $purchaseGrade = $this->resolvePurchaseGrade($request->string('purchase_grade')->toString(), 'A');
         $frequentProductIds = $this->frequentProductIds((int) $user->id);
-        $dailySummary = $purchaseGrade === 'B'
-            ? $this->buildGradeBPurchaseCatalog($date, (int) $user->id)
-            : $this->buildDailySummary($date, $frequentProductIds);
+        $dailySummary = $this->buildDailySummary($date, $frequentProductIds, true, $purchaseGrade);
 
         $availableTags = $dailySummary
             ->pluck('category_name')
@@ -456,6 +457,8 @@ class PurchaserDashboardController extends Controller
         $availableProductIds = $dailySummary
             ->pluck('product_id')
             ->map(fn ($productId): int => (int) $productId)
+            ->unique()
+            ->values()
             ->all();
 
         $sharePresets = PurchaserSharePreset::query()
@@ -501,8 +504,8 @@ class PurchaserDashboardController extends Controller
             selectedProductId: $selectedProductId,
         );
 
-        $sharePreviewText = $this->buildDailySummaryShareText($shareSummary, $date);
-        $shareTotalPreviewText = $this->buildDailySummaryShareTotalText($shareSummary, $date);
+        $sharePreviewText = $this->buildDailySummaryShareText($shareSummary, $date, $purchaseGrade);
+        $shareTotalPreviewText = $this->buildDailySummaryShareTotalText($shareSummary, $date, $purchaseGrade);
         $shareUrl = 'https://api.whatsapp.com/send?text='.rawurlencode($sharePreviewText);
         $shareTotalUrl = 'https://api.whatsapp.com/send?text='.rawurlencode($shareTotalPreviewText);
 
@@ -517,19 +520,26 @@ class PurchaserDashboardController extends Controller
             'sharePresets' => $sharePresets,
             'availableTags' => $availableTags,
             'availableProducts' => $dailySummary
+                ->groupBy('product_id')
+                ->map(function (Collection $group): array {
+                    $first = $group->first();
+                    $baseName = preg_replace('/\s*\((A|B|C|Mixed|DMG)\)$/i', '', (string) $first['product_name']);
+
+                    return [
+                        'product_id' => (int) $first['product_id'],
+                        'product_name' => $baseName,
+                        'category_name' => (string) $first['category_name'],
+                        'remaining_qty' => (float) $group->sum('remaining_qty'),
+                        'unit' => (string) $first['unit'],
+                        'sku' => (string) ($first['sku'] ?? ''),
+                        'search_index' => strtolower(trim(implode(' ', [
+                            $baseName,
+                            (string) $first['category_name'],
+                            (string) ($first['sku'] ?? ''),
+                        ]))),
+                    ];
+                })
                 ->sortBy(fn (array $summary): string => Product::sortableSku((string) ($summary['sku'] ?? '')))
-                ->map(fn (array $summary): array => [
-                    'product_id' => (int) $summary['product_id'],
-                    'product_name' => (string) $summary['product_name'],
-                    'category_name' => (string) $summary['category_name'],
-                    'remaining_qty' => (float) $summary['remaining_qty'],
-                    'unit' => (string) $summary['unit'],
-                    'search_index' => strtolower(trim(implode(' ', [
-                        (string) $summary['product_name'],
-                        (string) $summary['category_name'],
-                        (string) ($summary['sku'] ?? ''),
-                    ]))),
-                ])
                 ->values(),
             'shareSummary' => $shareSummary,
             'sharePreviewText' => $sharePreviewText,
@@ -549,8 +559,15 @@ class PurchaserDashboardController extends Controller
             return $date;
         }
 
+        $rawGrade = $request->string('purchase_grade')->upper()->toString();
+        if (in_array($rawGrade, ['MIXED', 'U'], true)) {
+            return redirect()
+                ->route('purchaser.daily.share.presets', array_merge($request->query(), ['purchase_grade' => 'ALL']))
+                ->with('info', 'Mixed grade is not applicable for shop-order demand. Showing All Grades.');
+        }
+
         $user = $request->user();
-        $purchaseGrade = $request->string('purchase_grade')->upper()->toString() === 'B' ? 'B' : 'A';
+        $purchaseGrade = $this->resolvePurchaseGrade($request->string('purchase_grade')->toString(), 'A');
         $availableProducts = $this->presetProductCatalogForUser($user);
 
         $sharePresets = PurchaserSharePreset::query()
@@ -573,7 +590,7 @@ class PurchaserDashboardController extends Controller
 
         $validated = $request->validate([
             'date' => ['required', 'date_format:Y-m-d'],
-            'purchase_grade' => ['nullable', 'string', 'in:A,B'],
+            'purchase_grade' => ['nullable', 'string', 'in:A,B,C,ALL'],
             'name' => ['required', 'string', 'max:80'],
             'product_ids' => ['required', 'array', 'min:1'],
             'product_ids.*' => ['required', 'integer', 'distinct'],
@@ -581,7 +598,7 @@ class PurchaserDashboardController extends Controller
 
         $user = $request->user();
         $date = Carbon::createFromFormat('Y-m-d', (string) $validated['date']);
-        $purchaseGrade = ($validated['purchase_grade'] ?? 'A') === 'B' ? 'B' : 'A';
+        $purchaseGrade = $this->resolvePurchaseGrade($validated['purchase_grade'] ?? null, 'A');
         $availableProductIds = Product::query()
             ->active()
             ->where('show_in_purchaser_order', true)
@@ -765,12 +782,7 @@ class PurchaserDashboardController extends Controller
 
         $user = $request->user();
         $rawGrade = $request->string('purchase_grade')->upper()->toString();
-        $purchaseGrade = match ($rawGrade) {
-            'ALL' => 'ALL',
-            'B' => 'B',
-            'C' => 'C',
-            default => 'A',
-        };
+        $purchaseGrade = $this->resolvePurchaseGrade($rawGrade, 'A');
         $frequentProductIds = $this->frequentProductIds((int) $user->id);
         $warehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
 
@@ -4389,7 +4401,16 @@ class PurchaserDashboardController extends Controller
             ttlSeconds: 45,
             callback: function () use ($date, $dateString, $frequentProductIds, $includeDetails, $purchaseGrade, $hasCategoryFilter, $authUser, $productIds): array {
                 $approvedItems = ShopOrderItem::query()
-                    ->where('product_grade', $purchaseGrade)
+                    ->when($purchaseGrade === 'ALL', function ($query): void {
+                        $query->where(fn ($sub) => $sub->whereIn('product_grade', ['A', 'B', 'C'])->orWhereNull('product_grade'));
+                    })
+                    ->when($purchaseGrade !== 'ALL', function ($query) use ($purchaseGrade): void {
+                        if ($purchaseGrade === 'A') {
+                            $query->where(fn ($sub) => $sub->where('product_grade', 'A')->orWhereNull('product_grade'));
+                        } else {
+                            $query->where('product_grade', $purchaseGrade);
+                        }
+                    })
                     ->when($productIds !== null, fn ($query) => $query->whereIn('product_id', $productIds))
                     ->whereHas('order', function ($query) use ($dateString): void {
                         $query->whereDate('business_date', $dateString)->where('state', 'approved');
@@ -4403,50 +4424,105 @@ class PurchaserDashboardController extends Controller
                 }
 
                 $draftCartItems = PurchaserCartItem::query()
-                    ->where('grade', $purchaseGrade)
+                    ->when($purchaseGrade === 'ALL', function ($query): void {
+                        $query->where(fn ($sub) => $sub->whereIn('grade', ['A', 'B', 'C'])->orWhereNull('grade'));
+                    })
+                    ->when($purchaseGrade !== 'ALL', function ($query) use ($purchaseGrade): void {
+                        if ($purchaseGrade === 'A') {
+                            $query->where(fn ($sub) => $sub->where('grade', 'A')->orWhereNull('grade'));
+                        } else {
+                            $query->where('grade', $purchaseGrade);
+                        }
+                    })
                     ->when($productIds !== null, fn ($query) => $query->whereIn('product_id', $productIds))
                     ->whereHas('cart', function ($query) use ($dateString, $purchaseGrade): void {
                         $query->whereDate('business_date', $dateString)
                             ->where('status', 'draft')
-                            ->where('purchase_grade', $purchaseGrade);
+                            ->when($purchaseGrade === 'ALL', function ($q): void {
+                                $q->where(fn ($sub) => $sub->whereIn('purchase_grade', ['A', 'B', 'C'])->orWhereNull('purchase_grade'));
+                            })
+                            ->when($purchaseGrade !== 'ALL', function ($q) use ($purchaseGrade): void {
+                                if ($purchaseGrade === 'A') {
+                                    $q->where(fn ($sub) => $sub->where('purchase_grade', 'A')->orWhereNull('purchase_grade'));
+                                } else {
+                                    $q->where('purchase_grade', $purchaseGrade);
+                                }
+                            });
                     })
                     ->with($includeDetails ? 'cart.user' : 'cart')
                     ->get()
                     ->groupBy(fn ($item) => (int) $item->product_id);
 
                 $submittedCartItems = PurchaserCartItem::query()
-                    ->where('grade', $purchaseGrade)
+                    ->when($purchaseGrade === 'ALL', function ($query): void {
+                        $query->where(fn ($sub) => $sub->whereIn('grade', ['A', 'B', 'C'])->orWhereNull('grade'));
+                    })
+                    ->when($purchaseGrade !== 'ALL', function ($query) use ($purchaseGrade): void {
+                        if ($purchaseGrade === 'A') {
+                            $query->where(fn ($sub) => $sub->where('grade', 'A')->orWhereNull('grade'));
+                        } else {
+                            $query->where('grade', $purchaseGrade);
+                        }
+                    })
                     ->when($productIds !== null, fn ($query) => $query->whereIn('product_id', $productIds))
                     ->whereHas('cart', function ($query) use ($dateString, $purchaseGrade): void {
                         $query->whereDate('business_date', $dateString)
                             ->where('status', 'submitted')
-                            ->where('purchase_grade', $purchaseGrade);
+                            ->when($purchaseGrade === 'ALL', function ($q): void {
+                                $q->where(fn ($sub) => $sub->whereIn('purchase_grade', ['A', 'B', 'C'])->orWhereNull('purchase_grade'));
+                            })
+                            ->when($purchaseGrade !== 'ALL', function ($q) use ($purchaseGrade): void {
+                                if ($purchaseGrade === 'A') {
+                                    $q->where(fn ($sub) => $sub->where('purchase_grade', 'A')->orWhereNull('purchase_grade'));
+                                } else {
+                                    $q->where('purchase_grade', $purchaseGrade);
+                                }
+                            });
                     })
                     ->with('cart')
                     ->get()
                     ->groupBy(fn ($item) => (int) $item->product_id);
 
                 return $approvedItems
-                    ->groupBy(function (ShopOrderItem $item): string {
+                    ->groupBy(function (ShopOrderItem $item) use ($purchaseGrade): string {
                         $dateStr = $item->order->business_date->timezone(config('app.timezone'))->format('Y-m-d');
+                        $itemGrade = (string) ($item->product_grade ?: 'A');
+                        $gradeKey = $purchaseGrade === 'ALL' ? '_grade_'.$itemGrade : '';
                         if ($item->order->isAdminDirectPurchase()) {
-                            return $item->product_id.'_'.$dateStr.'_addon_'.$item->shop_order_id;
+                            return $item->product_id.$gradeKey.'_'.$dateStr.'_addon_'.$item->shop_order_id;
                         }
 
-                        return $item->product_id.'_'.$dateStr;
+                        return $item->product_id.$gradeKey.'_'.$dateStr;
                     })
-                    ->map(function (Collection $items, string $key) use ($draftCartItems, $submittedCartItems, $frequentProductIds, $date, $includeDetails): ?array {
-                        $parts = explode('_', $key);
-                        $productId = (int) $parts[0];
-                        $itemDateStr = $parts[1];
-                        $isAddon = isset($parts[2]) && $parts[2] === 'addon';
-                        $itemDate = Carbon::parse($itemDateStr);
-
+                    ->map(function (Collection $items) use ($draftCartItems, $submittedCartItems, $frequentProductIds, $date, $includeDetails, $purchaseGrade): ?array {
                         /** @var ShopOrderItem $firstItem */
                         $firstItem = $items->first();
                         $product = $firstItem->product;
+                        if (! $product) {
+                            return null;
+                        }
+
+                        $productId = (int) $firstItem->product_id;
+                        $itemGrade = (string) ($firstItem->product_grade ?: 'A');
+                        $itemDate = $firstItem->order->business_date->timezone(config('app.timezone'));
+                        $isAddon = $firstItem->order->isAdminDirectPurchase();
 
                         $productDraftItems = $draftCartItems->get($productId, collect());
+                        $productSubmitted = $submittedCartItems->get($productId, collect());
+
+                        if ($purchaseGrade === 'ALL') {
+                            $productDraftItems = $productDraftItems->filter(function (PurchaserCartItem $c) use ($itemGrade): bool {
+                                $cGrade = (string) ($c->grade ?? $c->cart?->purchase_grade ?? 'A');
+
+                                return $cGrade === $itemGrade;
+                            });
+                            $productSubmitted = $productSubmitted->filter(function (PurchaserCartItem $c) use ($itemGrade): bool {
+                                $cGrade = (string) ($c->grade ?? $c->cart?->purchase_grade ?? 'A');
+
+                                return $cGrade === $itemGrade;
+                            });
+                        }
+
                         $draftQty = (float) $productDraftItems->sum('quantity');
                         $draftPurchasers = $includeDetails
                             ? $productDraftItems
@@ -4484,10 +4560,14 @@ class PurchaserDashboardController extends Controller
                         }
 
                         $categoryName = (string) ($product->category?->name ?? '');
+                        $productName = $purchaseGrade === 'ALL'
+                            ? ProductGrade::formatNameWithGrade($product->name, $itemGrade)
+                            : $product->name;
 
                         $summary = [
                             'product_id' => $productId,
-                            'product_name' => $product->name,
+                            'product_name' => $productName,
+                            'purchase_grade' => $itemGrade,
                             'sku' => $product->sku,
                             'unit' => $product->unit,
                             'category_name' => $categoryName,
@@ -4503,7 +4583,7 @@ class PurchaserDashboardController extends Controller
                             'remaining_qty' => $remainingQty,
                             'order_date' => $itemDate->format('Y-m-d'),
                             'search_index' => strtolower(implode(' ', [
-                                $product->name,
+                                $productName,
                                 $product->sku,
                                 $categoryName,
                             ])),
@@ -4534,10 +4614,10 @@ class PurchaserDashboardController extends Controller
                         if (! empty($item['is_addon'])) {
                             $orderId = (int) ($item['order_id'] ?? 0);
 
-                            return sprintf('0_%010d_%s', 9999999999 - $orderId, Product::sortableSku((string) $item['sku']));
+                            return sprintf('0_%010d_%s_%s', 9999999999 - $orderId, Product::sortableSku((string) $item['sku']), (string) ($item['purchase_grade'] ?? ''));
                         }
 
-                        return sprintf('1_%s_%s', Product::sortableSku((string) $item['sku']), (string) ($item['order_date'] ?? ''));
+                        return sprintf('1_%s_%s_%s', Product::sortableSku((string) $item['sku']), (string) ($item['order_date'] ?? ''), (string) ($item['purchase_grade'] ?? ''));
                     })
                     ->values()
                     ->all();
@@ -5032,7 +5112,7 @@ class PurchaserDashboardController extends Controller
     private function resolveBusinessDate(Request $request): Carbon|RedirectResponse
     {
         $operationalDate = $this->businessDayService->operationalDate();
-        $dateInput = $request->input('date');
+        $dateInput = $request->input('date') ?? $request->input('business_date');
 
         if ($dateInput) {
             $date = Carbon::parse($dateInput)->startOfDay();
@@ -5713,6 +5793,30 @@ class PurchaserDashboardController extends Controller
         return in_array($selectedChip, self::QUICK_FILTERS, true) ? $selectedChip : 'All';
     }
 
+    private function resolvePurchaseGrade(?string $grade, string $default = 'A'): string
+    {
+        $raw = strtoupper(trim((string) $grade));
+
+        return match ($raw) {
+            'ALL' => 'ALL',
+            'B' => 'B',
+            'C' => 'C',
+            'A' => 'A',
+            default => $default,
+        };
+    }
+
+    private function formatGradeHeaderLabel(string $purchaseGrade): string
+    {
+        return match (strtoupper($purchaseGrade)) {
+            'ALL' => 'All Grades',
+            'A' => 'Grade A',
+            'B' => 'Grade B',
+            'C' => 'Grade C',
+            default => 'Grade '.$purchaseGrade,
+        };
+    }
+
     private function resolveDailyShareMode(string $shareMode): string
     {
         $shareMode = $shareMode === 'all' ? 'any' : $shareMode;
@@ -5777,18 +5881,25 @@ class PurchaserDashboardController extends Controller
         };
     }
 
-    private function buildDailySummaryShareText(Collection $dailySummary, Carbon $date): string
+    private function buildDailySummaryShareText(Collection $dailySummary, Carbon $date, string $purchaseGrade = 'A'): string
     {
+        $gradeHeaderLabel = $this->formatGradeHeaderLabel($purchaseGrade);
         $lines = [
-            '*Daily Purchase Summary*',
+            '*Daily Purchase Summary — '.$gradeHeaderLabel.'*',
             $date->format('d M Y'),
             '---',
             '',
         ];
 
+        if ($dailySummary->isEmpty()) {
+            $lines[] = 'No items for selected grade.';
+
+            return trim(implode("\n", $lines));
+        }
+
         foreach ($dailySummary as $summary) {
             $productHeader = '*'.$summary['product_name'].'*';
-            $orderDate = $summary['order_date'];
+            $orderDate = $summary['order_date'] instanceof Carbon ? $summary['order_date'] : Carbon::parse($summary['order_date']);
             if ($orderDate->format('Y-m-d') !== $date->format('Y-m-d')) {
                 $productHeader .= ' (Pending '.$orderDate->format('d M Y').')';
             }
@@ -5805,18 +5916,25 @@ class PurchaserDashboardController extends Controller
         return trim(implode("\n", $lines));
     }
 
-    private function buildDailySummaryShareTotalText(Collection $dailySummary, Carbon $date): string
+    private function buildDailySummaryShareTotalText(Collection $dailySummary, Carbon $date, string $purchaseGrade = 'A'): string
     {
+        $gradeHeaderLabel = $this->formatGradeHeaderLabel($purchaseGrade);
         $lines = [
-            '*Daily Purchase Total Qty*',
+            '*Daily Purchase Total Qty — '.$gradeHeaderLabel.'*',
             $date->format('d M Y'),
             '---',
             '',
         ];
 
+        if ($dailySummary->isEmpty()) {
+            $lines[] = 'No items for selected grade.';
+
+            return trim(implode("\n", $lines));
+        }
+
         foreach ($dailySummary as $summary) {
             $productHeader = '*'.$summary['product_name'].'*';
-            $orderDate = $summary['order_date'];
+            $orderDate = $summary['order_date'] instanceof Carbon ? $summary['order_date'] : Carbon::parse($summary['order_date']);
             if ($orderDate->format('Y-m-d') !== $date->format('Y-m-d')) {
                 $productHeader .= ' (Pending '.$orderDate->format('d M Y').')';
             }
@@ -6110,7 +6228,7 @@ class PurchaserDashboardController extends Controller
     {
         $this->authorizeDailyPriceAccess();
 
-        $dateInput = $request->input('date');
+        $dateInput = $request->input('date') ?? $request->input('business_date');
         if ($dateInput) {
             try {
                 $operationalDate = Carbon::parse($dateInput);
@@ -6317,7 +6435,7 @@ class PurchaserDashboardController extends Controller
     {
         $this->authorizeDailyPriceAccess();
 
-        $dateInput = $request->input('date');
+        $dateInput = $request->input('date') ?? $request->input('business_date');
         $date = $dateInput ? Carbon::parse($dateInput)->toDateString() : $this->businessDayService->operationalDate()->toDateString();
 
         $approvals = DailyPriceApproval::query()
@@ -6360,6 +6478,7 @@ class PurchaserDashboardController extends Controller
 
         $validated = $request->validate([
             'date' => ['nullable', 'date'],
+            'business_date' => ['nullable', 'date'],
             'refresh_invoices_only' => ['nullable', 'boolean'],
             'prices' => ['required', 'array'],
             'prices.*.product_id' => ['required', 'integer', 'exists:products,id'],
@@ -6379,7 +6498,7 @@ class PurchaserDashboardController extends Controller
         $user = $request->user();
         $userId = (int) $user->id;
         $isRefreshAction = (bool) $request->boolean('refresh_invoices_only');
-        $dateInput = $request->input('date');
+        $dateInput = $request->input('date') ?? $request->input('business_date');
         $businessDateStr = $dateInput ? Carbon::parse($dateInput)->toDateString() : $this->businessDayService->operationalDate()->toDateString();
 
         $updatedCount = 0;
@@ -6453,6 +6572,9 @@ class PurchaserDashboardController extends Controller
                     ->first();
 
                 if (! $approval) {
+                    $prevB = DailyPriceInheritanceService::previousPrice($previousApproval, 'price_b');
+                    $prevC = DailyPriceInheritanceService::previousPrice($previousApproval, 'price_c');
+
                     $approval = new DailyPriceApproval([
                         'product_id' => $productId,
                         'business_date' => $businessDateStr,
@@ -6460,20 +6582,14 @@ class PurchaserDashboardController extends Controller
                         'purchase_price' => (float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price)),
                         'price_unit' => ProductUnit::normalizeUnit((string) ($product->unit ?: 'kg')),
                         'price_a' => $newSellingPrice,
-                        'price_b' => (float) ($previousApproval?->price_b ?? $product->base_price),
-                        'price_c' => (float) ($previousApproval?->price_c ?? $product->base_price),
+                        'price_b' => $prevB ?? $newSellingPrice,
+                        'price_c' => $prevC ?? $newSellingPrice,
                         'status' => 'approved',
                         'approved_by' => $userId,
                         'approved_at' => now(),
                     ]);
                 } else {
-                    $approval->price_a = $newSellingPrice;
-                    if ($approval->price_b === null || (float) $approval->price_b <= 0) {
-                        $approval->price_b = (float) ($previousApproval?->price_b ?? $newSellingPrice);
-                    }
-                    if ($approval->price_c === null || (float) $approval->price_c <= 0) {
-                        $approval->price_c = (float) ($previousApproval?->price_c ?? $newSellingPrice);
-                    }
+                    DailyPriceInheritanceService::applyCategoryAUpdate($approval, $newSellingPrice, $previousApproval);
                     $approval->status = 'approved';
                     $approval->approved_by = $userId;
                     $approval->approved_at = now();

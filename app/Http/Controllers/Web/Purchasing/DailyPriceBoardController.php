@@ -13,6 +13,7 @@ use App\Models\DailyProductPriceRevision;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\ShopPriceGroup;
+use App\Services\Pricing\DailyPriceInheritanceService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\VendorPriceService;
 use App\Services\ShopInvoices\ShopInvoiceService;
@@ -226,7 +227,10 @@ class DailyPriceBoardController extends Controller
                     ->first();
 
                 if (! $approval) {
-                    $effectiveA = $priceA ?? (float) ($previousApproval?->price_a ?? $product->base_price);
+                    $effectiveA = $priceA ?? DailyPriceInheritanceService::previousPrice($previousApproval, 'price_a') ?? (float) $product->base_price;
+                    $fallbackB = DailyPriceInheritanceService::previousPrice($previousApproval, 'price_b') ?? $effectiveA;
+                    $fallbackC = DailyPriceInheritanceService::previousPrice($previousApproval, 'price_c') ?? $effectiveA;
+
                     $approval = new DailyPriceApproval([
                         'product_id' => $productId,
                         'business_date' => $dateStr,
@@ -234,8 +238,8 @@ class DailyPriceBoardController extends Controller
                         'purchase_price' => $purchasePrice ?? (float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price)),
                         'price_unit' => ProductUnit::normalizeUnit((string) ($product->unit ?: 'kg')),
                         'price_a' => $effectiveA,
-                        'price_b' => $priceB ?? ($priceA ?? (float) ($previousApproval?->price_b ?? $effectiveA)),
-                        'price_c' => $priceC ?? ($priceA ?? (float) ($previousApproval?->price_c ?? $effectiveA)),
+                        'price_b' => $priceB ?? $fallbackB,
+                        'price_c' => $priceC ?? $fallbackC,
                         'status' => 'approved',
                     ]);
                 } else {
@@ -244,21 +248,17 @@ class DailyPriceBoardController extends Controller
                     }
 
                     if ($priceA !== null) {
-                        $approval->price_a = $priceA;
+                        DailyPriceInheritanceService::applyCategoryAUpdate($approval, $priceA, $previousApproval);
                     }
 
-                    // Handle B: if explicitly provided, use it. If A was provided and B is missing/invalid, default to A.
+                    // Handle B: if explicitly provided, use it.
                     if ($priceB !== null) {
                         $approval->price_b = $priceB;
-                    } elseif ($priceA !== null && ($approval->price_b === null || (float) $approval->price_b <= 0)) {
-                        $approval->price_b = $priceA;
                     }
 
-                    // Handle C: if explicitly provided, use it. If A was provided and C is missing/invalid, default to A.
+                    // Handle C: if explicitly provided, use it.
                     if ($priceC !== null) {
                         $approval->price_c = $priceC;
-                    } elseif ($priceA !== null && ($approval->price_c === null || (float) $approval->price_c <= 0)) {
-                        $approval->price_c = $priceA;
                     }
                 }
 

@@ -139,7 +139,8 @@
     $isItemPurchaseReportActive = request()->routeIs('admin.cashbook.reports-v1.item-purchase*');
     $isGradesReportActive = request()->routeIs('admin.cashbook.reports-v1.grades*');
     $isDamageLossReportActive = request()->routeIs('admin.cashbook.reports-v1.damage-loss*');
-    $isReportsV1Active = $isPurchaseReportActive || $isItemPurchaseReportActive || $isGradesReportActive || $isDamageLossReportActive;
+    $isPendingBillsActive = request()->routeIs('admin.cashbook.reports-v1.pending-bills*');
+    $isReportsV1Active = $isPurchaseReportActive || $isItemPurchaseReportActive || $isGradesReportActive || $isDamageLossReportActive || $isPendingBillsActive;
 
     $reportsV1SidebarItem = [
         'label' => 'Reports V1',
@@ -166,6 +167,11 @@
                 'label' => 'Damage & Loss Report',
                 'href' => route('admin.cashbook.reports-v1.damage-loss'),
                 'active' => $isDamageLossReportActive,
+            ],
+            [
+                'label' => 'Pending Warehouse Bills',
+                'href' => route('admin.cashbook.reports-v1.pending-bills'),
+                'active' => $isPendingBillsActive,
             ],
         ],
     ];

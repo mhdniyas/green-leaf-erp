@@ -122,8 +122,10 @@ use App\Services\Purchasing\DailyPurchaseReportService;
 use App\Services\Purchasing\DamageLossReportService;
 use App\Services\Purchasing\GradesReportService;
 use App\Services\Purchasing\ItemPurchaseReportService;
+use App\Services\Purchasing\PendingWarehouseBillsManagementService;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchasePriceReportingService;
+use App\Services\Purchasing\PurchaserBillsNotReceivedService;
 use App\Services\Purchasing\PurchaseReportingService;
 use App\Services\Purchasing\PurchaserExpenseReportService;
 use App\Services\Purchasing\PurchaserVendorSummaryService;
@@ -7135,18 +7137,284 @@ final class CashbookController extends Controller
         ]);
     }
 
-    public function reportsV1DamageLossReport(Request $request, DamageLossReportService $damageLossReportService): View
-    {
+    public function reportsV1DamageLossReport(
+        Request $request,
+        DamageLossReportService $damageLossReportService,
+        PurchaserBillsNotReceivedService $pendingBillsService
+    ): View {
         $this->ensureMainAdmin($request);
 
         $filters = $this->damageLossReportFilters($request);
         $data = $damageLossReportService->getReportData($filters);
+        $purchaserBillsNotReceived = $pendingBillsService->getPendingBillsData();
 
         return view('admin.cashbook.reports-v1.damage-loss', array_merge(
             $this->purchaseLayoutData(),
             $data,
+            ['purchaserBillsNotReceived' => $purchaserBillsNotReceived],
             ['filters' => $filters]
         ));
+    }
+
+    public function reportsV1PendingBills(
+        Request $request,
+        PendingWarehouseBillsManagementService $pendingBillsService
+    ): View {
+        $this->ensureMainAdmin($request);
+
+        $filters = $this->pendingBillsReportFilters($request);
+        $metrics = $pendingBillsService->getSummaryMetrics($filters['warehouse_id'] ?? null);
+        $bills = $pendingBillsService->getBillsPaginated($filters, (int) ($filters['per_page'] ?? 25));
+        $filterOptions = $pendingBillsService->getFilterOptions();
+
+        return view('admin.cashbook.reports-v1.pending-bills', array_merge(
+            $this->purchaseLayoutData(),
+            [
+                'metrics' => $metrics,
+                'bills' => $bills,
+                'filters' => $filters,
+                'filterOptions' => $filterOptions,
+            ]
+        ));
+    }
+
+    public function reportsV1PendingBillDetails(
+        Request $request,
+        PurchaseInvoice $invoice,
+        PendingWarehouseBillsManagementService $pendingBillsService
+    ): JsonResponse {
+        $this->ensureMainAdmin($request);
+
+        $details = $pendingBillsService->getBillDetails($invoice);
+
+        return response()->json([
+            'success' => true,
+            'data' => $details,
+        ]);
+    }
+
+    public function reportsV1PendingBillMatchAdvance(
+        Request $request,
+        PurchaseInvoice $invoice,
+        PendingWarehouseBillsManagementService $pendingBillsService
+    ): JsonResponse|RedirectResponse {
+        $this->ensureMainAdmin($request);
+        $this->authorizeWarehouseAction($request);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'advance_matches' => ['nullable', 'array'],
+            'advance_matches.*.advance_goods_received_id' => ['required_with:advance_matches', 'integer', 'exists:goods_received,id'],
+            'advance_matches.*.advance_goods_received_item_id' => ['nullable', 'integer', 'exists:goods_received_items,id'],
+            'advance_matches.*.goods_received_item_id' => ['nullable', 'integer', 'exists:goods_received_items,id'],
+            'advance_matches.*.product_id' => ['required_with:advance_matches', 'integer', 'exists:products,id'],
+            'advance_matches.*.matched_qty' => ['required_with:advance_matches', 'numeric', 'min:0.001'],
+            'advance_matches.*.unit' => ['nullable', 'string', 'max:20'],
+            'advance_matches.*.base_qty' => ['nullable', 'numeric', 'min:0.001'],
+            'items' => ['nullable', 'array'],
+        ]);
+
+        $warehouseId = ! empty($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+        $validated['warehouse_id'] = $warehouseId;
+        $result = $pendingBillsService->matchAdvance($invoice, $validated, (int) $request->user()->id);
+
+        if ($request->wantsJson()) {
+            return response()->json($result);
+        }
+
+        return redirect()->back()->with('success', $result['message']);
+    }
+
+    public function reportsV1PendingBillReceiveGoods(
+        Request $request,
+        PurchaseInvoice $invoice,
+        PendingWarehouseBillsManagementService $pendingBillsService
+    ): JsonResponse|RedirectResponse {
+        $this->ensureMainAdmin($request);
+        $this->authorizeWarehouseAction($request);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'items' => ['nullable', 'array'],
+        ]);
+
+        $warehouseId = ! empty($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+        $validated['warehouse_id'] = $warehouseId;
+        $result = $pendingBillsService->receiveGoods($invoice, $validated, (int) $request->user()->id);
+
+        if ($request->wantsJson()) {
+            return response()->json($result);
+        }
+
+        return redirect()->back()->with('success', $result['message']);
+    }
+
+    public function reportsV1PendingBillMatchReceiveBalance(
+        Request $request,
+        PurchaseInvoice $invoice,
+        PendingWarehouseBillsManagementService $pendingBillsService
+    ): JsonResponse|RedirectResponse {
+        $this->ensureMainAdmin($request);
+        $this->authorizeWarehouseAction($request);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'advance_matches' => ['nullable', 'array'],
+            'items' => ['nullable', 'array'],
+        ]);
+
+        $warehouseId = ! empty($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+        $validated['warehouse_id'] = $warehouseId;
+        $result = $pendingBillsService->matchAndReceiveBalance($invoice, $validated, (int) $request->user()->id);
+
+        if ($request->wantsJson()) {
+            return response()->json($result);
+        }
+
+        return redirect()->back()->with('success', $result['message']);
+    }
+
+    public function reportsV1PendingBillsBulkMatchPreview(
+        Request $request,
+        PendingWarehouseBillsManagementService $pendingBillsService
+    ): JsonResponse {
+        $this->ensureMainAdmin($request);
+        $this->authorizeWarehouseAction($request);
+
+        $validated = $request->validate([
+            'invoice_ids' => ['required', 'array', 'min:1'],
+            'invoice_ids.*' => ['required', 'integer', 'exists:purchase_invoices,id'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+        ]);
+
+        $warehouseId = ! empty($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+
+        $preview = $pendingBillsService->buildBulkMatchPreview(
+            $validated['invoice_ids'],
+            $warehouseId,
+            (int) $request->user()->id
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => $preview,
+        ]);
+    }
+
+    public function reportsV1PendingBillsBulkMatchConfirm(
+        Request $request,
+        PendingWarehouseBillsManagementService $pendingBillsService
+    ): JsonResponse|RedirectResponse {
+        $this->ensureMainAdmin($request);
+        $this->authorizeWarehouseAction($request);
+
+        $validated = $request->validate([
+            'invoice_ids' => ['required', 'array', 'min:1'],
+            'invoice_ids.*' => ['required', 'integer', 'exists:purchase_invoices,id'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+        ]);
+
+        $warehouseId = ! empty($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+
+        $result = $pendingBillsService->executeBulkMatch(
+            $validated['invoice_ids'],
+            $warehouseId,
+            (int) $request->user()->id
+        );
+
+        $msg = "Bulk match completed: {$result['processed_count']} bills matched ({$result['total_matched_qty']} kg).";
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $msg,
+                'data' => $result,
+            ]);
+        }
+
+        return redirect()->back()->with('success', $msg);
+    }
+
+    public function reportsV1PendingBillsBulkReceiveConfirm(
+        Request $request,
+        PendingWarehouseBillsManagementService $pendingBillsService
+    ): JsonResponse|RedirectResponse {
+        $this->ensureMainAdmin($request);
+        $this->authorizeWarehouseAction($request);
+
+        $validated = $request->validate([
+            'invoice_ids' => ['required', 'array', 'min:1'],
+            'invoice_ids.*' => ['required', 'integer', 'exists:purchase_invoices,id'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+        ]);
+
+        $warehouseId = ! empty($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+
+        $result = $pendingBillsService->executeBulkReceive(
+            $validated['invoice_ids'],
+            $warehouseId,
+            (int) $request->user()->id
+        );
+
+        $msg = "Bulk receive completed: {$result['received_count']} bills physically received into inventory.";
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $msg,
+                'data' => $result,
+            ]);
+        }
+
+        return redirect()->back()->with('success', $msg);
+    }
+
+    private function authorizeWarehouseAction(Request $request): void
+    {
+        $user = $request->user();
+        if (! $user) {
+            abort(401);
+        }
+
+        $canAct = $user->hasRole('admin')
+            || $user->isMainAdmin()
+            || $user->can('warehouse.receive.confirm')
+            || $user->can('cashbook.reconciliation.manage');
+
+        if (! $canAct) {
+            abort(403, 'Unauthorized to perform warehouse receiving or advance matching operations.');
+        }
+    }
+
+    private function pendingBillsReportFilters(Request $request): array
+    {
+        $validated = $request->validate([
+            'status' => ['nullable', 'string', 'in:pending,not_received,partially_received,cleared,all'],
+            'search' => ['nullable', 'string', 'max:100'],
+            'date_preset' => ['nullable', 'string', 'in:all,today,yesterday,last_7_days,this_month,custom'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
+            'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
+            'supplier_id' => ['nullable', 'integer', 'exists:suppliers,id'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'order_by' => ['nullable', 'string', 'in:id,created_at,invoice_number,amount'],
+            'order_dir' => ['nullable', 'string', 'in:asc,desc'],
+            'per_page' => ['nullable', 'integer', 'in:15,25,50,100'],
+        ]);
+
+        return [
+            'status' => $validated['status'] ?? 'pending',
+            'search' => trim((string) ($validated['search'] ?? '')),
+            'date_preset' => $validated['date_preset'] ?? 'all',
+            'start_date' => $validated['start_date'] ?? null,
+            'end_date' => $validated['end_date'] ?? null,
+            'purchaser_id' => isset($validated['purchaser_id']) ? (int) $validated['purchaser_id'] : null,
+            'supplier_id' => isset($validated['supplier_id']) ? (int) $validated['supplier_id'] : null,
+            'warehouse_id' => isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null,
+            'order_by' => $validated['order_by'] ?? 'created_at',
+            'order_dir' => $validated['order_dir'] ?? 'desc',
+            'per_page' => isset($validated['per_page']) ? (int) $validated['per_page'] : 25,
+        ];
     }
 
     private function damageLossReportFilters(Request $request): array

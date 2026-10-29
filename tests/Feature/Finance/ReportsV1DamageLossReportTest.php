@@ -8,9 +8,15 @@ use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
+use App\Models\AdvanceReceiveMatch;
 use App\Models\Category;
 use App\Models\Client;
+use App\Models\GoodsReceived;
+use App\Models\GoodsReceivedItem;
 use App\Models\Product;
+use App\Models\PurchaseInvoice;
+use App\Models\PurchaseOrder;
+use App\Models\PurchaserCart;
 use App\Models\Shop;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
@@ -18,10 +24,12 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WastageEntry;
 use App\Services\Purchasing\DamageLossReportService;
+use App\Services\Purchasing\PurchaserBillsNotReceivedService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -828,5 +836,450 @@ class ReportsV1DamageLossReportTest extends TestCase
         $this->assertEquals(100.00, $sumMonthlySellingLoss);
         $this->assertEquals(250.00, $sumMonthlyDamageLoss);
         $this->assertEquals(350.00, $sumMonthlyTotalLoss);
+    }
+
+    public function test_damage_loss_report_renders_purchaser_bills_not_received_card_and_navigates_to_pending_bills(): void
+    {
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.damage-loss'));
+
+        $response->assertOk();
+        $response->assertSee('Purchaser Bills Not Received');
+        $response->assertSee(route('admin.cashbook.reports-v1.pending-bills'));
+        $response->assertSee('Awaiting Receiving:');
+        $response->assertSee('Manage pending bills');
+    }
+
+    public function test_purchaser_bills_not_received_service_computes_correct_outstanding_and_statuses(): void
+    {
+        $purchaserUser = User::factory()->create(['name' => 'Test Purchaser']);
+        $supplier = Supplier::factory()->create(['name' => 'Green Valley Farms']);
+        $product = $this->createProduct('Carrot');
+
+        // 1. Pending Bill: 100 kg billed, 0 received, 0 matched -> 100 kg outstanding, Not Received
+        $grn1 = GoodsReceived::create([
+            'grn_number' => 'GRN-TEST-001',
+            'receipt_type' => 'purchaser',
+            'status' => 'pending',
+            'received_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $grn1->id,
+            'product_id' => $product->id,
+            'received_qty' => 100.0,
+            'variance' => 0.0,
+        ]);
+        StockBatch::create([
+            'goods_received_id' => $grn1->id,
+            'product_id' => $product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+            'total_kg' => 100.0,
+            'warehouse_receive_pending' => true,
+            'status' => BatchStatus::Pending,
+            'purchase_grade' => 'A',
+            'reference' => 'BAT-TEST-001',
+            'cost_per_kg' => 20.0,
+        ]);
+        $inv1 = PurchaseInvoice::create([
+            'goods_received_id' => $grn1->id,
+            'supplier_id' => $supplier->id,
+            'invoice_number' => 'BILL-PENDING-001',
+            'amount' => 2000.0,
+            'status' => 'pending',
+            'purchaser_submitted_by' => $purchaserUser->id,
+        ]);
+
+        // 2. Partially Received Bill: 100 kg billed, 40 kg confirmed, 60 kg pending -> Partially Received
+        $grn2 = GoodsReceived::create([
+            'grn_number' => 'GRN-TEST-002',
+            'receipt_type' => 'purchaser',
+            'status' => 'pending',
+            'received_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $grn2->id,
+            'product_id' => $product->id,
+            'received_qty' => 100.0,
+            'variance' => 0.0,
+        ]);
+        StockBatch::create([
+            'goods_received_id' => $grn2->id,
+            'product_id' => $product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+            'total_kg' => 40.0,
+            'warehouse_receive_pending' => false,
+            'status' => BatchStatus::Sorted,
+            'purchase_grade' => 'A',
+            'reference' => 'BAT-TEST-002A',
+            'cost_per_kg' => 20.0,
+        ]);
+        StockBatch::create([
+            'goods_received_id' => $grn2->id,
+            'product_id' => $product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+            'total_kg' => 60.0,
+            'warehouse_receive_pending' => true,
+            'status' => BatchStatus::Pending,
+            'purchase_grade' => 'A',
+            'reference' => 'BAT-TEST-002B',
+            'cost_per_kg' => 20.0,
+        ]);
+        $inv2 = PurchaseInvoice::create([
+            'goods_received_id' => $grn2->id,
+            'supplier_id' => $supplier->id,
+            'invoice_number' => 'BILL-PARTIAL-002',
+            'amount' => 2000.0,
+            'status' => 'pending',
+            'purchaser_submitted_by' => $purchaserUser->id,
+        ]);
+
+        // 3. Fully Received Bill: 80 kg billed, 80 kg confirmed -> Excluded
+        $grn3 = GoodsReceived::create([
+            'grn_number' => 'GRN-TEST-003',
+            'receipt_type' => 'purchaser',
+            'status' => 'completed',
+            'received_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $grn3->id,
+            'product_id' => $product->id,
+            'received_qty' => 80.0,
+            'variance' => 0.0,
+        ]);
+        StockBatch::create([
+            'goods_received_id' => $grn3->id,
+            'product_id' => $product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+            'total_kg' => 80.0,
+            'warehouse_receive_pending' => false,
+            'status' => BatchStatus::Sorted,
+            'purchase_grade' => 'A',
+            'reference' => 'BAT-TEST-003',
+            'cost_per_kg' => 20.0,
+        ]);
+        $inv3 = PurchaseInvoice::create([
+            'goods_received_id' => $grn3->id,
+            'supplier_id' => $supplier->id,
+            'invoice_number' => 'BILL-COMPLETED-003',
+            'amount' => 1600.0,
+            'status' => 'approved',
+            'purchaser_submitted_by' => $purchaserUser->id,
+        ]);
+
+        // 4. Cancelled Bill -> Excluded
+        $grn4 = GoodsReceived::create([
+            'grn_number' => 'GRN-TEST-004',
+            'receipt_type' => 'purchaser',
+            'status' => 'cancelled',
+            'received_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+        ]);
+        $inv4 = PurchaseInvoice::create([
+            'goods_received_id' => $grn4->id,
+            'supplier_id' => $supplier->id,
+            'invoice_number' => 'BILL-CANCELLED-004',
+            'amount' => 1000.0,
+            'status' => 'cancelled',
+            'purchaser_submitted_by' => $purchaserUser->id,
+        ]);
+
+        // 5. Fully Advance-Matched Bill: 100 kg billed, 100 kg advance-matched -> Excluded
+        $advanceGrn = GoodsReceived::create([
+            'grn_number' => 'GRN-ADV-001',
+            'receipt_type' => 'warehouse_advance',
+            'status' => 'completed',
+            'received_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+        ]);
+
+        $grn5 = GoodsReceived::create([
+            'grn_number' => 'GRN-TEST-005',
+            'receipt_type' => 'purchaser',
+            'status' => 'pending',
+            'received_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $grn5->id,
+            'product_id' => $product->id,
+            'received_qty' => 100.0,
+            'variance' => 0.0,
+        ]);
+        StockBatch::create([
+            'goods_received_id' => $grn5->id,
+            'product_id' => $product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+            'total_kg' => 100.0,
+            'warehouse_receive_pending' => true,
+            'status' => BatchStatus::Pending,
+            'purchase_grade' => 'A',
+            'reference' => 'BAT-TEST-005',
+            'cost_per_kg' => 20.0,
+        ]);
+        AdvanceReceiveMatch::create([
+            'advance_goods_received_id' => $advanceGrn->id,
+            'bill_goods_received_id' => $grn5->id,
+            'base_qty' => 100.0,
+            'matched_qty' => 100.0,
+            'matched_unit' => 'kg',
+            'product_id' => $product->id,
+            'confirmed_at' => now(),
+            'confirmed_by' => $this->admin->id,
+        ]);
+        $inv5 = PurchaseInvoice::create([
+            'goods_received_id' => $grn5->id,
+            'supplier_id' => $supplier->id,
+            'invoice_number' => 'BILL-MATCHED-005',
+            'amount' => 2000.0,
+            'status' => 'pending',
+            'purchaser_submitted_by' => $purchaserUser->id,
+        ]);
+
+        // 6. Partially Advance-Matched Bill: 100 kg billed, 30 kg advance-matched -> 70 kg pending, Partially Received
+        $grn6 = GoodsReceived::create([
+            'grn_number' => 'GRN-TEST-006',
+            'receipt_type' => 'purchaser',
+            'status' => 'pending',
+            'received_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $grn6->id,
+            'product_id' => $product->id,
+            'received_qty' => 100.0,
+            'variance' => 0.0,
+        ]);
+        StockBatch::create([
+            'goods_received_id' => $grn6->id,
+            'product_id' => $product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+            'total_kg' => 100.0,
+            'warehouse_receive_pending' => true,
+            'status' => BatchStatus::Pending,
+            'purchase_grade' => 'A',
+            'reference' => 'BAT-TEST-006',
+            'cost_per_kg' => 20.0,
+        ]);
+        AdvanceReceiveMatch::create([
+            'advance_goods_received_id' => $advanceGrn->id,
+            'bill_goods_received_id' => $grn6->id,
+            'base_qty' => 30.0,
+            'matched_qty' => 30.0,
+            'matched_unit' => 'kg',
+            'product_id' => $product->id,
+            'confirmed_at' => now(),
+            'confirmed_by' => $this->admin->id,
+        ]);
+        $inv6 = PurchaseInvoice::create([
+            'goods_received_id' => $grn6->id,
+            'supplier_id' => $supplier->id,
+            'invoice_number' => 'BILL-PARTIAL-MATCH-006',
+            'amount' => 2000.0,
+            'status' => 'pending',
+            'purchaser_submitted_by' => $purchaserUser->id,
+        ]);
+
+        // 7. Warehouse Bill Without Stock Batches Yet: 50 kg billed, 0 batches -> 50 kg pending, Included as Not Received
+        $grn7 = GoodsReceived::create([
+            'grn_number' => 'GRN-TEST-007',
+            'receipt_type' => 'normal_purchase',
+            'status' => 'pending_approval',
+            'received_by' => $this->admin->id,
+            'received_at' => now()->format('Y-m-d'),
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $grn7->id,
+            'product_id' => $product->id,
+            'received_qty' => 50.0,
+            'variance' => 0.0,
+        ]);
+        $inv7 = PurchaseInvoice::create([
+            'goods_received_id' => $grn7->id,
+            'supplier_id' => $supplier->id,
+            'invoice_number' => 'BILL-NO-BATCHES-007',
+            'amount' => 1000.0,
+            'status' => 'pending',
+            'purchaser_submitted_by' => $purchaserUser->id,
+        ]);
+
+        // 8. Direct Shop Vendor Credit Purchase (using SAME vendor): -> Excluded
+        $shopCartCredit = PurchaserCart::create([
+            'cart_number' => 'CART-CREDIT-008',
+            'user_id' => $purchaserUser->id,
+            'supplier_id' => $supplier->id,
+            'destination_shop_id' => $this->shop->id,
+            'business_date' => now()->format('Y-m-d'),
+            'status' => 'submitted',
+            'purchase_source' => 'shop',
+            'payment_method' => 'Credit',
+            'payment_status' => 'pending',
+        ]);
+        $shopPoCredit = PurchaseOrder::create([
+            'supplier_id' => $supplier->id,
+            'destination_shop_id' => $this->shop->id,
+            'purchaser_cart_id' => $shopCartCredit->id,
+            'po_number' => 'SPO-CREDIT-008',
+            'status' => 'received',
+            'fulfillment_type' => 'shop',
+            'order_date' => now()->format('Y-m-d'),
+            'created_by' => $purchaserUser->id,
+        ]);
+        $shopGrnCredit = GoodsReceived::create([
+            'purchase_order_id' => $shopPoCredit->id,
+            'purchaser_cart_id' => $shopCartCredit->id,
+            'grn_number' => 'SGRN-CREDIT-008',
+            'status' => 'approved',
+            'receipt_type' => 'normal_purchase',
+            'received_by' => $purchaserUser->id,
+            'received_at' => now()->format('Y-m-d'),
+            'notes' => 'Shop Goods Received',
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $shopGrnCredit->id,
+            'product_id' => $product->id,
+            'received_qty' => 35.0,
+            'variance' => 0.0,
+        ]);
+        $invCreditShop = PurchaseInvoice::create([
+            'goods_received_id' => $shopGrnCredit->id,
+            'supplier_id' => $supplier->id,
+            'shop_id' => $this->shop->id,
+            'purchaser_cart_id' => $shopCartCredit->id,
+            'purchase_source' => 'shop',
+            'invoice_number' => 'SPINV-CREDIT-SHOP-008',
+            'amount' => 700.0,
+            'status' => 'pending',
+            'payment_method' => 'Credit',
+            'payment_paid_by' => 'vendor_credit',
+            'purchaser_submitted_by' => $purchaserUser->id,
+        ]);
+
+        // 9. Direct Shop Cash Purchase (using SAME vendor): -> Excluded
+        $shopCartCash = PurchaserCart::create([
+            'cart_number' => 'CART-CASH-009',
+            'user_id' => $purchaserUser->id,
+            'supplier_id' => $supplier->id,
+            'destination_shop_id' => $this->shop->id,
+            'business_date' => now()->format('Y-m-d'),
+            'status' => 'submitted',
+            'purchase_source' => 'shop',
+            'payment_method' => 'Cash',
+            'payment_status' => 'paid',
+        ]);
+        $shopPoCash = PurchaseOrder::create([
+            'supplier_id' => $supplier->id,
+            'destination_shop_id' => $this->shop->id,
+            'purchaser_cart_id' => $shopCartCash->id,
+            'po_number' => 'SPO-CASH-009',
+            'status' => 'received',
+            'fulfillment_type' => 'shop',
+            'order_date' => now()->format('Y-m-d'),
+            'created_by' => $purchaserUser->id,
+        ]);
+        $shopGrnCash = GoodsReceived::create([
+            'purchase_order_id' => $shopPoCash->id,
+            'purchaser_cart_id' => $shopCartCash->id,
+            'grn_number' => 'SGRN-CASH-009',
+            'status' => 'approved',
+            'receipt_type' => 'normal_purchase',
+            'received_by' => $purchaserUser->id,
+            'received_at' => now()->format('Y-m-d'),
+            'notes' => 'Shop Goods Received',
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $shopGrnCash->id,
+            'product_id' => $product->id,
+            'received_qty' => 25.0,
+            'variance' => 0.0,
+        ]);
+        $invCashShop = PurchaseInvoice::create([
+            'goods_received_id' => $shopGrnCash->id,
+            'supplier_id' => $supplier->id,
+            'shop_id' => $this->shop->id,
+            'purchaser_cart_id' => $shopCartCash->id,
+            'purchase_source' => 'shop',
+            'invoice_number' => 'SPINV-CASH-SHOP-009',
+            'amount' => 500.0,
+            'status' => 'paid',
+            'payment_method' => 'Cash',
+            'payment_paid_by' => 'purchaser',
+            'purchaser_submitted_by' => $purchaserUser->id,
+        ]);
+
+        // Compute pending bills
+        $service = app(PurchaserBillsNotReceivedService::class);
+        $result = $service->computePendingBillsData();
+
+        // Eligible bills:
+        // 1. BILL-PENDING-001 (100 kg)
+        // 2. BILL-PARTIAL-002 (60 kg)
+        // 3. BILL-PARTIAL-MATCH-006 (70 kg)
+        // 4. BILL-NO-BATCHES-007 (50 kg)
+        // Total expected count: 4, Total outstanding: 280 kg
+        $this->assertEquals(4, $result['count']);
+        $this->assertEquals(280.0, $result['total_outstanding_qty']); // 100 + 60 + 70 + 50
+
+        $billNumbers = array_column($result['bills'], 'bill_number');
+        $this->assertContains('BILL-PENDING-001', $billNumbers);
+        $this->assertContains('BILL-PARTIAL-002', $billNumbers);
+        $this->assertContains('BILL-PARTIAL-MATCH-006', $billNumbers);
+        $this->assertContains('BILL-NO-BATCHES-007', $billNumbers);
+
+        // Verify exclusions
+        $this->assertNotContains('BILL-COMPLETED-003', $billNumbers);
+        $this->assertNotContains('BILL-CANCELLED-004', $billNumbers);
+        $this->assertNotContains('BILL-MATCHED-005', $billNumbers);
+        $this->assertNotContains('SPINV-CREDIT-SHOP-008', $billNumbers);
+        $this->assertNotContains('SPINV-CASH-SHOP-009', $billNumbers);
+
+        $pendingBill = collect($result['bills'])->firstWhere('bill_number', 'BILL-PENDING-001');
+        $this->assertEquals('Not Received', $pendingBill['status']);
+        $this->assertEquals(100.0, $pendingBill['outstanding_qty']);
+        $this->assertEquals('Test Purchaser', $pendingBill['purchaser']);
+
+        $partialBill = collect($result['bills'])->firstWhere('bill_number', 'BILL-PARTIAL-002');
+        $this->assertEquals('Partially Received', $partialBill['status']);
+        $this->assertEquals(60.0, $partialBill['outstanding_qty']);
+
+        $partialMatchBill = collect($result['bills'])->firstWhere('bill_number', 'BILL-PARTIAL-MATCH-006');
+        $this->assertEquals('Partially Received', $partialMatchBill['status']);
+        $this->assertEquals(70.0, $partialMatchBill['outstanding_qty']);
+
+        $noBatchBill = collect($result['bills'])->firstWhere('bill_number', 'BILL-NO-BATCHES-007');
+        $this->assertEquals('Not Received', $noBatchBill['status']);
+        $this->assertEquals(50.0, $noBatchBill['outstanding_qty']);
+
+        // Verify Damage & Loss report renders the card with correct count and outstanding kg
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.damage-loss'));
+        $response->assertOk();
+        $response->assertSee('Purchaser Bills Not Received');
+        $response->assertSee('280.0 kg');
+        $response->assertSee(route('admin.cashbook.reports-v1.pending-bills'));
+
+        // Verify Pending Warehouse Bills management page renders the bills
+        $pendingPage = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.pending-bills'));
+        $pendingPage->assertOk();
+        $pendingPage->assertSee('BILL-PENDING-001');
+        $pendingPage->assertSee('BILL-PARTIAL-002');
+        $pendingPage->assertSee('BILL-PARTIAL-MATCH-006');
+        $pendingPage->assertSee('BILL-NO-BATCHES-007');
+        $pendingPage->assertDontSee('SPINV-CREDIT-SHOP-008');
+        $pendingPage->assertDontSee('SPINV-CASH-SHOP-009');
+        $pendingPage->assertDontSee('BILL-COMPLETED-003');
+        $pendingPage->assertDontSee('BILL-CANCELLED-004');
     }
 }

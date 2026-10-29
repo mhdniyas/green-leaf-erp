@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Models\DailyPriceApproval;
+use App\Services\Pricing\DailyPriceInheritanceService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 
@@ -45,12 +46,15 @@ class SeedDailyPriceMatrixNextDayCommand extends Command
                 continue;
             }
 
+            $prevB = DailyPriceInheritanceService::previousPrice($sourceApproval, 'price_b') ?? (float) $sourceApproval->price_a;
+            $prevC = DailyPriceInheritanceService::previousPrice($sourceApproval, 'price_c') ?? (float) $sourceApproval->price_a;
+
             $targetApproval->fill([
                 'purchase_price' => $sourceApproval->purchase_price,
                 'price_unit' => $sourceApproval->price_unit,
-                'price_a' => $sourceApproval->price_a,
-                'price_b' => $sourceApproval->price_b ?? $sourceApproval->price_a,
-                'price_c' => $sourceApproval->price_c ?? $sourceApproval->price_a,
+                'price_a' => (float) $sourceApproval->price_a,
+                'price_b' => $prevB,
+                'price_c' => $prevC,
                 'status' => 'approved',
                 'approved_by' => null,
                 'approved_at' => now(),

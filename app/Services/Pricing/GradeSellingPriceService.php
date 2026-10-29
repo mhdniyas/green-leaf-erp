@@ -259,15 +259,22 @@ class GradeSellingPriceService
                 'purchase_price' => $cost,
                 'price_unit' => ProductUnit::normalizeUnit((string) ($product->unit ?: 'kg')),
                 'price_a' => $roundedPrice,
-                'price_b' => (float) ($prevApproval?->price_b ?? $roundedPrice),
-                'price_c' => (float) ($prevApproval?->price_c ?? $roundedPrice),
+                'price_b' => DailyPriceInheritanceService::previousPrice($prevApproval, 'price_b') ?? $roundedPrice,
+                'price_c' => DailyPriceInheritanceService::previousPrice($prevApproval, 'price_c') ?? $roundedPrice,
                 'status' => 'approved',
                 'approved_by' => $userId,
                 'approved_at' => now(),
                 'updated_by' => $userId,
             ]);
         } else {
-            $approval->price_a = $roundedPrice;
+            $prevApproval = DailyPriceApproval::query()
+                ->where('product_id', $product->id)
+                ->where('grade', $normalizedGrade)
+                ->whereDate('business_date', '<', $businessDate)
+                ->orderByDesc('business_date')
+                ->first();
+
+            DailyPriceInheritanceService::applyCategoryAUpdate($approval, $roundedPrice, $prevApproval);
             $approval->status = 'approved';
             $approval->approved_by = $userId;
             $approval->approved_at = now();
@@ -337,7 +344,14 @@ class GradeSellingPriceService
 
         if ($approval) {
             if ($defaultPrice !== null && $defaultPrice > 0) {
-                $approval->price_a = $defaultPrice;
+                $prevApproval = DailyPriceApproval::query()
+                    ->where('product_id', $product->id)
+                    ->where('grade', $normalizedGrade)
+                    ->whereDate('business_date', '<', $businessDate)
+                    ->orderByDesc('business_date')
+                    ->first();
+
+                DailyPriceInheritanceService::applyCategoryAUpdate($approval, $defaultPrice, $prevApproval);
                 $approval->updated_by = $userId;
                 $approval->save();
             } else {

@@ -7,6 +7,7 @@ namespace App\Services\Purchasing;
 use App\Models\DailyPriceApproval;
 use App\Models\Product;
 use App\Models\ProductUnit;
+use App\Services\Pricing\DailyPriceInheritanceService;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -79,14 +80,19 @@ class DailyPurchaserPriceSyncService
                     ->orderByDesc('business_date')
                     ->first();
 
+                $prevA = DailyPriceInheritanceService::previousPrice($previousApproval, 'price_a')
+                    ?? ((float) $product->base_price > 0 ? (float) $product->base_price : 0.0);
+                $prevB = DailyPriceInheritanceService::previousPrice($previousApproval, 'price_b') ?? $prevA;
+                $prevC = DailyPriceInheritanceService::previousPrice($previousApproval, 'price_c') ?? $prevA;
+
                 DailyPriceApproval::query()->create([
                     'product_id' => $prodId,
                     'business_date' => $dateStr,
                     'purchase_price' => $weightedPrice,
                     'price_unit' => ProductUnit::normalizeUnit((string) ($previousApproval?->price_unit ?: $product->unit ?: 'kg')),
-                    'price_a' => (float) ($previousApproval?->price_a ?? $product->base_price),
-                    'price_b' => (float) ($previousApproval?->price_b ?? $previousApproval?->price_a ?? $product->base_price),
-                    'price_c' => (float) ($previousApproval?->price_c ?? $previousApproval?->price_a ?? $product->base_price),
+                    'price_a' => $prevA,
+                    'price_b' => $prevB,
+                    'price_c' => $prevC,
                     'status' => 'approved',
                     'approved_by' => null,
                     'approved_at' => now(),

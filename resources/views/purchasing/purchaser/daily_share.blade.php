@@ -7,8 +7,8 @@
             <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.28),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#14532d_100%)] px-4 py-5 lg:px-6">
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div>
-                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-200">Grade {{ $purchaseGrade }} WhatsApp Share</p>
-                        <h1 class="mt-1 text-xl font-black tracking-tight">{{ $purchaseGrade === 'B' ? 'B Grade ' : '' }}Daily Share Summary</h1>
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-200">{{ $purchaseGrade === 'ALL' ? 'All Grades' : "Grade {$purchaseGrade}" }} WhatsApp Share</p>
+                        <h1 class="mt-1 text-xl font-black tracking-tight">{{ $purchaseGrade === 'ALL' ? 'All Grades ' : ($purchaseGrade !== 'A' ? "Grade {$purchaseGrade} " : '') }}Daily Share Summary</h1>
                         <p class="mt-1 text-sm font-medium text-slate-300">Filter and send demand to WhatsApp.</p>
                     </div>
                     <div class="flex flex-wrap gap-2">
@@ -29,6 +29,26 @@
                 <form action="{{ route('purchaser.daily.share') }}" method="GET" id="share-form">
                     <input type="hidden" name="date" value="{{ $date }}">
                     <input type="hidden" name="purchase_grade" value="{{ $purchaseGrade }}">
+
+                    {{-- Grade Filter Tabs --}}
+                    <div class="border-b border-slate-100 bg-slate-50/70 px-4 py-2.5">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <span class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Filter Grade</span>
+                            <div class="flex items-center gap-1 overflow-x-auto">
+                                @foreach ([
+                                    'ALL' => 'All Grades',
+                                    'A' => 'Grade A',
+                                    'B' => 'Grade B',
+                                    'C' => 'Grade C',
+                                ] as $gradeKey => $gradeLabel)
+                                    <a href="{{ route('purchaser.daily.share', ['date' => $date, 'purchase_grade' => $gradeKey, 'share_mode' => $shareMode]) }}"
+                                       class="inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-black transition-all {{ $purchaseGrade === $gradeKey ? 'bg-emerald-600 text-white shadow-xs' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100' }}">
+                                        {{ $gradeLabel }}
+                                    </a>
+                                @endforeach
+                            </div>
+                        </div>
+                    </div>
 
                     {{-- Mode + Date Header --}}
                     <div class="border-b border-slate-100 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
