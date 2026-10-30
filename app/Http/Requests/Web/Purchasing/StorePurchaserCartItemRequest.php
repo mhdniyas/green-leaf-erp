@@ -29,7 +29,7 @@ class StorePurchaserCartItemRequest extends FormRequest
             ],
             'product_id' => ['required', 'exists:products,id'],
             'cart_id' => ['nullable', 'exists:purchaser_carts,id'],
-            'purchase_grade' => ['sometimes', 'string', 'in:A,B,C,MIXED'],
+            'purchase_grade' => ['sometimes', 'string', 'in:A,B,C,MIXED,ALL,MULTI'],
             'quantity' => ['required', 'numeric', 'min:0.01'],
             'total_amount' => ['nullable', 'numeric', 'min:0.01'],
             'unit_price' => [

@@ -1300,7 +1300,7 @@ class PurchaserDashboardController extends Controller
             'vendorPriceHints' => $this->previousPriceResolver->getPreviousWeightedPrices(
                 $cart->items->pluck('product_id')->all(),
                 $cart->business_date,
-                $cart->purchase_grade ?? 'A',
+                ($cart->purchase_grade === 'ALL' || $cart->purchase_grade === 'MULTI') ? 'A' : ($cart->purchase_grade ?? 'A'),
             ),
             'deadlineAlert' => ['show' => false],
         ]);
@@ -2812,39 +2812,17 @@ class PurchaserDashboardController extends Controller
                     }
                 },
             ],
-            'product_ids' => ['required', 'array'],
-            'product_ids.*' => ['required', 'exists:products,id'],
+            'product_ids' => ['sometimes', 'array'],
+            'product_ids.*' => ['sometimes', 'exists:products,id'],
             'cart_id' => ['nullable', 'integer'],
-            'purchase_grade' => ['sometimes', 'string', 'in:A,B,C'],
+            'purchase_grade' => ['sometimes', 'string', 'in:A,B,C,ALL,MULTI,MIXED'],
             'submission_key' => ['nullable', 'string', 'max:80'],
             'items' => ['required', 'array'],
-            'items.*.quantity' => ['required', 'numeric', 'min:0'],
-            'items.*.unit_price' => ['nullable', 'numeric'],
         ]);
 
-        $selectedItems = collect($validated['items'])
-            ->filter(fn (array $item): bool => (float) ($item['quantity'] ?? 0) > 0);
-
-        if ($selectedItems->isEmpty()) {
-            return back()
-                ->withInput()
-                ->with('error', 'Enter quantity for at least one product before adding to cart.');
-        }
-
-        $missingPriceProductId = $selectedItems
-            ->filter(fn (array $item): bool => ($validated['purchase_grade'] ?? 'A') === 'A' && (float) ($item['unit_price'] ?? 0) <= 0)
-            ->keys()
-            ->first();
-
-        if ($missingPriceProductId !== null) {
-            return back()
-                ->withInput()
-                ->withErrors(["items.{$missingPriceProductId}.unit_price" => 'Enter a price greater than zero for selected products.']);
-        }
-
         $date = Carbon::parse($validated['business_date']);
-        $purchaseGrade = (string) ($validated['purchase_grade'] ?? 'A');
-        $destinationShopId = null;
+        $rawGrade = strtoupper((string) ($validated['purchase_grade'] ?? 'A'));
+        $purchaseGrade = in_array($rawGrade, ['A', 'B', 'C', 'ALL', 'MULTI', 'MIXED'], true) ? $rawGrade : 'A';
         $user = $request->user();
         $cartId = filled($validated['cart_id'] ?? null) ? (int) $validated['cart_id'] : null;
         $submissionKey = trim((string) ($validated['submission_key'] ?? ''));
@@ -2853,107 +2831,222 @@ class PurchaserDashboardController extends Controller
             : '';
 
         if ($sessionSubmissionKey !== '' && $request->session()->has($sessionSubmissionKey)) {
+            $existingCartId = $request->session()->get($sessionSubmissionKey);
+            $existingCart = is_numeric($existingCartId) ? PurchaserCart::query()->find((int) $existingCartId) : null;
+            if ($existingCart instanceof PurchaserCart) {
+                return redirect()
+                    ->route('purchaser.bill', ['cart' => $existingCart, 'date' => $date->format('Y-m-d')])
+                    ->with('success', 'This bulk purchase was already added to cart.');
+            }
+
             return redirect()
                 ->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])
                 ->with('success', 'This bulk purchase was already added to cart.');
         }
 
-        $cart = $cartId
-            ? PurchaserCart::query()
-                ->whereKey($cartId)
-                ->where('user_id', $user->id)
-                ->whereDate('business_date', $date)
-                ->where('status', 'draft')
-                ->where('purchase_grade', $purchaseGrade)
-                ->where('destination_shop_id', $destinationShopId)
-                ->firstOrFail()
-            : PurchaserCart::query()
-                ->where('user_id', $user->id)
-                ->whereDate('business_date', $date)
-                ->whereNull('supplier_id')
-                ->where('status', 'draft')
-                ->where('purchase_grade', $purchaseGrade)
-                ->where('destination_shop_id', $destinationShopId)
-                ->first();
-
-        if (! $cart) {
-            $cart = PurchaserCart::query()->create([
-                'user_id' => $user->id,
-                'business_date' => $date,
-                'cart_number' => PurchaserCart::generateCartNumber($date),
-                'status' => 'draft',
-                'purchase_grade' => $purchaseGrade,
-                'destination_shop_id' => $destinationShopId,
-                'purchase_source' => $purchaseGrade === 'B' ? 'green_leaf_direct_purchase' : 'shop_order',
-            ]);
-        } elseif ($purchaseGrade === 'B' && $cart->purchase_source !== 'green_leaf_direct_purchase') {
-            $cart->update(['purchase_source' => 'green_leaf_direct_purchase']);
-        }
-
-        $addedCount = 0;
-        $hasRegularPurchase = false;
-        $hasExtraPurchase = false;
-        $productIds = collect($validated['product_ids'])->map(fn ($id): int => (int) $id)->all();
-        $remainingByProduct = $this->remainingApprovedQuantitiesForProducts($date, $productIds, (int) $cart->id, $purchaseGrade);
-        foreach ($validated['product_ids'] as $productId) {
-            $productId = (int) $productId;
-            $itemData = $selectedItems->get((string) $productId) ?? $selectedItems->get($productId);
-
+        /** @var array<int, array{product_id: int, grade: string, quantity: float, unit_price: float}> $lines */
+        $lines = [];
+        foreach ($validated['items'] as $productId => $itemData) {
             if (! is_array($itemData)) {
                 continue;
             }
 
-            $remainingApproved = $remainingByProduct[$productId] ?? 0.0;
-            $quantity = (float) $itemData['quantity'];
-            $submittedPrice = (float) ($itemData['unit_price'] ?? 0);
-            $unitPrice = $submittedPrice > 0
-                ? $submittedPrice
-                : $this->purchaseGradePriceResolver->resolve($productId, $date->toDateString(), $purchaseGrade);
+            // Case 1: Legacy flat format: items[product_id][quantity] & items[product_id][unit_price]
+            if (array_key_exists('quantity', $itemData)) {
+                $qty = (float) ($itemData['quantity'] ?? 0);
+                if ($qty > 0) {
+                    $itemGrade = in_array($purchaseGrade, ['A', 'B', 'C', 'MIXED'], true) ? $purchaseGrade : 'A';
+                    $lines[] = [
+                        'product_id' => (int) $productId,
+                        'grade' => $itemGrade,
+                        'quantity' => $qty,
+                        'unit_price' => (float) ($itemData['unit_price'] ?? 0),
+                    ];
+                }
 
-            $existingItem = $cart->items()->where('product_id', $productId)->where('grade', $purchaseGrade)->first();
-            $newQuantity = $existingItem instanceof PurchaserCartItem
-                ? (float) $existingItem->quantity + $quantity
-                : $quantity;
-            $isExtraPurchase = $newQuantity > $remainingApproved;
-            $hasExtraPurchase = $hasExtraPurchase || $isExtraPurchase;
-            $hasRegularPurchase = $hasRegularPurchase || ! $isExtraPurchase;
-
-            if ($existingItem instanceof PurchaserCartItem) {
-                $existingItem->update([
-                    'quantity' => $newQuantity,
-                    'unit_price' => $unitPrice,
-                    'line_total' => round($newQuantity * $unitPrice, 2),
-                    'is_extra_purchase' => $isExtraPurchase,
-                ]);
-            } else {
-                $cart->items()->create([
-                    'product_id' => $productId,
-                    'grade' => $purchaseGrade,
-                    'quantity' => $quantity,
-                    'unit_price' => $unitPrice,
-                    'line_total' => round($quantity * $unitPrice, 2),
-                    'is_extra_purchase' => $isExtraPurchase,
-                ]);
+                continue;
             }
 
-            $addedCount++;
+            // Case 2: Multi-grade format: items[product_id][grade][quantity] & items[product_id][grade][unit_price]
+            foreach ($itemData as $gradeKey => $gradeData) {
+                if (! is_array($gradeData)) {
+                    continue;
+                }
+                $qty = (float) ($gradeData['quantity'] ?? 0);
+                if ($qty > 0) {
+                    $cleanGrade = strtoupper(trim((string) $gradeKey));
+                    $cleanGrade = in_array($cleanGrade, ['A', 'B', 'C', 'MIXED'], true) ? $cleanGrade : 'A';
+                    $lines[] = [
+                        'product_id' => (int) $productId,
+                        'grade' => $cleanGrade,
+                        'quantity' => $qty,
+                        'unit_price' => (float) ($gradeData['unit_price'] ?? 0),
+                    ];
+                }
+            }
         }
 
-        if ($purchaseGrade === 'B') {
-            $cart->update(['purchase_source' => $hasRegularPurchase
-                ? ($hasExtraPurchase ? 'mixed' : 'shop_order')
-                : 'green_leaf_direct_purchase']);
+        if (empty($lines)) {
+            return back()
+                ->withInput()
+                ->with('error', 'Enter quantity for at least one product before adding to cart.');
         }
 
-        $productLabel = $addedCount === 1 ? 'product' : 'products';
+        // Validate unit prices
+        foreach ($lines as $line) {
+            $unitPrice = $line['unit_price'];
+            if ($unitPrice <= 0 && $line['grade'] === 'A') {
+                return back()
+                    ->withInput()
+                    ->withErrors(["items.{$line['product_id']}.unit_price" => 'Enter a price greater than zero for selected products.']);
+            }
+        }
+
+        $destinationShopId = null;
+
+        /** @var PurchaserCart $cart */
+        $cart = DB::transaction(function () use ($user, $date, $cartId, $purchaseGrade, $destinationShopId, $lines): PurchaserCart {
+            /** @var PurchaserCart|null $cart */
+            $cart = null;
+            if ($cartId) {
+                $cart = PurchaserCart::query()
+                    ->whereKey($cartId)
+                    ->where('user_id', $user->id)
+                    ->whereDate('business_date', $date)
+                    ->where('status', 'draft')
+                    ->where('destination_shop_id', $destinationShopId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+            } else {
+                $targetCartGrade = in_array($purchaseGrade, ['ALL', 'MULTI'], true) ? 'ALL' : $purchaseGrade;
+                $cart = PurchaserCart::query()
+                    ->where('user_id', $user->id)
+                    ->whereDate('business_date', $date)
+                    ->whereNull('supplier_id')
+                    ->where('status', 'draft')
+                    ->where('destination_shop_id', $destinationShopId)
+                    ->where('purchase_grade', $targetCartGrade)
+                    ->lockForUpdate()
+                    ->first();
+            }
+
+            $distinctGrades = array_values(array_unique(array_column($lines, 'grade')));
+            $isMultiGrade = count($distinctGrades) > 1 || in_array($purchaseGrade, ['ALL', 'MULTI'], true);
+
+            if (! $cart) {
+                $cart = PurchaserCart::query()->create([
+                    'user_id' => $user->id,
+                    'business_date' => $date,
+                    'cart_number' => PurchaserCart::generateCartNumber($date),
+                    'status' => 'draft',
+                    'purchase_grade' => $isMultiGrade ? 'ALL' : ($distinctGrades[0] ?? 'A'),
+                    'destination_shop_id' => $destinationShopId,
+                    'purchase_source' => $isMultiGrade ? 'shop_order' : (($distinctGrades[0] ?? 'A') === 'B' ? 'green_leaf_direct_purchase' : 'shop_order'),
+                ]);
+            } elseif ($isMultiGrade && $cart->purchase_grade !== 'ALL') {
+                $cart->update(['purchase_grade' => 'ALL']);
+            }
+
+            $productIds = array_values(array_unique(array_column($lines, 'product_id')));
+
+            $approvedQuantities = ShopOrderItem::query()
+                ->whereIn('product_id', $productIds)
+                ->whereNull('deleted_at')
+                ->whereHas('order', function ($query) use ($date): void {
+                    $query->whereDate('business_date', $date)->where('state', 'approved');
+                })
+                ->groupBy(['product_id', 'product_grade'])
+                ->select('product_id', DB::raw("COALESCE(NULLIF(product_grade, ''), 'A') as item_grade"), DB::raw('SUM(approved_qty) as total_qty'))
+                ->get()
+                ->keyBy(fn ($row) => $row->product_id.':'.$row->item_grade);
+
+            $alreadySubmittedQuantities = PurchaserCartItem::query()
+                ->whereIn('product_id', $productIds)
+                ->whereHas('cart', function ($query) use ($date, $cart): void {
+                    $query->whereDate('business_date', $date)
+                        ->where('status', 'submitted')
+                        ->whereKeyNot($cart->id);
+                })
+                ->groupBy(['product_id', 'grade'])
+                ->select('product_id', DB::raw("COALESCE(NULLIF(grade, ''), 'A') as item_grade"), DB::raw('SUM(quantity) as total_qty'))
+                ->get()
+                ->keyBy(fn ($row) => $row->product_id.':'.$row->item_grade);
+
+            $hasDirectPurchase = false;
+            $hasShopOrder = false;
+
+            foreach ($lines as $line) {
+                $productId = $line['product_id'];
+                $grade = $line['grade'];
+                $quantity = $line['quantity'];
+                $submittedPrice = $line['unit_price'];
+
+                $unitPrice = $submittedPrice > 0
+                    ? $submittedPrice
+                    : $this->purchaseGradePriceResolver->resolve($productId, $date->toDateString(), $grade);
+
+                $key = $productId.':'.$grade;
+                $approvedQty = (float) ($approvedQuantities->get($key)?->total_qty ?? 0);
+                $submittedQty = (float) ($alreadySubmittedQuantities->get($key)?->total_qty ?? 0);
+                $remainingApproved = max(0.0, $approvedQty - $submittedQty);
+
+                /** @var PurchaserCartItem|null $existingItem */
+                $existingItem = $cart->items()
+                    ->where('product_id', $productId)
+                    ->where('grade', $grade)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existingItem instanceof PurchaserCartItem) {
+                    $newQuantity = (float) $existingItem->quantity + $quantity;
+                    $newUnitPrice = $unitPrice > 0 ? $unitPrice : (float) $existingItem->unit_price;
+                    $isExtraPurchase = $grade === 'MIXED' ? false : ($newQuantity > $remainingApproved);
+
+                    $existingItem->update([
+                        'quantity' => $newQuantity,
+                        'unit_price' => $newUnitPrice,
+                        'line_total' => round($newQuantity * $newUnitPrice, 2),
+                        'is_extra_purchase' => $isExtraPurchase,
+                    ]);
+                } else {
+                    $isExtraPurchase = $grade === 'MIXED' ? false : ($quantity > $remainingApproved);
+
+                    $cart->items()->create([
+                        'product_id' => $productId,
+                        'grade' => $grade,
+                        'quantity' => $quantity,
+                        'unit_price' => $unitPrice,
+                        'line_total' => round($quantity * $unitPrice, 2),
+                        'is_extra_purchase' => $isExtraPurchase,
+                    ]);
+                }
+
+                if ($grade === 'B' || $grade === 'MIXED' || $isExtraPurchase) {
+                    $hasDirectPurchase = true;
+                } else {
+                    $hasShopOrder = true;
+                }
+            }
+
+            if ($hasDirectPurchase && $hasShopOrder) {
+                $cart->update(['purchase_source' => 'mixed']);
+            } elseif ($hasDirectPurchase && ! $hasShopOrder) {
+                $cart->update(['purchase_source' => 'green_leaf_direct_purchase']);
+            }
+
+            return $cart;
+        });
 
         if ($sessionSubmissionKey !== '') {
-            $request->session()->put($sessionSubmissionKey, true);
+            $request->session()->put($sessionSubmissionKey, $cart->id);
         }
+
+        $lineCount = count($lines);
+        $label = $lineCount === 1 ? 'line' : 'lines';
 
         return redirect()
             ->route('purchaser.bill', ['cart' => $cart, 'date' => $date->format('Y-m-d')])
-            ->with('success', "{$addedCount} {$productLabel} added to cart.")
+            ->with('success', "{$lineCount} purchase {$label} added to cart.")
             ->with('cart_success_actions', true)
             ->with('cart_success_date', $date->format('Y-m-d'));
     }
@@ -3016,7 +3109,10 @@ class PurchaserDashboardController extends Controller
                 ->whereKey($cartId)
                 ->where('user_id', $user->id)
                 ->where('status', 'draft')
-                ->where('purchase_grade', $purchaseGrade)
+                ->where(function ($q) use ($purchaseGrade): void {
+                    $q->where('purchase_grade', $purchaseGrade)
+                        ->orWhereIn('purchase_grade', ['ALL', 'MULTI']);
+                })
                 ->where('destination_shop_id', $destinationShopId)
                 ->with(['items.product', 'goodsReceived'])
                 ->firstOrFail()
@@ -3498,25 +3594,18 @@ class PurchaserDashboardController extends Controller
                 ->whereRaw('LOWER(TRIM(invoice_number)) = ?', [$normalizedBillNumber])
                 ->first();
 
-            if ($existingVendorInvoice instanceof PurchaseInvoice) {
-                $cart->update([
-                    'supplier_id' => $supplier->id,
-                    'bill_number' => $existingVendorInvoice->invoice_number,
-                    'status' => 'submitted',
-                    'purchase_invoice_id' => $existingVendorInvoice->id,
-                    'goods_received_id' => $existingVendorInvoice->goods_received_id,
-                    'submitted_at' => now(),
-                ]);
-
-                $duplicateMsg = sprintf(
-                    'Duplicate Vendor Bill: Bill no. "%s" already exists for vendor "%s" (Existing Bill #%s, Amount: ₹%s).',
-                    $rawBillNumber,
-                    $supplier->name,
-                    $existingVendorInvoice->invoice_number,
-                    number_format((float) $existingVendorInvoice->amount, 2)
-                );
-
-                return $this->resolveSubmitRedirect($request, $date, $duplicateMsg);
+            if ($existingVendorInvoice instanceof PurchaseInvoice && $existingVendorInvoice->purchaser_cart_id !== $cart->id) {
+                return back()
+                    ->withInput()
+                    ->withErrors([
+                        'bill_number' => sprintf(
+                            'Duplicate Vendor Bill: Bill no. "%s" already exists for vendor "%s" (Existing Bill #%s, Amount: ₹%s).',
+                            $rawBillNumber,
+                            $supplier->name,
+                            $existingVendorInvoice->invoice_number,
+                            number_format((float) $existingVendorInvoice->amount, 2)
+                        ),
+                    ]);
             }
         }
 
@@ -3552,17 +3641,16 @@ class PurchaserDashboardController extends Controller
                     ->lockForUpdate()
                     ->first();
 
-                if ($existingVendorInvoice instanceof PurchaseInvoice) {
-                    $cart->update([
-                        'supplier_id' => $supplier->id,
-                        'bill_number' => $existingVendorInvoice->invoice_number,
-                        'status' => 'submitted',
-                        'purchase_invoice_id' => $existingVendorInvoice->id,
-                        'goods_received_id' => $existingVendorInvoice->goods_received_id,
-                        'purchase_order_id' => $existingVendorInvoice->goodsReceived?->purchase_order_id,
+                if ($existingVendorInvoice instanceof PurchaseInvoice && $existingVendorInvoice->purchaser_cart_id !== $cart->id) {
+                    throw ValidationException::withMessages([
+                        'bill_number' => sprintf(
+                            'Duplicate Vendor Bill: Bill no. "%s" already exists for vendor "%s" (Existing Bill #%s, Amount: ₹%s).',
+                            $rawBillNumber,
+                            $supplier->name,
+                            $existingVendorInvoice->invoice_number,
+                            number_format((float) $existingVendorInvoice->amount, 2)
+                        ),
                     ]);
-
-                    return;
                 }
             }
 
@@ -3581,27 +3669,26 @@ class PurchaserDashboardController extends Controller
 
             $approvedQuantities = ShopOrderItem::query()
                 ->whereIn('product_id', $productIds)
-                ->where('product_grade', $cart->purchase_grade ?? 'A')
+                ->whereNull('deleted_at')
                 ->whereHas('order', function ($query) use ($date): void {
                     $query->whereDate('business_date', $date)->where('state', 'approved');
                 })
-                ->groupBy('product_id')
-                ->select('product_id', DB::raw('SUM(approved_qty) as total_qty'))
-                ->pluck('total_qty', 'product_id')
-                ->all();
+                ->groupBy(['product_id', 'product_grade'])
+                ->select('product_id', DB::raw("COALESCE(NULLIF(product_grade, ''), 'A') as item_grade"), DB::raw('SUM(approved_qty) as total_qty'))
+                ->get()
+                ->keyBy(fn ($row) => $row->product_id.':'.$row->item_grade);
 
             $alreadySubmittedQuantities = PurchaserCartItem::query()
                 ->whereIn('product_id', $productIds)
-                ->where('grade', $cart->purchase_grade ?? 'A')
                 ->whereHas('cart', function ($query) use ($date, $cart): void {
                     $query->whereDate('business_date', $date)
                         ->where('status', 'submitted')
                         ->whereKeyNot($cart->id);
                 })
-                ->groupBy('product_id')
-                ->select('product_id', DB::raw('SUM(quantity) as total_qty'))
-                ->pluck('total_qty', 'product_id')
-                ->all();
+                ->groupBy(['product_id', 'grade'])
+                ->select('product_id', DB::raw("COALESCE(NULLIF(grade, ''), 'A') as item_grade"), DB::raw('SUM(quantity) as total_qty'))
+                ->get()
+                ->keyBy(fn ($row) => $row->product_id.':'.$row->item_grade);
 
             foreach ($cart->items as $cartItem) {
                 $unitPrice = (float) $cartItem->unit_price;
@@ -3609,7 +3696,9 @@ class PurchaserDashboardController extends Controller
                 $lineTotal = (float) ($cartItem->line_total > 0 ? $cartItem->line_total : round($quantity * $unitPrice, 2));
                 $subtotalAmount += $lineTotal;
 
-                if (($cart->purchase_grade ?? 'A') === 'MIXED') {
+                $itemGrade = strtoupper(trim((string) ($cartItem->grade ?? $cart->purchase_grade ?? 'A')));
+
+                if ($itemGrade === 'MIXED' || $itemGrade === 'U') {
                     $regularLines[] = [
                         'cart_item' => $cartItem,
                         'quantity' => $quantity,
@@ -3619,8 +3708,9 @@ class PurchaserDashboardController extends Controller
                     continue;
                 }
 
-                $approvedQty = (float) ($approvedQuantities[$cartItem->product_id] ?? 0);
-                $submittedQty = (float) ($alreadySubmittedQuantities[$cartItem->product_id] ?? 0);
+                $key = $cartItem->product_id.':'.$itemGrade;
+                $approvedQty = (float) ($approvedQuantities->get($key)?->total_qty ?? 0);
+                $submittedQty = (float) ($alreadySubmittedQuantities->get($key)?->total_qty ?? 0);
                 $remainingApproved = max(0.0, $approvedQty - $submittedQty);
 
                 $regularQuantity = min($quantity, $remainingApproved);
@@ -3742,12 +3832,12 @@ class PurchaserDashboardController extends Controller
 
             $this->vendorPriceService->syncMany(
                 $supplier->id,
-                ($cart->purchase_grade ?? 'A') === 'A'
-                    ? collect($cart->items)->map(fn (PurchaserCartItem $item): array => [
+                collect($cart->items)
+                    ->filter(fn (PurchaserCartItem $item): bool => strtoupper(trim((string) ($item->grade ?? $cart->purchase_grade ?? 'A'))) === 'A')
+                    ->map(fn (PurchaserCartItem $item): array => [
                         'product_id' => (int) $item->product_id,
                         'unit_price' => (float) $item->unit_price,
                     ])->all()
-                    : [],
             );
 
             if ($paymentPaidBy === 'purchaser') {
@@ -4157,12 +4247,29 @@ class PurchaserDashboardController extends Controller
     {
         $itemsData = collect($items);
         $productIds = $cart->items->pluck('product_id')->map(fn ($id): int => (int) $id)->all();
-        $remainingByProduct = $this->remainingApprovedQuantitiesForProducts(
-            $cart->business_date,
-            $productIds,
-            (int) $cart->id,
-            (string) $cart->purchase_grade,
-        );
+
+        $approvedQuantities = ShopOrderItem::query()
+            ->whereIn('product_id', $productIds)
+            ->whereNull('deleted_at')
+            ->whereHas('order', function ($query) use ($cart): void {
+                $query->whereDate('business_date', $cart->business_date)->where('state', 'approved');
+            })
+            ->groupBy(['product_id', 'product_grade'])
+            ->select('product_id', DB::raw("COALESCE(NULLIF(product_grade, ''), 'A') as item_grade"), DB::raw('SUM(approved_qty) as total_qty'))
+            ->get()
+            ->keyBy(fn ($row) => $row->product_id.':'.$row->item_grade);
+
+        $alreadySubmittedQuantities = PurchaserCartItem::query()
+            ->whereIn('product_id', $productIds)
+            ->whereHas('cart', function ($query) use ($cart): void {
+                $query->whereDate('business_date', $cart->business_date)
+                    ->where('status', 'submitted')
+                    ->whereKeyNot($cart->id);
+            })
+            ->groupBy(['product_id', 'grade'])
+            ->select('product_id', DB::raw("COALESCE(NULLIF(grade, ''), 'A') as item_grade"), DB::raw('SUM(quantity) as total_qty'))
+            ->get()
+            ->keyBy(fn ($row) => $row->product_id.':'.$row->item_grade);
 
         foreach ($cart->items as $cartItem) {
             $itemInput = $itemsData->get((string) $cartItem->id);
@@ -4172,13 +4279,18 @@ class PurchaserDashboardController extends Controller
 
             $quantity = (float) ($itemInput['quantity'] ?? $cartItem->quantity);
             $unitPrice = (float) $itemInput['unit_price'];
-            $remainingApproved = $remainingByProduct[(int) $cartItem->product_id] ?? 0.0;
+
+            $itemGrade = strtoupper(trim((string) ($cartItem->grade ?? 'A')));
+            $key = $cartItem->product_id.':'.$itemGrade;
+            $approvedQty = (float) ($approvedQuantities->get($key)?->total_qty ?? 0);
+            $submittedQty = (float) ($alreadySubmittedQuantities->get($key)?->total_qty ?? 0);
+            $remainingApproved = max(0.0, $approvedQty - $submittedQty);
 
             $cartItem->update([
                 'quantity' => $quantity,
                 'unit_price' => $unitPrice,
                 'line_total' => round($quantity * $unitPrice, 2),
-                'is_extra_purchase' => $quantity > $remainingApproved,
+                'is_extra_purchase' => ($itemGrade === 'MIXED' || $itemGrade === 'U') ? false : ($quantity > $remainingApproved),
                 'notes' => $itemInput['notes'] ?? null,
             ]);
         }
@@ -4985,7 +5097,8 @@ class PurchaserDashboardController extends Controller
     private function createPurchaseDocumentsFromLines(Supplier $supplier, Carbon $date, int $userId, array $lines, bool $isExtra, string $notes, ?int $cartId = null): array
     {
         $cartPurchaseGrade = $cartId ? (string) PurchaserCart::query()->whereKey($cartId)->value('purchase_grade') : null;
-        $purchaseGrade = (string) ($lines[0]['cart_item']->grade ?? $cartPurchaseGrade ?? 'A');
+        $distinctLineGrades = collect($lines)->map(fn ($l) => (string) ($l['cart_item']->grade ?? 'A'))->unique()->values();
+        $headerGrade = $distinctLineGrades->count() === 1 ? (string) $distinctLineGrades->first() : ($cartPurchaseGrade ?: 'ALL');
         $destinationShopId = $cartId ? PurchaserCart::query()->whereKey($cartId)->value('destination_shop_id') : null;
         $purchaseOrder = PurchaseOrder::query()->create([
             'supplier_id' => $supplier->id,
@@ -4997,7 +5110,7 @@ class PurchaserDashboardController extends Controller
             'order_date' => $date,
             'created_by' => $userId,
             'notes' => $notes,
-            'purchase_grade' => $purchaseGrade,
+            'purchase_grade' => $headerGrade,
         ]);
 
         $grn = GoodsReceived::query()->create([
@@ -5010,17 +5123,18 @@ class PurchaserDashboardController extends Controller
             'received_at' => $date,
             'notes' => $notes,
             'is_extra' => $isExtra,
-            'purchase_grade' => $purchaseGrade,
+            'purchase_grade' => $headerGrade,
         ]);
 
         foreach ($lines as $line) {
             $cartItem = $line['cart_item'];
             $quantity = $line['quantity'];
             $isPerKg = $cartItem->product->unit === 'kg';
+            $itemGrade = (string) ($cartItem->grade ?? $headerGrade);
 
             $purchaseOrderItem = $purchaseOrder->items()->create([
                 'product_id' => $cartItem->product_id,
-                'grade' => $purchaseGrade,
+                'grade' => $itemGrade,
                 'purchase_unit' => $cartItem->product->unit,
                 'packet_qty' => $isPerKg ? null : $quantity,
                 'quantity' => $quantity,
@@ -5031,7 +5145,7 @@ class PurchaserDashboardController extends Controller
             $grn->items()->create([
                 'purchase_order_item_id' => $purchaseOrderItem->id,
                 'product_id' => $cartItem->product_id,
-                'grade' => $purchaseGrade,
+                'grade' => $itemGrade,
                 'received_qty' => $quantity,
                 'received_unit' => $purchaseOrderItem->purchase_unit ?: $cartItem->product->unit,
                 'variance' => 0,
