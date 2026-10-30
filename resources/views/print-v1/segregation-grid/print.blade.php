@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Segregation Grid - {{ \Carbon\Carbon::parse($date)->format('d M Y') }}</title>
+    <title>Segregation Grid — {{ \Carbon\Carbon::parse($date)->format('d M Y') }}</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html,
@@ -19,8 +19,9 @@
             display: flex;
             gap: 8px;
             margin-bottom: 8px;
+            font-family: system-ui, -apple-system, sans-serif;
         }
-        .no-print button, .no-print a {
+        .no-print button {
             background: #fff;
             border: 1px solid #000;
             color: #000;
@@ -28,13 +29,10 @@
             font-size: 11px;
             font-weight: 700;
             padding: 7px 18px;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
+            border-radius: 4px;
         }
-        .no-print button.btn-primary {
-            background: #000;
-            color: #fff;
+        .no-print button:hover {
+            background: #f0f0f0;
         }
         .page {
             break-after: page;
@@ -44,6 +42,16 @@
         .page:last-child {
             break-after: auto;
             page-break-after: auto;
+        }
+        .page-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         table {
             border-collapse: collapse;
@@ -124,29 +132,28 @@
 </head>
 <body>
     <div class="no-print">
-        <button type="button" class="btn-primary" onclick="window.print()">Print / Save PDF</button>
-        <a href="javascript:window.close()">Close Window</a>
-        <span style="font-weight: 800;">{{ $result->gradeHeading() }}</span>
-        <span>&bull; {{ count($matrix) }} products &bull; {{ $filteredShops->count() }} active shops{{ $selectedWarehouse ? ' &bull; '.$selectedWarehouse->name : '' }}</span>
-        @if($result->skippedShopCount() > 0)
-            <span style="color: #64748b;">({{ $result->skippedShopCount() }} empty shops auto-skipped)</span>
-        @endif
+        <button type="button" onclick="window.print()">Print</button>
+        <button type="button" onclick="window.close()">Close</button>
+        <span style="font-weight: 700; font-size: 12px; margin-left: 8px;">
+            Segregation Grid &middot; {{ $gradeHeading }} &middot; {{ \Carbon\Carbon::parse($date)->format('d M Y') }}
+            &middot; {{ count($matrix) }} products &middot; {{ $filteredShops->count() }} shops
+            {{ isset($selectedWarehouse) && $selectedWarehouse ? ' &middot; '.$selectedWarehouse->name : '' }}
+        </span>
     </div>
 
-    @if(count($matrix) > 0 && $filteredShops->count() > 0)
+    @if(count($matrix) > 0)
         @php
-            $rowsPerPage = (int) ($settings['items_per_page'] ?? 9);
-            $matrixPages = array_chunk($matrix, $rowsPerPage, true);
+            $totalPages = count($gridPages);
             $shopCount = max(1, $filteredShops->count());
             $shopWidth = (100 - 4 - 15 - 6) / $shopCount;
             $formatQty = fn (float $qty): string => rtrim(rtrim(number_format($qty, 2, '.', ''), '0'), '.');
         @endphp
 
-        @foreach($matrixPages as $pageMatrix)
+        @foreach($gridPages as $pageIndex => $pageMatrix)
             <div class="page">
-                <div class="grid-title" style="font-size: 11px; font-weight: 800; margin-bottom: 2px; display: flex; justify-content: space-between;">
-                    <span>Segregation Grid &bull; {{ $result->gradeHeading() }}</span>
-                    <span>{{ \Carbon\Carbon::parse($date)->format('d M Y') }}{{ $selectedWarehouse ? ' &bull; '.$selectedWarehouse->name : '' }}</span>
+                <div class="page-meta">
+                    <span>{{ $companyName ?? 'Green Leaf Distribution' }} &middot; Segregation Grid ({{ $gradeHeading }})</span>
+                    <span>Date: {{ \Carbon\Carbon::parse($date)->format('d M Y') }} &middot; Page {{ $pageIndex + 1 }} of {{ $totalPages }}</span>
                 </div>
                 <table>
                     <colgroup>
@@ -196,7 +203,7 @@
             </div>
         @endforeach
     @else
-        <p>No approved shop orders found for this date.</p>
+        <p style="padding: 20px; font-size: 14px; text-align: center;">No approved shop orders found for this date.</p>
     @endif
 </body>
 </html>

@@ -3,11 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Shop Wise Segregation - {{ \Carbon\Carbon::parse($date)->format('d M Y') }}</title>
-    @php
-        $printOrientation = ($settings['orientation'] ?? 'portrait') === 'landscape' ? 'landscape' : 'portrait';
-        $isPortraitPrint = $printOrientation === 'portrait';
-    @endphp
+    <title>Shop Order — {{ \Carbon\Carbon::parse($date)->format('d M Y') }}</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html {
@@ -25,8 +21,9 @@
             display: flex;
             gap: 8px;
             margin-bottom: 10px;
+            font-family: system-ui, -apple-system, sans-serif;
         }
-        .no-print button, .no-print a {
+        .no-print button {
             background: #fff;
             border: 1px solid #000;
             color: #000;
@@ -34,13 +31,10 @@
             font-size: 11px;
             font-weight: 700;
             padding: 7px 18px;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
+            border-radius: 4px;
         }
-        .no-print button.btn-primary {
-            background: #000;
-            color: #fff;
+        .no-print button:hover {
+            background: #f0f0f0;
         }
         .page {
             break-after: page;
@@ -117,8 +111,8 @@
         }
         @media print {
             @page {
-                size: A4 {{ $printOrientation }};
-                margin: 8mm {{ $isPortraitPrint ? '21mm' : '8mm' }};
+                size: A4 portrait;
+                margin: 8mm 21mm;
             }
             html,
             body {
@@ -148,64 +142,36 @@
 </head>
 <body>
     <div class="no-print">
-        <button type="button" class="btn-primary" onclick="window.print()">Print / Save PDF</button>
-        <a href="javascript:window.close()">Close Window</a>
-        <span style="font-weight: 800;">{{ $result->gradeHeading() }}</span>
-        <span>&bull; {{ count($matrix) }} products &bull; {{ $filteredShops->count() }} shops{{ $selectedWarehouse ? ' &bull; '.$selectedWarehouse->name : '' }}</span>
-        @if($result->skippedShopCount() > 0)
-            <span style="color: #64748b;">({{ $result->skippedShopCount() }} empty shops auto-skipped)</span>
-        @endif
+        <button type="button" onclick="window.print()">Print</button>
+        <button type="button" onclick="window.close()">Close</button>
+        <span style="font-weight: 700; font-size: 12px; margin-left: 8px;">
+            Shop Order &middot; {{ $gradeHeading }} &middot; {{ \Carbon\Carbon::parse($date)->format('d M Y') }}
+            &middot; {{ $totalShopsWithOrders }} shops &middot; {{ $totalItemsAllShops }} items
+            {{ isset($selectedWarehouse) && $selectedWarehouse ? ' &middot; '.$selectedWarehouse->name : '' }}
+        </span>
     </div>
 
-    @if(count($matrix) > 0 && $filteredShops->count() > 0)
-        @php
-            $skipEmpty = (bool) ($settings['skip_empty_shops'] ?? true);
-            $formatQty = fn (float $qty): string => rtrim(rtrim(number_format($qty, 2, '.', ''), '0'), '.');
-        @endphp
-
-        @foreach($filteredShops as $shop)
+    @if(count($shopSections) > 0)
+        @foreach($shopSections as $section)
             @php
-                $shopRows = [];
-
-                foreach ($matrix as $rowKey => $shopQtys) {
-                    $qty = (float) ($shopQtys[$shop->id] ?? 0);
-
-                    if ($qty <= 0) {
-                        continue;
-                    }
-
-                    $meta = $productMeta[$rowKey];
-                    $shopRows[] = [
-                        'code' => $meta['sku'] ?: $meta['product_id'],
-                        'name' => $meta['display_name'] ?? $meta['name'],
-                        'qty' => $formatQty($qty),
-                    ];
-                }
+                $shop = $section['shop'];
+                $rows = $section['rows'];
             @endphp
-
-            @continue($skipEmpty && count($shopRows) === 0)
+            @continue(count($rows) === 0)
 
             <div class="page">
                 <table>
                     <colgroup>
-                        @if($isPortraitPrint)
-                            <col style="width:10%">
-                            <col style="width:45%">
-                            <col style="width:25%">
-                            <col style="width:20%">
-                        @else
-                            <col style="width:6%">
-                            <col style="width:54%">
-                            <col style="width:25%">
-                            <col style="width:15%">
-                        @endif
+                        <col style="width:10%">
+                        <col style="width:45%">
+                        <col style="width:25%">
+                        <col style="width:20%">
                     </colgroup>
                     <thead>
                         <tr>
                             <th class="shop-title-cell" colspan="4">
                                 <div class="shop-title-content">
                                     <strong>{{ $shop->warehouse_tag ? $shop->warehouse_tag.' - '.$shop->name : $shop->name }}</strong>
-                                    <span style="font-size: 15px; font-weight: 900; letter-spacing: 0.5px;">{{ $result->gradeHeading() }}</span>
                                     <strong>{{ \Carbon\Carbon::parse($date)->format('d-M') }}</strong>
                                 </div>
                             </th>
@@ -218,26 +184,20 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @forelse($shopRows as $row)
+                        @foreach($rows as $row)
                             <tr>
                                 <td class="code-cell">{{ $row['code'] }}</td>
-                                <td class="item-cell">{{ $row['name'] }}</td>
-                                <td>{{ $row['qty'] }}</td>
+                                <td class="item-cell">{{ $row['display_name'] }}</td>
+                                <td>{{ $row['formatted_qty'] }}</td>
                                 <td class="total-cell"></td>
                             </tr>
-                        @empty
-                            <tr>
-                                <td colspan="4" style="text-align: center; padding: 16px; color: #94a3b8; font-style: italic; font-size: 11px;">
-                                    No eligible order items for this date.
-                                </td>
-                            </tr>
-                        @endforelse
+                        @endforeach
                     </tbody>
                 </table>
             </div>
         @endforeach
     @else
-        <p>No approved shop orders found for this date.</p>
+        <p style="padding: 20px; font-size: 14px; text-align: center;">No approved shop orders found for this date.</p>
     @endif
 </body>
 </html>

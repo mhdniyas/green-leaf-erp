@@ -29,9 +29,31 @@
                 ],
                 [
                     'label' => 'Printing V1',
-                    'href' => route('print.dashboard'),
+                    'href' => route('print.sort-sheet'),
                     'active' => request()->routeIs('print.*'),
                     'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 9V4.5h10.5V9M6 17.25h12A2.25 2.25 0 0 0 20.25 15v-3A2.25 2.25 0 0 0 18 9.75H6A2.25 2.25 0 0 0 3.75 12v3A2.25 2.25 0 0 0 6 17.25Zm1.5 0v2.25h9V17.25" /></svg>',
+                    'children' => [
+                        [
+                            'label' => 'Sort Sheet',
+                            'href' => route('print.sort-sheet', array_filter(['date' => request('date')])),
+                            'active' => request()->routeIs('print.sort-sheet*'),
+                        ],
+                        [
+                            'label' => 'Selection',
+                            'href' => route('print.selection', array_filter(['date' => request('date')])),
+                            'active' => request()->routeIs('print.selection*'),
+                        ],
+                        [
+                            'label' => 'Segregation Grid',
+                            'href' => route('print.segregation-grid', array_filter(['date' => request('date')])),
+                            'active' => request()->routeIs('print.segregation-grid*'),
+                        ],
+                        [
+                            'label' => 'Shop Order',
+                            'href' => route('print.shop-order', array_filter(['date' => request('date')])),
+                            'active' => request()->routeIs('print.shop-order*') || request()->routeIs('print.shop-wise-portrait*'),
+                        ],
+                    ],
                 ],
             ],
         ];
@@ -65,7 +87,10 @@
         ['label' => 'Sort Sheet', 'href' => route('sort-sheet.index', array_filter(['date' => request('date')])), 'active' => request()->routeIs('sort-sheet.index')],
         ['label' => 'Selection', 'href' => route('segregation.index', array_filter(['date' => request('date')])), 'active' => request()->routeIs('segregation.index')],
         ['label' => 'Custom Presets', 'href' => route('sort-sheet.presets.index'), 'active' => request()->routeIs('sort-sheet.presets.*')],
-        ['label' => 'Printing V1', 'href' => route('print.dashboard'), 'active' => request()->routeIs('print.*')],
+        ['label' => 'Sort Sheet V1', 'href' => route('print.sort-sheet', array_filter(['date' => request('date')])), 'active' => request()->routeIs('print.sort-sheet*')],
+        ['label' => 'Selection V1', 'href' => route('print.selection', array_filter(['date' => request('date')])), 'active' => request()->routeIs('print.selection*')],
+        ['label' => 'Segregation Grid V1', 'href' => route('print.segregation-grid', array_filter(['date' => request('date')])), 'active' => request()->routeIs('print.segregation-grid*')],
+        ['label' => 'Shop Order V1', 'href' => route('print.shop-order', array_filter(['date' => request('date')])), 'active' => request()->routeIs('print.shop-order*') || request()->routeIs('print.shop-wise-portrait*')],
     ];
 @endphp
 

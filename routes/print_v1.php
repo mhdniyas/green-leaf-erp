@@ -2,35 +2,40 @@
 
 declare(strict_types=1);
 
-use App\Http\Controllers\Web\Printing\PrintV1DashboardController;
-use App\Http\Controllers\Web\Printing\PrintV1OutputController;
-use App\Http\Controllers\Web\Printing\PrintV1SettingsController;
+use App\Http\Controllers\Web\Printing\PrintV1SegregationGridController;
+use App\Http\Controllers\Web\Printing\PrintV1SelectionController;
+use App\Http\Controllers\Web\Printing\PrintV1ShopOrderController;
+use App\Http\Controllers\Web\Printing\PrintV1SortSheetController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('print')->name('print.')->middleware(['auth', 'can:sort.sheet.view'])->group(function () {
-    // Dashboard
-    Route::get('/', [PrintV1DashboardController::class, 'index'])->name('dashboard');
+    // Sort Sheet V1 as default entry point
+    Route::get('/', fn () => redirect()->route('print.sort-sheet'))->name('dashboard');
 
-    // Four Clean Print Sections
-    Route::get('/sort-sheet', [PrintV1OutputController::class, 'sortSheet'])->name('sort-sheet');
-    Route::get('/selection', [PrintV1OutputController::class, 'selection'])->name('selection');
-    Route::get('/segregation-grid', [PrintV1OutputController::class, 'segregationGrid'])->name('segregation-grid');
-    Route::get('/shop-wise-portrait', [PrintV1OutputController::class, 'shopWisePortrait'])->name('shop-wise-portrait');
-    Route::get('/batch-print', [PrintV1OutputController::class, 'batchPrint'])->name('batch-print');
+    // Sort Sheet V1 Web Page (Filters + Preview on same page)
+    Route::get('/sort-sheet', [PrintV1SortSheetController::class, 'index'])->name('sort-sheet');
 
-    // Central Settings
-    Route::prefix('settings')->name('settings.')->group(function () {
-        Route::get('/', [PrintV1SettingsController::class, 'index'])->name('index');
-        Route::put('/section/{section}', [PrintV1SettingsController::class, 'updateSection'])->name('section.update');
-        Route::put('/shops', [PrintV1SettingsController::class, 'updateShops'])->name('shops.update');
+    // Clean Printable Sort Sheet View
+    Route::get('/sort-sheet/print', [PrintV1SortSheetController::class, 'print'])->name('sort-sheet.print');
 
-        Route::post('/presets', [PrintV1SettingsController::class, 'storePreset'])->name('presets.store');
-        Route::put('/presets/{preset}', [PrintV1SettingsController::class, 'updatePreset'])->name('presets.update');
-        Route::delete('/presets/{preset}', [PrintV1SettingsController::class, 'destroyPreset'])->name('presets.destroy');
-        Route::post('/presets/reorder', [PrintV1SettingsController::class, 'reorderPresets'])->name('presets.reorder');
-        Route::post('/presets/copy-legacy', [PrintV1SettingsController::class, 'copyLegacyPresets'])->name('presets.copy-legacy');
+    // Selection V1 Web Page (Filters + Preview on same page)
+    Route::get('/selection', [PrintV1SelectionController::class, 'index'])->name('selection');
 
-        Route::post('/batches', [PrintV1SettingsController::class, 'storePresetBatch'])->name('batches.store');
-        Route::delete('/batches/{batch}', [PrintV1SettingsController::class, 'destroyPresetBatch'])->name('batches.destroy');
-    });
+    // Clean Printable Selection View
+    Route::get('/selection/print', [PrintV1SelectionController::class, 'print'])->name('selection.print');
+
+    // Segregation Grid V1 Web Page (Filters + Preview on same page)
+    Route::get('/segregation-grid', [PrintV1SegregationGridController::class, 'index'])->name('segregation-grid');
+
+    // Clean Printable Segregation Grid View
+    Route::get('/segregation-grid/print', [PrintV1SegregationGridController::class, 'print'])->name('segregation-grid.print');
+
+    // Shop Order V1 Web Page (Formerly Shop Wise Portrait)
+    Route::get('/shop-order', [PrintV1ShopOrderController::class, 'index'])->name('shop-order');
+
+    // Clean Printable Shop Order View (A4 Portrait, 1 Shop per page)
+    Route::get('/shop-order/print', [PrintV1ShopOrderController::class, 'print'])->name('shop-order.print');
+
+    // Safe backwards compatibility redirect from shop-wise-portrait to shop-order
+    Route::get('/shop-wise-portrait', [PrintV1ShopOrderController::class, 'legacyRedirect'])->name('shop-wise-portrait');
 });
