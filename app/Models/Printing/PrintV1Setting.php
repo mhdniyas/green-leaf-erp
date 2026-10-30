@@ -107,24 +107,28 @@ class PrintV1Setting extends Model
     {
         $effective = self::defaultSettings($section);
 
-        // 1. Merge system default record (user_id = null) if present
-        $systemRecord = self::where('section', $section)
-            ->whereNull('user_id')
-            ->first();
-
-        if ($systemRecord && is_array($systemRecord->settings)) {
-            $effective = array_merge($effective, $systemRecord->settings);
-        }
-
-        // 2. Merge user-specific override if user ID provided and record exists
-        if ($userId !== null) {
-            $userRecord = self::where('section', $section)
-                ->where('user_id', $userId)
+        try {
+            // 1. Merge system default record (user_id = null) if present
+            $systemRecord = self::where('section', $section)
+                ->whereNull('user_id')
                 ->first();
 
-            if ($userRecord && is_array($userRecord->settings)) {
-                $effective = array_merge($effective, $userRecord->settings);
+            if ($systemRecord && is_array($systemRecord->settings)) {
+                $effective = array_merge($effective, $systemRecord->settings);
             }
+
+            // 2. Merge user-specific override if user ID provided and record exists
+            if ($userId !== null) {
+                $userRecord = self::where('section', $section)
+                    ->where('user_id', $userId)
+                    ->first();
+
+                if ($userRecord && is_array($userRecord->settings)) {
+                    $effective = array_merge($effective, $userRecord->settings);
+                }
+            }
+        } catch (\Throwable) {
+            return $effective;
         }
 
         return $effective;

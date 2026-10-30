@@ -451,27 +451,20 @@ class PendingWarehouseBillsManagementService
      * Reconcile/match a bill against available warehouse advance receipts.
      *
      * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $payload
      * @return array{success: bool, message: string}
+    /**
+     * Match a pending purchaser bill with warehouse advance receipts.
+     * @return array{success: bool, message: string, matched_qty?: float}
+     *
+     * @throws ValidationException
      */
     public function matchAdvance(PurchaseInvoice $invoice, array $payload, int $userId): array
     {
-        $grn = $invoice->goodsReceived ?: $invoice->purchaserCart?->goodsReceived?->first();
-        if (! $grn) {
-            throw ValidationException::withMessages([
-                'invoice' => 'No Goods Received Note linked to this bill.',
-            ]);
-        }
-
-        $hasPendingBatches = StockBatch::query()
-            ->where('goods_received_id', $grn->id)
-            ->where('warehouse_receive_pending', true)
-            ->exists();
-
-        if (! $hasPendingBatches) {
-            throw ValidationException::withMessages([
-                'invoice' => "Bill {$invoice->invoice_number} has already been received or cleared.",
-            ]);
-        }
+        $grn = $this->ensureBillEligibleForWarehouseAction(
+            $invoice,
+            $invoice->goodsReceived ?: $invoice->purchaserCart?->goodsReceived?->first()
+        );
 
         $defaultWarehouse = Warehouse::query()->orderBy('id')->first();
         $warehouseId = (int) ($payload['warehouse_id'] ?? $grn->warehouse_id ?? $defaultWarehouse?->id ?? 1);
@@ -533,23 +526,10 @@ class PendingWarehouseBillsManagementService
      */
     public function receiveGoods(PurchaseInvoice $invoice, array $payload, int $userId): array
     {
-        $grn = $invoice->goodsReceived ?: $invoice->purchaserCart?->goodsReceived?->first();
-        if (! $grn) {
-            throw ValidationException::withMessages([
-                'invoice' => 'No Goods Received Note linked to this bill.',
-            ]);
-        }
-
-        $hasPendingBatches = StockBatch::query()
-            ->where('goods_received_id', $grn->id)
-            ->where('warehouse_receive_pending', true)
-            ->exists();
-
-        if (! $hasPendingBatches) {
-            throw ValidationException::withMessages([
-                'invoice' => "Bill {$invoice->invoice_number} has already been received or cleared.",
-            ]);
-        }
+        $grn = $this->ensureBillEligibleForWarehouseAction(
+            $invoice,
+            $invoice->goodsReceived ?: $invoice->purchaserCart?->goodsReceived?->first()
+        );
 
         $defaultWarehouse = Warehouse::query()->orderBy('id')->first();
         $warehouseId = (int) ($payload['warehouse_id'] ?? $grn->warehouse_id ?? $defaultWarehouse?->id ?? 1);
@@ -627,6 +607,32 @@ class PendingWarehouseBillsManagementService
                     'id' => $inv->id,
                     'bill_number' => $inv->invoice_number ?: 'BILL-#'.$inv->id,
                     'reason' => 'No linked GRN',
+                ];
+
+                continue;
+            }
+
+            if ($grn->isDirectShopPurchase()) {
+                $skippedBills[] = [
+                    'id' => $inv->id,
+                    'bill_number' => $inv->invoice_number ?: 'BILL-#'.$inv->id,
+                    'reason' => 'Direct shop purchase (central warehouse receiving not applicable)',
+                ];
+
+                continue;
+            }
+
+            $hasBatches = StockBatch::query()->where('goods_received_id', $grn->id)->exists();
+            $hasPendingBatches = StockBatch::query()
+                ->where('goods_received_id', $grn->id)
+                ->where('warehouse_receive_pending', true)
+                ->exists();
+
+            if ($grn->status === 'approved' && $hasBatches && ! $hasPendingBatches) {
+                $skippedBills[] = [
+                    'id' => $inv->id,
+                    'bill_number' => $inv->invoice_number ?: 'BILL-#'.$inv->id,
+                    'reason' => 'Already received or cleared',
                 ];
 
                 continue;
@@ -847,5 +853,52 @@ class PendingWarehouseBillsManagementService
             ] : null,
             default => null,
         };
+    }
+
+    /**
+     * Verify that the invoice and its GRN are genuinely pending warehouse action.
+     *
+     * @throws ValidationException
+     */
+    public function ensureBillEligibleForWarehouseAction(PurchaseInvoice $invoice, ?GoodsReceived $grn): GoodsReceived
+    {
+        if (! $grn) {
+            throw ValidationException::withMessages([
+                'invoice' => 'No Goods Received Note linked to this bill.',
+            ]);
+        }
+
+        if ($grn->isDirectShopPurchase()) {
+            throw ValidationException::withMessages([
+                'invoice' => "Direct shop purchase {$invoice->invoice_number} cannot be received into central warehouse inventory.",
+            ]);
+        }
+
+        if ($grn->status === 'cancelled' || $invoice->cancelled_at !== null || $invoice->status === 'cancelled') {
+            throw ValidationException::withMessages([
+                'invoice' => "Bill {$invoice->invoice_number} has been cancelled.",
+            ]);
+        }
+
+        if ($grn->receipt_type === 'warehouse_advance') {
+            throw ValidationException::withMessages([
+                'invoice' => "Warehouse advance receipt {$grn->grn_number} cannot be processed as a purchaser bill.",
+            ]);
+        }
+
+        // A bill is already received/cleared if its GRN is approved and it has no batches awaiting warehouse receiving
+        $hasBatches = StockBatch::query()->where('goods_received_id', $grn->id)->exists();
+        $hasPendingBatches = StockBatch::query()
+            ->where('goods_received_id', $grn->id)
+            ->where('warehouse_receive_pending', true)
+            ->exists();
+
+        if ($grn->status === 'approved' && $hasBatches && ! $hasPendingBatches) {
+            throw ValidationException::withMessages([
+                'invoice' => "Bill {$invoice->invoice_number} has already been received or cleared.",
+            ]);
+        }
+
+        return $grn;
     }
 }

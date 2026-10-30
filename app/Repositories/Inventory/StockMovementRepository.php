@@ -267,20 +267,41 @@ class StockMovementRepository extends BaseRepository
             ->get()
             ->mapWithKeys(fn ($r): array => [(int) $r->batch_id => (float) $r->quantity]);
 
+        $writeOffByBatch = StockMovement::query()
+            ->when($date, fn ($q) => $q->whereDate('created_at', '<=', Carbon::parse($date)->endOfDay()))
+            ->whereIn('batch_id', function ($query) use ($productId, $productIds, $warehouseId, $date): void {
+                $query->select('id')
+                    ->from('stock_batches')
+                    ->where('status', BatchStatus::Pending->value)
+                    ->where('warehouse_receive_pending', false)
+                    ->whereNull('deleted_at')
+                    ->when($productId !== null, fn ($q) => $q->where('product_id', $productId))
+                    ->when($productIds !== null, fn ($q) => $q->whereIn('product_id', $productIds))
+                    ->when($warehouseId !== null, fn ($q) => $q->where('warehouse_id', $warehouseId))
+                    ->when($date, fn ($q) => $q->whereDate('received_at', '<=', $date));
+            })
+            ->where('grade', ProductGrade::Unsorted->value)
+            ->whereIn('type', [StockMovementType::Wastage->value, StockMovementType::Adjustment->value])
+            ->selectRaw('batch_id, SUM(quantity) as quantity')
+            ->groupBy('batch_id')
+            ->get()
+            ->mapWithKeys(fn ($r): array => [(int) $r->batch_id => (float) $r->quantity]);
+
         $unsortedStock = [];
         $allocatedConsumedByProductDate = $pendingProductDateKeys->mapWithKeys(fn (string $key): array => [$key => 0.0]);
         foreach ($pendingBatches as $batch) {
             $wastedQty = (float) ($wastageByBatch[$batch->id] ?? 0);
+            $writeOffQty = (float) ($writeOffByBatch[$batch->id] ?? 0);
             $rDate = substr((string) $batch->received_at, 0, 10);
             $productDateKey = $batch->product_id.'|'.$rDate;
             $remainingAllocated = max(
                 0.0,
                 (float) ($allocatedByProductDate[$productDateKey] ?? 0.0) - (float) ($allocatedConsumedByProductDate[$productDateKey] ?? 0.0)
             );
-            $maxAllocatable = max(0.0, (float) $batch->total_kg - $wastedQty);
+            $maxAllocatable = max(0.0, (float) $batch->total_kg - $wastedQty - $writeOffQty);
             $allocatedQty = min($maxAllocatable, $remainingAllocated);
             $allocatedConsumedByProductDate[$productDateKey] = (float) ($allocatedConsumedByProductDate[$productDateKey] ?? 0.0) + $allocatedQty;
-            $qty = max(0.0, (float) $batch->total_kg - $wastedQty - $allocatedQty);
+            $qty = max(0.0, (float) $batch->total_kg - $wastedQty - $allocatedQty - $writeOffQty);
             if ($qty <= 0.0001) {
                 continue;
             }

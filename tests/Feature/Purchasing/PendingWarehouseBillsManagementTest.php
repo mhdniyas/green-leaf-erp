@@ -13,6 +13,7 @@ use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
 use App\Models\Product;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaseOrder;
 use App\Models\PurchaserCart;
 use App\Models\Shop;
 use App\Models\StockBatch;
@@ -2030,5 +2031,356 @@ class PendingWarehouseBillsManagementTest extends TestCase
             route('admin.cashbook.reports-v1.pending-bills.bulk-receive-confirm'),
             ['invoice_ids' => [$inv->id], 'warehouse_id' => $this->warehouse->id]
         )->assertForbidden();
+    }
+
+    public function test_can_receive_unapproved_purchaser_bill_with_zero_initial_stock_batches(): void
+    {
+        $date = now()->toDateString();
+        $stockRepo = app(StockMovementRepository::class);
+
+        // Bill created by purchaser submission: status is pending_approval, ZERO stock batches
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'po_number' => 'PO-ZERO-BATCH-1',
+            'status' => 'received',
+            'fulfillment_type' => 'warehouse',
+            'order_date' => $date,
+            'created_by' => $this->purchaserUser->id,
+            'purchase_grade' => 'B',
+        ]);
+        $grn = GoodsReceived::create([
+            'purchase_order_id' => $po->id,
+            'grn_number' => 'GRN-ZERO-BATCH-1',
+            'status' => 'pending_approval',
+            'receipt_type' => 'normal_purchase',
+            'received_by' => $this->purchaserUser->id,
+            'received_at' => $date,
+            'purchase_grade' => 'B',
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $grn->id,
+            'product_id' => $this->product->id,
+            'received_qty' => 60.0,
+            'variance' => 0.0,
+            'grade' => 'B',
+        ]);
+        $invoice = PurchaseInvoice::create([
+            'goods_received_id' => $grn->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'PENDING-BILL-VC-ZERO-1',
+            'amount' => 1200.0,
+            'status' => 'pending',
+            'payment_method' => 'Credit',
+            'payment_paid_by' => 'vendor_credit',
+            'purchaser_submitted_by' => $this->purchaserUser->id,
+        ]);
+
+        $this->assertSame(0, $grn->stockBatches()->count());
+
+        // Receive goods
+        $response = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports-v1.pending-bills.receive-goods', $invoice),
+            ['warehouse_id' => $this->warehouse->id]
+        );
+        $response->assertOk()
+            ->assertJson([
+                'success' => true,
+                'message' => "Bill {$invoice->invoice_number} goods physically received into warehouse inventory.",
+            ]);
+
+        // GRN approved and batch created
+        $grn->refresh();
+        $this->assertSame('approved', $grn->status);
+        $this->assertSame(1, $grn->stockBatches()->count());
+        $this->assertFalse($grn->stockBatches->first()->warehouse_receive_pending);
+
+        // Inventory is confirmed
+        $stock = (float) $stockRepo->currentStockByProductAndGrade($date, $this->warehouse->id)
+            ->where('product_id', $this->product->id)
+            ->sum('current_stock');
+        $this->assertEquals(60.0, $stock);
+
+        // Second receive must be blocked
+        $second = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports-v1.pending-bills.receive-goods', $invoice),
+            ['warehouse_id' => $this->warehouse->id]
+        );
+        $second->assertStatus(422);
+    }
+
+    public function test_can_match_advance_for_unapproved_bill_with_zero_initial_stock_batches(): void
+    {
+        $date = now()->toDateString();
+        $stockRepo = app(StockMovementRepository::class);
+
+        // 1. Warehouse advance receives 100 KG
+        $advGrn = GoodsReceived::create([
+            'grn_number' => 'GRN-ADV-ZERO-BATCH-1',
+            'receipt_type' => 'warehouse_advance',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'warehouse_id' => $this->warehouse->id,
+            'received_by' => $this->admin->id,
+            'received_at' => $date,
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $advGrn->id,
+            'product_id' => $this->product->id,
+            'received_qty' => 100.0,
+            'variance' => 0.0,
+        ]);
+        $advBatch = StockBatch::create([
+            'goods_received_id' => $advGrn->id,
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'received_at' => $date,
+            'total_kg' => 100.0,
+            'cost_per_kg' => 20.0,
+            'warehouse_receive_pending' => false,
+            'status' => BatchStatus::Pending,
+            'purchase_grade' => 'U',
+            'grading_mode' => 'sort_required',
+            'reference' => 'BAT-ADV-ZB-1',
+        ]);
+
+        // 2. Shop loadout dispatches 80 KG
+        StockMovement::create([
+            'batch_id' => $advBatch->id,
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'grade' => 'U',
+            'type' => StockMovementType::Out->value,
+            'quantity' => 80.0,
+            'cost_per_unit' => 20.0,
+            'notes' => 'Shop loadout 80kg',
+        ]);
+
+        // Inventory is 20 KG
+        $stockBefore = (float) $stockRepo->currentStockByProductAndGrade($date, $this->warehouse->id)
+            ->where('product_id', $this->product->id)
+            ->sum('current_stock');
+        $this->assertEquals(20.0, $stockBefore);
+
+        // 3. Purchase bill for 100 KG arrives (unapproved GRN, ZERO batches)
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'po_number' => 'PO-ZERO-MATCH-1',
+            'status' => 'received',
+            'fulfillment_type' => 'warehouse',
+            'order_date' => $date,
+            'created_by' => $this->purchaserUser->id,
+        ]);
+        $billGrn = GoodsReceived::create([
+            'purchase_order_id' => $po->id,
+            'grn_number' => 'GRN-ZERO-MATCH-1',
+            'status' => 'pending_approval',
+            'receipt_type' => 'normal_purchase',
+            'received_by' => $this->purchaserUser->id,
+            'received_at' => $date,
+            'warehouse_id' => $this->warehouse->id,
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $billGrn->id,
+            'product_id' => $this->product->id,
+            'received_qty' => 100.0,
+            'variance' => 0.0,
+        ]);
+        $billInvoice = PurchaseInvoice::create([
+            'goods_received_id' => $billGrn->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'PENDING-BILL-VC-MATCH-1',
+            'amount' => 2000.0,
+            'status' => 'pending',
+            'purchaser_submitted_by' => $this->purchaserUser->id,
+        ]);
+
+        $this->assertSame(0, $billGrn->stockBatches()->count());
+
+        // 4. Match bill with advance
+        $response = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports-v1.pending-bills.match-advance', $billInvoice),
+            ['warehouse_id' => $this->warehouse->id]
+        );
+        $response->assertOk()
+            ->assertJson([
+                'success' => true,
+                'matched_qty' => 100.0,
+            ]);
+
+        // 5. Final stock must remain EXACTLY 20 KG
+        $stockFinal = (float) $stockRepo->currentStockByProductAndGrade($date, $this->warehouse->id)
+            ->where('product_id', $this->product->id)
+            ->sum('current_stock');
+        $this->assertEquals(20.0, $stockFinal);
+
+        // Bill GRN is approved and has 0 stock batches (no duplicate stock created)
+        $billGrn->refresh();
+        $this->assertSame('approved', $billGrn->status);
+        $this->assertSame(0, $billGrn->stockBatches()->count());
+
+        // Advance GRN is fully consumed
+        $advGrn->refresh();
+        $this->assertSame('bill_available', $advGrn->bill_status);
+
+        // Second match must be blocked
+        $second = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports-v1.pending-bills.match-advance', $billInvoice),
+            ['warehouse_id' => $this->warehouse->id]
+        );
+        $second->assertStatus(422);
+    }
+
+    public function test_bulk_receive_and_bulk_match_work_with_unapproved_zero_batch_bills(): void
+    {
+        $date = now()->toDateString();
+        $stockRepo = app(StockMovementRepository::class);
+
+        // 1. Unapproved Bill for bulk receive (0 batches)
+        $po1 = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'po_number' => 'PO-BULK-REC-1',
+            'status' => 'received',
+            'fulfillment_type' => 'warehouse',
+            'order_date' => $date,
+            'created_by' => $this->purchaserUser->id,
+            'purchase_grade' => 'B',
+        ]);
+        $grn1 = GoodsReceived::create([
+            'purchase_order_id' => $po1->id,
+            'grn_number' => 'GRN-BULK-REC-1',
+            'status' => 'pending_approval',
+            'receipt_type' => 'normal_purchase',
+            'received_by' => $this->purchaserUser->id,
+            'received_at' => $date,
+            'purchase_grade' => 'B',
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $grn1->id,
+            'product_id' => $this->product->id,
+            'received_qty' => 45.0,
+            'variance' => 0.0,
+            'grade' => 'B',
+        ]);
+        $inv1 = PurchaseInvoice::create([
+            'goods_received_id' => $grn1->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'BILL-BULK-REC-1',
+            'amount' => 900.0,
+            'status' => 'pending',
+            'purchaser_submitted_by' => $this->purchaserUser->id,
+        ]);
+
+        // Bulk receive confirmation
+        $resRec = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports-v1.pending-bills.bulk-receive-confirm'),
+            ['invoice_ids' => [$inv1->id], 'warehouse_id' => $this->warehouse->id]
+        );
+        $resRec->assertOk()->assertJson([
+            'success' => true,
+            'data' => ['received_count' => 1],
+        ]);
+
+        $grn1->refresh();
+        $this->assertSame('approved', $grn1->status);
+        $this->assertSame(1, $grn1->stockBatches()->count());
+        $this->assertFalse($grn1->stockBatches->first()->warehouse_receive_pending);
+
+        // 2. Open advance receipt (50 kg)
+        $advGrn = GoodsReceived::create([
+            'grn_number' => 'GRN-BULK-ADV-1',
+            'receipt_type' => 'warehouse_advance',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'warehouse_id' => $this->warehouse->id,
+            'received_by' => $this->admin->id,
+            'received_at' => $date,
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $advGrn->id,
+            'product_id' => $this->product->id,
+            'received_qty' => 50.0,
+            'variance' => 0.0,
+        ]);
+        StockBatch::create([
+            'goods_received_id' => $advGrn->id,
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'received_at' => $date,
+            'total_kg' => 50.0,
+            'cost_per_kg' => 20.0,
+            'warehouse_receive_pending' => false,
+            'status' => BatchStatus::Pending,
+            'purchase_grade' => 'U',
+            'grading_mode' => 'sort_required',
+            'reference' => 'BAT-BULK-ADV-1',
+        ]);
+
+        // Unapproved Bill for bulk match (50 kg, 0 batches)
+        $po2 = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'po_number' => 'PO-BULK-MAT-1',
+            'status' => 'received',
+            'fulfillment_type' => 'warehouse',
+            'order_date' => $date,
+            'created_by' => $this->purchaserUser->id,
+        ]);
+        $grn2 = GoodsReceived::create([
+            'purchase_order_id' => $po2->id,
+            'grn_number' => 'GRN-BULK-MAT-1',
+            'status' => 'pending_approval',
+            'receipt_type' => 'normal_purchase',
+            'received_by' => $this->purchaserUser->id,
+            'received_at' => $date,
+            'warehouse_id' => $this->warehouse->id,
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $grn2->id,
+            'product_id' => $this->product->id,
+            'received_qty' => 50.0,
+            'variance' => 0.0,
+        ]);
+        $inv2 = PurchaseInvoice::create([
+            'goods_received_id' => $grn2->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'BILL-BULK-MAT-1',
+            'amount' => 1000.0,
+            'status' => 'pending',
+            'purchaser_submitted_by' => $this->purchaserUser->id,
+        ]);
+
+        // Bulk match preview
+        $preview = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports-v1.pending-bills.bulk-match-preview'),
+            ['invoice_ids' => [$inv2->id], 'warehouse_id' => $this->warehouse->id]
+        );
+        $preview->assertOk()
+            ->assertJson([
+                'success' => true,
+                'data' => [
+                    'matchable_count' => 1,
+                    'total_matchable_qty' => 50.0,
+                ],
+            ]);
+
+        // Bulk match confirm
+        $resMat = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports-v1.pending-bills.bulk-match-confirm'),
+            ['invoice_ids' => [$inv2->id], 'warehouse_id' => $this->warehouse->id]
+        );
+        $resMat->assertOk()
+            ->assertJson([
+                'success' => true,
+                'data' => [
+                    'processed_count' => 1,
+                    'total_matched_qty' => 50.0,
+                ],
+            ]);
+
+        $grn2->refresh();
+        $this->assertSame('approved', $grn2->status);
+        $this->assertSame(0, $grn2->stockBatches()->count());
     }
 }
