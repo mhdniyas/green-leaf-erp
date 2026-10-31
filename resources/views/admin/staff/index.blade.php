@@ -13,6 +13,24 @@
             </div>
         </div>
 
+        {{-- Nav Tabs: Dashboard | Monthly Summary --}}
+        <nav class="inline-flex rounded-2xl border border-slate-200 bg-white p-1 shadow-xs" aria-label="Staff management tabs">
+            <a href="{{ route('admin.staff.index', array_filter(['date' => request('date')])) }}"
+               class="rounded-xl px-4 py-2 text-xs font-black transition {{ ($selectedTab ?? 'dashboard') === 'dashboard' ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
+               @if(($selectedTab ?? 'dashboard') === 'dashboard') aria-current="page" @endif>
+                Dashboard
+            </a>
+            <a href="{{ route('admin.staff.index', array_filter(['tab' => 'monthly-summary', 'shop_id' => request('shop_id') ?? request('shop'), 'month' => request('month'), 'year' => request('year')])) }}"
+               class="rounded-xl px-4 py-2 text-xs font-black transition {{ ($selectedTab ?? 'dashboard') === 'monthly-summary' ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
+               @if(($selectedTab ?? 'dashboard') === 'monthly-summary') aria-current="page" @endif>
+                Monthly Summary
+            </a>
+        </nav>
+
+        @if(($selectedTab ?? 'dashboard') === 'monthly-summary')
+            @include('admin.staff.partials.monthly-summary')
+        @else
+
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <form method="GET" class="flex flex-wrap items-end justify-between gap-3">
                 <div>
@@ -192,5 +210,6 @@
                 </article>
             </div>
         </section>
+        @endif
     </div>
 </x-layouts.staff>

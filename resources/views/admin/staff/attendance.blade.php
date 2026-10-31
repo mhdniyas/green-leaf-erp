@@ -56,7 +56,14 @@
             <a href="{{ route('admin.staff.attendance', array_merge(request()->query(), ['tab' => 'pending-payment', 'status' => null])) }}"
                class="rounded-xl px-4 py-2 text-xs font-black transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 {{ $selectedAttendanceTab === 'pending-payment' ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
                @if($selectedAttendanceTab === 'pending-payment') aria-current="page" @endif>Pending Payment</a>
+            <a href="{{ route('admin.staff.attendance', array_merge(request()->query(), ['tab' => 'monthly-summary', 'status' => null])) }}"
+               class="rounded-xl px-4 py-2 text-xs font-black transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 {{ $selectedAttendanceTab === 'monthly-summary' ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
+               @if($selectedAttendanceTab === 'monthly-summary') aria-current="page" @endif>Monthly Summary</a>
         </nav>
+
+        @if($selectedAttendanceTab === 'monthly-summary')
+            @include('admin.staff.partials.monthly-summary')
+        @else
 
         @if($selectedAttendanceTab === 'attendance')
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
@@ -434,6 +441,7 @@
             </div>
         </div>
     </div>
+    @endif
 
     <!-- PLAIN JAVASCRIPT MODAL EVENT HANDLERS -->
     <script>
