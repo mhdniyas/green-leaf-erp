@@ -10,7 +10,6 @@ use App\Enums\Inventory\StockMovementType;
 use App\Models\Product;
 use App\Models\ShopOrderItem;
 use App\Models\StockAdjustment;
-use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\WastageEntry;
 use App\Repositories\BaseRepository;
@@ -42,7 +41,8 @@ class StockMovementRepository extends BaseRepository
      * raw string value safe for array-key lookup.
      */
     /** @param array<int, int>|null $categoryIds */
-    public function currentStockByProductAndGrade(?string $date = null, ?int $warehouseId = null, ?array $categoryIds = null, string $search = '', ?int $productId = null): Collection
+    /** @param array<int, int>|null $productIds */
+    public function currentStockByProductAndGrade(?string $date = null, ?int $warehouseId = null, ?array $categoryIds = null, string $search = '', ?int $productId = null, ?array $productIds = null): Collection
     {
         $driver = (new Product)->getConnection()->getDriverName();
         $positiveMovementTypes = [
@@ -62,6 +62,7 @@ class StockMovementRepository extends BaseRepository
         // Fetch latest authoritative stock adjustments on or before the queried date
         $adjustments = StockAdjustment::query()
             ->when($productId !== null, fn ($q) => $q->where('product_id', $productId))
+            ->when($productIds !== null, fn ($q) => $q->whereIn('product_id', $productIds))
             ->when($warehouseId !== null, fn ($q) => $q->where(fn ($sub) => $sub->where('warehouse_id', $warehouseId)->orWhereNull('warehouse_id')))
             ->when($targetDate, fn ($q) => $q->whereDate('business_date', '<=', $targetDate))
             ->when($targetEndOfDay, fn ($q) => $q->where('created_at', '<=', $targetEndOfDay))
@@ -94,18 +95,20 @@ class StockMovementRepository extends BaseRepository
 
         $movementsQuery = $this->query()
             ->when($productId !== null, fn ($q) => $q->where('stock_movements.product_id', $productId))
+            ->when($productIds !== null, fn ($q) => $q->whereIn('stock_movements.product_id', $productIds))
             ->whereDoesntHave('batch', fn ($batchQuery) => $batchQuery->where('warehouse_receive_pending', true))
+
             ->where(function ($q): void {
                 $q->whereIn('stock_movements.type', [
                     StockMovementType::Out->value,
                     StockMovementType::Sale->value,
-                    StockMovementType::Wastage->value,
                     StockMovementType::Adjustment->value,
+                    StockMovementType::SaleReversal->value,
                 ])->orWhere(function ($inQ): void {
-                    $inQ->whereIn('stock_movements.type', [
-                        StockMovementType::In->value,
-                        StockMovementType::SaleReversal->value,
-                    ])
+                    $inQ->where('stock_movements.type', StockMovementType::In->value)
+                        ->whereDoesntHave('batch', fn ($batchQuery) => $batchQuery->where('status', BatchStatus::Pending->value));
+                })->orWhere(function ($wastageQ): void {
+                    $wastageQ->where('stock_movements.type', StockMovementType::Wastage->value)
                         ->whereDoesntHave('batch', fn ($batchQuery) => $batchQuery->where('status', BatchStatus::Pending->value));
                 });
             })
@@ -168,18 +171,40 @@ class StockMovementRepository extends BaseRepository
             ->toBase()
             ->get();
 
-        // 2. Fetch pending batches (unsorted stock) that are warehouse confirmed
-        $pendingBatchesQuery = StockBatch::where('status', BatchStatus::Pending)
-            ->where('warehouse_receive_pending', false)
-            ->when($productId !== null, fn ($q) => $q->where('product_id', $productId))
-            ->when($date, fn ($q) => $q->whereDate('received_at', '<=', $date))
-            ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
-            ->when($categoryIds !== null, fn ($q) => $q->whereHas('product', fn ($productQuery) => $productQuery->whereIn('category_id', $categoryIds)))
-            ->when($search !== '', fn ($q) => $q->whereHas('product', function ($productQuery) use ($search): void {
+        // 2. Fetch pending batches (unsorted stock) that are warehouse confirmed without full Eloquent hydration
+        $pendingBatchesQuery = DB::table('stock_batches')
+            ->where('stock_batches.status', BatchStatus::Pending->value)
+            ->where('stock_batches.warehouse_receive_pending', false)
+            ->whereNull('stock_batches.deleted_at')
+            ->when($productId !== null, fn ($q) => $q->where('stock_batches.product_id', $productId))
+            ->when($productIds !== null, fn ($q) => $q->whereIn('stock_batches.product_id', $productIds))
+            ->when($date, fn ($q) => $q->whereDate('stock_batches.received_at', '<=', $date))
+            ->when($warehouseId, fn ($q) => $q->where('stock_batches.warehouse_id', $warehouseId))
+            ->when($categoryIds !== null, fn ($q) => $q->whereIn('products.category_id', $categoryIds))
+            ->when($search !== '', function ($query) use ($search): void {
                 $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $search).'%';
-                $productQuery->where('name', 'like', $like)->orWhere('sku', 'like', $like);
-            }))
-            ->with(['product:id,category_id,public_uuid,name,sku,unit,image,buffer_qty,carryover_enabled', 'product.category:id,name']);
+                $query->where(function ($productQuery) use ($like): void {
+                    $productQuery->where('products.name', 'like', $like)
+                        ->orWhere('products.sku', 'like', $like)
+                        ->orWhere('categories.name', 'like', $like);
+                });
+            })
+            ->join('products', 'stock_batches.product_id', '=', 'products.id')
+            ->leftJoin('categories', 'products.category_id', '=', 'categories.id')
+            ->select([
+                'stock_batches.id',
+                'stock_batches.product_id',
+                'stock_batches.total_kg',
+                'stock_batches.received_at',
+                'stock_batches.warehouse_id',
+                'stock_batches.purchase_grade',
+                'products.public_uuid as product_route_key',
+                'products.name as product_name',
+                'products.sku as product_sku',
+                'products.unit as product_unit',
+                'products.image as product_image',
+                'categories.name as category_name',
+            ]);
 
         if ($latestAdjustments->isNotEmpty()) {
             $pendingBatchesQuery->where(function ($query) use ($latestAdjustments): void {
@@ -204,11 +229,11 @@ class StockMovementRepository extends BaseRepository
         $pendingBatches = $pendingBatchesQuery->get();
 
         $pendingProductDateKeys = $pendingBatches
-            ->map(fn (StockBatch $batch): string => $batch->product_id.'|'.$batch->received_at->format('Y-m-d'))
+            ->map(fn ($batch): string => $batch->product_id.'|'.substr((string) $batch->received_at, 0, 10))
             ->unique()
             ->values();
         $pendingProductIds = $pendingBatches->pluck('product_id')->unique()->values();
-        $pendingDates = $pendingBatches->map(fn (StockBatch $batch): string => $batch->received_at->format('Y-m-d'))->unique()->values();
+        $pendingDates = $pendingBatches->map(fn ($batch): string => substr((string) $batch->received_at, 0, 10))->unique()->values();
 
         $allocatedByProductDate = collect();
         if ($pendingProductIds->isNotEmpty() && $pendingDates->isNotEmpty()) {
@@ -225,8 +250,38 @@ class StockMovementRepository extends BaseRepository
         }
 
         $wastageByBatch = WastageEntry::query()
-            ->whereIn('batch_id', $pendingBatches->pluck('id'))
-            ->when($date, fn ($q) => $q->where('wastage_date', '<=', $date))
+            ->when($date, fn ($q) => $q->whereDate('wastage_date', '<=', $date))
+            ->whereIn('batch_id', function ($query) use ($productId, $productIds, $warehouseId, $date): void {
+                $query->select('id')
+                    ->from('stock_batches')
+                    ->where('status', BatchStatus::Pending->value)
+                    ->where('warehouse_receive_pending', false)
+                    ->whereNull('deleted_at')
+                    ->when($productId !== null, fn ($q) => $q->where('product_id', $productId))
+                    ->when($productIds !== null, fn ($q) => $q->whereIn('product_id', $productIds))
+                    ->when($warehouseId !== null, fn ($q) => $q->where('warehouse_id', $warehouseId))
+                    ->when($date, fn ($q) => $q->whereDate('received_at', '<=', $date));
+            })
+            ->selectRaw('batch_id, SUM(quantity) as quantity')
+            ->groupBy('batch_id')
+            ->get()
+            ->mapWithKeys(fn ($r): array => [(int) $r->batch_id => (float) $r->quantity]);
+
+        $writeOffByBatch = StockMovement::query()
+            ->when($date, fn ($q) => $q->whereDate('created_at', '<=', Carbon::parse($date)->endOfDay()))
+            ->whereIn('batch_id', function ($query) use ($productId, $productIds, $warehouseId, $date): void {
+                $query->select('id')
+                    ->from('stock_batches')
+                    ->where('status', BatchStatus::Pending->value)
+                    ->where('warehouse_receive_pending', false)
+                    ->whereNull('deleted_at')
+                    ->when($productId !== null, fn ($q) => $q->where('product_id', $productId))
+                    ->when($productIds !== null, fn ($q) => $q->whereIn('product_id', $productIds))
+                    ->when($warehouseId !== null, fn ($q) => $q->where('warehouse_id', $warehouseId))
+                    ->when($date, fn ($q) => $q->whereDate('received_at', '<=', $date));
+            })
+            ->where('grade', ProductGrade::Unsorted->value)
+            ->whereIn('type', [StockMovementType::Wastage->value, StockMovementType::Adjustment->value])
             ->selectRaw('batch_id, SUM(quantity) as quantity')
             ->groupBy('batch_id')
             ->get()
@@ -235,44 +290,39 @@ class StockMovementRepository extends BaseRepository
         $unsortedStock = [];
         $allocatedConsumedByProductDate = $pendingProductDateKeys->mapWithKeys(fn (string $key): array => [$key => 0.0]);
         foreach ($pendingBatches as $batch) {
-            if (! $batch->product) {
-                continue;
-            }
-
-            // Pending batches do not have a sorted stock ledger yet. Their remaining
-            // physical quantity is reduced by recorded wastage and active allocations.
-            // Outbound movements (loadouts, sales, adjustments) are tracked directly in movementsQuery.
             $wastedQty = (float) ($wastageByBatch[$batch->id] ?? 0);
-            $productDateKey = $batch->product_id.'|'.$batch->received_at->format('Y-m-d');
+            $writeOffQty = (float) ($writeOffByBatch[$batch->id] ?? 0);
+            $rDate = substr((string) $batch->received_at, 0, 10);
+            $productDateKey = $batch->product_id.'|'.$rDate;
             $remainingAllocated = max(
                 0.0,
                 (float) ($allocatedByProductDate[$productDateKey] ?? 0.0) - (float) ($allocatedConsumedByProductDate[$productDateKey] ?? 0.0)
             );
-            $maxAllocatable = max(0.0, (float) $batch->total_kg - $wastedQty);
+            $maxAllocatable = max(0.0, (float) $batch->total_kg - $wastedQty - $writeOffQty);
             $allocatedQty = min($maxAllocatable, $remainingAllocated);
             $allocatedConsumedByProductDate[$productDateKey] = (float) ($allocatedConsumedByProductDate[$productDateKey] ?? 0.0) + $allocatedQty;
-            $qty = max(0.0, (float) $batch->total_kg - $wastedQty - $allocatedQty);
+            $qty = max(0.0, (float) $batch->total_kg - $wastedQty - $allocatedQty - $writeOffQty);
             if ($qty <= 0.0001) {
                 continue;
             }
 
-            $productId = $batch->product_id;
+            $productIdKey = (int) $batch->product_id;
 
-            if (! isset($unsortedStock[$productId])) {
-                $unsortedStock[$productId] = [
-                    'product_id' => $productId,
-                    'product_route_key' => $batch->product->getRouteKey(),
-                    'product_name' => $batch->product->name,
-                    'product_sku' => $batch->product->sku,
-                    'product_unit' => $batch->product->unit,
-                    'product_image' => $batch->product->image,
-                    'category_name' => $batch->product->category->name ?? 'Other',
+            if (! isset($unsortedStock[$productIdKey])) {
+                $unsortedStock[$productIdKey] = [
+                    'product_id' => $productIdKey,
+                    'product_route_key' => $batch->product_route_key,
+                    'product_name' => $batch->product_name,
+                    'product_sku' => $batch->product_sku,
+                    'product_unit' => $batch->product_unit,
+                    'product_image' => $batch->product_image,
+                    'category_name' => $batch->category_name ?? 'Other',
                     'grade' => ProductGrade::Unsorted->value,
                     'current_stock' => 0.0,
                 ];
             }
 
-            $unsortedStock[$productId]['current_stock'] += $qty;
+            $unsortedStock[$productIdKey]['current_stock'] += $qty;
         }
 
         // Convert the unsorted stock map to stdClass objects to match the database query format

@@ -7,6 +7,7 @@ namespace App\Services\Inventory;
 use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
+use App\Enums\Inventory\WastageReason;
 use App\Models\Product;
 use App\Models\StockAdjustment;
 use App\Models\StockBatch;
@@ -195,7 +196,7 @@ class StockAdjustmentService
                 })
                 ->whereDoesntHave('batch', fn ($batchQuery) => $batchQuery->where('warehouse_receive_pending', true))
                 ->selectRaw('batch_id, warehouse_id, grade, MAX(cost_per_unit) as cost_per_unit, SUM(CASE WHEN type IN (?, ?) THEN quantity WHEN type IN (?, ?, ?, ?) THEN -quantity ELSE 0 END) as available_quantity', [...$positiveTypes, ...$negativeTypes])
-                ->groupBy('batch_id', 'warehouse_id', 'grade')->havingRaw('ABS(available_quantity) > 0.0001')->lockForUpdate()->get();
+                ->groupBy('batch_id', 'warehouse_id', 'grade')->havingRaw('available_quantity > 0.0001')->lockForUpdate()->get();
             $pending = StockBatch::query()->where('product_id', $productId)->where('status', BatchStatus::Pending->value)->where('warehouse_receive_pending', false)->lockForUpdate()->get();
             $batchIds = $pending->pluck('id');
             $wastageByBatch = WastageEntry::query()->whereIn('batch_id', $batchIds)->selectRaw('batch_id, SUM(quantity) as quantity')->groupBy('batch_id')->pluck('quantity', 'batch_id');
@@ -218,43 +219,110 @@ class StockAdjustmentService
                         'cost_per_unit' => $batch->cost_per_kg,
                         'available_quantity' => $available,
                     ]);
+
+                    WastageEntry::create([
+                        'product_id' => $productId,
+                        'batch_id' => $batch->id,
+                        'recorded_by' => $userId,
+                        'grade' => ProductGrade::Unsorted->value,
+                        'quantity' => $available,
+                        'cost_per_kg' => (float) $batch->cost_per_kg,
+                        'reason' => WastageReason::Unsold->value,
+                        'wastage_date' => now()->toDateString(),
+                        'notes' => 'Global inventory empty process: balance reset to zero',
+                    ]);
                 }
+
+                // Close pending batch so it is not counted in unsorted stock
+                $batch->update([
+                    'status' => BatchStatus::Closed,
+                    'notes' => trim(($batch->notes ?? '').' [Closed during inventory empty process]'),
+                ]);
             }
+
+            // Close unconfirmed receive-pending batches for this product so they do not inject stock post-reset
+            StockBatch::query()
+                ->where('product_id', $productId)
+                ->where('status', BatchStatus::Pending->value)
+                ->where('warehouse_receive_pending', true)
+                ->lockForUpdate()
+                ->get()
+                ->each(function (StockBatch $batch): void {
+                    $batch->update([
+                        'status' => BatchStatus::Closed,
+                        'notes' => trim(($batch->notes ?? '').' [Closed unconfirmed batch during inventory empty process]'),
+                    ]);
+                });
 
             foreach ($lots as $lot) {
                 $availableQuantity = (float) $lot->available_quantity;
+                if ($availableQuantity <= 0.0001) {
+                    continue;
+                }
                 StockMovement::create([
                     'product_id' => $productId,
                     'batch_id' => $lot->batch_id,
                     'warehouse_id' => $lot->warehouse_id,
                     'created_by' => $userId,
                     'grade' => $lot->grade,
-                    'type' => $availableQuantity > 0 ? StockMovementType::Wastage->value : StockMovementType::In->value,
-                    'quantity' => abs($availableQuantity),
+                    'type' => StockMovementType::Wastage->value,
+                    'quantity' => $availableQuantity,
                     'cost_per_unit' => (float) $lot->cost_per_unit,
                     'notes' => 'Global inventory empty process: balance reset to zero',
                 ]);
             }
 
-            // Final reconciliation pass: verify against StockMovementRepository scoped by productId
-            $remainingStockRows = $this->stockMovements->currentStockByProductAndGrade(null, null, null, '', $productId);
-            foreach ($remainingStockRows as $remRow) {
-                $remQty = (float) $remRow->current_stock;
-                if (abs($remQty) > 0.0001) {
-                    $targetBatch = StockBatch::query()->where('product_id', $productId)->latest('id')->first();
-                    StockMovement::create([
-                        'product_id' => $productId,
-                        'batch_id' => $targetBatch?->id,
-                        'warehouse_id' => $targetBatch?->warehouse_id,
-                        'created_by' => $userId,
-                        'grade' => $remRow->grade,
-                        'type' => $remQty > 0 ? StockMovementType::Wastage->value : StockMovementType::In->value,
-                        'quantity' => abs($remQty),
-                        'cost_per_unit' => 0.0,
-                        'notes' => 'Global inventory empty process: reconcile remaining balance to zero',
-                    ]);
-                }
+            // Create baseline StockAdjustment records for all warehouses and grades where the product had stock
+            $gradesBaselined = [];
+            foreach ($stockRows as $row) {
+                $systemQty = round((float) $row->current_stock, 3);
+                $whId = $row->warehouse_id ?? null;
+                $rowGrade = $row->grade ?? null;
+                $gradesBaselined[] = $rowGrade;
+
+                StockAdjustment::query()->create([
+                    'product_id' => $productId,
+                    'warehouse_id' => $whId,
+                    'grade' => $rowGrade,
+                    'created_by' => $userId,
+                    'business_date' => now()->toDateString(),
+                    'system_qty' => $systemQty,
+                    'counted_qty' => 0,
+                    'variance_qty' => -$systemQty,
+                    'category' => $systemQty >= 0 ? 'wastage' : 'negative_reconciliation',
+                    'notes' => 'Global inventory empty process: baseline reset to zero',
+                ]);
             }
+
+            // If Unsorted (U) was not in stockRows, also baseline U to prevent orphaned movements
+            if (! in_array(ProductGrade::Unsorted->value, $gradesBaselined, true)) {
+                StockAdjustment::query()->create([
+                    'product_id' => $productId,
+                    'warehouse_id' => null,
+                    'grade' => ProductGrade::Unsorted->value,
+                    'created_by' => $userId,
+                    'business_date' => now()->toDateString(),
+                    'system_qty' => 0,
+                    'counted_qty' => 0,
+                    'variance_qty' => 0,
+                    'category' => 'wastage',
+                    'notes' => 'Global inventory empty process: baseline reset to zero',
+                ]);
+            }
+
+            // Also create a null-grade adjustment to supersede any legacy adjustments in the all group
+            StockAdjustment::query()->create([
+                'product_id' => $productId,
+                'warehouse_id' => null,
+                'grade' => null,
+                'created_by' => $userId,
+                'business_date' => now()->toDateString(),
+                'system_qty' => 0,
+                'counted_qty' => 0,
+                'variance_qty' => 0,
+                'category' => 'wastage',
+                'notes' => 'Global inventory empty process: baseline reset to zero',
+            ]);
 
             return true;
         });
