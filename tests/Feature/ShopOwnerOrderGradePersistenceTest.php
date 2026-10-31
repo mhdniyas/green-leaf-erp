@@ -412,4 +412,249 @@ final class ShopOwnerOrderGradePersistenceTest extends TestCase
         $this->assertSame('Potato Local (Grade B)', $summary['skipped'][0]['products'][0]);
         $this->assertDatabaseMissing('shop_invoices', ['shop_order_id' => $order->id]);
     }
+
+    public function test_default_shop_has_multi_grade_ordering_disabled_and_marketplace_hides_extra_grades(): void
+    {
+        [$shop, $user] = $this->createShopWithUser('Default Shop', ['A', 'B', 'C']);
+        $tomato = $this->createProductWithPrices('Tomato H', 'TOM-H');
+
+        $this->assertFalse($shop->isMultiGradeOrderingEnabled());
+
+        $response = $this->actingAs($user)->get(route('shop-owner.orders.create'));
+        $response->assertOk();
+
+        $content = $response->getContent();
+        // Main primary grade input must be visible
+        $this->assertStringContainsString('name="items['.$tomato->sku.']"', $content);
+
+        // Extra grades controls and inputs must be omitted
+        $this->assertStringNotContainsString('+ Other Grades', $content);
+        $this->assertStringNotContainsString('name="items['.$tomato->sku.'|B]"', $content);
+        $this->assertStringNotContainsString('name="items['.$tomato->sku.'|C]"', $content);
+    }
+
+    public function test_enabling_multi_grade_ordering_shows_expandable_other_grades_control(): void
+    {
+        $shop = Shop::factory()->create([
+            'name' => 'Multi Grade Shop',
+            'shop_price_group_id' => $this->defaultPriceGroup->id,
+            'allowed_product_grades' => [
+                'allowed' => ['A', 'B', 'C'],
+                'default' => 'A',
+                'enable_multi_grade_ordering' => true,
+            ],
+        ]);
+        $user = User::factory()->create(['shop_id' => $shop->id]);
+        $user->assignRole('shop');
+
+        $tomato = $this->createProductWithPrices('Tomato H', 'TOM-H');
+
+        $this->assertTrue($shop->isMultiGradeOrderingEnabled());
+
+        $response = $this->actingAs($user)->get(route('shop-owner.orders.create'));
+        $response->assertOk();
+
+        $content = $response->getContent();
+        $this->assertStringContainsString('+ Other Grades', $content);
+        $this->assertStringContainsString('name="items['.$tomato->sku.'|B]"', $content);
+        $this->assertStringContainsString('name="items['.$tomato->sku.'|C]"', $content);
+    }
+
+    public function test_multi_shop_isolation_for_multi_grade_ordering_setting(): void
+    {
+        $shopA = Shop::factory()->create([
+            'name' => 'Shop A',
+            'code' => 'SHOP_A',
+            'shop_price_group_id' => $this->defaultPriceGroup->id,
+            'allowed_product_grades' => [
+                'allowed' => ['A', 'B'],
+                'default' => 'A',
+                'enable_multi_grade_ordering' => true,
+            ],
+        ]);
+        $userA = User::factory()->create(['shop_id' => $shopA->id]);
+        $userA->assignRole('shop');
+
+        $shopB = Shop::factory()->create([
+            'name' => 'Shop B',
+            'code' => 'SHOP_B',
+            'shop_price_group_id' => $this->defaultPriceGroup->id,
+            'allowed_product_grades' => [
+                'allowed' => ['A', 'B'],
+                'default' => 'A',
+                'enable_multi_grade_ordering' => false,
+            ],
+        ]);
+        $userB = User::factory()->create(['shop_id' => $shopB->id]);
+        $userB->assignRole('shop');
+
+        $tomato = $this->createProductWithPrices('Tomato H', 'TOM-H');
+
+        $this->assertTrue($shopA->isMultiGradeOrderingEnabled());
+        $this->assertFalse($shopB->isMultiGradeOrderingEnabled());
+
+        // Shop A sees expandable other grades
+        $responseA = $this->actingAs($userA)->get(route('shop-owner.orders.create'));
+        $responseA->assertOk();
+        $this->assertStringContainsString('+ Other Grades', $responseA->getContent());
+
+        // Shop B does NOT see expandable other grades
+        $responseB = $this->actingAs($userB)->get(route('shop-owner.orders.create'));
+        $responseB->assertOk();
+        $this->assertStringNotContainsString('+ Other Grades', $responseB->getContent());
+    }
+
+    public function test_data_loss_prevention_discloses_preserved_extra_grades_when_setting_is_disabled(): void
+    {
+        $shop = Shop::factory()->create([
+            'name' => 'DLP Shop',
+            'code' => 'DLP_SHOP',
+            'shop_price_group_id' => $this->defaultPriceGroup->id,
+            'allowed_product_grades' => [
+                'allowed' => ['A', 'B', 'C'],
+                'default' => 'A',
+                'enable_multi_grade_ordering' => true,
+            ],
+        ]);
+        $user = User::factory()->create(['shop_id' => $shop->id]);
+        $user->assignRole('shop');
+
+        $tomato = $this->createProductWithPrices('Tomato H', 'TOM-H');
+
+        // Submit multi-grade order initially
+        $this->actingAs($user)->post(route('requisitions.store'), [
+            '_form_submission_start' => '1',
+            '_form_submission_complete' => '1',
+            'items' => [
+                $tomato->sku => 10,
+                $tomato->sku.'|B' => 5,
+            ],
+            'item_units' => [
+                $tomato->sku => 'kg',
+                $tomato->sku.'|B' => 'kg',
+            ],
+            'item_grades' => [
+                $tomato->sku.'|B' => 'B',
+            ],
+        ])->assertRedirect(route('shop-owner.orders.history'));
+
+        // Admin disables multi-grade ordering for the shop
+        $shop->update([
+            'allowed_product_grades' => [
+                'allowed' => ['A', 'B', 'C'],
+                'default' => 'A',
+                'enable_multi_grade_ordering' => false,
+            ],
+        ]);
+        $this->assertFalse($shop->fresh()->isMultiGradeOrderingEnabled());
+
+        // Visit marketplace again: must preserve and disclose existing extra grades
+        $response = $this->actingAs($user)->get(route('shop-owner.orders.create'));
+        $response->assertOk();
+
+        $content = $response->getContent();
+        // Regular + Other Grades expandable button is NOT shown
+        $this->assertStringNotContainsString('+ Other Grades', $content);
+        // Warning / Disclosure banner IS shown
+        $this->assertStringContainsString('Preserved Extra Grades', $content);
+        // Preserved Grade B input with value 5 is rendered in the DOM
+        $this->assertStringContainsString('name="items['.$tomato->sku.'|B]"', $content);
+        $this->assertMatchesRegularExpression('/name="items\['.$tomato->sku.'\|B\]"\s+value="5(\.00)?"/', $content);
+
+        // Submitting preserves both items
+        $this->actingAs($user)->post(route('requisitions.store'), [
+            '_form_submission_start' => '1',
+            '_form_submission_complete' => '1',
+            'items' => [
+                $tomato->sku => 12,
+                $tomato->sku.'|B' => 5,
+            ],
+            'item_units' => [
+                $tomato->sku => 'kg',
+                $tomato->sku.'|B' => 'kg',
+            ],
+            'item_grades' => [
+                $tomato->sku.'|B' => 'B',
+            ],
+        ])->assertRedirect(route('shop-owner.orders.history'));
+
+        $order = ShopOrder::where('shop_id', $shop->id)->with('items')->first();
+        $this->assertCount(2, $order->items);
+        $this->assertEquals(17.0, (float) $order->items->sum('requested_qty'));
+    }
+
+    public function test_admin_can_toggle_multi_grade_ordering_setting_via_customer_update(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+
+        $shop = Shop::factory()->create([
+            'name' => 'Toggle Shop',
+            'code' => 'TOG_SHOP',
+            'shop_price_group_id' => $this->defaultPriceGroup->id,
+            'allowed_product_grades' => ['A', 'B'],
+        ]);
+
+        $this->assertFalse($shop->isMultiGradeOrderingEnabled());
+
+        // Admin enables multi-grade ordering
+        $response = $this->actingAs($admin)->patch(route('sales.customers.shops.update', $shop), [
+            'name' => 'Toggle Shop',
+            'code' => 'TOG_SHOP',
+            'destination_type' => 'direct',
+            'status' => 'active',
+            'shop_price_group_id' => $this->defaultPriceGroup->id,
+            'allowed_product_grades' => ['A', 'B'],
+            'default_product_grade' => 'A',
+            'enable_multi_grade_ordering' => '1',
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $this->assertTrue($shop->fresh()->isMultiGradeOrderingEnabled());
+
+        // Admin disables multi-grade ordering
+        $response = $this->actingAs($admin)->patch(route('sales.customers.shops.update', $shop), [
+            'name' => 'Toggle Shop',
+            'code' => 'TOG_SHOP',
+            'destination_type' => 'direct',
+            'status' => 'active',
+            'shop_price_group_id' => $this->defaultPriceGroup->id,
+            'allowed_product_grades' => ['A', 'B'],
+            'default_product_grade' => 'A',
+            'enable_multi_grade_ordering' => '0',
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $this->assertFalse($shop->fresh()->isMultiGradeOrderingEnabled());
+    }
+
+    public function test_non_admin_cannot_toggle_multi_grade_ordering_setting(): void
+    {
+        Permission::findOrCreate('sales.customer.view', 'web');
+        Permission::findOrCreate('sales.customer.update', 'web');
+
+        $staff = User::factory()->create();
+        $staffRole = Role::findOrCreate('staff', 'web');
+        $staffRole->givePermissionTo(['sales.customer.view', 'sales.customer.update']);
+        $staff->assignRole('staff');
+
+        $shop = Shop::factory()->create([
+            'name' => 'Protected Shop',
+            'code' => 'PROT_SHOP',
+            'shop_price_group_id' => $this->defaultPriceGroup->id,
+            'allowed_product_grades' => ['A', 'B'],
+        ]);
+
+        $response = $this->actingAs($staff)->patch(route('sales.customers.shops.update', $shop), [
+            'name' => 'Protected Shop',
+            'code' => 'PROT_SHOP',
+            'destination_type' => 'direct',
+            'status' => 'active',
+            'shop_price_group_id' => $this->defaultPriceGroup->id,
+            'enable_multi_grade_ordering' => '1',
+        ]);
+
+        $response->assertSessionHasErrors('enable_multi_grade_ordering');
+        $this->assertFalse($shop->fresh()->isMultiGradeOrderingEnabled());
+    }
 }

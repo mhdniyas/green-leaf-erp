@@ -54,7 +54,7 @@ class MultiGradeOrderGate
     /**
      * Resolve the canonical grade configuration for a shop.
      *
-     * @return array{allowed: array<int, string>, default: string, ordered: array<int, string>}
+     * @return array{allowed: array<int, string>, default: string, ordered: array<int, string>, multi_grade_ordering_enabled: bool}
      */
     public function resolveGradeConfiguration(?Shop $shop): array
     {
@@ -63,6 +63,7 @@ class MultiGradeOrderGate
                 'allowed' => [ProductGrade::GradeA->value],
                 'default' => ProductGrade::GradeA->value,
                 'ordered' => [ProductGrade::GradeA->value],
+                'multi_grade_ordering_enabled' => false,
             ];
         }
 
@@ -76,6 +77,7 @@ class MultiGradeOrderGate
                 'allowed' => $allowed,
                 'default' => $default,
                 'ordered' => $allowed,
+                'multi_grade_ordering_enabled' => false,
             ];
         }
 

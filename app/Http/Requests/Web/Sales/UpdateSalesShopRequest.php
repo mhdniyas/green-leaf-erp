@@ -30,6 +30,8 @@ class UpdateSalesShopRequest extends FormRequest
             'allowed_product_grades' => ['sometimes', 'nullable', 'array'],
             'allowed_product_grades.*' => ['string', Rule::in(['A', 'B', 'C'])],
             'default_product_grade' => ['sometimes', 'nullable', 'string', Rule::in(['A', 'B', 'C'])],
+            'enable_multi_grade_ordering' => ['sometimes', 'boolean'],
+            'multi_grade_ordering_enabled' => ['sometimes', 'boolean'],
             'shop_purchasing_enabled' => ['sometimes', 'boolean'],
             'destination_type' => ['required', 'string', 'in:client,direct'],
             'client_id' => ['nullable', 'integer', 'exists:clients,id'],
@@ -76,6 +78,12 @@ class UpdateSalesShopRequest extends FormRequest
                         if (! in_array($defaultGrade, $normalizedGrades, true)) {
                             $validator->errors()->add('default_product_grade', 'The default grade must be one of the allowed product grades.');
                         }
+                    }
+                }
+
+                if ($this->has('enable_multi_grade_ordering') || $this->has('multi_grade_ordering_enabled')) {
+                    if (! $this->user()?->hasRole('admin')) {
+                        $validator->errors()->add('enable_multi_grade_ordering', 'Only administrators can configure multi-grade ordering.');
                     }
                 }
             },

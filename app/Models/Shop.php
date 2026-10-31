@@ -115,6 +115,28 @@ class Shop extends Model
         return $this->defaultProductGrade();
     }
 
+    public function isMultiGradeOrderingEnabled(): bool
+    {
+        $raw = $this->allowed_product_grades;
+
+        if (is_array($raw)) {
+            if (array_key_exists('enable_multi_grade_ordering', $raw)) {
+                return (bool) $raw['enable_multi_grade_ordering'];
+            }
+
+            if (array_key_exists('multi_grade_ordering_enabled', $raw)) {
+                return (bool) $raw['multi_grade_ordering_enabled'];
+            }
+        }
+
+        return false;
+    }
+
+    public function getMultiGradeOrderingEnabledAttribute(): bool
+    {
+        return $this->isMultiGradeOrderingEnabled();
+    }
+
     public function canOrderGrade(string|ProductGrade $grade): bool
     {
         $val = $grade instanceof ProductGrade ? $grade->value : strtoupper(trim($grade));
@@ -123,7 +145,7 @@ class Shop extends Model
     }
 
     /**
-     * @return array{allowed: array<int, string>, default: string, ordered: array<int, string>}
+     * @return array{allowed: array<int, string>, default: string, ordered: array<int, string>, multi_grade_ordering_enabled: bool}
      */
     public function resolvedGradeConfiguration(): array
     {
@@ -141,6 +163,7 @@ class Shop extends Model
             'allowed' => $allowed,
             'default' => $default,
             'ordered' => $ordered,
+            'multi_grade_ordering_enabled' => $this->isMultiGradeOrderingEnabled(),
         ];
     }
 

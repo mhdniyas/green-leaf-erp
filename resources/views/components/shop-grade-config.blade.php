@@ -9,9 +9,11 @@
     if ($shop) {
         $initialAllowed = (array) old('allowed_product_grades', $shop->allowedProductGrades());
         $initialDefault = (string) old('default_product_grade', $shop->defaultProductGrade());
+        $initialMultiGrade = (bool) old('enable_multi_grade_ordering', $shop->isMultiGradeOrderingEnabled());
     } else {
         $initialAllowed = (array) old('allowed_product_grades', ['A']);
         $initialDefault = (string) old('default_product_grade', 'A');
+        $initialMultiGrade = (bool) old('enable_multi_grade_ordering', false);
     }
 
     if (! in_array($initialDefault, $initialAllowed, true)) {
@@ -21,7 +23,8 @@
 
 <div x-data="shopGradeConfig({
     initialAllowed: {{ json_encode(array_values($initialAllowed)) }},
-    initialDefault: '{{ $initialDefault }}'
+    initialDefault: '{{ $initialDefault }}',
+    initialMultiGrade: {{ $initialMultiGrade ? 'true' : 'false' }}
 })" class="rounded-xl border border-slate-200/90 bg-slate-50/70 p-3.5 space-y-2.5 transition">
     
     <!-- Card Header -->
@@ -74,6 +77,16 @@
             <span class="text-slate-500 font-medium">Default:</span>
             <span class="font-bold text-slate-900" x-text="'Grade ' + appliedDefault">Grade {{ $initialDefault }}</span>
         </div>
+
+        <!-- Multi-Grade Ordering Status -->
+        <div class="flex items-center gap-1.5 text-xs">
+            <span class="text-slate-500 font-medium">Multi-Grade:</span>
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold"
+                  :class="appliedMultiGrade ? 'bg-purple-100 text-purple-800 border border-purple-200' : 'bg-slate-200 text-slate-700'"
+                  x-text="appliedMultiGrade ? 'Enabled (ON)' : 'Disabled (OFF)'">
+                {{ $initialMultiGrade ? 'Enabled (ON)' : 'Disabled (OFF)' }}
+            </span>
+        </div>
     </div>
 
     @if($showEditForm)
@@ -91,6 +104,7 @@
         <input type="checkbox" name="allowed_product_grades[]" value="B" x-model="appliedAllowed" :checked="appliedAllowed.includes('B')" @checked(in_array('B', $initialAllowed, true)) class="sr-only" tabindex="-1" aria-hidden="true">
         <input type="checkbox" name="allowed_product_grades[]" value="C" x-model="appliedAllowed" :checked="appliedAllowed.includes('C')" @checked(in_array('C', $initialAllowed, true)) class="sr-only" tabindex="-1" aria-hidden="true">
         <input type="hidden" name="default_product_grade" :value="appliedDefault" value="{{ $initialDefault }}">
+        <input type="hidden" name="enable_multi_grade_ordering" :value="appliedMultiGrade ? '1' : '0'" value="{{ $initialMultiGrade ? '1' : '0' }}">
     </div>
 
     <!-- Responsive Edit Configuration Modal -->
@@ -180,6 +194,23 @@
                         </select>
                         <p class="mt-1 text-[11px] text-slate-500">The primary ordering grade presented when this shop places requisitions.</p>
                     </div>
+
+                    <!-- Enable Multi-Grade Ordering Toggle -->
+                    <div class="pt-3 border-t border-slate-100">
+                        <label class="flex items-center justify-between cursor-pointer group">
+                            <div class="pr-3">
+                                <span class="block text-xs font-bold text-slate-700 uppercase tracking-wider">Enable Multi-Grade Ordering</span>
+                                <p class="mt-0.5 text-[11px] text-slate-500">Allow purchaser to order additional eligible grades (A/B/C) on the shop marketplace.</p>
+                            </div>
+                            <div class="relative inline-flex items-center">
+                                <input type="checkbox"
+                                       id="{{ $prefix }}-modal-multi-grade-toggle"
+                                       x-model="draftMultiGrade"
+                                       class="sr-only peer">
+                                <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                            </div>
+                        </label>
+                    </div>
                 </div>
 
                 <!-- Modal Footer -->
@@ -210,13 +241,16 @@ if (typeof window.shopGradeConfig === 'undefined') {
             modalOpen: false,
             appliedAllowed: Array.isArray(config.initialAllowed) ? [...config.initialAllowed] : ['A'],
             appliedDefault: config.initialDefault || 'A',
+            appliedMultiGrade: Boolean(config.initialMultiGrade),
             draftAllowed: Array.isArray(config.initialAllowed) ? [...config.initialAllowed] : ['A'],
             draftDefault: config.initialDefault || 'A',
+            draftMultiGrade: Boolean(config.initialMultiGrade),
             errorMessage: '',
 
             openModal() {
                 this.draftAllowed = [...this.appliedAllowed];
                 this.draftDefault = this.appliedDefault;
+                this.draftMultiGrade = this.appliedMultiGrade;
                 this.errorMessage = '';
                 this.modalOpen = true;
             },
@@ -260,6 +294,7 @@ if (typeof window.shopGradeConfig === 'undefined') {
 
                 this.appliedAllowed = [...this.draftAllowed];
                 this.appliedDefault = this.draftDefault;
+                this.appliedMultiGrade = this.draftMultiGrade;
                 this.modalOpen = false;
             }
         };

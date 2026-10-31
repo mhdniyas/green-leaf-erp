@@ -2823,7 +2823,7 @@ class ShopOwnerController extends Controller
             'cutoffPassed' => $this->businessDayService->hasRolledOver(),
             'cutoffLabel' => $this->businessDayService->cutoffLabel(),
             'purchaseOrdersLockedForTomorrow' => $tomorrowOrder?->linkedPurchaseOrdersHaveGoodsReceived() ?? false,
-            'multiGradeOrderingEnabled' => count($gradeConfig['allowed']) > 1,
+            'multiGradeOrderingEnabled' => (bool) ($gradeConfig['multi_grade_ordering_enabled'] ?? false),
             'allowedProductGrades' => $gradeConfig['allowed'],
             'defaultProductGrade' => $gradeConfig['default'],
             'orderedProductGrades' => $gradeConfig['ordered'],

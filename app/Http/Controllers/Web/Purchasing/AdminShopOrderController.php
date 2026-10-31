@@ -278,7 +278,7 @@ class AdminShopOrderController extends Controller
             'allowPresetSave' => false,
             'directPurchaseTitle' => $shop->name.' Marketplace',
             'directPurchaseDescription' => 'Admin can add products and update quantities for this shop on the selected business date. Changes bypass the shop cutoff.',
-            'multiGradeOrderingEnabled' => count($gradeConfig['allowed']) > 1,
+            'multiGradeOrderingEnabled' => (bool) ($gradeConfig['multi_grade_ordering_enabled'] ?? false),
             'allowedProductGrades' => $gradeConfig['allowed'],
             'defaultProductGrade' => $gradeConfig['default'],
             'orderedProductGrades' => $gradeConfig['ordered'],

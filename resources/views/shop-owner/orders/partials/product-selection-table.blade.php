@@ -7,6 +7,7 @@
     $orderedGradesList = $orderedProductGrades ?? $effectiveAllowedGrades;
     $additionalGrades = array_values(array_filter($orderedGradesList, fn ($g) => $g !== $primaryGrade));
     $hasMultipleGrades = count($additionalGrades) > 0;
+    $multiGradeOrderingEnabled = (bool) ($multiGradeOrderingEnabled ?? false);
 
     foreach ($productsByCategory as $category) {
         foreach ($category->products as $product) {
@@ -255,47 +256,156 @@
                     >
                 </div>
 
-                @if($hasMultipleGrades)
-                    <div class="mt-2 space-y-1.5 border-t border-slate-100 pt-1.5">
-                        @foreach($additionalGrades as $subGrade)
-                            @php
-                                $subGradeKey = $productData['line_key'] . '|' . $subGrade;
-                                $subExistingItem = $tomorrowOrder?->items->first(function ($item) use ($productData, $subGrade): bool {
-                                    if ((int) $item->product_id !== (int) $productData['id']) {
-                                        return false;
-                                    }
-                                    $grade = $item->product_grade instanceof \App\Enums\Inventory\ProductGrade
-                                        ? $item->product_grade->value
-                                        : (string) ($item->product_grade ?? 'A');
-                                    return $grade === $subGrade;
-                                });
-                                $subCurrentQty = old("items.{$subGradeKey}", $subExistingItem?->requested_unit_quantity ?? $subExistingItem?->requested_qty ?? '');
-                            @endphp
-                            <div class="flex items-center justify-between gap-2 rounded-lg bg-slate-50/80 px-2 py-1 text-xs">
-                                <span class="inline-flex items-center gap-1 font-bold text-slate-700">
-                                    <span class="rounded bg-purple-100 px-1 py-0.5 text-[9px] font-black text-purple-700">Grade {{ $subGrade }}</span>
-                                    <span class="text-[10px] text-slate-500">Qty ({{ $productData['current_unit_label'] }})</span>
+                @php
+                    $subGradeData = [];
+                    $extraFilledCount = 0;
+                    if ($hasMultipleGrades) {
+                        foreach ($additionalGrades as $subGrade) {
+                            $subGradeKey = $productData['line_key'] . '|' . $subGrade;
+                            $subExistingItem = $tomorrowOrder?->items->first(function ($item) use ($productData, $subGrade): bool {
+                                if ((int) $item->product_id !== (int) $productData['id']) {
+                                    return false;
+                                }
+                                $grade = $item->product_grade instanceof \App\Enums\Inventory\ProductGrade
+                                    ? $item->product_grade->value
+                                    : (string) ($item->product_grade ?? 'A');
+                                return $grade === $subGrade;
+                            });
+                            $subCurrentQty = old("items.{$subGradeKey}", $subExistingItem?->requested_unit_quantity ?? $subExistingItem?->requested_qty ?? '');
+                            $qtyNum = (float) $subCurrentQty;
+                            if ($qtyNum > 0) {
+                                $extraFilledCount++;
+                            }
+                            $subGradeData[] = [
+                                'grade' => $subGrade,
+                                'key' => $subGradeKey,
+                                'qty' => $subCurrentQty,
+                                'numeric_qty' => $qtyNum,
+                            ];
+                        }
+                    }
+                    $hasExistingExtraQty = $extraFilledCount > 0;
+                    $gradesLabel = implode(' / ', $additionalGrades);
+                @endphp
+
+                @if($hasMultipleGrades && $multiGradeOrderingEnabled)
+                    <div x-data="{
+                        expanded: {{ $hasExistingExtraQty ? 'true' : 'false' }},
+                        extraCount: {{ $extraFilledCount }},
+                        updateExtraCount() {
+                            let count = 0;
+                            $el.querySelectorAll('input[data-sub-grade-qty]').forEach(el => {
+                                if (parseFloat(el.value) > 0) count++;
+                            });
+                            this.extraCount = count;
+                        }
+                    }" class="mt-2 border-t border-slate-100 pt-1.5">
+                        <div class="flex items-center justify-between gap-2">
+                            <button type="button"
+                                    @click="expanded = !expanded"
+                                    class="inline-flex items-center gap-1.5 text-xs font-bold text-purple-700 hover:text-purple-900 transition py-1 cursor-pointer">
+                                <svg class="h-3.5 w-3.5 transition-transform duration-150" :class="{ 'rotate-90': expanded }" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" />
+                                </svg>
+                                <span x-text="expanded ? 'Hide Other Grades' : '+ Other Grades ({{ $gradesLabel }})'">+ Other Grades ({{ $gradesLabel }})</span>
+                            </button>
+
+                            <span x-show="extraCount > 0"
+                                  x-cloak
+                                  class="inline-flex items-center gap-1 rounded-full bg-purple-50 border border-purple-200 px-2 py-0.5 text-[10px] font-bold text-purple-700">
+                                <svg class="h-3 w-3 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+                                </svg>
+                                <span x-text="'✓ ' + extraCount + (extraCount === 1 ? ' extra grade' : ' extra grades')">
+                                    ✓ {{ $extraFilledCount }} {{ $extraFilledCount === 1 ? 'extra grade' : 'extra grades' }}
                                 </span>
-                                <input type="hidden" name="item_units[{{ $subGradeKey }}]" value="{{ $productData['current_unit'] }}">
-                                <input type="hidden" name="item_measures[{{ $subGradeKey }}]" value="{{ $productData['current_measure_uuid'] }}">
-                                <input type="hidden" name="item_grades[{{ $subGradeKey }}]" value="{{ $subGrade }}">
-                                <input
-                                    type="number"
-                                    inputmode="decimal"
-                                    step="0.01"
-                                    min="0"
-                                    name="items[{{ $subGradeKey }}]"
-                                    value="{{ $subCurrentQty }}"
-                                    data-order-qty
-                                    data-master-qty
-                                    data-inline-qty
-                                    data-product-id="{{ $productData['id'] }}"
-                                    data-line-key="{{ $subGradeKey }}"
-                                    class="h-7 w-20 rounded border border-slate-200 bg-white px-1.5 text-right text-xs font-bold text-slate-900 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
-                                    placeholder="0"
-                                >
+                            </span>
+                        </div>
+
+                        <!-- Keep inputs in DOM at all times so values are not lost when collapsed -->
+                        <div x-show="expanded"
+                             x-transition:enter="ease-out duration-150"
+                             x-transition:enter-start="opacity-0 -translate-y-1"
+                             x-transition:enter-end="opacity-100 translate-y-0"
+                             class="mt-1.5 space-y-1.5">
+                            @foreach($subGradeData as $sub)
+                                <div class="flex items-center justify-between gap-2 rounded-lg bg-slate-50/80 px-2 py-1 text-xs">
+                                    <span class="inline-flex items-center gap-1 font-bold text-slate-700">
+                                        <span class="rounded bg-purple-100 px-1 py-0.5 text-[9px] font-black text-purple-700">Grade {{ $sub['grade'] }}</span>
+                                        <span class="text-[10px] text-slate-500">Qty ({{ $productData['current_unit_label'] }})</span>
+                                    </span>
+                                    <input type="hidden" name="item_units[{{ $sub['key'] }}]" value="{{ $productData['current_unit'] }}">
+                                    <input type="hidden" name="item_measures[{{ $sub['key'] }}]" value="{{ $productData['current_measure_uuid'] }}">
+                                    <input type="hidden" name="item_grades[{{ $sub['key'] }}]" value="{{ $sub['grade'] }}">
+                                    <input
+                                        type="number"
+                                        inputmode="decimal"
+                                        step="0.01"
+                                        min="0"
+                                        name="items[{{ $sub['key'] }}]"
+                                        value="{{ $sub['qty'] }}"
+                                        data-order-qty
+                                        data-master-qty
+                                        data-inline-qty
+                                        data-sub-grade-qty
+                                        data-product-id="{{ $productData['id'] }}"
+                                        data-line-key="{{ $sub['key'] }}"
+                                        @input="updateExtraCount()"
+                                        class="shop-order-row-qty h-7 w-20 rounded border border-slate-200 bg-white px-1.5 text-right text-xs font-bold text-slate-900 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                        placeholder="0"
+                                        aria-label="Grade {{ $sub['grade'] }} quantity for {{ $productData['name'] }}"
+                                    >
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @elseif($hasMultipleGrades && ! $multiGradeOrderingEnabled && $hasExistingExtraQty)
+                    <!-- Data Loss Prevention: Preserved Extra Grades from previous order/draft -->
+                    <div class="mt-2 rounded-xl border border-amber-200 bg-amber-50/80 p-2.5 text-xs text-amber-900">
+                        <div class="flex items-start gap-1.5">
+                            <svg class="h-4 w-4 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <div class="flex-1">
+                                <p class="font-bold text-amber-900 text-[11px] uppercase tracking-wide">
+                                    Preserved Extra Grades
+                                </p>
+                                <p class="mt-0.5 text-[11px] text-amber-800 leading-snug">
+                                    Draft contains quantities ordered while multi-grade ordering was enabled. You can keep, adjust, or set to 0:
+                                </p>
                             </div>
-                        @endforeach
+                        </div>
+                        <div class="mt-2 space-y-1.5">
+                            @foreach($subGradeData as $sub)
+                                @if($sub['numeric_qty'] > 0)
+                                    <div class="flex items-center justify-between gap-2 rounded-lg bg-white/90 p-1.5 border border-amber-200/80 text-xs">
+                                        <span class="inline-flex items-center gap-1 font-bold text-slate-700">
+                                            <span class="rounded bg-amber-100 px-1 py-0.5 text-[9px] font-black text-amber-800">Grade {{ $sub['grade'] }}</span>
+                                            <span class="text-[10px] text-slate-500">Qty ({{ $productData['current_unit_label'] }})</span>
+                                        </span>
+                                        <input type="hidden" name="item_units[{{ $sub['key'] }}]" value="{{ $productData['current_unit'] }}">
+                                        <input type="hidden" name="item_measures[{{ $sub['key'] }}]" value="{{ $productData['current_measure_uuid'] }}">
+                                        <input type="hidden" name="item_grades[{{ $sub['key'] }}]" value="{{ $sub['grade'] }}">
+                                        <input
+                                            type="number"
+                                            inputmode="decimal"
+                                            step="0.01"
+                                            min="0"
+                                            name="items[{{ $sub['key'] }}]"
+                                            value="{{ $sub['qty'] }}"
+                                            data-order-qty
+                                            data-master-qty
+                                            data-inline-qty
+                                            data-product-id="{{ $productData['id'] }}"
+                                            data-line-key="{{ $sub['key'] }}"
+                                            class="shop-order-row-qty h-7 w-20 rounded border border-amber-300 bg-white px-1.5 text-right text-xs font-bold text-slate-900 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                            placeholder="0"
+                                            aria-label="Grade {{ $sub['grade'] }} preserved quantity for {{ $productData['name'] }}"
+                                        >
+                                    </div>
+                                @endif
+                            @endforeach
+                        </div>
                     </div>
                 @endif
 

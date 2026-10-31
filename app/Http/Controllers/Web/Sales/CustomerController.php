@@ -121,7 +121,7 @@ class CustomerController extends Controller
             'contact_phone' => $request->input('contact_phone') ?: null,
         ];
 
-        if ($request->user()?->hasRole('admin') && $request->has('allowed_product_grades')) {
+        if ($request->user()?->hasRole('admin') && ($request->has('allowed_product_grades') || $request->has('enable_multi_grade_ordering') || $request->has('multi_grade_ordering_enabled'))) {
             $rawGrades = (array) $request->input('allowed_product_grades', ['A']);
             $orderableGradeValues = ['A', 'B', 'C'];
             $grades = array_values(array_unique(array_filter(
@@ -135,7 +135,13 @@ class CustomerController extends Controller
             }
 
             $orderedGrades = array_values(array_unique(array_merge([$defaultGrade], $grades)));
-            $data['allowed_product_grades'] = $orderedGrades;
+            $multiGradeEnabled = $request->boolean('enable_multi_grade_ordering', $request->boolean('multi_grade_ordering_enabled', false));
+
+            $data['allowed_product_grades'] = [
+                'allowed' => $orderedGrades,
+                'default' => $defaultGrade,
+                'enable_multi_grade_ordering' => $multiGradeEnabled,
+            ];
             $data['allow_grade_b_purchase'] = in_array('B', $orderedGrades, true);
         }
 
@@ -167,21 +173,29 @@ class CustomerController extends Controller
             'contact_phone' => $request->input('contact_phone') ?: null,
         ];
 
-        if ($request->user()?->hasRole('admin') && $request->has('allowed_product_grades')) {
-            $rawGrades = (array) $request->input('allowed_product_grades', ['A']);
+        if ($request->user()?->hasRole('admin') && ($request->has('allowed_product_grades') || $request->has('enable_multi_grade_ordering') || $request->has('multi_grade_ordering_enabled'))) {
+            $rawGrades = (array) $request->input('allowed_product_grades', $shop->allowedProductGrades());
             $orderableGradeValues = ['A', 'B', 'C'];
             $grades = array_values(array_unique(array_filter(
                 array_map(fn ($g) => strtoupper(trim((string) $g)), $rawGrades),
                 fn ($g) => in_array($g, $orderableGradeValues, true)
             )));
 
-            $defaultGrade = strtoupper(trim((string) $request->input('default_product_grade', '')));
+            $defaultGrade = strtoupper(trim((string) $request->input('default_product_grade', $shop->defaultProductGrade())));
             if (! in_array($defaultGrade, $grades, true)) {
                 $defaultGrade = $grades[0] ?? 'A';
             }
 
             $orderedGrades = array_values(array_unique(array_merge([$defaultGrade], $grades)));
-            $data['allowed_product_grades'] = $orderedGrades;
+            $multiGradeEnabled = ($request->has('enable_multi_grade_ordering') || $request->has('multi_grade_ordering_enabled'))
+                ? ($request->boolean('enable_multi_grade_ordering') || $request->boolean('multi_grade_ordering_enabled'))
+                : $shop->isMultiGradeOrderingEnabled();
+
+            $data['allowed_product_grades'] = [
+                'allowed' => $orderedGrades,
+                'default' => $defaultGrade,
+                'enable_multi_grade_ordering' => $multiGradeEnabled,
+            ];
             $data['allow_grade_b_purchase'] = in_array('B', $orderedGrades, true);
         }
 
