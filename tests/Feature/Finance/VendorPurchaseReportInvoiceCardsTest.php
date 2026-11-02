@@ -918,6 +918,164 @@ final class VendorPurchaseReportInvoiceCardsTest extends TestCase
         $this->assertStringContainsString('Underlying Purchase Bills &amp; Invoices &mdash; Detailed Reconciliation', $pdfHtml);
     }
 
+    public function test_lazy_load_endpoint_returns_only_unsettled_bills_with_bounded_batch_of_five(): void
+    {
+        $vendor = Supplier::factory()->create(['name' => 'LAZY LOAD BATCH VENDOR']);
+        $purchaser = User::factory()->create(['name' => 'Purchaser Ali']);
+        $purchaser->assignRole('purchaser');
+
+        // Create 2 fully settled bills
+        $settled1 = $this->invoiceWithItems('2026-10-15', 'Credit', [
+            ['category' => 'Vegetables', 'product' => 'Potato', 'line_total' => 5000.00],
+        ], $purchaser, $vendor);
+        $this->createSettlementAllocation($settled1, 5000.00, '2026-10-15');
+
+        $settled2 = $this->invoiceWithItems('2026-10-15', 'Credit', [
+            ['category' => 'Vegetables', 'product' => 'Onion', 'line_total' => 6000.00],
+        ], $purchaser, $vendor);
+        $this->createSettlementAllocation($settled2, 6000.00, '2026-10-15');
+
+        // Create 6 outstanding bills (amounts 1000 to 6000)
+        for ($i = 1; $i <= 6; $i++) {
+            $this->invoiceWithItems('2026-10-15', 'Credit', [
+                ['category' => 'Vegetables', 'product' => 'Carrot '.$i, 'line_total' => 1000.00 * $i],
+            ], $purchaser, $vendor);
+        }
+
+        // Page 1: Request first batch of 5
+        $page1Resp = $this->actingAs($this->admin)->getJson(route('admin.cashbook.finance.purchase.vendors.outstanding-bills', [
+            'supplier' => $vendor->public_uuid,
+            'page' => 1,
+            'period' => 'today',
+        ]));
+
+        $page1Resp->assertOk()
+            ->assertJson([
+                'success' => true,
+                'page' => 1,
+                'per_page' => 5,
+                'total_count' => 6,
+                'loaded_count' => 5,
+                'remaining_count' => 1,
+                'has_more' => true,
+            ]);
+
+        $billsPage1 = $page1Resp->json('bills');
+        $this->assertCount(5, $billsPage1);
+
+        // Verify settled bills are NOT included in the outstanding list
+        $returnedInvoiceIds = collect($billsPage1)->pluck('id')->all();
+        $this->assertNotContains($settled1->id, $returnedInvoiceIds);
+        $this->assertNotContains($settled2->id, $returnedInvoiceIds);
+
+        // Page 2: Request remaining batch
+        $page2Resp = $this->actingAs($this->admin)->getJson(route('admin.cashbook.finance.purchase.vendors.outstanding-bills', [
+            'supplier' => $vendor->public_uuid,
+            'page' => 2,
+            'period' => 'today',
+        ]));
+
+        $page2Resp->assertOk()
+            ->assertJson([
+                'success' => true,
+                'page' => 2,
+                'per_page' => 5,
+                'total_count' => 6,
+                'loaded_count' => 6,
+                'remaining_count' => 0,
+                'has_more' => false,
+            ]);
+
+        $this->assertCount(1, $page2Resp->json('bills'));
+    }
+
+    public function test_discount_can_be_updated_in_single_bill_payment_popup(): void
+    {
+        $supplier = Supplier::factory()->create(['name' => 'DISCOUNT UPDATE VENDOR']);
+        $purchaser = User::factory()->create(['name' => 'Purchaser Zaid']);
+        $purchaser->assignRole('purchaser');
+
+        $invoice = $this->invoiceWithItems('2026-10-15', 'Credit', [
+            ['category' => 'Vegetables', 'product' => 'Garlic', 'line_total' => 10000.00],
+        ], $purchaser, $supplier); // 10000 gross, 0 discount, 0 paid
+
+        // Update discount to 500 and pay 4000
+        $response = $this->actingAs($this->admin)->postJson(route('admin.cashbook.finance.vendor-credit.pay', [
+            'invoice' => $invoice->public_uuid,
+        ]), [
+            'discount_amount' => 500.00,
+            'payment_amount' => 4000.00,
+            'payment_method' => 'Bank',
+            'payment_date' => '2026-10-15',
+            'payment_note' => 'Adjusted discount and partial payment',
+        ]);
+
+        $response->assertOk()
+            ->assertJson([
+                'success' => true,
+                'invoice' => [
+                    'id' => $invoice->id,
+                    'discount_amount' => 500.00,
+                    'paid_amount' => 4000.00,
+                    'outstanding' => 5500.00,
+                ],
+            ]);
+
+        $invoice->refresh();
+        $this->assertEquals(500.00, (float) $invoice->discount_amount);
+        $this->assertEquals(4000.00, (float) $invoice->paid_amount);
+    }
+
+    public function test_discount_cannot_reduce_net_payable_below_already_settled_amount(): void
+    {
+        $supplier = Supplier::factory()->create(['name' => 'EXCESS DISCOUNT VENDOR']);
+        $purchaser = User::factory()->create(['name' => 'Purchaser Tariq']);
+        $purchaser->assignRole('purchaser');
+
+        $invoice = $this->invoiceWithItems('2026-10-15', 'Credit', [
+            ['category' => 'Vegetables', 'product' => 'Ginger', 'line_total' => 10000.00],
+        ], $purchaser, $supplier);
+
+        // Pre-settle 6,000 on this bill
+        $this->createSettlementAllocation($invoice, 6000.00, '2026-10-15');
+
+        // Attempting to set discount to 5,000 would make Net Payable 5,000, which is less than 6,000 already settled
+        $response = $this->actingAs($this->admin)->postJson(route('admin.cashbook.finance.vendor-credit.pay', [
+            'invoice' => $invoice->public_uuid,
+        ]), [
+            'discount_amount' => 5000.00,
+            'payment_amount' => 0.00,
+            'payment_method' => 'Bank',
+            'payment_date' => '2026-10-15',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['discount_amount']);
+    }
+
+    public function test_overpayment_exceeding_outstanding_balance_is_rejected(): void
+    {
+        $supplier = Supplier::factory()->create(['name' => 'OVERPAYMENT REJECT VENDOR']);
+        $purchaser = User::factory()->create(['name' => 'Purchaser Fahad']);
+        $purchaser->assignRole('purchaser');
+
+        $invoice = $this->invoiceWithItems('2026-10-15', 'Credit', [
+            ['category' => 'Vegetables', 'product' => 'Cucumber', 'line_total' => 8000.00],
+        ], $purchaser, $supplier); // 8000 balance
+
+        // Attempt to post payment of 10,000 (exceeds balance by 2,000)
+        $response = $this->actingAs($this->admin)->postJson(route('admin.cashbook.finance.vendor-credit.pay', [
+            'invoice' => $invoice->public_uuid,
+        ]), [
+            'payment_amount' => 10000.00,
+            'payment_method' => 'Bank',
+            'payment_date' => '2026-10-15',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['payment_amount']);
+    }
+
     private function createSettlementAllocation(
         PurchaseInvoice $invoice,
         float $allocatedAmount,

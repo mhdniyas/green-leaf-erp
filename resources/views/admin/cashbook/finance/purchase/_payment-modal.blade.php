@@ -5,6 +5,9 @@
         errorMessage: null,
         bill: null,
         details: null,
+        editingDiscount: false,
+        discountInput: '',
+        discountError: null,
         form: {
             payment_amount: '',
             payment_date: '{{ today('Asia/Kolkata')->toDateString() }}',
@@ -16,6 +19,9 @@
             this.bill = data;
             this.details = null;
             this.errorMessage = null;
+            this.editingDiscount = false;
+            this.discountError = null;
+            this.discountInput = (parseFloat(data.discount_amount) || 0).toFixed(2);
             this.form.payment_amount = (parseFloat(data.outstanding) || 0).toFixed(2);
             this.form.payment_date = '{{ today('Asia/Kolkata')->toDateString() }}';
             this.form.payment_method = 'Bank';
@@ -28,6 +34,8 @@
             if (this.isSubmitting) return;
             this.showModal = false;
             this.errorMessage = null;
+            this.editingDiscount = false;
+            this.discountError = null;
         },
         async fetchDetails(uuid) {
             if (!uuid) return;
@@ -39,6 +47,9 @@
                 if (res.ok) {
                     const json = await res.json();
                     this.details = json;
+                    if (!this.editingDiscount) {
+                        this.discountInput = parseFloat(json.discount_amount || 0).toFixed(2);
+                    }
                     if (json.outstanding !== undefined) {
                         this.form.payment_amount = parseFloat(json.outstanding).toFixed(2);
                     }
@@ -47,18 +58,80 @@
                 console.error('Error fetching bill details', err);
             } finally {
                 this.loadingDetails = false;
+                this.$nextTick(() => {
+                    if (window.lucide) { window.lucide.createIcons(); }
+                });
+            }
+        },
+        get currentGross() {
+            return this.details ? parseFloat(this.details.amount) : (this.bill ? parseFloat(this.bill.gross_amount) : 0);
+        },
+        get originalDiscount() {
+            return this.details ? parseFloat(this.details.discount_amount) : (this.bill ? parseFloat(this.bill.discount_amount) : 0);
+        },
+        get activeDiscount() {
+            if (this.editingDiscount) {
+                const d = parseFloat(this.discountInput);
+                return isNaN(d) ? 0 : Math.max(0, d);
+            }
+            return this.originalDiscount;
+        },
+        get currentPaid() {
+            return this.details ? parseFloat(this.details.paid_amount) : (this.bill ? parseFloat(this.bill.paid_amount) : 0);
+        },
+        get maxAllowedDiscount() {
+            return Math.max(0, this.currentGross - this.currentPaid);
+        },
+        get recalculatedNetPayable() {
+            return Math.max(0, this.currentGross - this.activeDiscount);
+        },
+        get recalculatedOutstanding() {
+            return Math.max(0, this.recalculatedNetPayable - this.currentPaid);
+        },
+        get excessAmount() {
+            const amt = parseFloat(this.form.payment_amount);
+            if (isNaN(amt) || amt <= this.recalculatedOutstanding + 0.009) return 0;
+            return amt - this.recalculatedOutstanding;
+        },
+        get vendorFinanceUrl() {
+            return (this.details && this.details.vendor_finance_url) || (this.bill && this.bill.vendor_finance_url) || '/admin/cashbook/finance/vendor-credit';
+        },
+        onDiscountChange() {
+            const d = parseFloat(this.discountInput);
+            if (isNaN(d) || d < 0) {
+                this.discountError = 'Discount cannot be negative.';
+                return;
+            }
+            if (d > this.maxAllowedDiscount + 0.009) {
+                this.discountError = `Discount cannot exceed Rs. ${this.maxAllowedDiscount.toFixed(2)} because Rs. ${this.currentPaid.toFixed(2)} is already paid.`;
+                return;
+            }
+            this.discountError = null;
+            if (parseFloat(this.form.payment_amount) > this.recalculatedOutstanding) {
+                this.form.payment_amount = this.recalculatedOutstanding.toFixed(2);
             }
         },
         async submit() {
             if (!this.bill) return;
+
+            if (this.editingDiscount) {
+                this.onDiscountChange();
+                if (this.discountError) {
+                    this.errorMessage = this.discountError;
+                    return;
+                }
+            }
+
             const amt = parseFloat(this.form.payment_amount);
-            const maxDue = this.details ? parseFloat(this.details.outstanding) : parseFloat(this.bill.outstanding);
-            if (isNaN(amt) || amt <= 0) {
+            const discountChanged = this.editingDiscount && Math.abs(this.activeDiscount - this.originalDiscount) > 0.009;
+
+            if (!discountChanged && (isNaN(amt) || amt <= 0)) {
                 this.errorMessage = 'Please enter a valid payment amount greater than zero.';
                 return;
             }
-            if (amt > maxDue + 0.009) {
-                this.errorMessage = `Payment amount cannot exceed the outstanding balance of Rs. ${maxDue.toFixed(2)}.`;
+
+            if (this.excessAmount > 0.009) {
+                this.errorMessage = `Payment amount exceeds the outstanding balance by Rs. ${this.excessAmount.toFixed(2)}. Single bill payment cannot record excess.`;
                 return;
             }
 
@@ -76,6 +149,7 @@
                     body: JSON.stringify({
                         _token: '{{ csrf_token() }}',
                         payment_amount: this.form.payment_amount,
+                        discount_amount: this.editingDiscount ? this.activeDiscount : null,
                         payment_date: this.form.payment_date,
                         payment_method: this.form.payment_method,
                         company_account_id: this.form.company_account_id || null,
@@ -163,47 +237,117 @@
                     </div>
                 </div>
 
-                {{-- Payment Summary Table --}}
+                {{-- Payment Summary Table (With Editable Discount) --}}
                 <div class="space-y-1.5">
                     <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Payment Summary</span>
                     <div class="rounded-2xl border border-slate-200/80 bg-white overflow-hidden shadow-2xs">
                         <table class="w-full text-xs">
                             <tbody class="divide-y divide-slate-100">
                                 <tr>
-                                    <td class="px-4 py-2 text-slate-600 font-semibold">Purchase Total</td>
-                                    <td class="px-4 py-2 text-right font-mono font-bold text-slate-900 tabular-nums">
-                                        Rs. <span x-text="details ? Number(details.amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : (bill ? Number(bill.gross_amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00')"></span>
+                                    <td class="px-4 py-2.5 text-slate-600 font-semibold">Purchase Total (Gross)</td>
+                                    <td class="px-4 py-2.5 text-right font-mono font-bold text-slate-900 tabular-nums">
+                                        Rs. <span x-text="Number(currentGross).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
                                     </td>
                                 </tr>
                                 <tr>
-                                    <td class="px-4 py-2 text-slate-600 font-semibold">Discount</td>
-                                    <td class="px-4 py-2 text-right font-mono font-bold text-slate-700 tabular-nums">
-                                        Rs. <span x-text="details ? Number(details.discount_amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : (bill ? Number(bill.discount_amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00')"></span>
+                                    <td class="px-4 py-2.5 text-slate-600 font-semibold align-middle">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <span class="flex items-center gap-1.5">
+                                                <i data-lucide="tag" class="w-3.5 h-3.5 text-slate-400"></i>
+                                                <span>Discount</span>
+                                            </span>
+                                            <button type="button"
+                                                    @click="editingDiscount = !editingDiscount; if (editingDiscount) onDiscountChange();"
+                                                    class="inline-flex items-center gap-1 text-[10px] font-black uppercase text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-200 transition cursor-pointer">
+                                                <i data-lucide="edit-3" class="w-3 h-3"></i>
+                                                <span x-text="editingDiscount ? 'Close Edit' : 'Edit Discount'"></span>
+                                            </button>
+                                        </div>
+                                        {{-- Inline Discount Edit Input --}}
+                                        <div x-show="editingDiscount" x-cloak class="mt-2 space-y-1">
+                                            <div class="flex items-center gap-1.5">
+                                                <span class="text-xs font-mono font-bold text-slate-500">Rs.</span>
+                                                <input type="number"
+                                                       step="0.01"
+                                                       min="0"
+                                                       :max="maxAllowedDiscount"
+                                                       x-model="discountInput"
+                                                       @input="onDiscountChange()"
+                                                       placeholder="0.00"
+                                                       class="w-32 rounded-lg border border-slate-300 px-2 py-1 font-mono text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-hidden focus:ring-1 focus:ring-emerald-600 bg-white">
+                                                <button type="button"
+                                                        @click="discountInput = originalDiscount.toFixed(2); onDiscountChange(); editingDiscount = false;"
+                                                        class="text-[10px] font-bold text-slate-500 hover:text-slate-700 px-1.5 py-1">
+                                                    Reset
+                                                </button>
+                                            </div>
+                                            <div class="text-[10px] text-slate-500 flex items-center gap-1">
+                                                <span>Original: <strong class="font-mono text-slate-700" x-text="'Rs. ' + originalDiscount.toFixed(2)"></strong></span>
+                                                <span class="text-slate-300">&bull;</span>
+                                                <span>Max Allowed: <strong class="font-mono text-slate-700" x-text="'Rs. ' + maxAllowedDiscount.toFixed(2)"></strong></span>
+                                            </div>
+                                            <template x-if="discountError">
+                                                <p class="text-[10px] font-bold text-rose-600" x-text="discountError"></p>
+                                            </template>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-2.5 text-right font-mono font-bold text-slate-700 tabular-nums align-top">
+                                        Rs. <span x-text="Number(activeDiscount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
                                     </td>
                                 </tr>
                                 <tr class="bg-slate-50/70 font-bold">
-                                    <td class="px-4 py-2 text-slate-900 uppercase text-[11px]">Net Payable</td>
-                                    <td class="px-4 py-2 text-right font-mono text-slate-900 tabular-nums">
-                                        Rs. <span x-text="details ? Number(details.net_payable).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : (bill ? Number(bill.net_payable).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00')"></span>
+                                    <td class="px-4 py-2.5 text-slate-900 uppercase text-[11px]">Net Payable</td>
+                                    <td class="px-4 py-2.5 text-right font-mono text-slate-900 tabular-nums">
+                                        Rs. <span x-text="Number(recalculatedNetPayable).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
                                     </td>
                                 </tr>
                                 <tr class="bg-emerald-50/60 text-emerald-900 font-bold">
-                                    <td class="px-4 py-2 flex items-center gap-1.5">
+                                    <td class="px-4 py-2.5 flex items-center gap-1.5">
                                         <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
                                         <span>Already Paid</span>
                                     </td>
-                                    <td class="px-4 py-2 text-right font-mono text-emerald-700 tabular-nums font-black">
-                                        Rs. <span x-text="details ? Number(details.paid_amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : (bill ? Number(bill.paid_amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00')"></span>
+                                    <td class="px-4 py-2.5 text-right font-mono text-emerald-700 tabular-nums font-black">
+                                        Rs. <span x-text="Number(currentPaid).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
                                     </td>
                                 </tr>
                                 <tr class="bg-amber-50/80 text-amber-950 font-black">
                                     <td class="px-4 py-2.5 uppercase text-[11px] tracking-wider text-rose-900">Credit Balance</td>
                                     <td class="px-4 py-2.5 text-right font-mono text-rose-700 text-sm tabular-nums">
-                                        Rs. <span x-text="details ? Number(details.outstanding).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : (bill ? Number(bill.outstanding).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00')"></span>
+                                        Rs. <span x-text="Number(recalculatedOutstanding).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
                                     </td>
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+
+                {{-- Overpayment Warning Banner (When entered amount exceeds bill balance) --}}
+                <div x-show="excessAmount > 0.009" x-cloak
+                     class="rounded-2xl bg-amber-50 border border-amber-300 p-3.5 space-y-2 text-xs">
+                    <div class="flex items-center justify-between text-amber-950 font-black">
+                        <span class="flex items-center gap-1.5">
+                            <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-600"></i>
+                            <span>Payment Amount Exceeds Bill Balance</span>
+                        </span>
+                        <span class="rounded-md bg-amber-200/90 text-amber-950 px-2 py-0.5 font-mono text-[11px]">
+                            Excess: Rs. <span x-text="Number(excessAmount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
+                        </span>
+                    </div>
+                    <p class="text-amber-800 font-medium">
+                        This amount exceeds the selected bill's outstanding balance of <strong>Rs. <span x-text="Number(recalculatedOutstanding).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span></strong>. Single-bill settlement cannot record excess payments. Use Vendor Finance to process advances or excess payments across the vendor ledger.
+                    </p>
+                    <div class="flex items-center gap-2 pt-1 flex-wrap">
+                        <button type="button"
+                                @click="form.payment_amount = recalculatedOutstanding.toFixed(2)"
+                                class="rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 text-xs font-black shadow-2xs transition cursor-pointer">
+                            Pay Full Due &mdash; Rs. <span x-text="Number(recalculatedOutstanding).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
+                        </button>
+                        <a :href="vendorFinanceUrl"
+                           target="_blank"
+                           class="rounded-xl border border-amber-400 bg-white hover:bg-amber-100/60 text-amber-950 px-3 py-1.5 text-xs font-bold transition flex items-center gap-1 cursor-pointer">
+                            <span>Open Vendor Finance</span>
+                            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                        </a>
                     </div>
                 </div>
 
@@ -251,20 +395,18 @@
                             <div class="flex items-center justify-between mb-1">
                                 <label class="text-xs font-bold text-slate-700">Payment Amount (Rs.) <span class="text-rose-600">*</span></label>
                                 <button type="button"
-                                        @click="form.payment_amount = details ? details.outstanding.toFixed(2) : bill.outstanding.toFixed(2)"
+                                        @click="form.payment_amount = recalculatedOutstanding.toFixed(2)"
                                         class="text-[11px] font-extrabold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer">
                                     Pay Full Due
                                 </button>
                             </div>
                             <input type="number"
                                    step="0.01"
-                                   min="0.01"
-                                   :max="details ? details.outstanding : (bill ? bill.outstanding : 999999)"
+                                   min="0.00"
                                    x-model="form.payment_amount"
-                                   required
                                    class="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono text-sm font-bold text-slate-900 focus:border-emerald-600 focus:outline-hidden focus:ring-1 focus:ring-emerald-600">
                             <span class="text-[10px] text-slate-500 font-semibold block mt-1">
-                                Enter exact or partial payment. Max allowed: Rs. <span class="font-mono text-slate-800" x-text="details ? details.outstanding.toFixed(2) : (bill ? bill.outstanding.toFixed(2) : '0.00')"></span>
+                                Enter exact or partial payment. Max allowed: Rs. <span class="font-mono text-slate-800" x-text="recalculatedOutstanding.toFixed(2)"></span>
                             </span>
                         </div>
 
@@ -325,7 +467,7 @@
                             Cancel
                         </button>
                         <button type="submit"
-                                :disabled="isSubmitting"
+                                :disabled="isSubmitting || excessAmount > 0.009 || discountError !== null"
                                 class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2 text-xs font-black uppercase tracking-wider shadow-sm transition cursor-pointer disabled:opacity-50">
                             <template x-if="isSubmitting">
                                 <span class="inline-flex items-center gap-1.5">

@@ -611,18 +611,18 @@
             {{-- TOOLBAR: Smooth Segmented Switch (All / Cash / Credit) & Vendor Search Input --}}
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50 p-2.5 rounded-2xl border border-slate-200/70">
                 <!-- Smooth Cash / Credit / All Switch -->
-                <div class="flex items-center gap-2 flex-wrap">
-                    <div class="inline-flex items-center bg-slate-200/70 p-1 rounded-xl text-xs font-extrabold relative">
+                <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                    <div class="inline-flex items-center bg-slate-200/70 p-1 rounded-xl text-xs font-extrabold relative w-full sm:w-auto justify-between sm:justify-start">
                         <button type="button"
                                 @click="setPayment('all')"
                                 :class="activePayment === 'all' ? 'bg-white text-slate-950 shadow-xs font-black' : 'text-slate-600 hover:text-slate-900'"
-                                class="px-3.5 py-1.5 rounded-lg transition-all duration-200 ease-in-out cursor-pointer">
+                                class="flex-1 sm:flex-initial text-center justify-center px-3 sm:px-3.5 py-1.5 rounded-lg transition-all duration-200 ease-in-out cursor-pointer">
                             All
                         </button>
                         <button type="button"
                                 @click="setPayment('cash')"
                                 :class="activePayment === 'cash' ? 'bg-emerald-600 text-white shadow-xs font-black' : 'text-slate-600 hover:text-slate-900'"
-                                class="px-3.5 py-1.5 rounded-lg transition-all duration-200 ease-in-out flex items-center gap-1.5 cursor-pointer">
+                                class="flex-1 sm:flex-initial justify-center px-3 sm:px-3.5 py-1.5 rounded-lg transition-all duration-200 ease-in-out flex items-center gap-1.5 cursor-pointer">
                             <span class="w-2 h-2 rounded-full transition-colors duration-200"
                                   :class="activePayment === 'cash' ? 'bg-white' : 'bg-emerald-500'"></span>
                             <span>Cash</span>
@@ -630,14 +630,14 @@
                         <button type="button"
                                 @click="setPayment('credit')"
                                 :class="activePayment === 'credit' ? 'bg-slate-900 text-white shadow-xs font-black' : 'text-slate-600 hover:text-slate-900'"
-                                class="px-3.5 py-1.5 rounded-lg transition-all duration-200 ease-in-out flex items-center gap-1.5 cursor-pointer">
+                                class="flex-1 sm:flex-initial justify-center px-3 sm:px-3.5 py-1.5 rounded-lg transition-all duration-200 ease-in-out flex items-center gap-1.5 cursor-pointer">
                             <span class="w-2 h-2 rounded-full transition-colors duration-200"
                                   :class="activePayment === 'credit' ? 'bg-emerald-400' : 'bg-rose-500'"></span>
                             <span>Credit</span>
                         </button>
                     </div>
 
-                    <span class="text-xs font-bold text-slate-500 pl-1"
+                    <span class="text-xs font-bold text-slate-500 pl-0.5 sm:pl-1 whitespace-nowrap"
                           x-text="`Showing ${totalVisible} of ${totalMatching} ${totalMatching === 1 ? 'vendor' : 'vendors'}`">
                         Showing {{ min(5, $vendorsOverviewList->count()) }} of {{ $vendorsOverviewList->count() }} vendors
                     </span>

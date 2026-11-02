@@ -61,19 +61,15 @@ final class PurchaseReportingService
 
         $vendors = $this->vendorRows($items)->orderByDesc('total_purchase')->get();
 
-        $allInvoices = $this->invoiceRows($items)
+        $recentPurchases = $this->invoiceRows($items)
             ->orderByDesc('business_date')
             ->orderByDesc('invoice_id')
+            ->limit(10)
             ->get();
-        $invoicesBySupplier = $allInvoices->groupBy('supplier_id');
-
-        foreach ($vendors as $v) {
-            $v->bills = $invoicesBySupplier->get($v->supplier_id, collect())->values();
-        }
 
         return [
             'summary' => $summary,
-            'recentPurchases' => $allInvoices->take(10),
+            'recentPurchases' => $recentPurchases,
             'bills' => $bills,
             'vendors' => $vendors->take(5),
             'allVendors' => $vendors,
@@ -350,7 +346,7 @@ final class PurchaseReportingService
             ? "category_id || '|' || category_name"
             : "CONCAT(category_id, '|', category_name)";
 
-        return DB::query()->fromSub($items, 'purchase_items')->selectRaw("supplier_id, supplier_public_uuid, supplier_name, COUNT(DISTINCT invoice_id) as invoice_count, SUM(CASE WHEN payment_class = 'cash' THEN item_net ELSE 0 END) as cash_purchase, SUM(CASE WHEN payment_class = 'credit' THEN item_net ELSE 0 END) as credit_purchase, SUM(item_paid) as credit_paid, SUM(item_paid) as paid_amount, COALESCE(SUM(item_discount), 0) as discount, SUM(CASE WHEN payment_class = 'credit' AND item_net > item_paid THEN item_net - item_paid ELSE 0 END) as outstanding, SUM(item_net) as total_purchase, GROUP_CONCAT(DISTINCT {$tagExpression}) as category_tags")->groupBy('supplier_id', 'supplier_public_uuid', 'supplier_name');
+        return DB::query()->fromSub($items, 'purchase_items')->selectRaw("supplier_id, supplier_public_uuid, supplier_name, COUNT(DISTINCT invoice_id) as invoice_count, COUNT(DISTINCT CASE WHEN payment_class = 'credit' AND item_net > item_paid THEN invoice_id END) as outstanding_bills_count, SUM(CASE WHEN payment_class = 'cash' THEN item_net ELSE 0 END) as cash_purchase, SUM(CASE WHEN payment_class = 'credit' THEN item_net ELSE 0 END) as credit_purchase, SUM(item_paid) as credit_paid, SUM(item_paid) as paid_amount, COALESCE(SUM(item_discount), 0) as discount, SUM(CASE WHEN payment_class = 'credit' AND item_net > item_paid THEN item_net - item_paid ELSE 0 END) as outstanding, SUM(item_net) as total_purchase, GROUP_CONCAT(DISTINCT {$tagExpression}) as category_tags")->groupBy('supplier_id', 'supplier_public_uuid', 'supplier_name');
     }
 
     /** @param array<string, mixed> $filters */

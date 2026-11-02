@@ -8435,6 +8435,74 @@ final class CashbookController extends Controller
         );
     }
 
+    public function companyFinancePurchaseVendorOutstandingBills(
+        Request $request,
+        Supplier $supplier,
+        PurchaseReportingService $purchaseReportingService
+    ): JsonResponse {
+        $this->ensureMainAdmin($request);
+
+        $filters = $this->purchaseDashboardFilters($request);
+        $filters['vendor_id'] = (int) $supplier->id;
+
+        $page = max(1, (int) $request->input('page', 1));
+        $perPage = 5;
+
+        $items = $purchaseReportingService->filteredItems($filters);
+        $baseQuery = $purchaseReportingService->invoiceRows($items);
+
+        $dueInvoices = $baseQuery->get()
+            ->filter(fn ($bill) => ((float) ($bill->outstanding ?? 0)) > 0.009)
+            ->sortByDesc(fn ($bill) => ($bill->business_date ?? '').'-'.str_pad((string) $bill->invoice_id, 10, '0', STR_PAD_LEFT))
+            ->values();
+
+        $totalOutstandingCount = $dueInvoices->count();
+        $paginated = $dueInvoices->slice(($page - 1) * $perPage, $perPage)->values();
+
+        $vendorFinanceUrl = route('admin.cashbook.finance.vendor-credit.show', $supplier->public_uuid);
+
+        $bills = $paginated->map(function ($bill) use ($supplier, $vendorFinanceUrl) {
+            $due = (float) ($bill->outstanding ?? 0);
+            $paid = (float) ($bill->paid_amount ?? 0);
+            $discount = (float) ($bill->discount ?? 0);
+            $net = (float) ($bill->total_purchase ?? 0);
+            $gross = $net + $discount;
+
+            return [
+                'id' => (int) $bill->invoice_id,
+                'invoice_public_uuid' => (string) $bill->invoice_public_uuid,
+                'invoice_number' => (string) ($bill->invoice_number ?: ('#'.$bill->invoice_id)),
+                'supplier_name' => (string) $supplier->name,
+                'purchaser_name' => (string) ($bill->purchaser_name ?: '—'),
+                'business_date' => $bill->business_date ? Carbon::parse($bill->business_date)->format('d M Y') : '—',
+                'gross_amount' => $gross,
+                'discount_amount' => $discount,
+                'total_purchase' => $net,
+                'net_payable' => $net,
+                'paid_amount' => $paid,
+                'outstanding' => $due,
+                'status' => $paid > 0.009 ? 'PARTIAL' : 'UNPAID',
+                'pay_url' => route('admin.cashbook.finance.vendor-credit.pay', $bill->invoice_public_uuid),
+                'vendor_finance_url' => $vendorFinanceUrl,
+            ];
+        })->values();
+
+        $loadedSoFar = min($totalOutstandingCount, ($page - 1) * $perPage + $bills->count());
+        $remainingCount = max(0, $totalOutstandingCount - $loadedSoFar);
+
+        return response()->json([
+            'success' => true,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total_count' => $totalOutstandingCount,
+            'loaded_count' => $loadedSoFar,
+            'remaining_count' => $remainingCount,
+            'has_more' => $remainingCount > 0,
+            'bills' => $bills,
+            'vendor_finance_url' => $vendorFinanceUrl,
+        ]);
+    }
+
     public function companyFinancePurchaseVendor(Request $request, Supplier $supplier, PurchaseReportingService $purchaseReportingService): View
     {
         $this->ensureMainAdmin($request);
@@ -9596,25 +9664,65 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
-        $netAmount = max(0, (float) $invoice->amount - (float) $invoice->discount_amount);
-        $currentPaid = (float) $invoice->paid_amount;
+        $currentDiscount = round((float) $invoice->discount_amount, 2);
+        $settledTotal = $invoice->settlementTotal();
+        $currentPaid = max(round((float) $invoice->paid_amount, 2), $settledTotal);
+        $invoiceGross = round((float) $invoice->amount, 2);
+
+        $newDiscount = $request->has('discount_amount') && $request->input('discount_amount') !== null && $request->input('discount_amount') !== ''
+            ? round(max(0, (float) $request->input('discount_amount')), 2)
+            : $currentDiscount;
+
+        // Validation: New discount cannot reduce net payable below already paid amount
+        $maxAllowedDiscount = round(max(0, $invoiceGross - $currentPaid), 2);
+        if ($newDiscount > $maxAllowedDiscount + 0.009) {
+            $errorMsg = 'Discount cannot exceed Rs. '.number_format($maxAllowedDiscount, 2).' because Rs. '.number_format($currentPaid, 2).' has already been settled on this bill.';
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $errorMsg, 'errors' => ['discount_amount' => [$errorMsg]]], 422);
+            }
+
+            return redirect()->back()->withErrors(['discount_amount' => $errorMsg]);
+        }
+
+        $netAmount = round(max(0, $invoiceGross - $newDiscount), 2);
         $maxPayable = round(max(0, $netAmount - $currentPaid), 2);
+        $discountChanged = abs($newDiscount - $currentDiscount) > 0.009;
+
+        $paymentAmountInput = $request->input('payment_amount');
+        $paymentAmount = ($paymentAmountInput !== null && $paymentAmountInput !== '') ? round((float) $paymentAmountInput, 2) : 0.0;
+
+        if (! $discountChanged && $paymentAmount <= 0.009) {
+            $errorMsg = 'Please enter a payment amount greater than zero or adjust the discount.';
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $errorMsg, 'errors' => ['payment_amount' => [$errorMsg]]], 422);
+            }
+
+            return redirect()->back()->withErrors(['payment_amount' => $errorMsg]);
+        }
+
+        if ($paymentAmount > $maxPayable + 0.009) {
+            $errorMsg = 'Payment amount cannot exceed the outstanding balance of Rs. '.number_format($maxPayable, 2).'.';
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $errorMsg, 'errors' => ['payment_amount' => [$errorMsg]]], 422);
+            }
+
+            return redirect()->back()->withErrors(['payment_amount' => $errorMsg]);
+        }
 
         $validated = $request->validate([
-            'payment_amount' => ['required', 'numeric', 'min:0.01', 'max:'.$maxPayable],
             'payment_method' => ['required', 'string', 'in:Bank,Cash,Online,GPay'],
             'payment_date' => ['nullable', 'date'],
             'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
             'payment_note' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $paymentAmount = round((float) $validated['payment_amount'], 2);
         $newTotalPaid = round($currentPaid + $paymentAmount, 2);
 
         $updatedInvoice = $purchaseInvoiceService->updatePayment($invoice, [
             'payment_method' => $validated['payment_method'],
             'payment_paid_by' => 'company',
             'payment_purchaser_id' => null,
+            'discount_amount' => $newDiscount,
             'paid_amount' => $newTotalPaid,
             'payment_date' => $validated['payment_date'] ?? null,
             'payment_note' => $validated['payment_note'] ?? 'Company vendor credit settlement',
@@ -9630,7 +9738,8 @@ final class CashbookController extends Controller
             ->first();
 
         if (
-            ! empty($validated['company_account_id'])
+            $paymentAmount > 0.009
+            && ! empty($validated['company_account_id'])
             && $journalEntry instanceof JournalEntry
             && ! CompanyAccountStatementEntry::query()
                 ->where('journal_entry_id', $journalEntry->id)
@@ -9658,9 +9767,13 @@ final class CashbookController extends Controller
         }
 
         if ($request->wantsJson() || $request->ajax()) {
+            $msg = $paymentAmount > 0.009
+                ? 'Payment of Rs. '.number_format($paymentAmount, 2)." recorded for {$updatedInvoice->invoice_number}."
+                : 'Discount updated to Rs. '.number_format($newDiscount, 2)." for {$updatedInvoice->invoice_number}.";
+
             return response()->json([
                 'success' => true,
-                'message' => 'Payment of Rs. '.number_format($paymentAmount, 2)." recorded for {$updatedInvoice->invoice_number}.",
+                'message' => $msg,
                 'invoice' => [
                     'id' => $updatedInvoice->id,
                     'public_uuid' => $updatedInvoice->public_uuid,
@@ -9674,7 +9787,7 @@ final class CashbookController extends Controller
             ]);
         }
 
-        return redirect()->back()->with('success', 'Payment of ₹'.number_format($paymentAmount, 2)." recorded for {$updatedInvoice->invoice_number}.");
+        return redirect()->back()->with('success', 'Payment/discount recorded for '.$updatedInvoice->invoice_number);
     }
 
     public function getVendorCreditInvoiceDetails(Request $request, PurchaseInvoice $invoice): JsonResponse
@@ -9691,7 +9804,7 @@ final class CashbookController extends Controller
         $amount = (float) $invoice->amount;
         $discount = (float) $invoice->discount_amount;
         $netPayable = max(0, $amount - $discount);
-        $paidAmount = (float) $invoice->paid_amount;
+        $paidAmount = max((float) $invoice->paid_amount, $invoice->settlementTotal());
         $outstanding = max(0, round($netPayable - $paidAmount, 2));
 
         $payments = $invoice->payments->map(fn ($p) => [
@@ -9720,6 +9833,7 @@ final class CashbookController extends Controller
             'status' => $invoice->status,
             'payment_status' => $invoice->payment_status,
             'pay_url' => route('admin.cashbook.finance.vendor-credit.pay', $invoice),
+            'vendor_finance_url' => route('admin.cashbook.finance.vendor-credit.show', $invoice->supplier?->public_uuid),
             'payments' => $payments,
         ]);
     }
