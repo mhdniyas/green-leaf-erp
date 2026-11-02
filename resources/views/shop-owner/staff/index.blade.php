@@ -11,6 +11,7 @@
         'attendance' => 'Attendance',
         'salary' => 'Salary & Advance',
         'history' => 'History',
+        'monthly-summary' => 'Monthly Summary',
         'leave' => 'Leave',
     ];
     $statusStyles = [
@@ -84,9 +85,9 @@
             </div>
         </div>
 
-        <!-- 5 MAIN TABS -->
+        <!-- 6 MAIN TABS -->
         @if(!$shops->isEmpty())
-            <nav class="grid grid-cols-2 gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-1.5 text-center sm:grid-cols-5 sm:gap-1">
+            <nav class="grid grid-cols-2 gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-1.5 text-center sm:grid-cols-3 md:grid-cols-6 sm:gap-1">
                 <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'staff']) }}"
                    class="flex items-center justify-center gap-1.5 rounded-lg py-2 px-2 text-xs font-black transition {{ $selectedTab === 'staff' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-700 hover:bg-white' }}">
                     <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -109,15 +110,22 @@
                     <span class="hidden sm:inline truncate">Salary & Advance</span>
                     <span class="sm:hidden truncate">Salary</span>
                 </a>
-                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'history']) }}"
+                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'month' => $calendarMonth->format('Y-m'), 'tab' => 'history']) }}"
                    class="flex items-center justify-center gap-1.5 rounded-lg py-2 px-2 text-xs font-black transition {{ $selectedTab === 'history' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-700 hover:bg-white' }}">
                     <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <span class="truncate">History</span>
                 </a>
+                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'month' => $calendarMonth->format('Y-m'), 'tab' => 'monthly-summary']) }}"
+                   class="flex items-center justify-center gap-1.5 rounded-lg py-2 px-2 text-xs font-black transition {{ in_array($selectedTab, ['monthly-summary', 'monthly_summary'], true) ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-700 hover:bg-white' }}">
+                    <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                    </svg>
+                    <span class="truncate">{{ in_array($selectedTab, ['monthly-summary', 'monthly_summary'], true) ? 'Monthly Summary' : 'Month Summary' }}</span>
+                </a>
                 <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'leave']) }}"
-                   class="col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 rounded-lg py-2 px-2 text-xs font-black transition {{ $selectedTab === 'leave' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-700 hover:bg-white' }}">
+                   class="flex items-center justify-center gap-1.5 rounded-lg py-2 px-2 text-xs font-black transition {{ $selectedTab === 'leave' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-700 hover:bg-white' }}">
                     <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
                     </svg>
@@ -171,6 +179,8 @@
             @include('shop-owner.staff.partials.leave')
         @elseif($selectedTab === 'history')
             @include('shop-owner.staff.partials.history')
+        @elseif(in_array($selectedTab, ['monthly-summary', 'monthly_summary'], true))
+            @include('shop-owner.staff.partials.monthly-summary')
         @endif
 
     </div>

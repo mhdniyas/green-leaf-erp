@@ -27,6 +27,7 @@ use App\Services\Cashbook\StaffSalaryPaymentModeResolver;
 use App\Services\HR\AttendanceService;
 use App\Services\HR\EmployeeAdvanceService;
 use App\Services\HR\ImageUploadService;
+use App\Services\HR\MonthlyStaffAttendanceSummaryService;
 use App\Services\HR\PayrollService;
 use App\Services\HR\SalaryAvailabilityService;
 use Carbon\CarbonImmutable;
@@ -47,6 +48,7 @@ class ShopOwnerStaffController extends Controller
         private readonly ImageUploadService $imageUploadService,
         private readonly SalaryAvailabilityService $salaryAvailabilityService,
         private readonly StaffPaymentCashbookProjectionService $projectionService,
+        private readonly MonthlyStaffAttendanceSummaryService $monthlySummaryService,
     ) {}
 
     public function index(Request $request): View
@@ -54,10 +56,17 @@ class ShopOwnerStaffController extends Controller
         $this->ensureOwnerAccess($request);
 
         $rawMonth = trim($request->string('month')->toString());
+        $rawYear = trim($request->string('year')->toString());
+
+        if ($rawMonth !== '' && preg_match('/^(0?[1-9]|1[0-2])$/', $rawMonth)) {
+            $year = ($rawYear !== '' && preg_match('/^\d{4}$/', $rawYear)) ? (int) $rawYear : (int) today()->format('Y');
+            $rawMonth = sprintf('%04d-%02d', $year, (int) $rawMonth);
+        }
+
         $calendarMonth = null;
         if ($rawMonth !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $rawMonth)) {
             try {
-                $calendarMonth = Carbon::createFromFormat('Y-m', $rawMonth)->startOfMonth();
+                $calendarMonth = Carbon::createFromFormat('!Y-m', $rawMonth)->startOfMonth();
             } catch (\Throwable) {
                 $calendarMonth = null;
             }
@@ -94,8 +103,12 @@ class ShopOwnerStaffController extends Controller
             ->orderBy('name')
             ->get();
         $selectedShop = $this->selectedShop($ownedShops, $request->string('shop')->toString());
-        $selectedTab = in_array($request->string('tab', 'attendance')->toString(), ['attendance', 'staff', 'advance', 'salary', 'leave', 'history'], true)
-            ? $request->string('tab', 'attendance')->toString()
+        $requestedTab = $request->string('tab', 'attendance')->toString();
+        if ($requestedTab === 'monthly_summary') {
+            $requestedTab = 'monthly-summary';
+        }
+        $selectedTab = in_array($requestedTab, ['attendance', 'staff', 'advance', 'salary', 'leave', 'history', 'monthly-summary'], true)
+            ? $requestedTab
             : 'attendance';
         [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
         $search = trim($request->string('search', $request->string('employee_search')->toString())->toString());
@@ -197,6 +210,29 @@ class ShopOwnerStaffController extends Controller
                 ->values();
         }
 
+        $monthlySummaryRows = collect();
+        $monthlySummaryTotals = [
+            'total_employees' => 0,
+            'present' => 0,
+            'absent' => 0,
+            'leave' => 0,
+            'half_day' => 0,
+            'other' => 0,
+            'total_other_attendance' => 0,
+        ];
+
+        if ($selectedShop !== null && $selectedTab === 'monthly-summary') {
+            $summaryData = $this->monthlySummaryService->getMonthlySummary(
+                $selectedShop->id,
+                $calendarMonth,
+                $selectedCategory?->code,
+                $search,
+                $ownedShops->pluck('id'),
+            );
+            $monthlySummaryRows = $summaryData['rows'];
+            $monthlySummaryTotals = $summaryData['totals'];
+        }
+
         $attendanceRecords = EmployeeAttendance::query()
             ->with(['shop', 'markedBy'])
             ->whereDate('attendance_date', $selectedDate)
@@ -278,9 +314,13 @@ class ShopOwnerStaffController extends Controller
             'paymentFlags' => $paymentFlags,
             'selectedDate' => $selectedDate,
             'calendarMonth' => $calendarMonth,
+            'selectedYear' => (int) $calendarMonth->format('Y'),
+            'selectedMonthNum' => (int) $calendarMonth->format('n'),
             'selectedTab' => $selectedTab,
             'shops' => $ownedShops,
             'selectedShop' => $selectedShop,
+            'monthlySummaryRows' => $monthlySummaryRows,
+            'monthlySummaryTotals' => $monthlySummaryTotals,
             'search' => $search,
             'employeeSearch' => $employeeSearch,
             'categories' => $categories,

@@ -49,6 +49,7 @@ use App\Services\HR\EmployeeAdvanceService;
 use App\Services\HR\HrOverrideService;
 use App\Services\HR\ImageUploadService;
 use App\Services\HR\LeaveLedgerService;
+use App\Services\HR\MonthlyStaffAttendanceSummaryService;
 use App\Services\HR\PayrollPaymentService;
 use App\Services\HR\PayrollService;
 use App\Services\HR\ShopEmployeeAssignmentService;
@@ -82,11 +83,27 @@ class StaffManagementController extends Controller
         private readonly EmployeeAdvanceService $employeeAdvanceService,
         private readonly ContractWorkerPaymentService $contractWorkerPaymentService,
         private readonly ImageUploadService $imageUploadService,
+        private readonly MonthlyStaffAttendanceSummaryService $monthlyAttendanceSummaryService,
     ) {}
 
     public function index(Request $request): View
     {
         Gate::authorize('viewAny', Employee::class);
+
+        $selectedTab = $request->string('tab')->toString() === 'monthly-summary' ? 'monthly-summary' : 'dashboard';
+
+        if ($selectedTab === 'monthly-summary') {
+            $summaryViewData = $this->getMonthlySummaryViewData($request);
+
+            return view('admin.staff.index', array_merge($summaryViewData, [
+                'selectedTab' => 'monthly-summary',
+                'selectedDate' => $summaryViewData['calendarMonth'],
+                'stats' => $this->staffDirectoryService->statsForDate($summaryViewData['calendarMonth']),
+                'attendanceRecords' => collect(),
+                'shopCards' => collect(),
+                'officeRecords' => collect(),
+            ]));
+        }
 
         $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
         $attendanceRecords = EmployeeAttendance::query()
@@ -116,6 +133,7 @@ class StaffManagementController extends Controller
             ->values();
 
         return view('admin.staff.index', [
+            'selectedTab' => 'dashboard',
             'selectedDate' => $selectedDate,
             'stats' => $this->staffDirectoryService->statsForDate($selectedDate),
             'attendanceRecords' => $attendanceRecords,
@@ -776,9 +794,37 @@ class StaffManagementController extends Controller
         $categoryCode = trim($request->string('category')->toString());
         $search = trim($request->string('search')->toString());
         $selectedStatus = trim($request->string('status')->toString());
-        $selectedAttendanceTab = $request->string('tab')->toString() === 'pending-payment'
-            ? 'pending-payment'
-            : 'attendance';
+        $tabParam = $request->string('tab')->toString();
+        $selectedAttendanceTab = match ($tabParam) {
+            'pending-payment' => 'pending-payment',
+            'monthly-summary' => 'monthly-summary',
+            default => 'attendance',
+        };
+
+        if ($selectedAttendanceTab === 'monthly-summary') {
+            $summaryViewData = $this->getMonthlySummaryViewData($request);
+
+            return view('admin.staff.attendance', array_merge($summaryViewData, [
+                'selectedAttendanceTab' => 'monthly-summary',
+                'selectedDate' => $summaryViewData['calendarMonth'],
+                'prevDate' => $summaryViewData['calendarMonth']->copy()->subMonthNoOverflow()->startOfMonth(),
+                'nextDate' => $summaryViewData['calendarMonth']->copy()->addMonthNoOverflow()->startOfMonth(),
+                'selectedStatus' => '',
+                'statusCounts' => ['total' => 0, 'present' => 0, 'half_day' => 0, 'leave' => 0, 'absent' => 0, 'not_marked' => 0],
+                'monthDays' => collect(),
+                'monthlyAttendanceByEmployee' => collect(),
+                'pendingPaymentRows' => collect(),
+                'totalPendingPayment' => 0.0,
+                'employees' => collect(),
+                'shopGroups' => collect(),
+                'attendanceRecords' => collect(),
+                'allActiveEmployees' => collect(),
+                'availableShops' => $summaryViewData['shops'],
+                'shopEmployeeCounts' => collect(),
+                'selectedStaffArea' => '',
+            ]));
+        }
+
         $shopId = $request->integer('shop_id');
         $categories = EmployeeCategory::query()->where('is_active', true)->orderBy('name')->get();
         $selectedCategory = $categoryCode !== '' && $categoryCode !== 'all'
@@ -1759,5 +1805,93 @@ class StaffManagementController extends Controller
             ->whereDate('period_start', $selectedPayrollMonth->toDateString())
             ->latest('id')
             ->first();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function getMonthlySummaryViewData(Request $request): array
+    {
+        $rawMonth = trim($request->string('month')->toString());
+        $rawYear = trim($request->string('year')->toString());
+
+        if ($rawMonth !== '' && preg_match('/^(0?[1-9]|1[0-2])$/', $rawMonth)) {
+            $year = ($rawYear !== '' && preg_match('/^\d{4}$/', $rawYear)) ? (int) $rawYear : (int) today()->format('Y');
+            $rawMonth = sprintf('%04d-%02d', $year, (int) $rawMonth);
+        }
+
+        $calendarMonth = null;
+        if ($rawMonth !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $rawMonth)) {
+            try {
+                $calendarMonth = Carbon::createFromFormat('!Y-m', $rawMonth)->startOfMonth();
+            } catch (\Throwable) {
+                $calendarMonth = null;
+            }
+        }
+
+        if ($calendarMonth === null && $request->filled('date')) {
+            try {
+                $calendarMonth = Carbon::parse($request->string('date')->toString())->startOfMonth();
+            } catch (\Throwable) {
+                $calendarMonth = null;
+            }
+        }
+
+        $calendarMonth ??= today()->startOfMonth();
+
+        $shopId = null;
+        if ($request->filled('shop_id')) {
+            $shopId = $request->integer('shop_id');
+        } elseif ($request->filled('shop')) {
+            $shopParam = trim($request->string('shop')->toString());
+            if (is_numeric($shopParam)) {
+                $shopId = (int) $shopParam;
+            } else {
+                $foundShop = Shop::query()->where('code', $shopParam)->first();
+                $shopId = $foundShop?->id;
+            }
+        }
+
+        $categoryCode = trim($request->string('category')->toString());
+        $search = trim($request->string('search')->toString());
+
+        $categories = EmployeeCategory::query()
+            ->where('staff_area', 'shop')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+        $selectedCategory = $categoryCode !== '' && $categoryCode !== 'all'
+            ? $categories->firstWhere('code', $categoryCode)
+            : null;
+
+        $ownedShops = Shop::query()->ownedForStaff()->orderBy('name')->get();
+        $selectedShop = $shopId > 0 ? $ownedShops->firstWhere('id', $shopId) : null;
+
+        $summaryData = $this->monthlyAttendanceSummaryService->getMonthlySummary(
+            $shopId > 0 ? $shopId : null,
+            $calendarMonth,
+            $selectedCategory?->code,
+            $search,
+            $ownedShops->pluck('id'),
+        );
+
+        return [
+            'calendarMonth' => $calendarMonth,
+            'selectedYear' => (int) $calendarMonth->format('Y'),
+            'selectedMonthNum' => (int) $calendarMonth->format('n'),
+            'prevMonth' => $calendarMonth->copy()->subMonthNoOverflow()->startOfMonth(),
+            'nextMonth' => $calendarMonth->copy()->addMonthNoOverflow()->startOfMonth(),
+            'selectedShopId' => $shopId > 0 ? $shopId : null,
+            'selectedShop' => $selectedShop,
+            'monthlySummaryRows' => $summaryData['rows'],
+            'monthlySummaryTotals' => $summaryData['totals'],
+            'shopSummaries' => $summaryData['shop_summaries'],
+            'shopTotals' => $summaryData['shop_totals'],
+            'shops' => $ownedShops,
+            'categories' => $categories,
+            'categoryCode' => $categoryCode,
+            'selectedCategory' => $selectedCategory,
+            'search' => $search,
+        ];
     }
 }
