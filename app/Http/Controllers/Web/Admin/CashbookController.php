@@ -8444,6 +8444,8 @@ final class CashbookController extends Controller
 
         $filters = $this->purchaseDashboardFilters($request);
         $filters['vendor_id'] = (int) $supplier->id;
+        // Outstanding bills are unpaid obligations; never filter them out because the page is in cash-only mode:
+        unset($filters['payment']);
 
         $page = max(1, (int) $request->input('page', 1));
         $perPage = 5;
@@ -8455,6 +8457,20 @@ final class CashbookController extends Controller
             ->filter(fn ($bill) => ((float) ($bill->outstanding ?? 0)) > 0.009)
             ->sortByDesc(fn ($bill) => ($bill->business_date ?? '').'-'.str_pad((string) $bill->invoice_id, 10, '0', STR_PAD_LEFT))
             ->values();
+
+        $fromOtherPeriod = false;
+        if ($dueInvoices->isEmpty()) {
+            $allTimeItems = $purchaseReportingService->filteredItems(['vendor_id' => (int) $supplier->id]);
+            $allTimeDueInvoices = $purchaseReportingService->invoiceRows($allTimeItems)->get()
+                ->filter(fn ($bill) => ((float) ($bill->outstanding ?? 0)) > 0.009)
+                ->sortByDesc(fn ($bill) => ($bill->business_date ?? '').'-'.str_pad((string) $bill->invoice_id, 10, '0', STR_PAD_LEFT))
+                ->values();
+
+            if ($allTimeDueInvoices->isNotEmpty()) {
+                $dueInvoices = $allTimeDueInvoices;
+                $fromOtherPeriod = true;
+            }
+        }
 
         $totalOutstandingCount = $dueInvoices->count();
         $paginated = $dueInvoices->slice(($page - 1) * $perPage, $perPage)->values();
@@ -8499,6 +8515,7 @@ final class CashbookController extends Controller
             'remaining_count' => $remainingCount,
             'has_more' => $remainingCount > 0,
             'bills' => $bills,
+            'from_other_period' => $fromOtherPeriod,
             'vendor_finance_url' => $vendorFinanceUrl,
         ]);
     }
@@ -15632,7 +15649,7 @@ PY;
             $parsedDate = Carbon::parse($rawDate)->toDateString();
             $periodStart = $parsedDate;
             $periodEnd = $parsedDate;
-        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($validated['from']) || ! empty($validated['to']) || in_array($periodParam, ['custom', 'between', 'range'], true) || in_array($periodParam, ['week', 'this_week'], true)))) {
+        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($validated['from']) || ! empty($validated['to']) || ! empty($validated['start_date']) || ! empty($validated['end_date']) || in_array($periodParam, ['custom', 'between', 'range'], true) || in_array($periodParam, ['week', 'this_week'], true)))) {
             $periodMode = 'custom';
             $today = now('Asia/Kolkata')->startOfDay();
             if (in_array($periodParam, ['week', 'this_week'], true)) {

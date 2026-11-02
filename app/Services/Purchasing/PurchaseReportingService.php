@@ -260,7 +260,7 @@ final class PurchaseReportingService
         $invoiceNetExpression = 'CASE WHEN purchase_invoices.amount - purchase_invoices.discount_amount > 0 THEN purchase_invoices.amount - purchase_invoices.discount_amount ELSE 0 END';
         $netExpression = "({$grossExpression} * CASE WHEN COALESCE(cart_totals.gross_total, 0) > 0 THEN (1.0 * ({$invoiceNetExpression})) / cart_totals.gross_total ELSE 1.0 END)";
         $paidExpression = "CASE WHEN COALESCE(settlement_totals.settled_amount, purchase_invoices.paid_amount, 0) > {$invoiceNetExpression} THEN {$invoiceNetExpression} ELSE COALESCE(settlement_totals.settled_amount, purchase_invoices.paid_amount, 0) END";
-        $paymentClass = "CASE WHEN LOWER(COALESCE(purchase_invoices.payment_method, purchaser_carts.payment_method, '')) = 'credit' OR purchase_invoices.payment_paid_by = 'vendor_credit' OR purchase_invoices.payment_status = 'credit_pending_approval' THEN 'credit' ELSE 'cash' END";
+        $paymentClass = "CASE WHEN LOWER(COALESCE(purchase_invoices.payment_method, purchaser_carts.payment_method, '')) = 'credit' OR purchase_invoices.payment_paid_by IN ('vendor_credit', 'company') OR purchase_invoices.payment_status IN ('credit_pending_approval', 'unpaid', 'partial') THEN 'credit' ELSE 'cash' END";
 
         $directDiscountExpr = "CASE WHEN COALESCE(purchase_invoices.discount_amount, 0) > 0 THEN ({$grossExpression} * CASE WHEN COALESCE(cart_totals.gross_total, 0) > 0 THEN (1.0 * purchase_invoices.discount_amount) / cart_totals.gross_total ELSE 0 END) ELSE 0 END";
         $settlementDiscountExpr = "CASE WHEN COALESCE(settlement_totals.discount_settled, 0) > 0 THEN ({$netExpression} * (1.0 * settlement_totals.discount_settled) / NULLIF({$invoiceNetExpression}, 0)) ELSE 0 END";
@@ -337,7 +337,7 @@ final class PurchaseReportingService
 
     public function summary(Builder $items): object
     {
-        return DB::query()->fromSub($items, 'purchase_items')->selectRaw("COALESCE(SUM(item_net), 0) as total_purchase, COALESCE(SUM(CASE WHEN payment_class = 'cash' THEN item_net ELSE 0 END), 0) as cash_purchase, COALESCE(SUM(CASE WHEN payment_class = 'credit' THEN item_net ELSE 0 END), 0) as credit_purchase, COALESCE(SUM(item_paid), 0) as credit_paid, COALESCE(SUM(item_paid), 0) as paid_amount, COALESCE(SUM(item_discount), 0) as discount, COALESCE(SUM(CASE WHEN payment_class = 'credit' AND item_net > item_paid THEN item_net - item_paid ELSE 0 END), 0) as credit_outstanding, COUNT(DISTINCT supplier_id) as vendor_count, COUNT(DISTINCT purchaser_id) as purchaser_count, COUNT(DISTINCT invoice_id) as invoice_count, COUNT(DISTINCT category_id) as category_count")->first();
+        return DB::query()->fromSub($items, 'purchase_items')->selectRaw("COALESCE(SUM(item_net), 0) as total_purchase, COALESCE(SUM(CASE WHEN payment_class = 'cash' THEN item_net ELSE 0 END), 0) as cash_purchase, COALESCE(SUM(CASE WHEN payment_class = 'credit' THEN item_net ELSE 0 END), 0) as credit_purchase, COALESCE(SUM(item_paid), 0) as credit_paid, COALESCE(SUM(item_paid), 0) as paid_amount, COALESCE(SUM(item_discount), 0) as discount, COALESCE(SUM(CASE WHEN (payment_class = 'credit' OR item_net > item_paid) AND item_net > item_paid THEN item_net - item_paid ELSE 0 END), 0) as credit_outstanding, COUNT(DISTINCT supplier_id) as vendor_count, COUNT(DISTINCT purchaser_id) as purchaser_count, COUNT(DISTINCT invoice_id) as invoice_count, COUNT(DISTINCT category_id) as category_count")->first();
     }
 
     public function vendorRows(Builder $items): Builder
@@ -346,7 +346,7 @@ final class PurchaseReportingService
             ? "category_id || '|' || category_name"
             : "CONCAT(category_id, '|', category_name)";
 
-        return DB::query()->fromSub($items, 'purchase_items')->selectRaw("supplier_id, supplier_public_uuid, supplier_name, COUNT(DISTINCT invoice_id) as invoice_count, COUNT(DISTINCT CASE WHEN payment_class = 'credit' AND item_net > item_paid THEN invoice_id END) as outstanding_bills_count, SUM(CASE WHEN payment_class = 'cash' THEN item_net ELSE 0 END) as cash_purchase, SUM(CASE WHEN payment_class = 'credit' THEN item_net ELSE 0 END) as credit_purchase, SUM(item_paid) as credit_paid, SUM(item_paid) as paid_amount, COALESCE(SUM(item_discount), 0) as discount, SUM(CASE WHEN payment_class = 'credit' AND item_net > item_paid THEN item_net - item_paid ELSE 0 END) as outstanding, SUM(item_net) as total_purchase, GROUP_CONCAT(DISTINCT {$tagExpression}) as category_tags")->groupBy('supplier_id', 'supplier_public_uuid', 'supplier_name');
+        return DB::query()->fromSub($items, 'purchase_items')->selectRaw("supplier_id, supplier_public_uuid, supplier_name, COUNT(DISTINCT invoice_id) as invoice_count, COUNT(DISTINCT CASE WHEN (payment_class = 'credit' OR item_net > item_paid) AND item_net > item_paid THEN invoice_id END) as outstanding_bills_count, SUM(CASE WHEN payment_class = 'cash' THEN item_net ELSE 0 END) as cash_purchase, SUM(CASE WHEN payment_class = 'credit' THEN item_net ELSE 0 END) as credit_purchase, SUM(item_paid) as credit_paid, SUM(item_paid) as paid_amount, COALESCE(SUM(item_discount), 0) as discount, SUM(CASE WHEN (payment_class = 'credit' OR item_net > item_paid) AND item_net > item_paid THEN item_net - item_paid ELSE 0 END) as outstanding, SUM(item_net) as total_purchase, GROUP_CONCAT(DISTINCT {$tagExpression}) as category_tags")->groupBy('supplier_id', 'supplier_public_uuid', 'supplier_name');
     }
 
     /** @param array<string, mixed> $filters */
@@ -389,7 +389,7 @@ final class PurchaseReportingService
             : 'GROUP_CONCAT(DISTINCT category_name ORDER BY category_name SEPARATOR ", ")';
 
         return DB::query()->fromSub($items, 'purchase_items')
-            ->selectRaw('invoice_id, invoice_public_uuid, invoice_number, purchaser_cart_id, invoice_status, payment_status, business_date, supplier_id, supplier_public_uuid, supplier_name, purchaser_id, purchaser_public_uuid, purchaser_name, payment_class, '.$produceExpression.' as produce_types, '.$categoryExpression.' as categories, SUM(item_net) as total_purchase, SUM(item_paid) as paid_amount, COALESCE(SUM(item_discount), 0) as discount, SUM(CASE WHEN payment_class = "credit" AND item_net > item_paid THEN item_net - item_paid ELSE 0 END) as outstanding')
+            ->selectRaw('invoice_id, invoice_public_uuid, invoice_number, purchaser_cart_id, invoice_status, payment_status, business_date, supplier_id, supplier_public_uuid, supplier_name, purchaser_id, purchaser_public_uuid, purchaser_name, payment_class, '.$produceExpression.' as produce_types, '.$categoryExpression.' as categories, SUM(item_net) as total_purchase, SUM(item_paid) as paid_amount, COALESCE(SUM(item_discount), 0) as discount, SUM(CASE WHEN (payment_class = \'credit\' OR item_net > item_paid) AND item_net > item_paid THEN item_net - item_paid ELSE 0 END) as outstanding')
             ->groupBy('invoice_id', 'invoice_public_uuid', 'invoice_number', 'purchaser_cart_id', 'invoice_status', 'payment_status', 'business_date', 'supplier_id', 'supplier_public_uuid', 'supplier_name', 'purchaser_id', 'purchaser_public_uuid', 'purchaser_name', 'payment_class');
     }
 

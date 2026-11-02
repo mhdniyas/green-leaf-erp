@@ -1115,4 +1115,81 @@ final class VendorPurchaseReportInvoiceCardsTest extends TestCase
             'is_reversed' => false,
         ]);
     }
+
+    public function test_outstanding_bills_endpoint_supports_month_filter(): void
+    {
+        $vendor = Supplier::factory()->create(['name' => 'AMAN ONIONS']);
+        $purchaser = User::factory()->create(['name' => 'Raman']);
+        $purchaser->assignRole('purchaser');
+
+        $invoice = $this->invoiceWithItems('2026-10-10', 'Credit', [
+            ['category' => 'Onion', 'product' => 'Onion Small', 'line_total' => 21256.00],
+        ], $purchaser, $vendor);
+
+        $response = $this->actingAs($this->admin)->getJson(route('admin.cashbook.finance.purchase.vendors.outstanding-bills', [
+            'supplier' => $vendor->public_uuid,
+            'month' => '2026-10',
+            'period' => 'month',
+        ]));
+
+        $response->assertOk()
+            ->assertJson([
+                'success' => true,
+                'total_count' => 1,
+            ]);
+
+        $this->assertSame($invoice->invoice_number, $response->json('bills.0.invoice_number'));
+        $this->assertEquals(21256.00, $response->json('bills.0.outstanding'));
+    }
+
+    public function test_outstanding_bills_endpoint_ignores_cash_filter_to_prevent_missing_due_bills(): void
+    {
+        $vendor = Supplier::factory()->create(['name' => 'MANJU BANANA']);
+        $purchaser = User::factory()->create(['name' => 'Raman']);
+        $purchaser->assignRole('purchaser');
+
+        $this->invoiceWithItems('2026-10-12', 'Credit', [
+            ['category' => 'Banana', 'product' => 'Banana Robusta', 'line_total' => 87320.00],
+        ], $purchaser, $vendor);
+
+        $response = $this->actingAs($this->admin)->getJson(route('admin.cashbook.finance.purchase.vendors.outstanding-bills', [
+            'supplier' => $vendor->public_uuid,
+            'month' => '2026-10',
+            'payment' => 'cash',
+        ]));
+
+        $response->assertOk()
+            ->assertJson([
+                'success' => true,
+                'total_count' => 1,
+            ]);
+    }
+
+    public function test_outstanding_bills_falls_back_to_all_time_unpaid_bills_when_period_has_no_invoices(): void
+    {
+        $vendor = Supplier::factory()->create(['name' => 'HISTORIC DUE VENDOR']);
+        $purchaser = User::factory()->create(['name' => 'Raman']);
+        $purchaser->assignRole('purchaser');
+
+        // Due bill in September 2026:
+        $sepInvoice = $this->invoiceWithItems('2026-09-15', 'Credit', [
+            ['category' => 'Produce', 'product' => 'Produce A', 'line_total' => 5000.00],
+        ], $purchaser, $vendor);
+
+        // In November 2026, requesting outstanding bills without any November invoices:
+        $response = $this->actingAs($this->admin)->getJson(route('admin.cashbook.finance.purchase.vendors.outstanding-bills', [
+            'supplier' => $vendor->public_uuid,
+            'month' => '2026-11',
+            'period' => 'month',
+        ]));
+
+        $response->assertOk()
+            ->assertJson([
+                'success' => true,
+                'total_count' => 1,
+                'from_other_period' => true,
+            ]);
+
+        $this->assertSame($sepInvoice->invoice_number, $response->json('bills.0.invoice_number'));
+    }
 }

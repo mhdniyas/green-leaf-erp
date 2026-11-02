@@ -684,6 +684,8 @@
                                 'serialNumber' => $index + 1,
                                 'purchaseContext' => $purchaseContext,
                                 'formattedRange' => $formattedRange,
+                                'periodStart' => $periodStart,
+                                'periodEnd' => $periodEnd,
                             ])
                         </div>
                     @endforeach

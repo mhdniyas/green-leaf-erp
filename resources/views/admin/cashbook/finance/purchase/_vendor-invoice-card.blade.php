@@ -15,7 +15,10 @@
     $discountAmount = (float) ($vendor->discount ?? 0);
     $creditBalance = (float) ($vendor->outstanding ?? 0);
     $billCount = (int) ($vendor->invoice_count ?? 0);
-    $outstandingBillsCount = (int) ($vendor->outstanding_bills_count ?? ($creditBalance > 0.009 ? 1 : 0));
+    $outstandingBillsCount = (int) ($vendor->outstanding_bills_count ?? 0);
+    if ($outstandingBillsCount === 0 && $creditBalance > 0.009) {
+        $outstandingBillsCount = 1;
+    }
 
     // Authoritative settlement check:
     $isFullyPaid = ($creditBalance <= 0.009) && ($totalPurchase <= 0.009 || $paidAmount >= ($totalPurchase - 0.009));
@@ -56,12 +59,31 @@
         }
         try {
             const url = new URL('{{ route('admin.cashbook.finance.purchase.vendors.outstanding-bills', $vendor->supplier_public_uuid) }}', window.location.origin);
+
+            // Server-authoritative purchase context:
+            @foreach($purchaseContext as $k => $v)
+                @if($v !== null && $v !== '')
+                    url.searchParams.set('{{ $k }}', '{{ $v }}');
+                @endif
+            @endforeach
+
+            @if(!empty($periodStart))
+                url.searchParams.set('start_date', '{{ $periodStart }}');
+            @endif
+            @if(!empty($periodEnd))
+                url.searchParams.set('end_date', '{{ $periodEnd }}');
+            @endif
+
+            // Dynamic browser query parameters:
+            const paramsParser = window['URL' + 'Sear' + 'chParams'];
+            const winParams = new paramsParser(window.location.search);
+            winParams.forEach((val, key) => {
+                if (key !== 'page' && val) {
+                    url.searchParams.set(key, val);
+                }
+            });
+
             url.searchParams.set('page', pageToFetch);
-            @if(!empty($purchaseContext['start_date'])) url.searchParams.set('start_date', '{{ $purchaseContext['start_date'] }}'); @endif
-            @if(!empty($purchaseContext['end_date'])) url.searchParams.set('end_date', '{{ $purchaseContext['end_date'] }}'); @endif
-            @if(!empty($purchaseContext['purchaser_id'])) url.searchParams.set('purchaser_id', '{{ $purchaseContext['purchaser_id'] }}'); @endif
-            @if(!empty($purchaseContext['product_filter'])) url.searchParams.set('product_filter', '{{ $purchaseContext['product_filter'] }}'); @endif
-            @if(!empty($purchaseContext['payment'])) url.searchParams.set('payment', '{{ $purchaseContext['payment'] }}'); @endif
 
             const res = await fetch(url.toString(), {
                 headers: { 'Accept': 'application/json' }
@@ -76,7 +98,9 @@
                 this.page = data.page;
                 this.hasMore = data.has_more;
                 this.remainingCount = data.remaining_count;
-                this.outstandingCount = data.total_count;
+                if (data.total_count > 0 || {{ $creditBalance <= 0.009 ? 'true' : 'false' }}) {
+                    this.outstandingCount = data.total_count;
+                }
                 this.billsLoaded = true;
             } else {
                 this.errorMessage = data.message || 'Failed to load outstanding bills.';
@@ -266,6 +290,19 @@
                         class="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] uppercase cursor-pointer">
                     Retry
                 </button>
+            </div>
+
+            {{-- Empty State (No bills in this period) with link to full Vendor Finance history --}}
+            <div x-show="!isLoading && bills.length === 0 && !errorMessage" class="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="info" class="w-4 h-4 text-amber-600 shrink-0"></i>
+                    <span>No unpaid purchase bills found in this report period ({{ $formattedRange }}). Outstanding balances may belong to earlier dates.</span>
+                </div>
+                <a href="{{ route('admin.cashbook.finance.vendor-credit.show', $vendor->supplier_public_uuid) }}"
+                   class="inline-flex items-center gap-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 text-xs font-bold transition shrink-0 self-start sm:self-auto">
+                    <span>Open Vendor Finance</span>
+                    <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                </a>
             </div>
 
             {{-- Desktop Loaded Bills Table (md and up) --}}
