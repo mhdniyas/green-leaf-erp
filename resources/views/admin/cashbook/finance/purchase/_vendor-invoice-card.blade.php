@@ -142,8 +142,8 @@
             </a>
             <a href="{{ $vendorUrl }}"
                class="inline-flex items-center gap-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 px-3 py-1 text-xs font-extrabold transition">
+                <i data-lucide="eye" class="w-3.5 h-3.5 text-emerald-700"></i>
                 <span>View Vendor Details</span>
-                <i data-lucide="arrow-right" class="w-3 h-3 text-emerald-700"></i>
             </a>
         </div>
         <div>
@@ -318,7 +318,7 @@
                             <th class="px-3 py-2 text-right">Already Paid</th>
                             <th class="px-3 py-2 text-right">Balance Due</th>
                             <th class="px-3 py-2 text-center">Status</th>
-                            <th class="px-3 py-2 text-right">Action</th>
+                            <th class="px-3 py-2 text-center">Action</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-200/70 bg-white">
@@ -333,8 +333,23 @@
                                     x-text="'Rs. ' + Number(b.discount_amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></td>
                                 <td class="px-3 py-2 text-right font-mono font-bold text-emerald-700 tabular-nums whitespace-nowrap"
                                     x-text="'Rs. ' + Number(b.paid_amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></td>
-                                <td class="px-3 py-2 text-right font-mono font-black text-rose-700 tabular-nums whitespace-nowrap"
-                                    x-text="'Rs. ' + Number(b.outstanding).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></td>
+                                <td class="px-3 py-2 text-right font-mono tabular-nums whitespace-nowrap">
+                                    <div class="inline-flex items-center gap-1.5 justify-end">
+                                        <button type="button"
+                                                @click="$dispatch('open-payment-modal', b)"
+                                                class="font-mono font-black text-rose-700 hover:underline cursor-pointer"
+                                                title="Click to update payment for this bill"
+                                                x-text="'Rs. ' + Number(b.outstanding).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})">
+                                        </button>
+                                        <button type="button"
+                                                @click="$dispatch('open-payment-modal', b)"
+                                                class="inline-flex items-center justify-center p-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-2xs cursor-pointer"
+                                                title="Update Payment for this bill"
+                                                aria-label="Update Payment for this bill">
+                                            <i data-lucide="credit-card" class="w-3 h-3"></i>
+                                        </button>
+                                    </div>
+                                </td>
                                 <td class="px-3 py-2 text-center whitespace-nowrap">
                                     <template x-if="b.status === 'PARTIAL'">
                                         <span class="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[9px] font-black uppercase">PARTIAL</span>
@@ -343,13 +358,13 @@
                                         <span class="rounded-full bg-rose-100 text-rose-800 px-2 py-0.5 text-[9px] font-black uppercase">UNPAID</span>
                                     </template>
                                 </td>
-                                <td class="px-3 py-2 text-right whitespace-nowrap">
-                                    <button type="button"
-                                            @click="$dispatch('open-payment-modal', b)"
-                                            class="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 text-xs font-bold shadow-2xs transition cursor-pointer">
-                                        <i data-lucide="credit-card" class="w-3 h-3"></i>
-                                        <span>Update Payment</span>
-                                    </button>
+                                <td class="px-3 py-2 text-center whitespace-nowrap">
+                                    <a :href="'{{ url('purchasing/invoices') }}/' + b.invoice_public_uuid"
+                                       class="inline-flex items-center justify-center p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 hover:text-emerald-700 transition shadow-2xs cursor-pointer"
+                                       title="View Bill Details"
+                                       aria-label="View Bill Details">
+                                        <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                                    </a>
                                 </td>
                             </tr>
                         </template>
@@ -379,20 +394,31 @@
                             </div>
                             <div class="text-right">
                                 <span class="text-[10px] uppercase font-bold text-slate-400 block">Balance Due</span>
-                                <span class="font-mono font-black text-rose-700 tabular-nums text-sm whitespace-nowrap"
-                                      x-text="'Rs. ' + Number(b.outstanding).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
+                                <button type="button"
+                                        @click="$dispatch('open-payment-modal', b)"
+                                        class="font-mono font-black text-rose-700 tabular-nums text-sm whitespace-nowrap hover:underline cursor-pointer"
+                                        title="Click to update payment for this bill"
+                                        x-text="'Rs. ' + Number(b.outstanding).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></button>
                             </div>
                         </div>
 
                         <div class="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
                             <span class="text-[10px] text-slate-500 font-semibold tabular-nums"
                                   x-text="'Paid: Rs. ' + Number(b.paid_amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
-                            <button type="button"
-                                    @click="$dispatch('open-payment-modal', b)"
-                                    class="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 text-xs font-bold shadow-2xs transition cursor-pointer">
-                                <i data-lucide="credit-card" class="w-3 h-3"></i>
-                                <span>Update Payment</span>
-                            </button>
+                            <div class="inline-flex items-center gap-1.5">
+                                <a :href="'{{ url('purchasing/invoices') }}/' + b.invoice_public_uuid"
+                                   class="inline-flex items-center justify-center p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 hover:text-emerald-700 transition shadow-2xs cursor-pointer"
+                                   title="View Bill Details"
+                                   aria-label="View Bill Details">
+                                    <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                                </a>
+                                <button type="button"
+                                        @click="$dispatch('open-payment-modal', b)"
+                                        class="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 text-xs font-bold shadow-2xs transition cursor-pointer">
+                                    <i data-lucide="credit-card" class="w-3 h-3"></i>
+                                    <span>Update Payment</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </template>

@@ -7390,7 +7390,7 @@ final class CashbookController extends Controller
     private function pendingBillsReportFilters(Request $request): array
     {
         $validated = $request->validate([
-            'status' => ['nullable', 'string', 'in:pending,not_received,partially_received,cleared,all'],
+            'status' => ['nullable', 'string', 'in:pending,not_received,partially_received,cleared,received,all'],
             'search' => ['nullable', 'string', 'max:100'],
             'date_preset' => ['nullable', 'string', 'in:all,today,yesterday,last_7_days,this_month,custom'],
             'start_date' => ['nullable', 'date'],

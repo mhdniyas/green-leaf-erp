@@ -23,6 +23,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Repositories\Inventory\StockMovementRepository;
 use App\Services\Purchasing\PendingWarehouseBillsManagementService;
+use App\Services\Purchasing\PurchaserBillsNotReceivedService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -2382,5 +2383,76 @@ class PendingWarehouseBillsManagementTest extends TestCase
         $grn2->refresh();
         $this->assertSame('approved', $grn2->status);
         $this->assertSame(0, $grn2->stockBatches()->count());
+    }
+
+    public function test_pending_bills_summary_metrics_contains_four_primary_kpis(): void
+    {
+        $service = app(PendingWarehouseBillsManagementService::class);
+        $metrics = $service->getSummaryMetrics($this->warehouse->id, true);
+
+        $this->assertArrayHasKey('total_pending_bills', $metrics);
+        $this->assertArrayHasKey('total_outstanding_qty', $metrics);
+        $this->assertArrayHasKey('not_received_count', $metrics);
+        $this->assertArrayHasKey('partially_received_count', $metrics);
+        $this->assertArrayHasKey('received_from_warehouse_count', $metrics);
+        $this->assertArrayHasKey('awaiting_matching_count', $metrics);
+    }
+
+    public function test_pending_warehouse_bills_received_mode_loads_warehouse_received_bills(): void
+    {
+        // Create cleared bill
+        $grn = GoodsReceived::create([
+            'grn_number' => 'GRN-REC-MODE-101',
+            'receipt_type' => 'purchaser',
+            'status' => 'approved',
+            'warehouse_id' => $this->warehouse->id,
+            'received_by' => $this->admin->id,
+            'received_at' => now()->toDateString(),
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $grn->id,
+            'product_id' => $this->product->id,
+            'received_qty' => 50.0,
+            'variance' => 0.0,
+        ]);
+        StockBatch::create([
+            'goods_received_id' => $grn->id,
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'received_at' => now()->toDateString(),
+            'total_kg' => 50.0,
+            'warehouse_receive_pending' => false,
+            'warehouse_confirmed_at' => now(),
+            'warehouse_confirmed_by' => $this->admin->id,
+            'status' => BatchStatus::Sorted,
+            'purchase_grade' => 'A',
+            'reference' => 'BAT-REC-MODE-101',
+            'cost_per_kg' => 20.0,
+        ]);
+        $inv = PurchaseInvoice::create([
+            'goods_received_id' => $grn->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'BILL-REC-MODE-101',
+            'amount' => 1000.0,
+            'status' => 'approved',
+            'purchaser_submitted_by' => $this->purchaserUser->id,
+        ]);
+
+        $res = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.pending-bills', ['status' => 'received']));
+        $res->assertOk();
+        $res->assertSee('BILL-REC-MODE-101');
+        $res->assertSee('Received Bills / From Warehouse');
+    }
+
+    public function test_purchaser_bills_not_received_memoization_caches_within_request(): void
+    {
+        $service = app(PurchaserBillsNotReceivedService::class);
+        $service->clearMemoizedData();
+
+        $first = $service->getPendingBillsData();
+        $second = $service->getPendingBillsData();
+
+        $this->assertSame($first, $second);
     }
 }

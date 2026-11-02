@@ -457,6 +457,7 @@ class AdvanceReceiveReconciliationService
             ->with([
                 'items' => fn ($q) => $q->where('product_id', $productId)->with('product.orderUnits'),
                 'stockBatches' => fn ($q) => $q->where('product_id', $productId)->where('warehouse_receive_pending', false),
+                'advanceMatchesAsAdvance',
             ])
             ->orderBy('received_at')
             ->orderBy('id')
@@ -465,7 +466,7 @@ class AdvanceReceiveReconciliationService
         $candidates = [];
 
         foreach ($advanceGrns as $grn) {
-            $itemAvailableBalances = $this->balanceCalculator->calculateItemAvailableBase($grn);
+            $itemAvailableBalances = $this->balanceCalculator->calculateItemAvailableBase($grn, null, $grn->advanceMatchesAsAdvance);
 
             foreach ($grn->items as $grnItem) {
                 $availableBaseQty = (float) ($itemAvailableBalances[$grnItem->id] ?? 0.0);

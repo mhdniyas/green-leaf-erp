@@ -80,40 +80,42 @@ final class VendorPurchaseReportExport implements WithMultipleSheets
                         ['Product Scope:', $productFilter, 'Payment Filter:', $paymentFilter],
                         [],
                         [
-                            'Vendor Name',
-                            'Bill Count',
-                            'Purchase Total (₹)',
-                            'Paid (₹)',
-                            'Discount (₹)',
-                            'Credit Balance (₹)',
+                            'SL No',
+                            'Name',
+                            'Amount',
+                            'Paid',
+                            'Balance',
                         ],
                     ];
 
-                    $totalBills = 0;
                     $totalPurchase = 0.0;
                     $totalPaid = 0.0;
-                    $totalDiscount = 0.0;
                     $totalOutstanding = 0.0;
+                    $sl = 1;
 
                     foreach ($vendors as $vendor) {
-                        $bills = (int) ($vendor->invoice_count ?? 0);
                         $purchase = round((float) ($vendor->total_purchase ?? 0), 2);
-                        $paid = round((float) ($vendor->paid_amount ?? $vendor->credit_paid ?? 0), 2);
-                        $discount = round((float) ($vendor->discount ?? 0), 2);
+                        $cash = (float) ($vendor->cash_purchase ?? 0);
+                        $credit = (float) ($vendor->credit_purchase ?? 0);
+                        if ($credit <= 0.009) {
+                            $paid = (float) ($vendor->paid_amount ?? $vendor->cash_purchase);
+                        } elseif ($cash <= 0.009) {
+                            $paid = (float) ($vendor->paid_amount ?? $vendor->credit_paid);
+                        } else {
+                            $paid = (float) ($vendor->paid_amount ?? ($cash + (float) $vendor->credit_paid));
+                        }
+                        $paid = round($paid, 2);
                         $outstanding = round((float) ($vendor->outstanding ?? 0), 2);
 
-                        $totalBills += $bills;
                         $totalPurchase += $purchase;
                         $totalPaid += $paid;
-                        $totalDiscount += $discount;
                         $totalOutstanding += $outstanding;
 
                         $sheetRows[] = [
+                            $sl++,
                             (string) ($vendor->supplier_name ?? 'Unassigned Vendor'),
-                            $bills,
                             $purchase,
                             $paid,
-                            $discount,
                             $outstanding,
                         ];
                     }
@@ -121,10 +123,9 @@ final class VendorPurchaseReportExport implements WithMultipleSheets
                     $sheetRows[] = [];
                     $sheetRows[] = [
                         'TOTAL',
-                        $totalBills,
+                        '',
                         round($totalPurchase, 2),
                         round($totalPaid, 2),
-                        round($totalDiscount, 2),
                         round($totalOutstanding, 2),
                     ];
 

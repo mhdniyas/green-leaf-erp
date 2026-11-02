@@ -448,11 +448,12 @@ final class VendorPurchaseReportInvoiceCardsTest extends TestCase
 
         $summaryArray = $sheets[0]->array();
         $this->assertEquals('Green Leaf ERP — Vendor Purchase Report', $summaryArray[0][0]);
-        $vendorRow = collect($summaryArray)->firstWhere(0, 'EXCEL EXPORT VENDOR');
+        $vendorRow = collect($summaryArray)->firstWhere(1, 'EXCEL EXPORT VENDOR');
         $this->assertNotNull($vendorRow);
-        $this->assertEquals(1, $vendorRow[1]); // Bill count numeric
+        $this->assertEquals(1, $vendorRow[0]); // SL No numeric
         $this->assertEquals(12000.00, $vendorRow[2]); // Total purchase numeric
         $this->assertEquals(12000.00, $vendorRow[3]); // Paid numeric
+        $this->assertEquals(0.00, $vendorRow[4]); // Balance numeric
 
         $invoiceArray = $sheets[1]->array();
         $invRow = collect($invoiceArray)->firstWhere(1, $invoice->invoice_number);
@@ -1191,5 +1192,30 @@ final class VendorPurchaseReportInvoiceCardsTest extends TestCase
             ]);
 
         $this->assertSame($sepInvoice->invoice_number, $response->json('bills.0.invoice_number'));
+    }
+
+    public function test_card_view_outstanding_bills_drawer_has_clickable_balance_update_icon_and_eye_action(): void
+    {
+        $vendor = Supplier::factory()->create(['name' => 'DRAWER TEST VENDOR']);
+        $this->invoiceWithItems('2026-10-15', 'Credit', [
+            ['category' => 'Vegetables', 'product' => 'Cucumber', 'line_total' => 500.00],
+        ], null, $vendor);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase', [
+            'period' => 'today',
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        // Card header shows View Vendor Details with eye icon
+        $this->assertStringContainsString('View Vendor Details', $content);
+        $this->assertStringContainsString('data-lucide="eye"', $content);
+
+        // Drawer table contains clickable balance button, credit-card icon, and eye icon for bill details
+        $this->assertStringContainsString('title="Click to update payment for this bill"', $content);
+        $this->assertStringContainsString('title="Update Payment for this bill"', $content);
+        $this->assertStringContainsString('title="View Bill Details"', $content);
+        $this->assertStringContainsString('purchasing/invoices', $content);
     }
 }

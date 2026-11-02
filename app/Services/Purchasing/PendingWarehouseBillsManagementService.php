@@ -95,6 +95,40 @@ class PendingWarehouseBillsManagementService
         $pendingIds = collect($pendingData['bills'])->pluck('id')->all();
         $eligibleForAdvanceCount = 0;
 
+        $pendingBillsCollection = collect($pendingData['bills']);
+        $notReceivedCount = $pendingBillsCollection->where('status', 'Not Received')->count();
+        $partiallyReceivedCount = $pendingBillsCollection->where('status', 'Partially Received')->count();
+
+        // Count cleared / received from warehouse bills
+        $receivedFromWarehouseCount = (int) Cache::remember(
+            'pending_bills_received_warehouse_count_'.($whId ?? 'all'),
+            60,
+            function () use ($whId, $pendingIds): int {
+                return PurchaseInvoice::query()
+                    ->whereNull('cancelled_at')
+                    ->whereNotIn('status', ['cancelled'])
+                    ->where(function ($q): void {
+                        $q->whereNotNull('purchaser_cart_id')
+                            ->orWhereNotNull('purchaser_submitted_by');
+                    })
+                    ->where(function ($sourceQ): void {
+                        $sourceQ->whereNull('purchase_source')
+                            ->orWhere('purchase_source', '!=', 'shop');
+                    })
+                    ->whereNull('shop_id')
+                    ->whereDoesntHave('purchaserCart', fn ($cartQ) => $cartQ->where('purchase_source', 'shop'))
+                    ->whereDoesntHave('goodsReceived.purchaseOrder', fn ($poQ) => $poQ->where('fulfillment_type', 'shop'))
+                    ->whereNotIn('id', $pendingIds)
+                    ->whereHas('goodsReceived', function ($grnQ) use ($whId): void {
+                        $grnQ->where('status', '!=', 'cancelled')
+                            ->where('receipt_type', '!=', 'warehouse_advance')
+                            ->when($whId !== null, fn ($wQ) => $wQ->where('warehouse_id', $whId))
+                            ->whereHas('stockBatches');
+                    })
+                    ->count();
+            }
+        );
+
         if (! empty($pendingIds)) {
             $invoices = PurchaseInvoice::query()
                 ->whereIn('id', $pendingIds)
@@ -151,6 +185,10 @@ class PendingWarehouseBillsManagementService
         return [
             'total_pending_bills' => $totalPendingBills,
             'total_outstanding_qty' => $totalOutstandingQty,
+            'not_received_count' => $notReceivedCount,
+            'partially_received_count' => $partiallyReceivedCount,
+            'received_from_warehouse_count' => $receivedFromWarehouseCount,
+            'awaiting_matching_count' => $eligibleForAdvanceCount,
             'bills_eligible_for_advance_matching' => $eligibleForAdvanceCount,
             'awaiting_physical_receiving' => $awaitingPhysicalReceiving,
             'cleared_today_count' => $clearedTodayCount,
@@ -203,7 +241,7 @@ class PendingWarehouseBillsManagementService
         } elseif ($statusFilter === 'partially_received') {
             $partiallyReceivedIds = $pendingBillsById->where('status', 'Partially Received')->keys()->all();
             $query->whereIn('id', $partiallyReceivedIds);
-        } elseif ($statusFilter === 'cleared') {
+        } elseif ($statusFilter === 'cleared' || $statusFilter === 'received') {
             $query->whereNotIn('id', $pendingIds)
                 ->whereHas('goodsReceived', function ($grnQ): void {
                     $grnQ->where('status', '!=', 'cancelled')
@@ -281,7 +319,49 @@ class PendingWarehouseBillsManagementService
         $defaultWarehouse = Warehouse::query()->orderBy('id')->first();
         $fallbackWarehouseId = $defaultWarehouse?->id ?? 1;
 
-        $items = $pageInvoices->map(function (PurchaseInvoice $inv) use ($pendingBillsById, $fallbackWarehouseId): array {
+        // Build a lightweight lookup of open warehouse advance products matching dates on this page
+        $pageDates = [];
+        foreach ($pageInvoices as $inv) {
+            $primaryGrn = $inv->goodsReceived ?: $inv->purchaserCart?->goodsReceived?->first();
+            if (! $primaryGrn) {
+                continue;
+            }
+            $d = $primaryGrn->received_at instanceof Carbon
+                ? $primaryGrn->received_at->format('Y-m-d')
+                : ($primaryGrn->received_at ? Carbon::parse($primaryGrn->received_at)->format('Y-m-d') : null);
+            if ($d) {
+                $pageDates[$d] = true;
+            }
+        }
+
+        $candidateAdvMap = [];
+        $pageDatesList = array_keys($pageDates);
+        if (! empty($pageDatesList)) {
+            $matchingAdvances = GoodsReceived::query()
+                ->where('receipt_type', 'warehouse_advance')
+                ->where('status', 'approved')
+                ->where(function ($q) use ($pageDatesList): void {
+                    foreach ($pageDatesList as $d) {
+                        $q->orWhereDate('received_at', $d);
+                    }
+                })
+                ->with('items:id,goods_received_id,product_id')
+                ->get();
+
+            foreach ($matchingAdvances as $adv) {
+                $adDate = $adv->received_at instanceof Carbon
+                    ? $adv->received_at->format('Y-m-d')
+                    : ($adv->received_at ? Carbon::parse($adv->received_at)->format('Y-m-d') : null);
+                if (! $adDate) {
+                    continue;
+                }
+                foreach ($adv->items as $advItem) {
+                    $candidateAdvMap[$adDate.'_'.$advItem->product_id] = true;
+                }
+            }
+        }
+
+        $items = $pageInvoices->map(function (PurchaseInvoice $inv) use ($pendingBillsById, $fallbackWarehouseId, $candidateAdvMap): array {
             $primaryGrn = $inv->goodsReceived ?: $inv->purchaserCart?->goodsReceived?->first();
 
             $pendingSnapshot = $pendingBillsById->get($inv->id);
@@ -320,15 +400,31 @@ class PendingWarehouseBillsManagementService
             $warehouseId = $primaryGrn?->warehouse_id ?? $fallbackWarehouseId;
             $warehouseName = $primaryGrn?->warehouse?->name ?? $defaultWarehouse?->name ?? 'Main Warehouse';
 
-            // Check advance match suggestions for this bill if pending
+            // Check advance match suggestions for this bill if pending and candidate advances exist
             $canMatchAdvance = false;
             $suggestedMatchQty = 0.0;
             $suggestions = null;
 
             if ($primaryGrn && $outstandingQty > 0.001) {
-                $suggestions = $this->reconService->getSuggestionsForGrn($primaryGrn, $warehouseId);
-                $suggestedMatchQty = round((float) ($suggestions['total_matched_base_qty'] ?? 0.0), 2);
-                $canMatchAdvance = ($suggestions['has_advance_match'] ?? false) || $suggestedMatchQty > 0.001;
+                $grnDate = $primaryGrn->received_at instanceof Carbon
+                    ? $primaryGrn->received_at->format('Y-m-d')
+                    : ($primaryGrn->received_at ? Carbon::parse($primaryGrn->received_at)->format('Y-m-d') : null);
+
+                $mightHaveAdvance = false;
+                if ($grnDate) {
+                    foreach ($primaryGrn->items as $it) {
+                        if (isset($candidateAdvMap[$grnDate.'_'.$it->product_id])) {
+                            $mightHaveAdvance = true;
+                            break;
+                        }
+                    }
+                }
+
+                if ($mightHaveAdvance) {
+                    $suggestions = $this->reconService->getSuggestionsForGrn($primaryGrn, $warehouseId);
+                    $suggestedMatchQty = round((float) ($suggestions['total_matched_base_qty'] ?? 0.0), 2);
+                    $canMatchAdvance = ($suggestions['has_advance_match'] ?? false) || $suggestedMatchQty > 0.001;
+                }
             }
 
             $purchaserName = $inv->purchaserCart?->user?->name

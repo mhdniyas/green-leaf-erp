@@ -118,14 +118,17 @@
         }
     }"
 >
-    <!-- TOP SUMMARY KPI CARDS (5 METRICS) -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-        <!-- 1. Total Pending Bills -->
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs flex flex-col justify-between">
+    <!-- TOP SUMMARY KPI CARDS (4 PRIMARY CARDS) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- 1. Pending Bills -->
+        <a
+            href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['status' => 'pending', 'page' => 1])) }}"
+            class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs flex flex-col justify-between hover:border-indigo-300 hover:shadow-sm transition group"
+        >
             <div>
                 <div class="flex items-center justify-between text-slate-500 mb-2">
-                    <span class="text-xs font-bold uppercase tracking-wider">Total Pending Bills</span>
-                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                    <span class="text-xs font-bold uppercase tracking-wider group-hover:text-indigo-600 transition">Pending Bills</span>
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition">
                         <i data-lucide="layers" class="h-4 w-4"></i>
                     </div>
                 </div>
@@ -133,140 +136,178 @@
                     <span class="text-2xl font-black text-slate-900 tracking-tight">
                         {{ number_format($metrics['total_pending_bills']) }}
                     </span>
-                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">bills</span>
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Pending Bills</span>
                 </div>
             </div>
             <div class="mt-3 border-t border-slate-100 pt-2 flex items-center justify-between text-xs text-slate-500">
-                <span>All historical dates</span>
-                <span class="font-bold text-slate-700">Awaiting action</span>
+                <span class="text-[11px] font-medium text-slate-400">Outstanding Weight</span>
+                <span class="font-bold text-indigo-700 font-mono">{{ number_format($metrics['total_outstanding_qty'], 1) }} kg</span>
             </div>
-        </div>
+        </a>
 
-        <!-- 2. Total Outstanding KG -->
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs flex flex-col justify-between">
+        <!-- 2. Received from Warehouse -->
+        <a
+            href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['status' => 'received', 'page' => 1])) }}"
+            class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs flex flex-col justify-between hover:border-emerald-300 hover:shadow-sm transition group"
+        >
             <div>
                 <div class="flex items-center justify-between text-slate-500 mb-2">
-                    <span class="text-xs font-bold uppercase tracking-wider">Outstanding Weight</span>
-                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                        <i data-lucide="scale" class="h-4 w-4"></i>
-                    </div>
-                </div>
-                <div class="flex items-baseline gap-2">
-                    <span class="text-2xl font-black text-indigo-700 font-mono tracking-tight">
-                        {{ number_format($metrics['total_outstanding_qty'], 1) }}
-                    </span>
-                    <span class="text-xs font-bold text-indigo-500 uppercase tracking-wider">kg</span>
-                </div>
-            </div>
-            <div class="mt-3 border-t border-slate-100 pt-2 flex items-center justify-between text-xs text-slate-500">
-                <span>Total unreceived qty</span>
-                <span class="font-bold text-indigo-700 font-mono">{{ number_format($metrics['total_outstanding_qty'] / 1000, 2) }} Tons</span>
-            </div>
-        </div>
-
-        <!-- 3. Eligible for Advance Matching -->
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs flex flex-col justify-between">
-            <div>
-                <div class="flex items-center justify-between text-slate-500 mb-2">
-                    <span class="text-xs font-bold uppercase tracking-wider">Advance Matchable</span>
-                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-                        <i data-lucide="git-merge" class="h-4 w-4"></i>
+                    <span class="text-xs font-bold uppercase tracking-wider group-hover:text-emerald-600 transition">Received from Warehouse</span>
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition">
+                        <i data-lucide="check-circle-2" class="h-4 w-4"></i>
                     </div>
                 </div>
                 <div class="flex items-baseline gap-2">
                     <span class="text-2xl font-black text-emerald-700 tracking-tight">
-                        {{ number_format($metrics['bills_eligible_for_advance_matching']) }}
+                        {{ number_format($metrics['received_from_warehouse_count'] ?? 0) }}
                     </span>
-                    <span class="text-xs font-bold text-emerald-500 uppercase tracking-wider">bills</span>
+                    <span class="text-xs font-bold text-emerald-600 uppercase tracking-wider">bills received</span>
                 </div>
             </div>
             <div class="mt-3 border-t border-slate-100 pt-2 flex items-center justify-between text-xs text-slate-500">
-                <span>Open advances available</span>
-                <span class="font-bold text-emerald-700">Ready to match</span>
+                <span class="text-[11px] font-medium text-slate-400">Cleared Today</span>
+                <span class="font-bold text-slate-800 font-mono">{{ number_format($metrics['cleared_today_count']) }} bills ({{ number_format($metrics['cleared_today_qty'], 1) }} kg)</span>
             </div>
-        </div>
+        </a>
 
-        <!-- 4. Awaiting Physical Receiving -->
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs flex flex-col justify-between">
+        <!-- 3. Partially Received -->
+        <a
+            href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['status' => 'partially_received', 'page' => 1])) }}"
+            class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs flex flex-col justify-between hover:border-amber-300 hover:shadow-sm transition group"
+        >
             <div>
                 <div class="flex items-center justify-between text-slate-500 mb-2">
-                    <span class="text-xs font-bold uppercase tracking-wider">Awaiting Physical Receive</span>
-                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+                    <span class="text-xs font-bold uppercase tracking-wider group-hover:text-amber-600 transition">Partially Received</span>
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600 group-hover:bg-amber-600 group-hover:text-white transition">
                         <i data-lucide="truck" class="h-4 w-4"></i>
                     </div>
                 </div>
                 <div class="flex items-baseline gap-2">
                     <span class="text-2xl font-black text-amber-700 tracking-tight">
-                        {{ number_format($metrics['awaiting_physical_receiving']) }}
+                        {{ number_format($metrics['partially_received_count'] ?? 0) }}
                     </span>
                     <span class="text-xs font-bold text-amber-500 uppercase tracking-wider">bills</span>
                 </div>
             </div>
             <div class="mt-3 border-t border-slate-100 pt-2 flex items-center justify-between text-xs text-slate-500">
-                <span>Pending warehouse arrival</span>
-                <span class="font-bold text-amber-700">Direct receive</span>
+                <span class="text-[11px] font-medium text-slate-400">Awaiting Physical Receive</span>
+                <span class="font-bold text-amber-700 font-mono">{{ number_format($metrics['awaiting_physical_receiving']) }} direct</span>
             </div>
-        </div>
+        </a>
 
-        <!-- 5. Cleared Today -->
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs flex flex-col justify-between">
+        <!-- 4. Awaiting Matching -->
+        <a
+            href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['status' => 'pending', 'page' => 1])) }}"
+            class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs flex flex-col justify-between hover:border-purple-300 hover:shadow-sm transition group"
+        >
             <div>
                 <div class="flex items-center justify-between text-slate-500 mb-2">
-                    <span class="text-xs font-bold uppercase tracking-wider">Cleared Today</span>
-                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
-                        <i data-lucide="check-circle-2" class="h-4 w-4"></i>
+                    <span class="text-xs font-bold uppercase tracking-wider group-hover:text-purple-600 transition">Awaiting Matching</span>
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition">
+                        <i data-lucide="git-merge" class="h-4 w-4"></i>
                     </div>
                 </div>
                 <div class="flex items-baseline gap-2">
-                    <span class="text-2xl font-black text-slate-900 tracking-tight">
-                        {{ number_format($metrics['cleared_today_count']) }}
+                    <span class="text-2xl font-black text-purple-700 tracking-tight">
+                        {{ number_format($metrics['awaiting_matching_count'] ?? $metrics['bills_eligible_for_advance_matching']) }}
                     </span>
-                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">bills</span>
+                    <span class="text-xs font-bold text-purple-500 uppercase tracking-wider">eligible</span>
                 </div>
             </div>
             <div class="mt-3 border-t border-slate-100 pt-2 flex items-center justify-between text-xs text-slate-500">
-                <span>Weight cleared today:</span>
-                <span class="font-bold text-slate-800 font-mono">{{ number_format($metrics['cleared_today_qty'], 1) }} kg</span>
+                <span class="text-[11px] font-medium text-slate-400">Advance Matchable</span>
+                <span class="font-bold text-purple-700">Ready to match</span>
             </div>
-        </div>
+        </a>
     </div>
 
-    <!-- FILTER & STATUS TOOLBAR -->
+    <!-- PRIMARY NAVIGATION TABS & FILTER TOOLBAR -->
     <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
-        <!-- Top Row: Status Tabs & Quick Presets -->
+        <!-- Top Row: Primary Navigation & Date Presets -->
+        @php
+            $isReceivedMode = in_array($currentStatus, ['received', 'cleared'], true);
+            $isAllMode = ($currentStatus === 'all');
+            $isPendingMode = ! $isReceivedMode && ! $isAllMode;
+        @endphp
         <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-            <!-- Status Tabs -->
-            <div class="flex items-center gap-1.5 overflow-x-auto text-xs">
-                @php
-                    $tabs = [
-                        'pending' => 'Pending Bills (' . number_format($metrics['total_pending_bills']) . ')',
-                        'not_received' => 'Not Received',
-                        'partially_received' => 'Partially Received',
-                        'cleared' => 'Cleared History',
-                        'all' => 'All Records',
-                    ];
-                @endphp
-                @foreach ($tabs as $key => $label)
-                    <a
-                        href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['status' => $key, 'page' => 1])) }}"
-                        class="px-3.5 py-1.5 rounded-xl font-bold whitespace-nowrap transition {{ $currentStatus === $key ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900' }}"
-                    >
-                        {{ $label }}
-                    </a>
-                @endforeach
+            <!-- Two Primary Navigation Tabs -->
+            <div class="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200/80">
+                <!-- Tab 1: Pending Bills -->
+                <a
+                    href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['status' => 'pending', 'page' => 1])) }}"
+                    class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition {{ $isPendingMode ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60' }}"
+                >
+                    <i data-lucide="clock" class="h-3.5 w-3.5"></i>
+                    <span>Pending Bills</span>
+                    <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-black {{ $isPendingMode ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700' }}">
+                        {{ number_format($metrics['total_pending_bills']) }}
+                    </span>
+                </a>
+
+                <!-- Tab 2: Received Bills / Received from Warehouse -->
+                <a
+                    href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['status' => 'received', 'page' => 1])) }}"
+                    class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition {{ $isReceivedMode ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60' }}"
+                >
+                    <i data-lucide="check-circle-2" class="h-3.5 w-3.5"></i>
+                    <span>Received Bills / From Warehouse</span>
+                    <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-black {{ $isReceivedMode ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700' }}">
+                        {{ number_format($metrics['received_from_warehouse_count'] ?? 0) }}
+                    </span>
+                </a>
             </div>
 
-            <!-- Date Presets -->
-            <div class="flex items-center gap-1.5 overflow-x-auto text-xs">
-                <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px] mr-1">Date:</span>
-                @foreach (['all' => 'All Time', 'today' => 'Today', 'yesterday' => 'Yesterday', 'last_7_days' => 'Last 7 Days', 'this_month' => 'This Month'] as $pKey => $pLabel)
+            <!-- Sub-filters & Date Presets -->
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+                <!-- Sub-pills for current primary view -->
+                <div class="inline-flex items-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200/60">
+                    @if ($isPendingMode)
+                        <a
+                            href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['status' => 'pending', 'page' => 1])) }}"
+                            class="px-2.5 py-1 rounded-lg font-bold text-[11px] transition {{ $currentStatus === 'pending' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-white hover:text-slate-900' }}"
+                        >
+                            All Pending
+                        </a>
+                        <a
+                            href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['status' => 'not_received', 'page' => 1])) }}"
+                            class="px-2.5 py-1 rounded-lg font-bold text-[11px] transition {{ $currentStatus === 'not_received' ? 'bg-rose-700 text-white' : 'text-slate-600 hover:bg-white hover:text-slate-900' }}"
+                        >
+                            Not Received ({{ number_format($metrics['not_received_count'] ?? 0) }})
+                        </a>
+                        <a
+                            href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['status' => 'partially_received', 'page' => 1])) }}"
+                            class="px-2.5 py-1 rounded-lg font-bold text-[11px] transition {{ $currentStatus === 'partially_received' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-white hover:text-slate-900' }}"
+                        >
+                            Partially Received ({{ number_format($metrics['partially_received_count'] ?? 0) }})
+                        </a>
+                    @else
+                        <a
+                            href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['status' => 'received', 'page' => 1])) }}"
+                            class="px-2.5 py-1 rounded-lg font-bold text-[11px] transition {{ in_array($currentStatus, ['received', 'cleared'], true) ? 'bg-emerald-700 text-white' : 'text-slate-600 hover:bg-white hover:text-slate-900' }}"
+                        >
+                            Received from Warehouse
+                        </a>
+                    @endif
                     <a
-                        href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['date_preset' => $pKey, 'page' => 1])) }}"
-                        class="px-2.5 py-1 rounded-lg font-semibold whitespace-nowrap text-xs transition {{ $currentPreset === $pKey ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800' }}"
+                        href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['status' => 'all', 'page' => 1])) }}"
+                        class="px-2.5 py-1 rounded-lg font-bold text-[11px] transition {{ $currentStatus === 'all' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-white hover:text-slate-900' }}"
                     >
-                        {{ $pLabel }}
+                        All Records
                     </a>
-                @endforeach
+                </div>
+
+                <!-- Date Presets -->
+                <div class="flex items-center gap-1 text-xs">
+                    <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px] ml-1 mr-0.5">Date:</span>
+                    @foreach (['all' => 'All Time', 'today' => 'Today', 'yesterday' => 'Yesterday', 'last_7_days' => 'Last 7 Days', 'this_month' => 'This Month'] as $pKey => $pLabel)
+                        <a
+                            href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['date_preset' => $pKey, 'page' => 1])) }}"
+                            class="px-2 py-1 rounded-lg font-semibold whitespace-nowrap text-[11px] transition {{ $currentPreset === $pKey ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800' }}"
+                        >
+                            {{ $pLabel }}
+                        </a>
+                    @endforeach
+                </div>
             </div>
         </div>
 
@@ -483,7 +524,7 @@
                                         <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
                                         <span>Partially Received</span>
                                     </span>
-                                @elseif ($bill['status'] === 'Cleared')
+                                @elseif ($bill['status'] === 'Cleared' || $bill['status'] === 'Received')
                                     <span class="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
                                         <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
                                         <span>Cleared</span>

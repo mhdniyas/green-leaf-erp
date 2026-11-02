@@ -470,12 +470,31 @@
         @endphp
         <div class="pt-5 border-t border-slate-200/80 space-y-4" id="vendors-overview"
              x-data="{
+                 viewMode: (function() {
+                     try {
+                         return localStorage.getItem('gl_vendor_overview_view') || 'table';
+                     } catch (e) {
+                         return 'table';
+                     }
+                 })(),
+                 setViewMode(mode) {
+                     this.viewMode = mode;
+                     try {
+                         localStorage.setItem('gl_vendor_overview_view', mode);
+                     } catch (e) {}
+                     this.$nextTick(() => {
+                         if (window.lucide) {
+                             window.lucide.createIcons();
+                         }
+                     });
+                 },
                  activePayment: '{{ $activePayment }}',
                  search: '',
-                 limit: 5,
-                 step: 5,
+                 limit: 20,
+                 step: 20,
                  includeFullDetails: false,
-                 totalVisible: {{ min(5, $vendorsOverviewList->count()) }},
+                 loadingVendorPayment: null,
+                 totalVisible: {{ min(20, $vendorsOverviewList->count()) }},
                  totalMatching: {{ $vendorsOverviewList->count() }},
                  setPayment(mode) {
                      if (this.activePayment === mode) return;
@@ -494,35 +513,62 @@
                  applyFilters() {
                      let q = (this.search || '').trim().toLowerCase();
                      let wrappers = this.$refs.vendorList ? this.$refs.vendorList.querySelectorAll('.vendor-card-wrapper') : [];
+                     let tableRows = this.$refs.vendorTableBody ? this.$refs.vendorTableBody.querySelectorAll('.vendor-table-row') : [];
                      let count = 0;
                      let matchCount = 0;
                      let visibleIndex = 1;
 
-                     wrappers.forEach((el) => {
-                         let name = el.dataset.name || '';
-                         let tags = el.dataset.tags || '';
+                     let totalItems = Math.max(wrappers.length, tableRows.length);
+                     for (let i = 0; i < totalItems; i++) {
+                         let cardEl = wrappers[i];
+                         let tableEl = tableRows[i];
+                         let refEl = cardEl || tableEl;
+                         let name = refEl ? (refEl.dataset.name || '') : '';
+                         let tags = refEl ? (refEl.dataset.tags || '') : '';
                          let matchQuery = !q || name.includes(q) || tags.includes(q);
 
                          if (matchQuery) {
                              matchCount++;
                              if (matchCount <= this.limit) {
-                                 el.style.display = '';
-                                 el.classList.remove('hidden');
-                                 count++;
-                                 const numEl = el.querySelector('.serial-num');
-                                 if (numEl) {
-                                     numEl.textContent = 'SL ' + String(visibleIndex).padStart(2, '0');
+                                 if (cardEl) {
+                                     cardEl.style.display = '';
+                                     cardEl.classList.remove('hidden');
+                                     const numEl = cardEl.querySelector('.serial-num');
+                                     if (numEl) {
+                                         numEl.textContent = 'SL ' + String(visibleIndex).padStart(2, '0');
+                                     }
                                  }
+                                 if (tableEl) {
+                                     tableEl.style.display = '';
+                                     tableEl.classList.remove('hidden');
+                                     const tableNumEl = tableEl.querySelector('.table-sl-no');
+                                     if (tableNumEl) {
+                                         tableNumEl.textContent = String(visibleIndex).padStart(2, '0');
+                                     }
+                                 }
+                                 count++;
                                  visibleIndex++;
                              } else {
-                                 el.style.display = 'none';
-                                 el.classList.add('hidden');
+                                 if (cardEl) {
+                                     cardEl.style.display = 'none';
+                                     cardEl.classList.add('hidden');
+                                 }
+                                 if (tableEl) {
+                                     tableEl.style.display = 'none';
+                                     tableEl.classList.add('hidden');
+                                 }
                              }
                          } else {
-                             el.style.display = 'none';
-                             el.classList.add('hidden');
+                             if (cardEl) {
+                                 cardEl.style.display = 'none';
+                                 cardEl.classList.add('hidden');
+                             }
+                             if (tableEl) {
+                                 tableEl.style.display = 'none';
+                                 tableEl.classList.add('hidden');
+                             }
                          }
-                     });
+                     }
 
                      this.totalVisible = count;
                      this.totalMatching = matchCount;
@@ -532,6 +578,45 @@
                              window.lucide.createIcons();
                          }
                      });
+                 },
+                 async openVendorPayment(supplierUuid, fallbackUrl) {
+                     if (!supplierUuid) {
+                         if (fallbackUrl) window.location.href = fallbackUrl;
+                         return;
+                     }
+                     this.loadingVendorPayment = supplierUuid;
+                     try {
+                         const url = new URL(`/admin/cashbook/finance/purchase/vendors/${supplierUuid}/outstanding-bills`, window.location.origin);
+                         @if(!empty($periodStart))
+                             url.searchParams.set('start_date', '{{ $periodStart }}');
+                         @endif
+                         @if(!empty($periodEnd))
+                             url.searchParams.set('end_date', '{{ $periodEnd }}');
+                         @endif
+                         const paramsParser = window['URL' + 'Sear' + 'chParams'];
+                         const winParams = new paramsParser(window.location.search);
+                         winParams.forEach((val, key) => {
+                             if (key !== 'page' && val) {
+                                 url.searchParams.set(key, val);
+                             }
+                         });
+
+                         const res = await fetch(url.toString(), {
+                             headers: { 'Accept': 'application/json' }
+                         });
+                         const data = await res.json();
+                         if (res.ok && data.success && data.bills && data.bills.length > 0) {
+                             if (data.bills.length === 1) {
+                                 window.dispatchEvent(new CustomEvent('open-payment-modal', { detail: data.bills[0] }));
+                                 return;
+                             }
+                         }
+                         window.location.href = fallbackUrl;
+                     } catch (e) {
+                         window.location.href = fallbackUrl;
+                     } finally {
+                         this.loadingVendorPayment = null;
+                     }
                  },
                  get exportPdfUrl() {
                      let url = new URL('{{ route('admin.cashbook.finance.purchase.vendors.export.pdf', $purchaseContext) }}', window.location.origin);
@@ -585,6 +670,24 @@
                     </p>
                 </div>
                 <div class="flex items-center gap-2.5 flex-wrap">
+                    {{-- VIEW SWITCHER: Table View / Card View --}}
+                    <div class="inline-flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/80 text-xs font-bold" role="group" aria-label="View Switcher">
+                        <button type="button"
+                                @click="setViewMode('table')"
+                                :class="viewMode === 'table' ? 'bg-white text-slate-950 shadow-2xs font-extrabold border border-slate-200/80' : 'text-slate-600 hover:text-slate-900 border border-transparent'"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer">
+                            <i data-lucide="table" class="w-3.5 h-3.5" :class="viewMode === 'table' ? 'text-emerald-600' : 'text-slate-400'"></i>
+                            <span>Table View</span>
+                        </button>
+                        <button type="button"
+                                @click="setViewMode('card')"
+                                :class="viewMode === 'card' ? 'bg-white text-slate-950 shadow-2xs font-extrabold border border-slate-200/80' : 'text-slate-600 hover:text-slate-900 border border-transparent'"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer">
+                            <i data-lucide="layout-grid" class="w-3.5 h-3.5" :class="viewMode === 'card' ? 'text-emerald-600' : 'text-slate-400'"></i>
+                            <span>Card View</span>
+                        </button>
+                    </div>
+
                     <label class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer select-none bg-white border border-slate-200 px-2.5 py-1.5 rounded-xl shadow-2xs hover:bg-slate-50 transition">
                         <input type="checkbox"
                                x-model="includeFullDetails"
@@ -639,7 +742,7 @@
 
                     <span class="text-xs font-bold text-slate-500 pl-0.5 sm:pl-1 whitespace-nowrap"
                           x-text="`Showing ${totalVisible} of ${totalMatching} ${totalMatching === 1 ? 'vendor' : 'vendors'}`">
-                        Showing {{ min(5, $vendorsOverviewList->count()) }} of {{ $vendorsOverviewList->count() }} vendors
+                        Showing {{ min(20, $vendorsOverviewList->count()) }} of {{ $vendorsOverviewList->count() }} vendors
                     </span>
                 </div>
 
@@ -650,13 +753,13 @@
                     </div>
                     <input type="text"
                            x-model="search"
-                           @input.debounce.150ms="limit = 5; applyFilters()"
+                           @input.debounce.150ms="limit = 20; applyFilters()"
                            placeholder="Filter vendor or product..."
                            class="w-full pl-9 pr-8 py-1.5 text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-xl focus:outline-hidden focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 shadow-2xs transition placeholder:text-slate-400 placeholder:font-normal">
                     <button type="button"
                             x-show="search.length > 0"
                             x-cloak
-                            @click="search = ''; limit = 5; applyFilters()"
+                            @click="search = ''; limit = 20; applyFilters()"
                             class="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer"
                             title="Clear search">
                         <i data-lucide="x" class="w-3.5 h-3.5"></i>
@@ -665,7 +768,16 @@
             </div>
 
             @if($vendorsOverviewList->isNotEmpty())
-                <div class="space-y-2.5" x-ref="vendorList">
+                {{-- TABLE VIEW (DEFAULT) --}}
+                <div x-show="viewMode === 'table'" class="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white shadow-2xs">
+                    @include('admin.cashbook.finance.purchase._vendor-table', [
+                        'vendors' => $vendorsOverviewList,
+                        'purchaseContext' => $purchaseContext,
+                    ])
+                </div>
+
+                {{-- CARD VIEW (ALTERNATIVE) --}}
+                <div x-show="viewMode === 'card'" x-cloak class="space-y-2.5" x-ref="vendorList">
                     @foreach($vendorsOverviewList as $index => $vendor)
                         @php
                             $vCash = (float) ($vendor->cash_purchase ?? 0);
@@ -673,12 +785,12 @@
                             $vName = strtolower($vendor->supplier_name ?? '');
                             $vTags = strtolower($vendor->category_tags ?? '');
                         @endphp
-                        <div class="vendor-card-wrapper transition-all duration-200 {{ $index >= 5 ? 'hidden' : '' }}"
+                        <div class="vendor-card-wrapper transition-all duration-200 {{ $index >= 20 ? 'hidden' : '' }}"
                              data-cash="{{ $vCash }}"
                              data-credit="{{ $vCredit }}"
                              data-name="{{ $vName }}"
                              data-tags="{{ $vTags }}"
-                             style="{{ $index >= 5 ? 'display: none;' : '' }}">
+                             style="{{ $index >= 20 ? 'display: none;' : '' }}">
                             @include('admin.cashbook.finance.purchase._vendor-invoice-card', [
                                 'vendor' => $vendor,
                                 'serialNumber' => $index + 1,
@@ -1046,6 +1158,7 @@
             <table id="bills-table" class="w-full min-w-[50rem] text-left text-xs">
                 <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-600 border-b border-slate-200/80">
                     <tr>
+                        <th class="p-3.5 text-center w-12 font-black uppercase text-[10px] tracking-wider text-slate-600 select-none">SL No</th>
                         <th @click="sortTable('date', 'date')" class="p-3.5 cursor-pointer hover:bg-slate-100 transition select-none" title="Click to sort by Date">
                             <div class="flex items-center gap-1.5">
                                 <span>Date</span>
@@ -1091,7 +1204,7 @@
                         <th class="p-3.5 text-center">Items</th>
                     </tr>
                 </thead>
-                @forelse($bills as $bill)
+                @forelse($bills as $index => $bill)
                     @php
                         $isCredit = strtolower((string) ($bill->payment_class ?? '')) === 'credit';
                         $invoiceItems = $bill->items ?? collect();
@@ -1110,6 +1223,9 @@
                            data-search-text="{{ $billSearchText }}">
                         <tr class="transition hover:bg-slate-50/70">
                             <!-- Main Bill Row Content -->
+                            <td class="p-3.5 text-center font-mono font-bold text-slate-500 tabular-nums text-xs">
+                                {{ str_pad((string) (($bills instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator ? $bills->firstItem() : 1) + $index), 2, '0', STR_PAD_LEFT) }}
+                            </td>
                             <td class="p-3.5 font-mono font-bold text-slate-700 tabular-nums">
                                 {{ \Illuminate\Support\Carbon::parse($bill->business_date)->format('d M Y') }}
                             </td>
@@ -1176,7 +1292,7 @@
 
                         <!-- Expandable Line Items Drilldown Row -->
                         <tr x-show="open" x-cloak class="bg-slate-50/90 border-t border-slate-200">
-                            <td colspan="8" class="p-4 sm:p-5">
+                            <td colspan="9" class="p-4 sm:p-5">
                                 <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-3">
                                     <div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
                                         <div class="flex items-center gap-2">
@@ -1270,7 +1386,7 @@
                 @empty
                     <tbody>
                         <tr>
-                            <td colspan="8" class="p-8 text-center text-xs font-semibold text-slate-400">
+                            <td colspan="9" class="p-8 text-center text-xs font-semibold text-slate-400">
                                 No bills found matching the current filters.
                             </td>
                         </tr>

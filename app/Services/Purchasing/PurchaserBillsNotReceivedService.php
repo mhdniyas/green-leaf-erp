@@ -31,15 +31,33 @@ class PurchaserBillsNotReceivedService
      *     }>
      * }
      */
+    /**
+     * Request-local memoization to prevent redundant queries within the same request lifecycle.
+     */
+    private ?array $memoizedPendingData = null;
+
+    public function clearMemoizedData(): void
+    {
+        $this->memoizedPendingData = null;
+    }
+
     public function getPendingBillsData(bool $ignoreCache = false): array
     {
-        if ($ignoreCache) {
-            return $this->computePendingBillsData();
+        if ($this->memoizedPendingData !== null && ! $ignoreCache) {
+            return $this->memoizedPendingData;
         }
 
-        return Cache::remember('purchaser_bills_not_received_summary', 60, function (): array {
+        if ($ignoreCache) {
+            $this->memoizedPendingData = $this->computePendingBillsData();
+
+            return $this->memoizedPendingData;
+        }
+
+        $this->memoizedPendingData = Cache::remember('purchaser_bills_not_received_summary', 60, function (): array {
             return $this->computePendingBillsData();
         });
+
+        return $this->memoizedPendingData;
     }
 
     /**
@@ -126,7 +144,8 @@ class PurchaserBillsNotReceivedService
             ->whereNotIn('status', ['cancelled'])
             ->where('receipt_type', '!=', 'warehouse_advance')
             ->with([
-                'purchaseOrder:id,fulfillment_type,purchaser_cart_id',
+                'purchaseOrder:id,fulfillment_type',
+                'purchaseOrder.purchaserCart:id,purchase_order_id,purchase_source',
                 'purchaserCart:id,purchase_source',
                 'items:id,goods_received_id,received_qty',
                 'stockBatches:id,goods_received_id,total_kg,warehouse_receive_pending',
