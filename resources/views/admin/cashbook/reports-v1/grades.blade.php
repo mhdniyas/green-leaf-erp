@@ -111,6 +111,9 @@
                             placeholder="All products or search name/SKU..."
                             class="w-full rounded-lg border border-slate-300 py-1.5 pl-8 pr-7 text-xs font-medium text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                         >
+                        @if($product && !request('search_product'))
+                            <input type="hidden" name="product" value="{{ $product->public_uuid ?: $product->id }}">
+                        @endif
                         @if($product || request('search_product'))
                             <a
                                 href="{{ route('admin.cashbook.reports-v1.grades', request()->except(['product', 'product_uuid', 'product_id', 'search_product'])) }}"

@@ -456,4 +456,124 @@ class ReportsV1GradesReportTest extends TestCase
         // Should not see Grade A batch of 30 kg from WH1
         $response->assertDontSee('45.00');
     }
+
+    public function test_grades_report_custom_date_range_updates_results_and_displays_only_matching_period(): void
+    {
+        $product = $this->createProduct('DateTestWatermelon');
+
+        // Batch 1: Received on Oct 10, 2026 (50 kg @ 20.00 = 1000.00)
+        $this->createRootBatch($product, 'A', 50.0, 20.00, '2026-10-10');
+
+        // Batch 2: Received on Nov 05, 2026 (75 kg @ 40.00 = 3000.00)
+        $this->createRootBatch($product, 'A', 75.0, 40.00, '2026-11-05');
+
+        // 1. Query for October only (start_date & end_date)
+        $octoberResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.grades', [
+            'product' => $product->id,
+            'start_date' => '2026-10-01',
+            'end_date' => '2026-10-31',
+        ]));
+
+        $octoberResponse->assertOk()
+            ->assertSee('01 Oct 2026 – 31 Oct 2026')
+            ->assertSee('50.0')   // October batch quantity
+            ->assertSee('20.00')  // October cost
+            ->assertDontSee('75.0')  // November batch quantity excluded
+            ->assertDontSee('40.00'); // November cost excluded
+
+        // 2. Query for November only
+        $novemberResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.grades', [
+            'product' => $product->id,
+            'start_date' => '2026-11-01',
+            'end_date' => '2026-11-30',
+        ]));
+
+        $novemberResponse->assertOk()
+            ->assertSee('01 Nov 2026 – 30 Nov 2026')
+            ->assertSee('75.0')   // November batch quantity
+            ->assertSee('40.00')  // November cost
+            ->assertDontSee('50.0')  // October batch quantity excluded
+            ->assertDontSee('20.00'); // October cost excluded
+
+        // 3. Query for combined October + November range
+        $combinedResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.grades', [
+            'product' => $product->id,
+            'start_date' => '2026-10-01',
+            'end_date' => '2026-11-30',
+        ]));
+
+        $combinedResponse->assertOk()
+            ->assertSee('01 Oct 2026 – 30 Nov 2026')
+            ->assertSee('125.0')  // Total 50 + 75 = 125 kg
+            ->assertSee('32.00'); // Weighted average: (50*20 + 75*40)/125 = 32.00
+    }
+
+    public function test_grades_report_single_day_date_filter_displays_only_that_day(): void
+    {
+        $product = $this->createProduct('SingleDayGrape');
+
+        $this->createRootBatch($product, 'A', 25.0, 50.00, '2026-10-15');
+        $this->createRootBatch($product, 'A', 35.0, 60.00, '2026-10-16');
+
+        // Query only Oct 15
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.grades', [
+            'product' => $product->id,
+            'start_date' => '2026-10-15',
+            'end_date' => '2026-10-15',
+        ]));
+
+        $response->assertOk()
+            ->assertSee('15 Oct 2026')
+            ->assertSee('25.0')
+            ->assertSee('50.00')
+            ->assertDontSee('35.0');
+
+        // Query only start_date without end_date (single day shorthand)
+        $shorthandResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.grades', [
+            'product' => $product->id,
+            'start_date' => '2026-10-16',
+        ]));
+
+        $shorthandResponse->assertOk()
+            ->assertSee('16 Oct 2026')
+            ->assertSee('35.0')
+            ->assertSee('60.00')
+            ->assertDontSee('25.0');
+    }
+
+    public function test_grades_report_reversed_dates_are_normalized_and_applied(): void
+    {
+        $product = $this->createProduct('ReversedDateApple');
+
+        $this->createRootBatch($product, 'A', 15.0, 80.00, '2026-10-10');
+
+        // Submit start_date > end_date
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.grades', [
+            'product' => $product->id,
+            'start_date' => '2026-10-31',
+            'end_date' => '2026-10-01',
+        ]));
+
+        $response->assertOk()
+            ->assertSee('01 Oct 2026 – 31 Oct 2026')
+            ->assertSee('15.0')
+            ->assertSee('80.00');
+    }
+
+    public function test_grades_report_empty_date_range_displays_empty_state(): void
+    {
+        $product = $this->createProduct('EmptyRangePineapple');
+        $this->createRootBatch($product, 'A', 20.0, 30.00, '2026-10-23');
+
+        // Range in January 2026 with no activity
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.grades', [
+            'product' => $product->id,
+            'start_date' => '2026-01-01',
+            'end_date' => '2026-01-31',
+        ]));
+
+        $response->assertOk()
+            ->assertSee('01 Jan 2026 – 31 Jan 2026')
+            ->assertDontSee('30.00');
+    }
 }

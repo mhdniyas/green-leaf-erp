@@ -7446,10 +7446,24 @@ final class CashbookController extends Controller
 
         $periodParam = $validated['period'] ?? null;
         $periodMode = (string) ($validated['period_mode'] ?? '');
+        $today = now('Asia/Kolkata')->startOfDay();
 
-        if ($periodMode === 'day' || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day']) || in_array($periodParam, ['today', 'yesterday'], true)))) {
+        if (in_array($periodParam, ['month', 'this_month', 'prev_month', 'last_month'], true)) {
+            $periodMode = 'month';
+            if (in_array($periodParam, ['prev_month', 'last_month'], true)) {
+                $month = $today->copy()->subMonth()->format('Y-m');
+            } else {
+                $month = (string) ($validated['month'] ?? $today->format('Y-m'));
+            }
+            if (! preg_match('/^\d{4}-\d{2}$/', $month)) {
+                $month = $today->format('Y-m');
+            }
+            $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+            $startDate = $monthCarbon->copy()->startOfMonth()->startOfDay();
+            $endDate = $monthCarbon->copy()->endOfMonth()->startOfDay();
+            $period = $periodParam;
+        } elseif ($periodMode === 'day' || in_array($periodParam, ['today', 'yesterday'], true) || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day'])))) {
             $periodMode = 'day';
-            $today = now('Asia/Kolkata')->startOfDay();
             if ($periodParam === 'yesterday') {
                 $rawDate = $today->copy()->subDay()->toDateString();
                 $period = 'yesterday';
@@ -7462,25 +7476,31 @@ final class CashbookController extends Controller
             }
             $startDate = Carbon::parse($rawDate)->startOfDay();
             $endDate = $startDate->copy();
-        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($validated['from']) || ! empty($validated['to']) || in_array($periodParam, ['custom', 'between', 'range', 'week', 'this_week'], true)))) {
+        } elseif (
+            $periodMode === 'custom'
+            || in_array($periodParam, ['custom', 'between', 'range', 'week', 'this_week'], true)
+            || ! empty($validated['start_date'])
+            || ! empty($validated['end_date'])
+            || ! empty($validated['from'])
+            || ! empty($validated['to'])
+        ) {
             $periodMode = 'custom';
-            $today = now('Asia/Kolkata')->startOfDay();
             if (in_array($periodParam, ['week', 'this_week'], true)) {
                 $startDate = $today->copy()->startOfWeek()->startOfDay();
                 $endDate = $today->copy();
                 $period = 'this_week';
             } else {
-                $rawFrom = (string) ($validated['from'] ?? $validated['start_date'] ?? $today->copy()->startOfMonth()->toDateString());
-                $rawTo = (string) ($validated['to'] ?? $validated['end_date'] ?? $today->toDateString());
+                $rawFrom = (string) (! empty($validated['start_date']) ? $validated['start_date'] : (! empty($validated['from']) ? $validated['from'] : (! empty($validated['end_date']) ? $validated['end_date'] : (! empty($validated['to']) ? $validated['to'] : $today->copy()->startOfMonth()->toDateString()))));
+                $rawTo = (string) (! empty($validated['end_date']) ? $validated['end_date'] : (! empty($validated['to']) ? $validated['to'] : (! empty($validated['start_date']) ? $validated['start_date'] : (! empty($validated['from']) ? $validated['from'] : $today->toDateString()))));
                 $startDate = Carbon::parse($rawFrom)->startOfDay();
                 $endDate = Carbon::parse($rawTo)->startOfDay();
                 $period = 'custom';
             }
         } else {
             $periodMode = 'month';
-            $month = (string) ($validated['month'] ?? today('Asia/Kolkata')->format('Y-m'));
+            $month = (string) ($validated['month'] ?? $today->format('Y-m'));
             if (! preg_match('/^\d{4}-\d{2}$/', $month)) {
-                $month = today('Asia/Kolkata')->format('Y-m');
+                $month = $today->format('Y-m');
             }
             $monthCarbon = Carbon::createFromFormat('Y-m', $month);
             $startDate = $monthCarbon->copy()->startOfMonth()->startOfDay();
@@ -7545,10 +7565,24 @@ final class CashbookController extends Controller
 
         $periodParam = $validated['period'] ?? null;
         $periodMode = (string) ($validated['period_mode'] ?? '');
+        $today = now('Asia/Kolkata')->startOfDay();
 
-        if ($periodMode === 'day' || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day']) || in_array($periodParam, ['today', 'yesterday'], true)))) {
+        if (in_array($periodParam, ['month', 'this_month', 'prev_month', 'last_month'], true)) {
+            $periodMode = 'month';
+            if (in_array($periodParam, ['prev_month', 'last_month'], true)) {
+                $month = $today->copy()->subMonth()->format('Y-m');
+            } else {
+                $month = (string) ($validated['month'] ?? $today->format('Y-m'));
+            }
+            if (! preg_match('/^\d{4}-\d{2}$/', $month)) {
+                $month = $today->format('Y-m');
+            }
+            $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+            $startDate = $monthCarbon->copy()->startOfMonth()->startOfDay();
+            $endDate = $monthCarbon->copy()->endOfMonth()->startOfDay();
+            $period = $periodParam;
+        } elseif ($periodMode === 'day' || in_array($periodParam, ['today', 'yesterday'], true) || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day'])))) {
             $periodMode = 'day';
-            $today = now('Asia/Kolkata')->startOfDay();
             if ($periodParam === 'yesterday') {
                 $rawDate = $today->copy()->subDay()->toDateString();
                 $period = 'yesterday';
@@ -7561,25 +7595,31 @@ final class CashbookController extends Controller
             }
             $startDate = Carbon::parse($rawDate)->startOfDay();
             $endDate = $startDate->copy();
-        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($validated['from']) || ! empty($validated['to']) || in_array($periodParam, ['custom', 'between', 'range', 'week', 'this_week'], true)))) {
+        } elseif (
+            $periodMode === 'custom'
+            || in_array($periodParam, ['custom', 'between', 'range', 'week', 'this_week'], true)
+            || ! empty($validated['start_date'])
+            || ! empty($validated['end_date'])
+            || ! empty($validated['from'])
+            || ! empty($validated['to'])
+        ) {
             $periodMode = 'custom';
-            $today = now('Asia/Kolkata')->startOfDay();
             if (in_array($periodParam, ['week', 'this_week'], true)) {
                 $startDate = $today->copy()->startOfWeek()->startOfDay();
                 $endDate = $today->copy();
                 $period = 'this_week';
             } else {
-                $rawFrom = (string) ($validated['from'] ?? $validated['start_date'] ?? $today->copy()->startOfMonth()->toDateString());
-                $rawTo = (string) ($validated['to'] ?? $validated['end_date'] ?? $today->toDateString());
+                $rawFrom = (string) (! empty($validated['start_date']) ? $validated['start_date'] : (! empty($validated['from']) ? $validated['from'] : (! empty($validated['end_date']) ? $validated['end_date'] : (! empty($validated['to']) ? $validated['to'] : $today->copy()->startOfMonth()->toDateString()))));
+                $rawTo = (string) (! empty($validated['end_date']) ? $validated['end_date'] : (! empty($validated['to']) ? $validated['to'] : (! empty($validated['start_date']) ? $validated['start_date'] : (! empty($validated['from']) ? $validated['from'] : $today->toDateString()))));
                 $startDate = Carbon::parse($rawFrom)->startOfDay();
                 $endDate = Carbon::parse($rawTo)->startOfDay();
                 $period = 'custom';
             }
         } else {
             $periodMode = 'month';
-            $month = (string) ($validated['month'] ?? today('Asia/Kolkata')->format('Y-m'));
+            $month = (string) ($validated['month'] ?? $today->format('Y-m'));
             if (! preg_match('/^\d{4}-\d{2}$/', $month)) {
-                $month = today('Asia/Kolkata')->format('Y-m');
+                $month = $today->format('Y-m');
             }
             $monthCarbon = Carbon::createFromFormat('Y-m', $month);
             $startDate = $monthCarbon->copy()->startOfMonth()->startOfDay();
@@ -7641,10 +7681,24 @@ final class CashbookController extends Controller
 
         $periodParam = $validated['period'] ?? null;
         $periodMode = (string) ($validated['period_mode'] ?? '');
+        $today = now('Asia/Kolkata')->startOfDay();
 
-        if ($periodMode === 'day' || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day']) || in_array($periodParam, ['today', 'yesterday'], true)))) {
+        if (in_array($periodParam, ['month', 'this_month', 'prev_month', 'last_month'], true)) {
+            $periodMode = 'month';
+            if (in_array($periodParam, ['prev_month', 'last_month'], true)) {
+                $month = $today->copy()->subMonth()->format('Y-m');
+            } else {
+                $month = (string) ($validated['month'] ?? $today->format('Y-m'));
+            }
+            if (! preg_match('/^\d{4}-\d{2}$/', $month)) {
+                $month = $today->format('Y-m');
+            }
+            $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+            $startDate = $monthCarbon->copy()->startOfMonth()->startOfDay();
+            $endDate = $monthCarbon->copy()->endOfMonth()->startOfDay();
+            $period = $periodParam;
+        } elseif ($periodMode === 'day' || in_array($periodParam, ['today', 'yesterday'], true) || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day'])))) {
             $periodMode = 'day';
-            $today = now('Asia/Kolkata')->startOfDay();
             if ($periodParam === 'yesterday') {
                 $rawDate = $today->copy()->subDay()->toDateString();
                 $period = 'yesterday';
@@ -7657,25 +7711,31 @@ final class CashbookController extends Controller
             }
             $startDate = Carbon::parse($rawDate)->startOfDay();
             $endDate = $startDate->copy();
-        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($validated['from']) || ! empty($validated['to']) || in_array($periodParam, ['custom', 'between', 'range', 'week', 'this_week'], true)))) {
+        } elseif (
+            $periodMode === 'custom'
+            || in_array($periodParam, ['custom', 'between', 'range', 'week', 'this_week'], true)
+            || ! empty($validated['start_date'])
+            || ! empty($validated['end_date'])
+            || ! empty($validated['from'])
+            || ! empty($validated['to'])
+        ) {
             $periodMode = 'custom';
-            $today = now('Asia/Kolkata')->startOfDay();
             if (in_array($periodParam, ['week', 'this_week'], true)) {
                 $startDate = $today->copy()->startOfWeek()->startOfDay();
                 $endDate = $today->copy();
                 $period = 'this_week';
             } else {
-                $rawFrom = (string) ($validated['from'] ?? $validated['start_date'] ?? $today->copy()->startOfMonth()->toDateString());
-                $rawTo = (string) ($validated['to'] ?? $validated['end_date'] ?? $today->toDateString());
+                $rawFrom = (string) (! empty($validated['start_date']) ? $validated['start_date'] : (! empty($validated['from']) ? $validated['from'] : (! empty($validated['end_date']) ? $validated['end_date'] : (! empty($validated['to']) ? $validated['to'] : $today->copy()->startOfMonth()->toDateString()))));
+                $rawTo = (string) (! empty($validated['end_date']) ? $validated['end_date'] : (! empty($validated['to']) ? $validated['to'] : (! empty($validated['start_date']) ? $validated['start_date'] : (! empty($validated['from']) ? $validated['from'] : $today->toDateString()))));
                 $startDate = Carbon::parse($rawFrom)->startOfDay();
                 $endDate = Carbon::parse($rawTo)->startOfDay();
                 $period = 'custom';
             }
         } else {
             $periodMode = 'month';
-            $month = (string) ($validated['month'] ?? today('Asia/Kolkata')->format('Y-m'));
+            $month = (string) ($validated['month'] ?? $today->format('Y-m'));
             if (! preg_match('/^\d{4}-\d{2}$/', $month)) {
-                $month = today('Asia/Kolkata')->format('Y-m');
+                $month = $today->format('Y-m');
             }
             $monthCarbon = Carbon::createFromFormat('Y-m', $month);
             $startDate = $monthCarbon->copy()->startOfMonth()->startOfDay();
