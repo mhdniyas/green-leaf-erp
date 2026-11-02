@@ -1678,7 +1678,7 @@ class PurchaserDashboardController extends Controller
             'supplierName' => $cart->supplier?->name ?: 'Vendor pending',
             'supplierMobile' => $cart->supplier?->mobile_number ?: '',
             'billRef' => $cart->cart_number,
-            'invoiceNumber' => $cart->purchaseInvoice?->invoice_number ?: ($cart->bill_number ?: 'PENDING-BILL-'.$cart->cart_number),
+            'invoiceNumber' => $cart->purchaseInvoice?->invoice_number ?: ($cart->bill_number ?: PurchaseInvoice::generatePurchaseBillNumber($cart->business_date, $cart->cart_number)),
             'date' => $cart->business_date->format('d M Y'),
             'paymentStatus' => $paymentStatusLabel,
             'totalAmount' => '₹'.number_format($cartAmount, 2),
@@ -3584,7 +3584,9 @@ class PurchaserDashboardController extends Controller
         }
 
         $rawBillNumber = trim((string) $request->validated('bill_number'));
-        $userProvidedBillNumber = $rawBillNumber !== '' && ! str_starts_with(strtoupper($rawBillNumber), 'PENDING-BILL-');
+        $userProvidedBillNumber = $rawBillNumber !== ''
+            && ! str_starts_with(strtoupper($rawBillNumber), 'PENDING-BILL-')
+            && ! preg_match('/^GLPB\d{2}-\d{4}-[A-Z0-9]{4}$/i', $rawBillNumber);
 
         if ($userProvidedBillNumber) {
             $normalizedBillNumber = strtolower($rawBillNumber);
@@ -3779,7 +3781,9 @@ class PurchaserDashboardController extends Controller
                 'supplier_id' => $supplier->id,
                 'purchaser_cart_id' => $cart->id,
                 'purchase_source' => $cart->purchase_source ?? 'shop_order',
-                'invoice_number' => $request->validated('bill_number') ?: 'PENDING-BILL-'.$cart->cart_number,
+                'invoice_number' => $userProvidedBillNumber
+                    ? $rawBillNumber
+                    : PurchaseInvoice::generatePurchaseBillNumber($cart->business_date, $cart->cart_number),
                 'amount' => $grossSubtotal,
                 'discount_amount' => round($discountAmount, 2),
                 'status' => $invoiceStatus,
@@ -3796,7 +3800,7 @@ class PurchaserDashboardController extends Controller
 
             $cart->update([
                 'supplier_id' => $supplier->id,
-                'bill_number' => $request->validated('bill_number'),
+                'bill_number' => $userProvidedBillNumber ? $rawBillNumber : null,
                 'discount_amount' => round($discountAmount, 2),
                 'payment_method' => $paymentMethod,
                 'payment_status' => $paymentStatus,
@@ -4067,7 +4071,7 @@ class PurchaserDashboardController extends Controller
                     // Include any invoice with remaining balance (unpaid, partial, or credit)
                     return [
                         'id' => $invoice->id,
-                        'invoice_number' => $invoice->invoice_number ?: 'PENDING-'.$cart->cart_number,
+                        'invoice_number' => $invoice->invoice_number ?: PurchaseInvoice::generatePurchaseBillNumber($cart->business_date, $cart->cart_number),
                         'cart_number' => $cart->cart_number,
                         'date' => $cart->business_date->format('d M Y'),
                         'amount' => round((float) $invoice->amount, 2),

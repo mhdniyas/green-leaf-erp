@@ -77,11 +77,25 @@
                 </p>
             </div>
             @if($section === 'vendors')
-                <a href="{{ route('admin.cashbook.finance.vendor-credit') }}"
-                   class="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-700 px-4 py-2 text-xs font-black uppercase tracking-wider text-white shadow-xs hover:bg-emerald-800 transition">
-                    <i data-lucide="truck" class="w-4 h-4"></i>
-                    <span>Vendor Credit Payments</span>
-                </a>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <a href="{{ route('admin.cashbook.finance.purchase.vendors.export.pdf', request()->query()) }}"
+                       class="inline-flex items-center gap-1.5 rounded-2xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-black uppercase tracking-wider text-slate-700 shadow-xs hover:bg-slate-50 transition"
+                       title="Export all qualifying vendors to PDF">
+                        <i data-lucide="file-text" class="w-3.5 h-3.5 text-rose-600"></i>
+                        <span>Export PDF</span>
+                    </a>
+                    <a href="{{ route('admin.cashbook.finance.purchase.vendors.export.excel', request()->query()) }}"
+                       class="inline-flex items-center gap-1.5 rounded-2xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-black uppercase tracking-wider text-slate-700 shadow-xs hover:bg-slate-50 transition"
+                       title="Export all qualifying vendors to Excel (.xlsx)">
+                        <i data-lucide="sheet" class="w-3.5 h-3.5 text-emerald-600"></i>
+                        <span>Export Excel</span>
+                    </a>
+                    <a href="{{ route('admin.cashbook.finance.vendor-credit') }}"
+                       class="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-700 px-4 py-2 text-xs font-black uppercase tracking-wider text-white shadow-xs hover:bg-emerald-800 transition">
+                        <i data-lucide="truck" class="w-4 h-4"></i>
+                        <span>Vendor Credit Payments</span>
+                    </a>
+                </div>
             @endif
         </div>
 

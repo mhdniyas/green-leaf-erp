@@ -8,6 +8,7 @@ use App\Enums\Cashbook\TransactionStatus;
 use App\Exports\PurchaserExpenseReportExport;
 use App\Exports\PurchaserReportArrayExport;
 use App\Exports\ShopSalesReportExport;
+use App\Exports\VendorPurchaseReportExport;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Cashbook\AddShopRequest;
 use App\Http\Requests\Cashbook\AssignShopPresetRequest;
@@ -7426,7 +7427,7 @@ final class CashbookController extends Controller
             'search_product' => ['nullable', 'string', 'max:100'],
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'warehouse' => ['nullable', 'integer'],
-            'period' => ['nullable', 'in:today,yesterday,week,this_week,month,this_month,custom,between,range'],
+            'period' => ['nullable', 'in:today,yesterday,week,this_week,month,this_month,prev_month,last_month,custom,between,range'],
             'period_mode' => ['nullable', 'in:month,day,custom'],
             'date' => ['nullable', 'date'],
             'day' => ['nullable', 'date'],
@@ -7528,7 +7529,7 @@ final class CashbookController extends Controller
             'page' => ['nullable', 'integer', 'min:1'],
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'warehouse' => ['nullable', 'integer'],
-            'period' => ['nullable', 'in:today,yesterday,week,this_week,month,this_month,custom,between,range'],
+            'period' => ['nullable', 'in:today,yesterday,week,this_week,month,this_month,prev_month,last_month,custom,between,range'],
             'period_mode' => ['nullable', 'in:month,day,custom'],
             'date' => ['nullable', 'date'],
             'day' => ['nullable', 'date'],
@@ -7624,7 +7625,7 @@ final class CashbookController extends Controller
             'search_product' => ['nullable', 'string', 'max:100'],
             'payment' => ['nullable', 'string', 'in:all,cash,credit'],
             'purchase_type' => ['nullable', 'string', 'in:all,cash,credit'],
-            'period' => ['nullable', 'in:today,yesterday,week,this_week,month,this_month,custom,between,range'],
+            'period' => ['nullable', 'in:today,yesterday,week,this_week,month,this_month,prev_month,last_month,custom,between,range'],
             'period_mode' => ['nullable', 'in:month,day,custom'],
             'date' => ['nullable', 'date'],
             'day' => ['nullable', 'date'],
@@ -8303,6 +8304,135 @@ final class CashbookController extends Controller
         $preview = $purchaserSettlementService->reversalPreview($purchaser, $credit, $proposedAmount);
 
         return response()->json($preview);
+    }
+
+    public function companyFinancePurchaseVendorsPdf(Request $request, PurchaseReportingService $purchaseReportingService): mixed
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $this->purchaseDashboardFilters($request);
+        $data = $purchaseReportingService->vendorReportData($filters);
+
+        $purchaserName = 'All Purchasers';
+        if (! empty($filters['purchaser_id'])) {
+            $user = User::query()->find($filters['purchaser_id']);
+            if ($user) {
+                $purchaserName = $user->name;
+            }
+        }
+
+        $productFilterName = 'All Products';
+        if (! empty($filters['purchase_product_filter_id'])) {
+            $filterObj = PurchaseProductFilter::query()->find($filters['purchase_product_filter_id']);
+            if ($filterObj) {
+                $productFilterName = $filterObj->name;
+            }
+        }
+
+        $singleVendor = null;
+        $filename = 'vendor-purchase-report-'.now()->format('Y-m-d').'.pdf';
+        if (! empty($filters['vendor_id'])) {
+            $singleVendor = Supplier::query()->find($filters['vendor_id']);
+            if ($singleVendor) {
+                $safeName = str($singleVendor->name)->slug() ?: 'vendor';
+                $filename = "vendor-{$safeName}-bill-invoice-".now()->format('Y-m-d').'.pdf';
+            }
+        }
+
+        $includeDetails = $request->boolean('include_details', false);
+
+        $pdfData = array_merge($data, [
+            'purchaserName' => $purchaserName,
+            'productFilterName' => $productFilterName,
+            'singleVendor' => $singleVendor,
+            'includeDetails' => $includeDetails,
+            'generatedAt' => now('Asia/Kolkata'),
+        ]);
+
+        $pdf = Pdf::loadView('admin.cashbook.finance.purchase.reports.vendors_overview_pdf', $pdfData)
+            ->setPaper('a4', 'portrait');
+
+        return $pdf->download($filename);
+    }
+
+    public function companyFinancePurchaseVendorsExcel(Request $request, PurchaseReportingService $purchaseReportingService): BinaryFileResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $this->purchaseDashboardFilters($request);
+        $data = $purchaseReportingService->vendorReportData($filters);
+
+        $filename = 'vendor-purchase-report-'.now()->format('Y-m-d').'.xlsx';
+        if (! empty($filters['vendor_id'])) {
+            $vendorObj = Supplier::query()->find($filters['vendor_id']);
+            if ($vendorObj) {
+                $safeName = str($vendorObj->name)->slug() ?: 'vendor';
+                $filename = "vendor-{$safeName}-purchase-report-".now()->format('Y-m-d').'.xlsx';
+            }
+        }
+
+        return Excel::download(
+            new VendorPurchaseReportExport($data),
+            $filename
+        );
+    }
+
+    public function companyFinancePurchaseVendorSinglePdf(Request $request, Supplier $supplier, PurchaseReportingService $purchaseReportingService): mixed
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $this->purchaseDashboardFilters($request);
+        $filters['vendor_id'] = (int) $supplier->id;
+        $data = $purchaseReportingService->vendorReportData($filters);
+
+        $purchaserName = 'All Purchasers';
+        if (! empty($filters['purchaser_id'])) {
+            $user = User::query()->find($filters['purchaser_id']);
+            if ($user) {
+                $purchaserName = $user->name;
+            }
+        }
+
+        $productFilterName = 'All Products';
+        if (! empty($filters['purchase_product_filter_id'])) {
+            $filterObj = PurchaseProductFilter::query()->find($filters['purchase_product_filter_id']);
+            if ($filterObj) {
+                $productFilterName = $filterObj->name;
+            }
+        }
+
+        $pdfData = array_merge($data, [
+            'purchaserName' => $purchaserName,
+            'productFilterName' => $productFilterName,
+            'singleVendor' => $supplier,
+            'includeDetails' => true,
+            'generatedAt' => now('Asia/Kolkata'),
+        ]);
+
+        $safeName = str($supplier->name)->slug() ?: 'vendor';
+        $filename = "vendor-{$safeName}-bill-invoice-".now()->format('Y-m-d').'.pdf';
+
+        $pdf = Pdf::loadView('admin.cashbook.finance.purchase.reports.vendors_overview_pdf', $pdfData)
+            ->setPaper('a4', 'portrait');
+
+        return $pdf->download($filename);
+    }
+
+    public function companyFinancePurchaseVendorSingleExcel(Request $request, Supplier $supplier, PurchaseReportingService $purchaseReportingService): BinaryFileResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $this->purchaseDashboardFilters($request);
+        $filters['vendor_id'] = (int) $supplier->id;
+        $data = $purchaseReportingService->vendorReportData($filters);
+
+        $safeName = str($supplier->name)->slug() ?: 'vendor';
+        $filename = "vendor-{$safeName}-purchase-report-".now()->format('Y-m-d').'.xlsx';
+
+        return Excel::download(
+            new VendorPurchaseReportExport($data),
+            $filename
+        );
     }
 
     public function companyFinancePurchaseVendor(Request $request, Supplier $supplier, PurchaseReportingService $purchaseReportingService): View
@@ -9462,7 +9592,7 @@ final class CashbookController extends Controller
         return redirect()->back()->with('success', "Vendor settlement #{$vendorSettlement->id} deleted and allocations reversed.");
     }
 
-    public function settleVendorCreditInvoice(Request $request, PurchaseInvoice $invoice, PurchaseInvoiceService $purchaseInvoiceService): RedirectResponse
+    public function settleVendorCreditInvoice(Request $request, PurchaseInvoice $invoice, PurchaseInvoiceService $purchaseInvoiceService): RedirectResponse|JsonResponse
     {
         $this->ensureMainAdmin($request);
 
@@ -9473,6 +9603,7 @@ final class CashbookController extends Controller
         $validated = $request->validate([
             'payment_amount' => ['required', 'numeric', 'min:0.01', 'max:'.$maxPayable],
             'payment_method' => ['required', 'string', 'in:Bank,Cash,Online,GPay'],
+            'payment_date' => ['nullable', 'date'],
             'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
             'payment_note' => ['nullable', 'string', 'max:500'],
         ]);
@@ -9485,6 +9616,7 @@ final class CashbookController extends Controller
             'payment_paid_by' => 'company',
             'payment_purchaser_id' => null,
             'paid_amount' => $newTotalPaid,
+            'payment_date' => $validated['payment_date'] ?? null,
             'payment_note' => $validated['payment_note'] ?? 'Company vendor credit settlement',
             'payment_details' => $validated['payment_note'] ?? null,
         ]);
@@ -9506,9 +9638,11 @@ final class CashbookController extends Controller
                 ->where('amount', $paymentAmount)
                 ->exists()
         ) {
-            $paymentDate = $updatedInvoice->purchaserCart?->business_date?->toDateString()
-                ?? $updatedInvoice->updated_at?->toDateString()
-                ?? now()->toDateString();
+            $paymentDate = ! empty($validated['payment_date'])
+                ? Carbon::parse((string) $validated['payment_date'])->toDateString()
+                : ($updatedInvoice->purchaserCart?->business_date?->toDateString()
+                    ?? $updatedInvoice->updated_at?->toDateString()
+                    ?? now()->toDateString());
 
             $this->companyPaymentReconciliationService->createStatementEntry([
                 'company_account_id' => (int) $validated['company_account_id'],
@@ -9523,7 +9657,71 @@ final class CashbookController extends Controller
             ], (int) $request->user()->id);
         }
 
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment of Rs. '.number_format($paymentAmount, 2)." recorded for {$updatedInvoice->invoice_number}.",
+                'invoice' => [
+                    'id' => $updatedInvoice->id,
+                    'public_uuid' => $updatedInvoice->public_uuid,
+                    'invoice_number' => $updatedInvoice->invoice_number,
+                    'amount' => (float) $updatedInvoice->amount,
+                    'discount_amount' => (float) $updatedInvoice->discount_amount,
+                    'paid_amount' => (float) $updatedInvoice->paid_amount,
+                    'outstanding' => max(0, $netAmount - $newTotalPaid),
+                    'status' => $updatedInvoice->status,
+                ],
+            ]);
+        }
+
         return redirect()->back()->with('success', 'Payment of ₹'.number_format($paymentAmount, 2)." recorded for {$updatedInvoice->invoice_number}.");
+    }
+
+    public function getVendorCreditInvoiceDetails(Request $request, PurchaseInvoice $invoice): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $invoice->loadMissing([
+            'supplier',
+            'purchaserCart.user',
+            'payments.creator',
+            'vendorSettlementAllocations.vendorSettlement',
+        ]);
+
+        $amount = (float) $invoice->amount;
+        $discount = (float) $invoice->discount_amount;
+        $netPayable = max(0, $amount - $discount);
+        $paidAmount = (float) $invoice->paid_amount;
+        $outstanding = max(0, round($netPayable - $paidAmount, 2));
+
+        $payments = $invoice->payments->map(fn ($p) => [
+            'id' => $p->id,
+            'date' => $p->payment_date ? Carbon::parse($p->payment_date)->format('d M Y') : $p->created_at?->format('d M Y'),
+            'amount' => (float) $p->amount,
+            'discount_amount' => (float) $p->discount_amount,
+            'payment_method' => $p->payment_method,
+            'payment_paid_by' => $p->payment_paid_by,
+            'note' => $p->note,
+            'created_by' => $p->creator?->name ?? 'Admin',
+        ])->values();
+
+        return response()->json([
+            'id' => $invoice->id,
+            'public_uuid' => $invoice->public_uuid,
+            'invoice_number' => $invoice->invoice_number ?: ('#'.$invoice->id),
+            'supplier_name' => $invoice->supplier?->name ?? '—',
+            'purchaser_name' => $invoice->purchaserCart?->user?->name ?? '—',
+            'purchase_date' => $invoice->purchaserCart?->business_date ? Carbon::parse($invoice->purchaserCart->business_date)->format('d M Y') : $invoice->created_at?->format('d M Y'),
+            'amount' => $amount,
+            'discount_amount' => $discount,
+            'net_payable' => $netPayable,
+            'paid_amount' => $paidAmount,
+            'outstanding' => $outstanding,
+            'status' => $invoice->status,
+            'payment_status' => $invoice->payment_status,
+            'pay_url' => route('admin.cashbook.finance.vendor-credit.pay', $invoice),
+            'payments' => $payments,
+        ]);
     }
 
     public function companyFinanceReconciliation(Request $request, ?string $statementRef = null): View
@@ -15141,7 +15339,7 @@ PY;
             'day' => ['nullable', 'date'],
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date'],
-            'period' => ['nullable', 'in:today,yesterday,week,month,this_month,custom,between,range'],
+            'period' => ['nullable', 'in:today,yesterday,week,this_week,month,this_month,prev_month,last_month,custom,between,range'],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date'],
             'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
@@ -15157,6 +15355,15 @@ PY;
 
         $monthInput = (string) ($validated['month'] ?? '');
         $periodMode = (string) ($validated['period_mode'] ?? '');
+        $periodParam = $validated['period'] ?? null;
+
+        if ($periodParam === null && $periodMode === '' && $monthInput === '' && empty($validated['date']) && empty($validated['day']) && empty($validated['from']) && empty($validated['to']) && empty($validated['start_date']) && empty($validated['end_date'])) {
+            $periodParam = $defaultPeriod;
+        }
+
+        if (in_array($periodParam, ['prev_month', 'last_month'], true) && $periodMode === '') {
+            $periodMode = 'month';
+        }
 
         if ($monthInput !== '' && preg_match('/^\d{4}-\d{2}$/', $monthInput)) {
             $month = $monthInput;
@@ -15166,6 +15373,8 @@ PY;
             $month = Carbon::parse((string) $validated['from'])->format('Y-m');
         } elseif (! empty($validated['start_date'])) {
             $month = Carbon::parse((string) $validated['start_date'])->format('Y-m');
+        } elseif (in_array($periodParam, ['prev_month', 'last_month'], true)) {
+            $month = today('Asia/Kolkata')->subMonth()->format('Y-m');
         } else {
             $month = today('Asia/Kolkata')->format('Y-m');
         }
@@ -15176,11 +15385,6 @@ PY;
         $prevMonth = $monthCarbon->copy()->subMonth()->format('Y-m');
         $nextMonth = $monthCarbon->copy()->addMonth()->format('Y-m');
         $monthTitle = $monthCarbon->format('F Y');
-
-        $periodParam = $validated['period'] ?? null;
-        if ($periodParam === null && $periodMode === '' && $monthInput === '' && empty($validated['date']) && empty($validated['day']) && empty($validated['from']) && empty($validated['to']) && empty($validated['start_date']) && empty($validated['end_date'])) {
-            $periodParam = $defaultPeriod;
-        }
 
         if ($periodMode === 'day' || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day']) || in_array($periodParam, ['today', 'yesterday'], true)))) {
             $periodMode = 'day';
@@ -15258,7 +15462,7 @@ PY;
             'day' => ['nullable', 'date'],
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date'],
-            'period' => ['nullable', 'in:today,yesterday,week,this_week,month,this_month,custom,between,range'],
+            'period' => ['nullable', 'in:today,yesterday,week,this_week,month,this_month,prev_month,last_month,custom,between,range'],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date'],
             'product_filter' => ['nullable', 'string', 'exists:purchase_product_filters,uuid,deleted_at,NULL'],
@@ -15274,6 +15478,11 @@ PY;
 
         $monthInput = (string) ($validated['month'] ?? '');
         $periodMode = (string) ($validated['period_mode'] ?? '');
+        $periodParam = $validated['period'] ?? null;
+
+        if (in_array($periodParam, ['prev_month', 'last_month'], true) && $periodMode === '') {
+            $periodMode = 'month';
+        }
 
         if ($monthInput !== '' && preg_match('/^\d{4}-\d{2}$/', $monthInput)) {
             $month = $monthInput;
@@ -15283,6 +15492,8 @@ PY;
             $month = Carbon::parse((string) $validated['from'])->format('Y-m');
         } elseif (! empty($validated['start_date'])) {
             $month = Carbon::parse((string) $validated['start_date'])->format('Y-m');
+        } elseif (in_array($periodParam, ['prev_month', 'last_month'], true)) {
+            $month = today('Asia/Kolkata')->subMonth()->format('Y-m');
         } else {
             $month = today('Asia/Kolkata')->format('Y-m');
         }
@@ -15293,8 +15504,6 @@ PY;
         $prevMonth = $monthCarbon->copy()->subMonth()->format('Y-m');
         $nextMonth = $monthCarbon->copy()->addMonth()->format('Y-m');
         $monthTitle = $monthCarbon->format('F Y');
-
-        $periodParam = $validated['period'] ?? null;
 
         if ($periodMode === 'day' || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day']) || in_array($periodParam, ['today', 'yesterday'], true)))) {
             $periodMode = 'day';

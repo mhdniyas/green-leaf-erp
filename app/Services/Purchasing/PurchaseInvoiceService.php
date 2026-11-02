@@ -14,6 +14,7 @@ use App\Models\PurchaserCredit;
 use App\Repositories\Purchasing\PurchaseInvoiceRepository;
 use App\Services\Finance\JournalService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class PurchaseInvoiceService
@@ -91,7 +92,7 @@ class PurchaseInvoiceService
     }
 
     /**
-     * @param  array{payment_method:string, discount_amount?:float, paid_amount:float, payment_note:?string, payment_details:?string, payment_paid_by?:string, bill_number?:string}  $payload
+     * @param  array{payment_method:string, discount_amount?:float, paid_amount:float, payment_date?:?string, payment_note:?string, payment_details:?string, payment_paid_by?:string, bill_number?:string}  $payload
      */
     public function updatePayment(PurchaseInvoice $invoice, array $payload): PurchaseInvoice
     {
@@ -183,10 +184,14 @@ class PurchaseInvoiceService
             $discountIncrease = round((float) $updatedInvoice->discount_amount - $previousDiscountAmount, 2);
 
             if ($paidIncrease > 0.0 || $discountIncrease > 0.0) {
+                $paymentDate = ! empty($payload['payment_date'])
+                    ? Carbon::parse((string) $payload['payment_date'])->toDateString()
+                    : today()->toDateString();
+
                 PurchaseInvoicePayment::query()->create([
                     'purchase_invoice_id' => $updatedInvoice->id,
                     'supplier_id' => $updatedInvoice->supplier_id,
-                    'payment_date' => today()->toDateString(),
+                    'payment_date' => $paymentDate,
                     'amount' => max(0, $paidIncrease),
                     'discount_amount' => max(0, $discountIncrease),
                     'payment_method' => $paymentMethod,

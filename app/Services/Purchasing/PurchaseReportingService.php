@@ -7,7 +7,9 @@ namespace App\Services\Purchasing;
 use App\Models\User;
 use App\Services\Finance\PurchaserFinanceService;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Read-only procurement reporting over the existing invoice and purchaser-cart flow.
@@ -57,15 +59,24 @@ final class PurchaseReportingService
             $bill->items = $billItems[$bill->purchaser_cart_id] ?? collect();
         }
 
+        $vendors = $this->vendorRows($items)->orderByDesc('total_purchase')->get();
+
+        $allInvoices = $this->invoiceRows($items)
+            ->orderByDesc('business_date')
+            ->orderByDesc('invoice_id')
+            ->get();
+        $invoicesBySupplier = $allInvoices->groupBy('supplier_id');
+
+        foreach ($vendors as $v) {
+            $v->bills = $invoicesBySupplier->get($v->supplier_id, collect())->values();
+        }
+
         return [
             'summary' => $summary,
-            'recentPurchases' => $this->invoiceRows($items)
-                ->orderByDesc('business_date')
-                ->orderByDesc('invoice_id')
-                ->limit(10)
-                ->get(),
+            'recentPurchases' => $allInvoices->take(10),
             'bills' => $bills,
-            'vendors' => $this->vendorRows($items)->orderByDesc('total_purchase')->limit(5)->get(),
+            'vendors' => $vendors->take(5),
+            'allVendors' => $vendors,
             'purchasers' => $purchasers->take(5),
             'allPurchasers' => $purchasers,
             'categories' => $this->categoryRows($items)->orderByDesc('total_purchase')->limit(8)->get(),
@@ -85,6 +96,38 @@ final class PurchaseReportingService
             'categories' => $this->categoryRows($items)->orderByDesc('total_purchase')->paginate(25, ['*'], 'categories_page')->withQueryString(),
             'invoices' => $this->invoiceRows($items)->orderByDesc('business_date')->paginate(25, ['*'], 'invoices_page')->withQueryString(),
             'unsupportedLegacyCount' => $this->unsupportedLegacyCount($filters),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return array{
+     *     filters: array<string, mixed>,
+     *     summary: object,
+     *     vendors: Collection<int, object>,
+     *     invoices: Collection<int, object>
+     * }
+     */
+    public function vendorReportData(array $filters): array
+    {
+        $items = $this->filteredItems($filters);
+        $summary = $this->summary($items);
+        $vendors = $this->vendorRows($items)->orderByDesc('total_purchase')->get();
+        $invoices = $this->invoiceRows($items)
+            ->orderByDesc('business_date')
+            ->orderByDesc('invoice_id')
+            ->get();
+        $invoicesBySupplier = $invoices->groupBy('supplier_id');
+
+        foreach ($vendors as $v) {
+            $v->bills = $invoicesBySupplier->get($v->supplier_id, collect())->values();
+        }
+
+        return [
+            'filters' => $filters,
+            'summary' => $summary,
+            'vendors' => $vendors,
+            'invoices' => $invoices,
         ];
     }
 
@@ -208,15 +251,24 @@ final class PurchaseReportingService
         $cartTotals = DB::table('purchaser_cart_items')
             ->selectRaw('purchaser_cart_id, SUM(CASE WHEN line_total > 0 THEN line_total ELSE quantity * unit_price END) as gross_total')
             ->groupBy('purchaser_cart_id');
-        $settlements = DB::table('vendor_settlement_allocations')
-            ->selectRaw('purchase_invoice_id, SUM(total_settled) as settled_amount')
+
+        $settlementsQuery = DB::table('vendor_settlement_allocations');
+        if (Schema::hasColumn('vendor_settlement_allocations', 'is_reversed')) {
+            $settlementsQuery->where('is_reversed', false);
+        }
+        $settlements = $settlementsQuery
+            ->selectRaw('purchase_invoice_id, SUM(total_settled) as settled_amount, SUM(discount_allocated) as discount_settled')
             ->groupBy('purchase_invoice_id');
 
         $grossExpression = 'CASE WHEN purchaser_cart_items.line_total > 0 THEN purchaser_cart_items.line_total ELSE purchaser_cart_items.quantity * purchaser_cart_items.unit_price END';
         $invoiceNetExpression = 'CASE WHEN purchase_invoices.amount - purchase_invoices.discount_amount > 0 THEN purchase_invoices.amount - purchase_invoices.discount_amount ELSE 0 END';
-        $netExpression = "({$grossExpression} * CASE WHEN COALESCE(cart_totals.gross_total, 0) > 0 THEN ({$invoiceNetExpression}) / cart_totals.gross_total ELSE 1 END)";
+        $netExpression = "({$grossExpression} * CASE WHEN COALESCE(cart_totals.gross_total, 0) > 0 THEN (1.0 * ({$invoiceNetExpression})) / cart_totals.gross_total ELSE 1.0 END)";
         $paidExpression = "CASE WHEN COALESCE(settlement_totals.settled_amount, purchase_invoices.paid_amount, 0) > {$invoiceNetExpression} THEN {$invoiceNetExpression} ELSE COALESCE(settlement_totals.settled_amount, purchase_invoices.paid_amount, 0) END";
         $paymentClass = "CASE WHEN LOWER(COALESCE(purchase_invoices.payment_method, purchaser_carts.payment_method, '')) = 'credit' OR purchase_invoices.payment_paid_by = 'vendor_credit' OR purchase_invoices.payment_status = 'credit_pending_approval' THEN 'credit' ELSE 'cash' END";
+
+        $directDiscountExpr = "CASE WHEN COALESCE(purchase_invoices.discount_amount, 0) > 0 THEN ({$grossExpression} * CASE WHEN COALESCE(cart_totals.gross_total, 0) > 0 THEN (1.0 * purchase_invoices.discount_amount) / cart_totals.gross_total ELSE 0 END) ELSE 0 END";
+        $settlementDiscountExpr = "CASE WHEN COALESCE(settlement_totals.discount_settled, 0) > 0 THEN ({$netExpression} * (1.0 * settlement_totals.discount_settled) / NULLIF({$invoiceNetExpression}, 0)) ELSE 0 END";
+        $itemDiscountExpr = "({$directDiscountExpr} + {$settlementDiscountExpr})";
 
         $query = DB::table('purchase_invoices')
             ->join('purchaser_carts', 'purchaser_carts.id', '=', 'purchase_invoices.purchaser_cart_id')
@@ -230,7 +282,7 @@ final class PurchaseReportingService
             ->leftJoinSub($settlements, 'settlement_totals', 'settlement_totals.purchase_invoice_id', '=', 'purchase_invoices.id')
             ->whereNull('purchase_invoices.deleted_at')
             ->where('purchase_invoices.status', '!=', 'cancelled')
-            ->selectRaw("purchase_invoices.id as invoice_id, purchase_invoices.public_uuid as invoice_public_uuid, purchase_invoices.invoice_number, purchase_invoices.status as invoice_status, purchase_invoices.payment_status, purchaser_carts.id as purchaser_cart_id, purchaser_carts.business_date, purchase_invoices.supplier_id, suppliers.public_uuid as supplier_public_uuid, suppliers.name as supplier_name, purchaser_carts.user_id as purchaser_id, users.public_uuid as purchaser_public_uuid, users.name as purchaser_name, products.id as product_id, products.name as product_name, products.unit as unit, products.default_warehouse_id, warehouses.code as warehouse_code, CASE WHEN warehouses.code = 'VEG-WH' THEN 'Vegetables' WHEN warehouses.code = 'FRT-WH' THEN 'Fruits' ELSE 'Other' END as produce_type, categories.id as category_id, categories.name as category_name, purchaser_cart_items.grade, purchaser_cart_items.quantity, purchaser_cart_items.unit_price, {$paymentClass} as payment_class, {$netExpression} as item_net, ({$netExpression} * {$paidExpression} / NULLIF({$invoiceNetExpression}, 0)) as item_paid");
+            ->selectRaw("purchase_invoices.id as invoice_id, purchase_invoices.public_uuid as invoice_public_uuid, purchase_invoices.invoice_number, purchase_invoices.status as invoice_status, purchase_invoices.payment_status, purchaser_carts.id as purchaser_cart_id, purchaser_carts.business_date, purchase_invoices.supplier_id, suppliers.public_uuid as supplier_public_uuid, suppliers.name as supplier_name, purchaser_carts.user_id as purchaser_id, users.public_uuid as purchaser_public_uuid, users.name as purchaser_name, products.id as product_id, products.name as product_name, products.unit as unit, products.default_warehouse_id, warehouses.code as warehouse_code, CASE WHEN warehouses.code = 'VEG-WH' THEN 'Vegetables' WHEN warehouses.code = 'FRT-WH' THEN 'Fruits' ELSE 'Other' END as produce_type, categories.id as category_id, categories.name as category_name, purchaser_cart_items.grade, purchaser_cart_items.quantity, purchaser_cart_items.unit_price, {$paymentClass} as payment_class, {$netExpression} as item_net, ({$netExpression} * (1.0 * {$paidExpression}) / NULLIF({$invoiceNetExpression}, 0)) as item_paid, {$itemDiscountExpr} as item_discount");
 
         $this->applyFilters($query, $filters);
 
@@ -287,18 +339,18 @@ final class PurchaseReportingService
         }
     }
 
-    private function summary(Builder $items): object
+    public function summary(Builder $items): object
     {
-        return DB::query()->fromSub($items, 'purchase_items')->selectRaw("COALESCE(SUM(item_net), 0) as total_purchase, COALESCE(SUM(CASE WHEN payment_class = 'cash' THEN item_net ELSE 0 END), 0) as cash_purchase, COALESCE(SUM(CASE WHEN payment_class = 'credit' THEN item_net ELSE 0 END), 0) as credit_purchase, COALESCE(SUM(item_paid), 0) as credit_paid, COALESCE(SUM(CASE WHEN payment_class = 'credit' AND item_net > item_paid THEN item_net - item_paid ELSE 0 END), 0) as credit_outstanding, COUNT(DISTINCT supplier_id) as vendor_count, COUNT(DISTINCT purchaser_id) as purchaser_count, COUNT(DISTINCT invoice_id) as invoice_count, COUNT(DISTINCT category_id) as category_count")->first();
+        return DB::query()->fromSub($items, 'purchase_items')->selectRaw("COALESCE(SUM(item_net), 0) as total_purchase, COALESCE(SUM(CASE WHEN payment_class = 'cash' THEN item_net ELSE 0 END), 0) as cash_purchase, COALESCE(SUM(CASE WHEN payment_class = 'credit' THEN item_net ELSE 0 END), 0) as credit_purchase, COALESCE(SUM(item_paid), 0) as credit_paid, COALESCE(SUM(item_paid), 0) as paid_amount, COALESCE(SUM(item_discount), 0) as discount, COALESCE(SUM(CASE WHEN payment_class = 'credit' AND item_net > item_paid THEN item_net - item_paid ELSE 0 END), 0) as credit_outstanding, COUNT(DISTINCT supplier_id) as vendor_count, COUNT(DISTINCT purchaser_id) as purchaser_count, COUNT(DISTINCT invoice_id) as invoice_count, COUNT(DISTINCT category_id) as category_count")->first();
     }
 
-    private function vendorRows(Builder $items): Builder
+    public function vendorRows(Builder $items): Builder
     {
         $tagExpression = DB::connection()->getDriverName() === 'sqlite'
             ? "category_id || '|' || category_name"
             : "CONCAT(category_id, '|', category_name)";
 
-        return DB::query()->fromSub($items, 'purchase_items')->selectRaw("supplier_id, supplier_public_uuid, supplier_name, COUNT(DISTINCT invoice_id) as invoice_count, SUM(CASE WHEN payment_class = 'cash' THEN item_net ELSE 0 END) as cash_purchase, SUM(CASE WHEN payment_class = 'credit' THEN item_net ELSE 0 END) as credit_purchase, SUM(item_paid) as credit_paid, SUM(CASE WHEN payment_class = 'credit' AND item_net > item_paid THEN item_net - item_paid ELSE 0 END) as outstanding, SUM(item_net) as total_purchase, GROUP_CONCAT(DISTINCT {$tagExpression}) as category_tags")->groupBy('supplier_id', 'supplier_public_uuid', 'supplier_name');
+        return DB::query()->fromSub($items, 'purchase_items')->selectRaw("supplier_id, supplier_public_uuid, supplier_name, COUNT(DISTINCT invoice_id) as invoice_count, SUM(CASE WHEN payment_class = 'cash' THEN item_net ELSE 0 END) as cash_purchase, SUM(CASE WHEN payment_class = 'credit' THEN item_net ELSE 0 END) as credit_purchase, SUM(item_paid) as credit_paid, SUM(item_paid) as paid_amount, COALESCE(SUM(item_discount), 0) as discount, SUM(CASE WHEN payment_class = 'credit' AND item_net > item_paid THEN item_net - item_paid ELSE 0 END) as outstanding, SUM(item_net) as total_purchase, GROUP_CONCAT(DISTINCT {$tagExpression}) as category_tags")->groupBy('supplier_id', 'supplier_public_uuid', 'supplier_name');
     }
 
     /** @param array<string, mixed> $filters */
@@ -331,7 +383,7 @@ final class PurchaseReportingService
         return DB::query()->fromSub($items, 'purchase_items')->selectRaw("category_id, category_name, COUNT(DISTINCT supplier_id) as vendor_count, COUNT(DISTINCT purchaser_id) as purchaser_count, COUNT(DISTINCT invoice_id) as invoice_count, SUM(CASE WHEN payment_class = 'cash' THEN item_net ELSE 0 END) as cash_purchase, SUM(CASE WHEN payment_class = 'credit' THEN item_net ELSE 0 END) as credit_purchase, SUM(item_net) as total_purchase")->groupBy('category_id', 'category_name');
     }
 
-    private function invoiceRows(Builder $items): Builder
+    public function invoiceRows(Builder $items): Builder
     {
         $produceExpression = DB::connection()->getDriverName() === 'sqlite'
             ? 'GROUP_CONCAT(DISTINCT produce_type)'
@@ -341,7 +393,7 @@ final class PurchaseReportingService
             : 'GROUP_CONCAT(DISTINCT category_name ORDER BY category_name SEPARATOR ", ")';
 
         return DB::query()->fromSub($items, 'purchase_items')
-            ->selectRaw('invoice_id, invoice_public_uuid, invoice_number, purchaser_cart_id, invoice_status, payment_status, business_date, supplier_id, supplier_public_uuid, supplier_name, purchaser_id, purchaser_public_uuid, purchaser_name, payment_class, '.$produceExpression.' as produce_types, '.$categoryExpression.' as categories, SUM(item_net) as total_purchase, SUM(item_paid) as paid_amount, SUM(CASE WHEN payment_class = "credit" AND item_net > item_paid THEN item_net - item_paid ELSE 0 END) as outstanding')
+            ->selectRaw('invoice_id, invoice_public_uuid, invoice_number, purchaser_cart_id, invoice_status, payment_status, business_date, supplier_id, supplier_public_uuid, supplier_name, purchaser_id, purchaser_public_uuid, purchaser_name, payment_class, '.$produceExpression.' as produce_types, '.$categoryExpression.' as categories, SUM(item_net) as total_purchase, SUM(item_paid) as paid_amount, COALESCE(SUM(item_discount), 0) as discount, SUM(CASE WHEN payment_class = "credit" AND item_net > item_paid THEN item_net - item_paid ELSE 0 END) as outstanding')
             ->groupBy('invoice_id', 'invoice_public_uuid', 'invoice_number', 'purchaser_cart_id', 'invoice_status', 'payment_status', 'business_date', 'supplier_id', 'supplier_public_uuid', 'supplier_name', 'purchaser_id', 'purchaser_public_uuid', 'purchaser_name', 'payment_class');
     }
 

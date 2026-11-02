@@ -262,4 +262,38 @@ class AdminPurchaseFinanceDashboardTest extends TestCase
                 ->assertSee('August 2026');
         }
     }
+
+    public function test_purchase_finance_dashboard_renders_prev_month_filter_button_and_preserves_payment_filter(): void
+    {
+        $prevMonthYm = today('Asia/Kolkata')->subMonth()->format('Y-m');
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase', [
+            'payment' => 'cash',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Prev Month');
+        $response->assertSee('period=prev_month', false);
+        $response->assertSee('month='.$prevMonthYm, false);
+        $response->assertSee('payment=cash', false);
+    }
+
+    public function test_purchase_finance_dashboard_filters_by_prev_month(): void
+    {
+        $prevMonthCarbon = today('Asia/Kolkata')->subMonth();
+        $prevMonthYm = $prevMonthCarbon->format('Y-m');
+        $prevMonthTitle = $prevMonthCarbon->format('F Y');
+        $prevMonthRange = $prevMonthCarbon->copy()->startOfMonth()->format('d M Y').' – '.$prevMonthCarbon->copy()->endOfMonth()->format('d M Y');
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase', [
+            'period' => 'prev_month',
+            'payment' => 'cash',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Prev Month');
+        $response->assertSee($prevMonthTitle);
+        $response->assertSee($prevMonthRange);
+        $response->assertSee('Mode: Cash Purchases');
+    }
 }

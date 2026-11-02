@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
@@ -130,6 +131,32 @@ class PurchaseInvoice extends Model
     public static function hasPublicUuidColumn(): bool
     {
         return self::$hasPublicUuidColumn ??= Schema::hasColumn('purchase_invoices', 'public_uuid');
+    }
+
+    /**
+     * Generate unique Green Leaf Purchase Bill reference number: GLPBYY-MMDD-SUFFIX.
+     */
+    public static function generatePurchaseBillNumber(Carbon|\DateTimeInterface|string $date, ?string $cartNumber = null): string
+    {
+        $parsedDate = $date instanceof Carbon ? $date : Carbon::parse($date);
+        $yy = $parsedDate->format('y');
+        $mmdd = $parsedDate->format('md');
+
+        if ($cartNumber !== null && preg_match('/-([A-Za-z0-9]{4})$/', trim($cartNumber), $matches)) {
+            $candidateSuffix = strtoupper($matches[1]);
+            $candidate = "GLPB{$yy}-{$mmdd}-{$candidateSuffix}";
+
+            if (! static::withTrashed()->where('invoice_number', $candidate)->exists()) {
+                return $candidate;
+            }
+        }
+
+        do {
+            $suffix = strtoupper(bin2hex(random_bytes(2)));
+            $billNumber = "GLPB{$yy}-{$mmdd}-{$suffix}";
+        } while (static::withTrashed()->where('invoice_number', $billNumber)->exists());
+
+        return $billNumber;
     }
 
     public function getActivitylogOptions(): LogOptions

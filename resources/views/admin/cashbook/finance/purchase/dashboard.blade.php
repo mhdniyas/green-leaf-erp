@@ -39,6 +39,15 @@
             $purchaseContext += ['from' => $periodStart, 'to' => $periodEnd];
         }
     }
+    if (!empty($activePurchaserId)) {
+        $purchaseContext['purchaser_id'] = $activePurchaserId;
+    }
+    if (($filters['payment'] ?? 'all') !== 'all') {
+        $purchaseContext['payment'] = $filters['payment'];
+    }
+    if (!empty($filters['search'])) {
+        $purchaseContext['search'] = $filters['search'];
+    }
 
     // Base query params for links preserving current period & search
     $baseParams = [
@@ -54,6 +63,15 @@
         'product_filter' => $selectedProductFilter,
     ];
     $baseParams = array_filter($baseParams, fn ($v) => $v !== null && $v !== '');
+
+    $currentCalendarMonth = today('Asia/Kolkata')->format('Y-m');
+    $prevCalendarMonth = today('Asia/Kolkata')->subMonth()->format('Y-m');
+    $presetBaseParams = array_filter([
+        'purchaser_id' => $activePurchaserId,
+        'payment' => ($activePayment !== 'all') ? $activePayment : null,
+        'product_filter' => $selectedProductFilter,
+        'search' => $filters['search'] ?? null,
+    ], fn ($v) => $v !== null && $v !== '');
 
     $activePurchaserObj = $activePurchaserId ? $purchasersList->firstWhere('id', (int) $activePurchaserId) : null;
 @endphp
@@ -127,28 +145,35 @@
         }">
             <form method="GET" action="{{ route('admin.cashbook.finance.purchase') }}" class="space-y-3">
                 <input type="hidden" name="month" value="{{ $month }}">
+                <input type="hidden" name="period" value="{{ $period }}" :disabled="showCustom">
+                <input type="hidden" name="period_mode" value="{{ $periodMode }}" :disabled="showCustom">
 
                 <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 flex-wrap">
                     <!-- Period Filter Presets -->
                     <div class="flex items-center gap-1.5 bg-slate-200/80 p-1 rounded-xl flex-wrap">
-                        <a href="{{ route('admin.cashbook.finance.purchase', array_merge($baseParams, ['period' => 'today', 'period_mode' => 'day', 'purchaser_id' => $activePurchaserId, 'payment' => $activePayment])) }}"
+                        <a href="{{ route('admin.cashbook.finance.purchase', array_merge($presetBaseParams, ['period' => 'today', 'period_mode' => 'day'])) }}"
                            class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition {{ $period === 'today' ? 'bg-white text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
                             Today
                         </a>
 
-                        <a href="{{ route('admin.cashbook.finance.purchase', array_merge($baseParams, ['period' => 'yesterday', 'period_mode' => 'day', 'purchaser_id' => $activePurchaserId, 'payment' => $activePayment])) }}"
+                        <a href="{{ route('admin.cashbook.finance.purchase', array_merge($presetBaseParams, ['period' => 'yesterday', 'period_mode' => 'day'])) }}"
                            class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition {{ $period === 'yesterday' ? 'bg-white text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
                             Yesterday
                         </a>
 
-                        <a href="{{ route('admin.cashbook.finance.purchase', array_merge($baseParams, ['period' => 'week', 'period_mode' => 'custom', 'purchaser_id' => $activePurchaserId, 'payment' => $activePayment])) }}"
+                        <a href="{{ route('admin.cashbook.finance.purchase', array_merge($presetBaseParams, ['period' => 'week', 'period_mode' => 'custom'])) }}"
                            class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition {{ in_array($period, ['week', 'this_week'], true) ? 'bg-white text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
                             This Week
                         </a>
 
-                        <a href="{{ route('admin.cashbook.finance.purchase', array_merge($baseParams, ['period' => 'month', 'period_mode' => 'month', 'purchaser_id' => $activePurchaserId, 'payment' => $activePayment])) }}"
-                           class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition {{ in_array($period, ['month', 'this_month'], true) && $periodMode === 'month' ? 'bg-white text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
+                        <a href="{{ route('admin.cashbook.finance.purchase', array_merge($presetBaseParams, ['period' => 'month', 'period_mode' => 'month', 'month' => $currentCalendarMonth])) }}"
+                           class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition {{ (in_array($period, ['month', 'this_month'], true) && $periodMode === 'month' && $month === $currentCalendarMonth) ? 'bg-white text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
                             This Month
+                        </a>
+
+                        <a href="{{ route('admin.cashbook.finance.purchase', array_merge($presetBaseParams, ['period' => 'prev_month', 'period_mode' => 'month', 'month' => $prevCalendarMonth])) }}"
+                           class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition {{ (in_array($period, ['prev_month', 'last_month'], true) || ($periodMode === 'month' && $month === $prevCalendarMonth && !in_array($period, ['month', 'this_month'], true))) ? 'bg-white text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
+                            Prev Month
                         </a>
 
                         <button type="button"
@@ -191,10 +216,18 @@
                             </select>
                         </div>
 
-                        <!-- Payment Filter (if active) -->
-                        @if($activePayment !== 'all')
-                            <input type="hidden" name="payment" value="{{ $activePayment }}">
-                        @endif
+                        <!-- Payment Filter Selector -->
+                        <div class="flex items-center gap-1.5">
+                            <label for="payment_filter_select" class="text-xs font-bold text-slate-600">Payment:</label>
+                            <select id="payment_filter_select"
+                                    name="payment"
+                                    onchange="this.form.submit()"
+                                    class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 focus:border-emerald-600 focus:outline-hidden">
+                                <option value="all" @selected($activePayment === 'all')>All</option>
+                                <option value="cash" @selected($activePayment === 'cash')>Cash Only</option>
+                                <option value="credit" @selected($activePayment === 'credit')>Credit Only</option>
+                            </select>
+                        </div>
 
                         <!-- Reset Button -->
                         <a href="{{ route('admin.cashbook.finance.purchase', ['period' => 'month', 'period_mode' => 'month']) }}"
@@ -431,41 +464,260 @@
             </div>
         @endif
 
-        @if(!empty($dashboard['vendors']) && $dashboard['vendors']->isNotEmpty())
-            <div class="pt-3 border-t border-slate-100 space-y-2">
-                <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Vendors Overview:</span>
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                    @foreach($dashboard['vendors'] as $vendor)
+        <!-- VENDORS OVERVIEW: INVOICE-STYLE FINANCIAL SUMMARY CARDS -->
+        @php
+            $vendorsOverviewList = $dashboard['allVendors'] ?? $dashboard['vendors'] ?? collect();
+        @endphp
+        <div class="pt-5 border-t border-slate-200/80 space-y-4" id="vendors-overview"
+             x-data="{
+                 activePayment: '{{ $activePayment }}',
+                 search: '',
+                 limit: 5,
+                 step: 5,
+                 includeFullDetails: false,
+                 totalVisible: {{ min(5, $vendorsOverviewList->count()) }},
+                 totalMatching: {{ $vendorsOverviewList->count() }},
+                 setPayment(mode) {
+                     if (this.activePayment === mode) return;
+                     const url = new URL(window.location.href);
+                     if (mode === 'all') {
+                         url.searchParams.delete('payment');
+                     } else {
+                         url.searchParams.set('payment', mode);
+                     }
+                     window.location.href = url.toString();
+                 },
+                 loadMore() {
+                     this.limit += this.step;
+                     this.applyFilters();
+                 },
+                 applyFilters() {
+                     let q = (this.search || '').trim().toLowerCase();
+                     let wrappers = this.$refs.vendorList ? this.$refs.vendorList.querySelectorAll('.vendor-card-wrapper') : [];
+                     let count = 0;
+                     let matchCount = 0;
+                     let visibleIndex = 1;
+
+                     wrappers.forEach((el) => {
+                         let name = el.dataset.name || '';
+                         let tags = el.dataset.tags || '';
+                         let matchQuery = !q || name.includes(q) || tags.includes(q);
+
+                         if (matchQuery) {
+                             matchCount++;
+                             if (matchCount <= this.limit) {
+                                 el.style.display = '';
+                                 el.classList.remove('hidden');
+                                 count++;
+                                 const numEl = el.querySelector('.serial-num');
+                                 if (numEl) {
+                                     numEl.textContent = 'SL ' + String(visibleIndex).padStart(2, '0');
+                                 }
+                                 visibleIndex++;
+                             } else {
+                                 el.style.display = 'none';
+                                 el.classList.add('hidden');
+                             }
+                         } else {
+                             el.style.display = 'none';
+                             el.classList.add('hidden');
+                         }
+                     });
+
+                     this.totalVisible = count;
+                     this.totalMatching = matchCount;
+
+                     this.$nextTick(() => {
+                         if (window.lucide) {
+                             window.lucide.createIcons();
+                         }
+                     });
+                 },
+                 get exportPdfUrl() {
+                     let url = new URL('{{ route('admin.cashbook.finance.purchase.vendors.export.pdf', $purchaseContext) }}', window.location.origin);
+                     if (this.activePayment && this.activePayment !== 'all') {
+                         url.searchParams.set('payment', this.activePayment);
+                     } else {
+                         url.searchParams.delete('payment');
+                     }
+                     if (this.includeFullDetails) {
+                         url.searchParams.set('include_details', '1');
+                     } else {
+                         url.searchParams.delete('include_details');
+                     }
+                     return url.toString();
+                 },
+                 get exportExcelUrl() {
+                     let url = new URL('{{ route('admin.cashbook.finance.purchase.vendors.export.excel', $purchaseContext) }}', window.location.origin);
+                     if (this.activePayment && this.activePayment !== 'all') {
+                         url.searchParams.set('payment', this.activePayment);
+                     } else {
+                         url.searchParams.delete('payment');
+                     }
+                     return url.toString();
+                 },
+                 init() {
+                     this.applyFilters();
+                 }
+             }">
+            {{-- Professional Report Header & Top Export Actions --}}
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3">
+                <div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/70 inline-block">
+                            GREEN LEAF
+                        </span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Vendors Overview
+                        </span>
+                    </div>
+                    <h2 class="text-lg sm:text-xl font-black text-slate-950 uppercase tracking-tight flex items-center gap-2">
+                        <i data-lucide="truck" class="w-5 h-5 text-emerald-600"></i>
+                        <span>VENDOR PURCHASE REPORT</span>
+                    </h2>
+                    <p class="text-xs font-semibold text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-400"></i>
+                        <span>Period: <strong class="text-slate-800 font-bold">{{ $formattedRange }}</strong></span>
+                        @if($activePurchaserObj)
+                            <span class="text-slate-300">&bull;</span>
+                            <span>Purchaser: <strong class="text-slate-800 font-bold">{{ $activePurchaserObj->name }}</strong></span>
+                        @endif
+                    </p>
+                </div>
+                <div class="flex items-center gap-2.5 flex-wrap">
+                    <label class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer select-none bg-white border border-slate-200 px-2.5 py-1.5 rounded-xl shadow-2xs hover:bg-slate-50 transition">
+                        <input type="checkbox"
+                               x-model="includeFullDetails"
+                               class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5">
+                        <span>Include Full Details</span>
+                    </label>
+                    <a :href="exportPdfUrl"
+                       href="{{ route('admin.cashbook.finance.purchase.vendors.export.pdf', $purchaseContext) }}"
+                       class="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-black uppercase tracking-wider text-slate-700 shadow-xs hover:bg-slate-50 hover:border-slate-400 transition cursor-pointer"
+                       title="Export all qualifying vendors to PDF">
+                        <i data-lucide="file-text" class="w-3.5 h-3.5 text-rose-600"></i>
+                        <span>Export PDF</span>
+                    </a>
+                    <a :href="exportExcelUrl"
+                       href="{{ route('admin.cashbook.finance.purchase.vendors.export.excel', $purchaseContext) }}"
+                       class="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-black uppercase tracking-wider text-slate-700 shadow-xs hover:bg-slate-50 hover:border-slate-400 transition cursor-pointer"
+                       title="Export all qualifying vendors to Excel (.xlsx)">
+                        <i data-lucide="sheet" class="w-3.5 h-3.5 text-emerald-600"></i>
+                        <span>Export Excel</span>
+                    </a>
+                </div>
+            </div>
+
+            {{-- TOOLBAR: Smooth Segmented Switch (All / Cash / Credit) & Vendor Search Input --}}
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50 p-2.5 rounded-2xl border border-slate-200/70">
+                <!-- Smooth Cash / Credit / All Switch -->
+                <div class="flex items-center gap-2 flex-wrap">
+                    <div class="inline-flex items-center bg-slate-200/70 p-1 rounded-xl text-xs font-extrabold relative">
+                        <button type="button"
+                                @click="setPayment('all')"
+                                :class="activePayment === 'all' ? 'bg-white text-slate-950 shadow-xs font-black' : 'text-slate-600 hover:text-slate-900'"
+                                class="px-3.5 py-1.5 rounded-lg transition-all duration-200 ease-in-out cursor-pointer">
+                            All
+                        </button>
+                        <button type="button"
+                                @click="setPayment('cash')"
+                                :class="activePayment === 'cash' ? 'bg-emerald-600 text-white shadow-xs font-black' : 'text-slate-600 hover:text-slate-900'"
+                                class="px-3.5 py-1.5 rounded-lg transition-all duration-200 ease-in-out flex items-center gap-1.5 cursor-pointer">
+                            <span class="w-2 h-2 rounded-full transition-colors duration-200"
+                                  :class="activePayment === 'cash' ? 'bg-white' : 'bg-emerald-500'"></span>
+                            <span>Cash</span>
+                        </button>
+                        <button type="button"
+                                @click="setPayment('credit')"
+                                :class="activePayment === 'credit' ? 'bg-slate-900 text-white shadow-xs font-black' : 'text-slate-600 hover:text-slate-900'"
+                                class="px-3.5 py-1.5 rounded-lg transition-all duration-200 ease-in-out flex items-center gap-1.5 cursor-pointer">
+                            <span class="w-2 h-2 rounded-full transition-colors duration-200"
+                                  :class="activePayment === 'credit' ? 'bg-emerald-400' : 'bg-rose-500'"></span>
+                            <span>Credit</span>
+                        </button>
+                    </div>
+
+                    <span class="text-xs font-bold text-slate-500 pl-1"
+                          x-text="`Showing ${totalVisible} of ${totalMatching} ${totalMatching === 1 ? 'vendor' : 'vendors'}`">
+                        Showing {{ min(5, $vendorsOverviewList->count()) }} of {{ $vendorsOverviewList->count() }} vendors
+                    </span>
+                </div>
+
+                {{-- Live vendor filter box --}}
+                <div class="relative w-full sm:w-72">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                        <i data-lucide="search" class="w-3.5 h-3.5"></i>
+                    </div>
+                    <input type="text"
+                           x-model="search"
+                           @input.debounce.150ms="limit = 5; applyFilters()"
+                           placeholder="Filter vendor or product..."
+                           class="w-full pl-9 pr-8 py-1.5 text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-xl focus:outline-hidden focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 shadow-2xs transition placeholder:text-slate-400 placeholder:font-normal">
+                    <button type="button"
+                            x-show="search.length > 0"
+                            x-cloak
+                            @click="search = ''; limit = 5; applyFilters()"
+                            class="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer"
+                            title="Clear search">
+                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+            </div>
+
+            @if($vendorsOverviewList->isNotEmpty())
+                <div class="space-y-2.5" x-ref="vendorList">
+                    @foreach($vendorsOverviewList as $index => $vendor)
                         @php
-                            $tags = $vendor->category_tags ? array_map(fn ($tag) => explode('|', $tag, 2), array_filter(explode(',', $vendor->category_tags))) : [];
+                            $vCash = (float) ($vendor->cash_purchase ?? 0);
+                            $vCredit = (float) ($vendor->credit_purchase ?? 0);
+                            $vName = strtolower($vendor->supplier_name ?? '');
+                            $vTags = strtolower($vendor->category_tags ?? '');
                         @endphp
-                        <div class="rounded-xl border border-slate-200/80 bg-slate-50/50 p-2.5 flex flex-col justify-between text-xs">
-                            <div class="flex items-center justify-between gap-1">
-                                <a class="font-bold text-slate-900 hover:text-emerald-700 transition"
-                                   href="{{ route('admin.cashbook.finance.purchase.vendors.show', ['supplier' => $vendor->supplier_public_uuid] + $purchaseContext) }}">
-                                    {{ $vendor->supplier_name ?? 'Unassigned' }}
-                                </a>
-                                <span class="font-mono font-bold text-slate-950">₹{{ number_format((float) $vendor->total_purchase, 0) }}</span>
-                            </div>
-                            @if(!empty($tags))
-                                <div class="flex items-center gap-1 flex-wrap mt-1.5">
-                                    @foreach(array_slice($tags, 0, 3) as [$categoryId, $categoryName])
-                                        <span class="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 border border-slate-200/60">
-                                            {{ $categoryName ?: 'Uncategorised' }}
-                                        </span>
-                                    @endforeach
-                                    @if(count($tags) > 3)
-                                        <span class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                                            +{{ count($tags) - 3 }}
-                                        </span>
-                                    @endif
-                                </div>
-                            @endif
+                        <div class="vendor-card-wrapper transition-all duration-200 {{ $index >= 5 ? 'hidden' : '' }}"
+                             data-cash="{{ $vCash }}"
+                             data-credit="{{ $vCredit }}"
+                             data-name="{{ $vName }}"
+                             data-tags="{{ $vTags }}"
+                             style="{{ $index >= 5 ? 'display: none;' : '' }}">
+                            @include('admin.cashbook.finance.purchase._vendor-invoice-card', [
+                                'vendor' => $vendor,
+                                'serialNumber' => $index + 1,
+                                'purchaseContext' => $purchaseContext,
+                                'formattedRange' => $formattedRange,
+                            ])
                         </div>
                     @endforeach
                 </div>
-            </div>
-        @endif
+
+                {{-- Load More Action Button --}}
+                <div x-show="totalMatching > limit" x-cloak class="pt-2 text-center">
+                    <button type="button"
+                            @click="loadMore()"
+                            class="inline-flex items-center gap-2 rounded-2xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 hover:text-slate-950 px-6 py-2.5 text-xs font-black uppercase tracking-wider shadow-xs hover:shadow-sm transition-all duration-200 cursor-pointer active:scale-98">
+                        <i data-lucide="chevron-down" class="w-4 h-4 text-emerald-600"></i>
+                        <span>Load More Vendors</span>
+                        <span class="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-black"
+                              x-text="`+${Math.min(step, totalMatching - limit)} (${totalVisible}/${totalMatching})`"></span>
+                    </button>
+                </div>
+
+                {{-- Empty Search / Filter Feedback --}}
+                <div x-show="totalMatching === 0" x-cloak
+                     class="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs font-semibold text-slate-500 space-y-2">
+                    <p>No vendors match the current filter or search criteria.</p>
+                    <button type="button"
+                            @click="search = ''; setPayment('all')"
+                            class="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-900 font-bold hover:underline cursor-pointer">
+                        <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                        <span>Reset vendor search & filters</span>
+                    </button>
+                </div>
+            @else
+                <div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs font-semibold text-slate-500">
+                    No vendor purchases recorded for this period.
+                </div>
+            @endif
+        </div>
     </section>
 
     <!-- SECTION C: PURCHASER-WISE SUMMARY TABLE (WITH SORTABLE HEADERS) -->
@@ -1038,6 +1290,44 @@
             </div>
         @endif
     </section>
+
+    {{-- Single Bill Payment Update Modal (reusing Vendor Credit workflow) --}}
+    @include('admin.cashbook.finance.purchase._payment-modal')
+
+    {{-- Flash Toast for Payment Success --}}
+    <div x-data="{
+            showToast: false,
+            message: '',
+            init() {
+                const flash = sessionStorage.getItem('purchase_payment_flash_success');
+                if (flash) {
+                    this.message = flash;
+                    this.showToast = true;
+                    sessionStorage.removeItem('purchase_payment_flash_success');
+                    setTimeout(() => { this.showToast = false; }, 6000);
+                }
+            }
+         }"
+         x-show="showToast"
+         x-cloak
+         x-transition:enter="transition ease-out duration-300"
+         x-transition:enter-start="opacity-0 translate-y-4"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-200"
+         x-transition:leave-start="opacity-100 translate-y-0"
+         x-transition:leave-end="opacity-0 translate-y-4"
+         class="fixed bottom-5 right-5 z-50 flex items-center gap-3 rounded-2xl bg-emerald-950 text-white px-5 py-3.5 shadow-2xl border border-emerald-700/80">
+        <div class="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+            <i data-lucide="check-circle" class="w-5 h-5"></i>
+        </div>
+        <div>
+            <div class="text-[10px] font-black uppercase tracking-wider text-emerald-300">Payment Updated</div>
+            <div class="text-xs font-bold" x-text="message"></div>
+        </div>
+        <button type="button" @click="showToast = false" class="ml-2 text-emerald-300 hover:text-white cursor-pointer">
+            <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+    </div>
 
 </div>
 @endsection
