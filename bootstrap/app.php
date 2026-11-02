@@ -171,4 +171,33 @@ return Application::configure(basePath: dirname(__DIR__))
 
             return $redirectUnauthorizedDashboardRequest($request);
         });
+
+        $exceptions->respond(function ($response, Throwable $exception, Request $request) {
+            if ($response->getStatusCode() >= 400 && ! $request->user() && ! auth()->check()) {
+                $status = $response->getStatusCode();
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'message' => $exception instanceof HttpExceptionInterface ? $exception->getMessage() : 'Server Error',
+                    ], $status);
+                }
+
+                $title = match ($status) {
+                    401 => 'Unauthorized',
+                    403 => 'Forbidden',
+                    404 => 'Page Not Found',
+                    405 => 'Method Not Allowed',
+                    419 => 'Page Expired',
+                    429 => 'Too Many Requests',
+                    default => 'Server Error',
+                };
+
+                return response()->make(
+                    "<!DOCTYPE html><html><head><title>{$status} | {$title}</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><style>body{font-family:ui-sans-serif,system-ui,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:1rem;}h1{font-size:1.5rem;font-weight:600;margin:0 0 0.5rem 0;}p{color:#94a3b8;font-size:0.95rem;margin:0;}</style></head><body><div style=\"text-align:center\"><h1>{$status} | {$title}</h1><p>Authorized testing staff should log in to view diagnostics.</p></div></body></html>",
+                    $status,
+                    ['Content-Type' => 'text/html']
+                );
+            }
+
+            return $response;
+        });
     })->create();

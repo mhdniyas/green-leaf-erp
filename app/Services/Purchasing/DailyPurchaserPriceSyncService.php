@@ -59,6 +59,7 @@ class DailyPurchaserPriceSyncService
 
             $approval = DailyPriceApproval::query()
                 ->where('product_id', $prodId)
+                ->where('grade', 'A')
                 ->whereDate('business_date', $dateStr)
                 ->first();
 
@@ -76,6 +77,7 @@ class DailyPurchaserPriceSyncService
 
                 $previousApproval = DailyPriceApproval::query()
                     ->where('product_id', $prodId)
+                    ->where('grade', 'A')
                     ->whereDate('business_date', '<', $dateStr)
                     ->orderByDesc('business_date')
                     ->first();
@@ -88,6 +90,7 @@ class DailyPurchaserPriceSyncService
                 DailyPriceApproval::query()->create([
                     'product_id' => $prodId,
                     'business_date' => $dateStr,
+                    'grade' => 'A',
                     'purchase_price' => $weightedPrice,
                     'price_unit' => ProductUnit::normalizeUnit((string) ($previousApproval?->price_unit ?: $product->unit ?: 'kg')),
                     'price_a' => $prevA,
@@ -107,12 +110,14 @@ class DailyPurchaserPriceSyncService
         if ($productId !== null && ! $purchasedProducts->has($productId)) {
             $approval = DailyPriceApproval::query()
                 ->where('product_id', $productId)
+                ->where('grade', 'A')
                 ->whereDate('business_date', $dateStr)
                 ->first();
 
             if ($approval instanceof DailyPriceApproval) {
                 $previousApproval = DailyPriceApproval::query()
                     ->where('product_id', $productId)
+                    ->where('grade', 'A')
                     ->whereDate('business_date', '<', $dateStr)
                     ->orderByDesc('business_date')
                     ->first();
