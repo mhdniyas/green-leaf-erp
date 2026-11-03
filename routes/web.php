@@ -1114,6 +1114,10 @@ Route::middleware('auth')->group(function () {
             Route::get('inventory/export-excel', [AdminCashbookReportsController::class, 'exportInventoryBusinessDayExcel'])->name('inventory.export-excel')->middleware('can:cashbook.inventory.view');
             Route::get('inventory/export/pdf', [AdminCashbookReportsController::class, 'exportInventoryBusinessDayPdf'])->name('inventory.export.pdf')->middleware('can:cashbook.inventory.view');
             Route::get('inventory/export/excel', [AdminCashbookReportsController::class, 'exportInventoryBusinessDayExcel'])->name('inventory.export.excel')->middleware('can:cashbook.inventory.view');
+            Route::get('inventory/export-advance-pdf', [AdminCashbookReportsController::class, 'exportInventoryAdvanceOnlyPdf'])->name('inventory.export-advance-pdf')->middleware('can:cashbook.inventory.view');
+            Route::get('inventory/export-advance-excel', [AdminCashbookReportsController::class, 'exportInventoryAdvanceOnlyExcel'])->name('inventory.export-advance-excel')->middleware('can:cashbook.inventory.view');
+            Route::get('inventory/export-advance/pdf', [AdminCashbookReportsController::class, 'exportInventoryAdvanceOnlyPdf'])->name('inventory.export-advance.pdf')->middleware('can:cashbook.inventory.view');
+            Route::get('inventory/export-advance/excel', [AdminCashbookReportsController::class, 'exportInventoryAdvanceOnlyExcel'])->name('inventory.export-advance.excel')->middleware('can:cashbook.inventory.view');
             Route::get('inventory/print-pending', [AdminCashbookReportsController::class, 'printPendingBills'])->name('inventory.print-pending')->middleware('can:cashbook.inventory.view');
             Route::get('inventory/print-unmatched', [AdminCashbookReportsController::class, 'printUnmatchedInventory'])->name('inventory.print-unmatched')->middleware('can:cashbook.inventory.view');
             Route::get('inventory/share/unmatched-advances/whatsapp', [AdminCashbookReportsController::class, 'shareUnmatchedAdvancesWhatsApp'])->name('inventory.share.unmatched-advances.whatsapp')->middleware('can:cashbook.inventory.view');

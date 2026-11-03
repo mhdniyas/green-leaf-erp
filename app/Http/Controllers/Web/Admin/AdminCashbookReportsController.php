@@ -10,6 +10,7 @@ use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
+use App\Exports\InventoryAdvanceOnlyExport;
 use App\Exports\InventoryBusinessDayExport;
 use App\Http\Controllers\Controller;
 use App\Models\AdvanceReceiveMatch;
@@ -1556,6 +1557,12 @@ class AdminCashbookReportsController extends Controller
     {
         $this->ensureAuthorized($request);
 
+        if ($request->input('export') === 'advance-pdf' || (($request->input('format') === 'pdf' || $request->input('export') === 'pdf') && ($request->input('type') === 'advance' || $request->boolean('advance_only')))) {
+            return $this->exportInventoryAdvanceOnlyPdf($request);
+        }
+        if ($request->input('export') === 'advance-excel' || (($request->input('format') === 'excel' || $request->input('export') === 'excel') && ($request->input('type') === 'advance' || $request->boolean('advance_only')))) {
+            return $this->exportInventoryAdvanceOnlyExcel($request);
+        }
         if ($request->input('format') === 'pdf' || $request->input('export') === 'pdf') {
             return $this->exportInventoryBusinessDayPdf($request);
         }
@@ -1821,6 +1828,119 @@ class AdminCashbookReportsController extends Controller
             new InventoryBusinessDayExport($rows, $dateFormatted, $warehouseName, 'Business Day'),
             $filename
         );
+    }
+
+    /**
+     * Export Advance Only Inventory Report as PDF (5 columns as in screenshot: #, CODE, PRODUCT, ADVANCE, BILL).
+     */
+    public function exportInventoryAdvanceOnlyPdf(Request $request): mixed
+    {
+        $exportData = $this->getInventoryAdvanceOnlyExportData($request);
+        $date = $exportData['date'];
+        $warehouse = $exportData['selectedWarehouse'];
+        $rows = $exportData['rows'];
+        $filename = "business-day-advance-only-{$date}.pdf";
+
+        $pdf = Pdf::loadView('admin.cashbook.reports.pdf.inventory_advance_only', [
+            'date' => $date,
+            'warehouse' => $warehouse,
+            'rows' => $rows,
+            'title' => 'Business Day — Advance Only',
+            'generatedAt' => now()->format('d M Y, h:i A'),
+            'generatedBy' => $request->user()?->name ?? 'Admin',
+        ])
+            ->setPaper('a4', 'portrait')
+            ->setOption(['isRemoteEnabled' => true, 'isHtml5ParserEnabled' => true]);
+
+        if ($request->boolean('download') || $request->input('download') === '1') {
+            return $pdf->download($filename);
+        }
+
+        return $pdf->stream($filename);
+    }
+
+    /**
+     * Export Advance Only Inventory Report as Excel (5 columns as in screenshot: #, CODE, PRODUCT, ADVANCE, BILL).
+     */
+    public function exportInventoryAdvanceOnlyExcel(Request $request): BinaryFileResponse
+    {
+        $exportData = $this->getInventoryAdvanceOnlyExportData($request);
+        $date = $exportData['date'];
+        $warehouse = $exportData['selectedWarehouse'];
+        $warehouseName = $warehouse?->name ?? 'All Warehouses';
+        $rows = $exportData['rows'];
+        $dateFormatted = Carbon::parse($date)->format('d M Y');
+        $filename = "business-day-advance-only-{$date}.xlsx";
+
+        return Excel::download(
+            new InventoryAdvanceOnlyExport($rows, $dateFormatted, $warehouseName, 'Advance Only'),
+            $filename
+        );
+    }
+
+    /**
+     * Resolve scoped and sorted comparison rows for Advance Only export (advance_qty > 0).
+     *
+     * @return array{date: string, selectedWarehouse: Warehouse|null, selectedWarehouseId: int|null, rows: Collection<int, array<string, mixed>>}
+     */
+    protected function getInventoryAdvanceOnlyExportData(Request $request): array
+    {
+        $this->ensureAuthorized($request);
+
+        $selectedWarehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        if ($selectedWarehouseId !== null && ! Warehouse::query()->where('id', $selectedWarehouseId)->exists()) {
+            abort(404, 'Warehouse not found.');
+        }
+
+        $userAuthorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user()
+        );
+
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user(),
+            $selectedWarehouseId
+        );
+
+        if ($selectedWarehouseId !== null && $userAuthorizedWarehouseIds !== null && ! in_array($selectedWarehouseId, $userAuthorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $date = $this->resolveInventoryDate($request, $selectedWarehouseId, $authorizedWarehouseIds);
+
+        $selectedWarehouse = $selectedWarehouseId !== null
+            ? Warehouse::query()->find($selectedWarehouseId)
+            : null;
+
+        $comparisonRows = $this->buildInventoryComparisonRows($date, $selectedWarehouseId, $authorizedWarehouseIds);
+
+        // Filter strictly for rows with Advance received (> 0)
+        $advanceOnlyRows = $comparisonRows->filter(function (array $r): bool {
+            return (float) ($r['advance_qty'] ?? 0) > 0.0001;
+        });
+
+        // Default sort is by advance_qty descending (matching user screenshot) unless explicitly specified
+        $sortBy = (string) $request->input('sort_by', $request->input('sort_column', 'advance_qty'));
+        $defaultDir = ($sortBy === 'advance_qty' || $sortBy === 'advance') ? 'desc' : 'asc';
+        $sortDir = strtolower((string) $request->input('sort_dir', $request->input('sort_direction', $defaultDir))) === 'desc' ? 'desc' : 'asc';
+
+        $rows = $this->sortComparisonRows($advanceOnlyRows, $sortBy, $sortDir);
+
+        if ($request->filled('search')) {
+            $q = mb_strtolower(trim((string) $request->input('search')));
+            $rows = $rows->filter(function (array $r) use ($q): bool {
+                $name = mb_strtolower((string) ($r['product_name'] ?? ''));
+                $code = mb_strtolower((string) ($r['product_code'] ?? ($r['sku'] ?? '')));
+
+                return str_contains($name, $q) || str_contains($code, $q);
+            });
+        }
+
+        return [
+            'date' => $date,
+            'selectedWarehouse' => $selectedWarehouse,
+            'selectedWarehouseId' => $selectedWarehouseId,
+            'rows' => $rows->values(),
+        ];
     }
 
     /**
