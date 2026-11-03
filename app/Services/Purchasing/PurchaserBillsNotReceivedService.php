@@ -39,6 +39,7 @@ class PurchaserBillsNotReceivedService
     public function clearMemoizedData(): void
     {
         $this->memoizedPendingData = null;
+        Cache::forget('purchaser_bills_not_received_summary');
     }
 
     public function getPendingBillsData(bool $ignoreCache = false): array
@@ -113,6 +114,7 @@ class PurchaserBillsNotReceivedService
             })
             ->with([
                 'supplier:id,name',
+                'purchaserCart:id,user_id,business_date,purchase_source',
                 'purchaserCart.user:id,name',
                 'purchaserSubmittedBy:id,name',
             ])
@@ -228,10 +230,22 @@ class PurchaserBillsNotReceivedService
             $roundedOutstanding = round($outstandingQty, 2);
             $totalOutstandingQty += $roundedOutstanding;
 
+            $rawDate = $inv->created_at ? $inv->created_at->toDateTimeString() : '';
+            $businessDate = $inv->purchaserCart?->business_date?->toDateString()
+                ?: ($inv->original_business_date ? Carbon::parse($inv->original_business_date)->toDateString() : ($inv->created_at ? $inv->created_at->toDateString() : now()->toDateString()));
+
+            $warehouseId = (int) ($relatedGrns->first()?->warehouse_id ?? 0);
+            $purchaserId = (int) ($inv->purchaserCart?->user_id ?? $inv->purchaser_submitted_by ?? 0);
+            $supplierId = (int) $inv->supplier_id;
+
             $bills[] = [
                 'id' => (int) $inv->id,
                 'date' => $inv->created_at ? $inv->created_at->format('d-m-Y') : now()->format('d-m-Y'),
-                'raw_date' => $inv->created_at ? $inv->created_at->toDateTimeString() : '',
+                'raw_date' => $rawDate,
+                'business_date' => $businessDate,
+                'warehouse_id' => $warehouseId,
+                'purchaser_id' => $purchaserId,
+                'supplier_id' => $supplierId,
                 'bill_number' => (string) ($inv->invoice_number ?: 'BILL-#'.$inv->id),
                 'purchaser' => (string) $purchaserName,
                 'supplier' => (string) ($inv->supplier?->name ?? 'Unknown'),

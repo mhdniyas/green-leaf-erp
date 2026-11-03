@@ -72,6 +72,28 @@
                 if (this.selectedWarehouseId) params.set('warehouse_id', this.selectedWarehouseId);
                 return base + '?' + params.toString();
             },
+            get exportPdfUrl() {
+                const base = '{{ route('admin.cashbook.inventory.export-pdf') }}';
+                const params = new URLSearchParams();
+                if (this.date) params.set('date', this.date);
+                if (this.selectedWarehouseId) params.set('warehouse_id', this.selectedWarehouseId);
+                if (this.sortColumn) params.set('sort_by', this.sortColumn);
+                if (this.sortDirection) params.set('sort_dir', this.sortDirection);
+                if (this.search) params.set('search', this.search);
+                if (this.matchFilter && this.matchFilter !== 'all') params.set('match_filter', this.matchFilter);
+                return base + '?' + params.toString();
+            },
+            get exportExcelUrl() {
+                const base = '{{ route('admin.cashbook.inventory.export-excel') }}';
+                const params = new URLSearchParams();
+                if (this.date) params.set('date', this.date);
+                if (this.selectedWarehouseId) params.set('warehouse_id', this.selectedWarehouseId);
+                if (this.sortColumn) params.set('sort_by', this.sortColumn);
+                if (this.sortDirection) params.set('sort_dir', this.sortDirection);
+                if (this.search) params.set('search', this.search);
+                if (this.matchFilter && this.matchFilter !== 'all') params.set('match_filter', this.matchFilter);
+                return base + '?' + params.toString();
+            },
             sortBy(column) {
                 if (this.sortColumn === column) {
                     this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
@@ -633,6 +655,21 @@
                    title="Print or PDF 2-column pending list">
                     <i data-lucide="printer" class="w-4 h-4 text-slate-600"></i>
                     <span>PDF / Print Pending</span>
+                </a>
+
+                <a :href="exportPdfUrl"
+                   target="_blank"
+                   class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 text-xs font-bold transition shadow-xs cursor-pointer"
+                   title="Export Business Day PDF (4 columns: #, Code, Product, Advance)">
+                    <i data-lucide="file-text" class="w-4 h-4 text-rose-600"></i>
+                    <span>PDF</span>
+                </a>
+
+                <a :href="exportExcelUrl"
+                   class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold transition shadow-xs cursor-pointer"
+                   title="Export Business Day Excel (4 columns: #, Code, Product, Advance)">
+                    <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Excel</span>
                 </a>
             </div>
 

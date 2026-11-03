@@ -449,4 +449,77 @@ class PurchaserExpenseReportTest extends TestCase
         $this->assertStringContainsString('95.00', $csvContent);
         $this->assertStringNotContainsString('CART-EXPORT-CHECK-88', $csvContent);
     }
+
+    public function test_table_heads_are_sortable_and_sort_by_total(): void
+    {
+        $today = now('Asia/Kolkata')->format('Y-m-d');
+
+        // Cart 1: total 100
+        $cart1 = PurchaserCart::create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'business_date' => $today,
+            'status' => 'submitted',
+            'cart_number' => 'CART-SMALL-100',
+            'discount_amount' => 0.0,
+        ]);
+        PurchaserCartItem::create([
+            'purchaser_cart_id' => $cart1->id,
+            'product_id' => $this->product->id,
+            'quantity' => 1.0,
+            'line_total' => 100.0,
+        ]);
+
+        // Cart 2: total 900
+        $cart2 = PurchaserCart::create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'business_date' => $today,
+            'status' => 'submitted',
+            'cart_number' => 'CART-LARGE-900',
+            'discount_amount' => 0.0,
+        ]);
+        PurchaserCartItem::create([
+            'purchaser_cart_id' => $cart2->id,
+            'product_id' => $this->product->id,
+            'quantity' => 9.0,
+            'line_total' => 900.0,
+        ]);
+
+        $service = app(PurchaserExpenseReportService::class);
+
+        // Sort total ascending
+        $ascData = $service->getReportData([
+            'date_from' => $today,
+            'date_to' => $today,
+            'sort_by' => 'total',
+            'sort_dir' => 'asc',
+        ]);
+        $this->assertEquals('CART-SMALL-100', $ascData['rows'][0]['reference']);
+        $this->assertEquals('CART-LARGE-900', $ascData['rows'][1]['reference']);
+
+        // Sort total descending
+        $descData = $service->getReportData([
+            'date_from' => $today,
+            'date_to' => $today,
+            'sort_by' => 'total',
+            'sort_dir' => 'desc',
+        ]);
+        $this->assertEquals('CART-LARGE-900', $descData['rows'][0]['reference']);
+        $this->assertEquals('CART-SMALL-100', $descData['rows'][1]['reference']);
+
+        // Web view response check for sort headers
+        $response = $this->actingAs($this->admin)->get('/admin/cashbook/finance/purchase/purchaser-expenses?sort_by=total&sort_dir=desc');
+        $response->assertStatus(200);
+        $response->assertSee('sort_by=total', false);
+        $response->assertSee('sort_dir=asc', false); // next toggle link
+    }
+
+    public function test_type_filter_dropdown_renders_and_selects_active_option(): void
+    {
+        $response = $this->actingAs($this->admin)->get('/admin/cashbook/finance/purchase/purchaser-expenses?entry_type=expense');
+        $response->assertStatus(200);
+        $response->assertSee('<select name="entry_type"', false);
+        $response->assertSee('<option value="expense" selected>', false);
+    }
 }

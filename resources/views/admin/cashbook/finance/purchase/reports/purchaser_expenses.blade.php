@@ -16,6 +16,23 @@
         $currentEntryType = 'all';
     }
 
+    $sortBy = $summary['sort_by'] ?? request('sort_by', 'date');
+    $sortDir = $summary['sort_dir'] ?? request('sort_dir', 'desc');
+
+    $sortUrl = function (string $column, string $defaultDir = 'asc') use ($sortBy, $sortDir): string {
+        $nextDir = ($sortBy === $column)
+            ? ($sortDir === 'asc' ? 'desc' : 'asc')
+            : $defaultDir;
+
+        $params = array_merge(request()->query(), [
+            'sort_by' => $column,
+            'sort_dir' => $nextDir,
+            'page' => 1,
+        ]);
+
+        return route('admin.cashbook.finance.purchase.purchaser-expenses', array_filter($params, fn ($v) => $v !== null && $v !== ''));
+    };
+
     $baseQuery = request()->query();
     unset($baseQuery['page']);
 
@@ -170,12 +187,24 @@
             'supplier_id' => request('supplier_id', $filters['supplier_id'] ?? null),
             'expense_type' => request('expense_type', $filters['expense_type'] ?? null),
             'entry_type' => request('entry_type', $filters['entry_type'] ?? null),
+            'sort_by' => request('sort_by', $filters['sort_by'] ?? null),
+            'sort_dir' => request('sort_dir', $filters['sort_dir'] ?? null),
             'search' => request('search', $filters['search'] ?? null),
         ], fn ($v) => $v !== null && $v !== ''),
     ])
-        <input type="hidden" name="entry_type" value="{{ $currentEntryType !== 'all' ? $currentEntryType : '' }}">
+        <input type="hidden" name="sort_by" value="{{ $sortBy }}">
+        <input type="hidden" name="sort_dir" value="{{ $sortDir }}">
 
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 items-end">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 items-end">
+            <div>
+                <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Type</label>
+                <select name="entry_type" onchange="this.form.submit()" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
+                    <option value="" {{ empty($currentEntryType) || $currentEntryType === 'all' ? 'selected' : '' }}>All (Purchase + Expense)</option>
+                    <option value="purchase" {{ $currentEntryType === 'purchase' ? 'selected' : '' }}>Purchases Only</option>
+                    <option value="expense" {{ $currentEntryType === 'expense' ? 'selected' : '' }}>Expenses Only</option>
+                </select>
+            </div>
+
             <div>
                 <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Purchaser</label>
                 <select name="purchaser" onchange="this.form.submit()" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
@@ -201,9 +230,9 @@
             </div>
 
             <div>
-                <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Expense Type</label>
+                <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Expense Category</label>
                 <select name="expense_type" onchange="this.form.submit()" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
-                    <option value="">All Types / Purchases</option>
+                    <option value="">All Categories</option>
                     @foreach($expenseTypes as $key => $label)
                         <option value="{{ $key }}" {{ request('expense_type') == $key ? 'selected' : '' }}>
                             {{ $label }}
@@ -298,17 +327,98 @@
     <section class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full min-w-[56rem] text-left text-xs">
-                <thead class="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-100">
+                <thead class="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-100 select-none">
                     <tr>
-                        <th class="p-3">Date</th>
-                        <th class="p-3">Type</th>
-                        <th class="p-3">Purchaser</th>
-                        <th class="p-3">Supplier</th>
-                        <th class="p-3">Reference</th>
-                        <th class="p-3">Details / Expense Type</th>
-                        <th class="p-3 text-right">Purchase (₹)</th>
-                        <th class="p-3 text-right">Expense (₹)</th>
-                        <th class="p-3 text-right">Total (₹)</th>
+                        <th class="p-3">
+                            <a href="{{ $sortUrl('date', 'desc') }}" class="group inline-flex items-center gap-1.5 font-bold uppercase hover:text-slate-900 transition cursor-pointer">
+                                <span>Date</span>
+                                @if($sortBy === 'date')
+                                    <i data-lucide="{{ $sortDir === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="h-3.5 w-3.5 text-emerald-600 stroke-[2.5]"></i>
+                                @else
+                                    <i data-lucide="chevrons-up-down" class="h-3 w-3 text-slate-300 opacity-60 group-hover:opacity-100 transition"></i>
+                                @endif
+                            </a>
+                        </th>
+                        <th class="p-3">
+                            <a href="{{ $sortUrl('type', 'asc') }}" class="group inline-flex items-center gap-1.5 font-bold uppercase hover:text-slate-900 transition cursor-pointer">
+                                <span>Type</span>
+                                @if($sortBy === 'type')
+                                    <i data-lucide="{{ $sortDir === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="h-3.5 w-3.5 text-emerald-600 stroke-[2.5]"></i>
+                                @else
+                                    <i data-lucide="chevrons-up-down" class="h-3 w-3 text-slate-300 opacity-60 group-hover:opacity-100 transition"></i>
+                                @endif
+                            </a>
+                        </th>
+                        <th class="p-3">
+                            <a href="{{ $sortUrl('purchaser', 'asc') }}" class="group inline-flex items-center gap-1.5 font-bold uppercase hover:text-slate-900 transition cursor-pointer">
+                                <span>Purchaser</span>
+                                @if($sortBy === 'purchaser')
+                                    <i data-lucide="{{ $sortDir === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="h-3.5 w-3.5 text-emerald-600 stroke-[2.5]"></i>
+                                @else
+                                    <i data-lucide="chevrons-up-down" class="h-3 w-3 text-slate-300 opacity-60 group-hover:opacity-100 transition"></i>
+                                @endif
+                            </a>
+                        </th>
+                        <th class="p-3">
+                            <a href="{{ $sortUrl('supplier', 'asc') }}" class="group inline-flex items-center gap-1.5 font-bold uppercase hover:text-slate-900 transition cursor-pointer">
+                                <span>Supplier</span>
+                                @if($sortBy === 'supplier')
+                                    <i data-lucide="{{ $sortDir === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="h-3.5 w-3.5 text-emerald-600 stroke-[2.5]"></i>
+                                @else
+                                    <i data-lucide="chevrons-up-down" class="h-3 w-3 text-slate-300 opacity-60 group-hover:opacity-100 transition"></i>
+                                @endif
+                            </a>
+                        </th>
+                        <th class="p-3">
+                            <a href="{{ $sortUrl('reference', 'asc') }}" class="group inline-flex items-center gap-1.5 font-bold uppercase hover:text-slate-900 transition cursor-pointer">
+                                <span>Reference</span>
+                                @if($sortBy === 'reference')
+                                    <i data-lucide="{{ $sortDir === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="h-3.5 w-3.5 text-emerald-600 stroke-[2.5]"></i>
+                                @else
+                                    <i data-lucide="chevrons-up-down" class="h-3 w-3 text-slate-300 opacity-60 group-hover:opacity-100 transition"></i>
+                                @endif
+                            </a>
+                        </th>
+                        <th class="p-3">
+                            <a href="{{ $sortUrl('details', 'asc') }}" class="group inline-flex items-center gap-1.5 font-bold uppercase hover:text-slate-900 transition cursor-pointer">
+                                <span>Details / Expense Type</span>
+                                @if($sortBy === 'details')
+                                    <i data-lucide="{{ $sortDir === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="h-3.5 w-3.5 text-emerald-600 stroke-[2.5]"></i>
+                                @else
+                                    <i data-lucide="chevrons-up-down" class="h-3 w-3 text-slate-300 opacity-60 group-hover:opacity-100 transition"></i>
+                                @endif
+                            </a>
+                        </th>
+                        <th class="p-3 text-right">
+                            <a href="{{ $sortUrl('purchase', 'desc') }}" class="group inline-flex items-center justify-end gap-1.5 w-full font-bold uppercase hover:text-slate-900 transition cursor-pointer">
+                                <span>Purchase (₹)</span>
+                                @if($sortBy === 'purchase')
+                                    <i data-lucide="{{ $sortDir === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="h-3.5 w-3.5 text-emerald-600 stroke-[2.5]"></i>
+                                @else
+                                    <i data-lucide="chevrons-up-down" class="h-3 w-3 text-slate-300 opacity-60 group-hover:opacity-100 transition"></i>
+                                @endif
+                            </a>
+                        </th>
+                        <th class="p-3 text-right">
+                            <a href="{{ $sortUrl('expense', 'desc') }}" class="group inline-flex items-center justify-end gap-1.5 w-full font-bold uppercase hover:text-slate-900 transition cursor-pointer">
+                                <span>Expense (₹)</span>
+                                @if($sortBy === 'expense')
+                                    <i data-lucide="{{ $sortDir === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="h-3.5 w-3.5 text-emerald-600 stroke-[2.5]"></i>
+                                @else
+                                    <i data-lucide="chevrons-up-down" class="h-3 w-3 text-slate-300 opacity-60 group-hover:opacity-100 transition"></i>
+                                @endif
+                            </a>
+                        </th>
+                        <th class="p-3 text-right">
+                            <a href="{{ $sortUrl('total', 'desc') }}" class="group inline-flex items-center justify-end gap-1.5 w-full font-bold uppercase hover:text-slate-900 transition cursor-pointer">
+                                <span>Total (₹)</span>
+                                @if($sortBy === 'total')
+                                    <i data-lucide="{{ $sortDir === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="h-3.5 w-3.5 text-emerald-600 stroke-[2.5]"></i>
+                                @else
+                                    <i data-lucide="chevrons-up-down" class="h-3 w-3 text-slate-300 opacity-60 group-hover:opacity-100 transition"></i>
+                                @endif
+                            </a>
+                        </th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">

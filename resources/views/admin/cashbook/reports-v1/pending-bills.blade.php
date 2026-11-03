@@ -12,7 +12,9 @@
 
 @php
     $currentStatus = $filters['status'] ?? 'pending';
-    $currentPreset = $filters['date_preset'] ?? 'all';
+    $currentPreset = $filters['date_preset'] ?? 'today';
+    $currentStartDate = $filters['start_date'] ?? '';
+    $currentEndDate = $filters['end_date'] ?? '';
     $currentSearch = $filters['search'] ?? '';
     $currentPurchaser = $filters['purchaser_id'] ?? null;
     $currentSupplier = $filters['supplier_id'] ?? null;
@@ -165,7 +167,7 @@
                 </div>
             </div>
             <div class="mt-3 border-t border-slate-100 pt-2 flex items-center justify-between text-xs text-slate-500">
-                <span class="text-[11px] font-medium text-slate-400">Cleared Today</span>
+                <span class="text-[11px] font-medium text-slate-400">{{ $currentPreset === 'today' ? 'Cleared Today' : 'Cleared in Period' }}</span>
                 <span class="font-bold text-slate-800 font-mono">{{ number_format($metrics['cleared_today_count']) }} bills ({{ number_format($metrics['cleared_today_qty'], 1) }} kg)</span>
             </div>
         </a>
@@ -297,12 +299,19 @@
                 </div>
 
                 <!-- Date Presets -->
-                <div class="flex items-center gap-1 text-xs">
+                <div class="flex flex-wrap items-center gap-1 text-xs">
                     <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px] ml-1 mr-0.5">Date:</span>
-                    @foreach (['all' => 'All Time', 'today' => 'Today', 'yesterday' => 'Yesterday', 'last_7_days' => 'Last 7 Days', 'this_month' => 'This Month'] as $pKey => $pLabel)
+                    @foreach ([
+                        'today' => 'Today',
+                        'yesterday' => 'Yesterday',
+                        'this_week' => 'This Week',
+                        'this_month' => 'This Month',
+                        'prev_month' => 'Previous Month',
+                        'all' => 'All Time',
+                    ] as $pKey => $pLabel)
                         <a
-                            href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['date_preset' => $pKey, 'page' => 1])) }}"
-                            class="px-2 py-1 rounded-lg font-semibold whitespace-nowrap text-[11px] transition {{ $currentPreset === $pKey ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800' }}"
+                            href="{{ route('admin.cashbook.reports-v1.pending-bills', array_merge(request()->query(), ['date_preset' => $pKey, 'start_date' => null, 'end_date' => null, 'page' => 1])) }}"
+                            class="px-2 py-1 rounded-lg font-semibold whitespace-nowrap text-[11px] transition {{ $currentPreset === $pKey ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800' }}"
                         >
                             {{ $pLabel }}
                         </a>
@@ -312,7 +321,7 @@
         </div>
 
         <!-- Filter Controls Form -->
-        <form method="GET" action="{{ route('admin.cashbook.reports-v1.pending-bills') }}" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs">
+        <form method="GET" action="{{ route('admin.cashbook.reports-v1.pending-bills') }}" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-8 gap-3 text-xs">
             <input type="hidden" name="status" value="{{ $currentStatus }}">
             <input type="hidden" name="date_preset" value="{{ $currentPreset }}">
 
@@ -373,17 +382,39 @@
                 </select>
             </div>
 
+            <!-- Custom Start Date -->
+            <div>
+                <input
+                    type="date"
+                    name="start_date"
+                    value="{{ $currentStartDate }}"
+                    title="From date"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-xs font-medium text-slate-800 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
+                >
+            </div>
+
+            <!-- Custom End Date -->
+            <div>
+                <input
+                    type="date"
+                    name="end_date"
+                    value="{{ $currentEndDate }}"
+                    title="To date"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-xs font-medium text-slate-800 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
+                >
+            </div>
+
             <!-- Actions / Submit -->
             <div class="flex items-center gap-2">
                 <button
                     type="submit"
-                    class="flex-1 rounded-xl bg-slate-900 px-4 py-2 font-bold text-white hover:bg-slate-800 transition"
+                    class="flex-1 rounded-xl bg-slate-900 px-3 py-2 font-bold text-white hover:bg-slate-800 transition"
                 >
-                    Apply Filter
+                    Filter
                 </button>
                 <a
                     href="{{ route('admin.cashbook.reports-v1.pending-bills') }}"
-                    class="rounded-xl border border-slate-200 bg-white px-3 py-2 font-bold text-slate-600 hover:bg-slate-100 transition"
+                    class="rounded-xl border border-slate-200 bg-white px-2.5 py-2 font-bold text-slate-600 hover:bg-slate-100 transition"
                     title="Reset all filters"
                 >
                     Reset

@@ -38,100 +38,214 @@ class PendingWarehouseBillsManagementService
      *     cleared_today_qty: float
      * }
      */
-    public function getSummaryMetrics(int|string|null $warehouseId = null, bool $ignoreCache = false): array
+    public function getSummaryMetrics(array|int|string|null $filters = null, bool $ignoreCache = false): array
     {
-        $whId = ! empty($warehouseId) ? (int) $warehouseId : null;
-        $cacheKey = 'pending_warehouse_bills_summary_metrics_'.($whId ?? 'all');
+        $normalizedFilters = is_array($filters) ? $filters : ['warehouse_id' => $filters];
+        $whId = ! empty($normalizedFilters['warehouse_id']) ? (int) $normalizedFilters['warehouse_id'] : null;
+        $purchaserId = ! empty($normalizedFilters['purchaser_id']) ? (int) $normalizedFilters['purchaser_id'] : null;
+        $supplierId = ! empty($normalizedFilters['supplier_id']) ? (int) $normalizedFilters['supplier_id'] : null;
+        $datePreset = (string) ($normalizedFilters['date_preset'] ?? 'today');
+        $startDate = $normalizedFilters['start_date'] ?? null;
+        $endDate = $normalizedFilters['end_date'] ?? null;
+        $search = trim((string) ($normalizedFilters['search'] ?? ''));
+
+        $cacheKey = 'pending_warehouse_bills_summary_metrics_'.md5((string) json_encode([
+            $whId,
+            $purchaserId,
+            $supplierId,
+            $datePreset,
+            $startDate,
+            $endDate,
+            $search,
+        ]));
 
         if ($ignoreCache) {
-            return $this->computeSummaryMetrics($whId);
+            return $this->computeSummaryMetrics($filters);
         }
 
-        return Cache::remember($cacheKey, 60, function () use ($whId): array {
-            return $this->computeSummaryMetrics($whId);
+        return Cache::remember($cacheKey, 60, function () use ($filters): array {
+            return $this->computeSummaryMetrics($filters);
         });
     }
 
     /**
      * Compute the 5 summary metrics accurately.
      */
-    public function computeSummaryMetrics(int|string|null $warehouseId = null): array
+    public function computeSummaryMetrics(array|int|string|null $filters = null): array
     {
-        $whId = ! empty($warehouseId) ? (int) $warehouseId : null;
-        $pendingData = $this->pendingBillsService->getPendingBillsData();
-        $totalPendingBills = $pendingData['count'];
-        $totalOutstandingQty = $pendingData['total_outstanding_qty'];
+        $normalizedFilters = is_array($filters) ? $filters : ['warehouse_id' => $filters];
+        $whId = ! empty($normalizedFilters['warehouse_id']) ? (int) $normalizedFilters['warehouse_id'] : null;
+        $purchaserId = ! empty($normalizedFilters['purchaser_id']) ? (int) $normalizedFilters['purchaser_id'] : null;
+        $supplierId = ! empty($normalizedFilters['supplier_id']) ? (int) $normalizedFilters['supplier_id'] : null;
+        $datePreset = (string) ($normalizedFilters['date_preset'] ?? 'today');
+        $startDate = $normalizedFilters['start_date'] ?? null;
+        $endDate = $normalizedFilters['end_date'] ?? null;
 
-        // Compute Cleared Today metrics
-        $todayStart = Carbon::today()->startOfDay();
-        $clearedTodayBatches = DB::table('stock_batches')
+        $pendingData = $this->pendingBillsService->getPendingBillsData();
+        $allPendingBills = collect($pendingData['bills']);
+        $allPendingIds = $allPendingBills->pluck('id')->all();
+
+        // Filter pending bills collection according to active filters
+        $filteredPendingCollection = $allPendingBills;
+        if ($whId !== null) {
+            $filteredPendingCollection = $filteredPendingCollection->where('warehouse_id', $whId);
+        }
+        if ($purchaserId !== null) {
+            $filteredPendingCollection = $filteredPendingCollection->where('purchaser_id', $purchaserId);
+        }
+        if ($supplierId !== null) {
+            $filteredPendingCollection = $filteredPendingCollection->where('supplier_id', $supplierId);
+        }
+
+        $range = ($datePreset !== 'all') ? $this->resolveDateRange($datePreset, $startDate, $endDate) : null;
+        if ($range !== null) {
+            $startDateStr = $range['start']->toDateString();
+            $endDateStr = $range['end']->toDateString();
+            $startTime = $range['start'];
+            $endTime = $range['end'];
+
+            $filteredPendingCollection = $filteredPendingCollection->filter(function ($b) use ($startDateStr, $endDateStr, $startTime, $endTime): bool {
+                $bDate = $b['business_date'] ?? null;
+                $rawDate = $b['raw_date'] ?? null;
+                $cDate = $rawDate ? Carbon::parse($rawDate) : null;
+
+                $matchesBusinessDate = $bDate && $bDate >= $startDateStr && $bDate <= $endDateStr;
+                $matchesCreatedAt = $cDate && $cDate->betweenIncluded($startTime, $endTime);
+
+                return $matchesBusinessDate || $matchesCreatedAt;
+            });
+        }
+
+        $totalPendingBills = $filteredPendingCollection->count();
+        $totalOutstandingQty = round((float) $filteredPendingCollection->sum('outstanding_qty'), 2);
+        $notReceivedCount = $filteredPendingCollection->where('status', 'Not Received')->count();
+        $partiallyReceivedCount = $filteredPendingCollection->where('status', 'Partially Received')->count();
+        $filteredPendingIds = $filteredPendingCollection->pluck('id')->all();
+
+        // Compute Cleared in Period / Cleared Today metrics
+        $clearedBatchesQuery = DB::table('stock_batches')
             ->join('goods_received', 'goods_received.id', '=', 'stock_batches.goods_received_id')
             ->join('purchase_invoices', 'purchase_invoices.goods_received_id', '=', 'goods_received.id')
             ->where('stock_batches.warehouse_receive_pending', false)
-            ->where('stock_batches.warehouse_confirmed_at', '>=', $todayStart)
             ->whereNull('purchase_invoices.cancelled_at')
             ->whereNotIn('purchase_invoices.status', ['cancelled'])
-            ->select(
-                DB::raw('COUNT(DISTINCT purchase_invoices.id) as bills_count'),
-                DB::raw('COALESCE(SUM(stock_batches.total_kg), 0) as total_cleared_kg')
-            )
-            ->first();
+            ->whereNotIn('purchase_invoices.id', $allPendingIds);
 
-        $clearedTodayMatches = DB::table('advance_receive_matches')
+        $clearedMatchesQuery = DB::table('advance_receive_matches')
             ->join('purchase_invoices', 'purchase_invoices.goods_received_id', '=', 'advance_receive_matches.bill_goods_received_id')
-            ->where('advance_receive_matches.confirmed_at', '>=', $todayStart)
+            ->join('goods_received', 'goods_received.id', '=', 'advance_receive_matches.bill_goods_received_id')
             ->whereNull('purchase_invoices.cancelled_at')
             ->whereNotIn('purchase_invoices.status', ['cancelled'])
-            ->select(
-                DB::raw('COUNT(DISTINCT purchase_invoices.id) as bills_count'),
-                DB::raw('COALESCE(SUM(advance_receive_matches.base_qty), 0) as total_cleared_kg')
-            )
-            ->first();
+            ->whereNotIn('purchase_invoices.id', $allPendingIds);
 
-        $clearedTodayCount = (int) max($clearedTodayBatches?->bills_count ?? 0, $clearedTodayMatches?->bills_count ?? 0);
-        $clearedTodayQty = round((float) ($clearedTodayBatches?->total_cleared_kg ?? 0) + (float) ($clearedTodayMatches?->total_cleared_kg ?? 0), 2);
+        if ($range !== null) {
+            $clearedBatchesQuery->whereBetween('stock_batches.warehouse_confirmed_at', [$range['start'], $range['end']]);
+            $clearedMatchesQuery->whereBetween('advance_receive_matches.confirmed_at', [$range['start'], $range['end']]);
+        }
 
-        // Pre-check matchable bills among pending
-        $pendingIds = collect($pendingData['bills'])->pluck('id')->all();
+        if ($whId !== null) {
+            $clearedBatchesQuery->where('goods_received.warehouse_id', $whId);
+            $clearedMatchesQuery->where('goods_received.warehouse_id', $whId);
+        }
+
+        if ($purchaserId !== null) {
+            $clearedBatchesQuery->where(function ($q) use ($purchaserId): void {
+                $q->where('purchase_invoices.purchaser_submitted_by', $purchaserId)
+                    ->orWhereExists(function ($subQ) use ($purchaserId): void {
+                        $subQ->select(DB::raw(1))
+                            ->from('purchaser_carts')
+                            ->whereColumn('purchaser_carts.id', 'purchase_invoices.purchaser_cart_id')
+                            ->where('purchaser_carts.user_id', $purchaserId);
+                    });
+            });
+            $clearedMatchesQuery->where(function ($q) use ($purchaserId): void {
+                $q->where('purchase_invoices.purchaser_submitted_by', $purchaserId)
+                    ->orWhereExists(function ($subQ) use ($purchaserId): void {
+                        $subQ->select(DB::raw(1))
+                            ->from('purchaser_carts')
+                            ->whereColumn('purchaser_carts.id', 'purchase_invoices.purchaser_cart_id')
+                            ->where('purchaser_carts.user_id', $purchaserId);
+                    });
+            });
+        }
+
+        if ($supplierId !== null) {
+            $clearedBatchesQuery->where('purchase_invoices.supplier_id', $supplierId);
+            $clearedMatchesQuery->where('purchase_invoices.supplier_id', $supplierId);
+        }
+
+        $clearedBatches = $clearedBatchesQuery->select(
+            DB::raw('COUNT(DISTINCT purchase_invoices.id) as bills_count'),
+            DB::raw('COALESCE(SUM(stock_batches.total_kg), 0) as total_cleared_kg')
+        )->first();
+
+        $clearedMatches = $clearedMatchesQuery->select(
+            DB::raw('COUNT(DISTINCT purchase_invoices.id) as bills_count'),
+            DB::raw('COALESCE(SUM(advance_receive_matches.base_qty), 0) as total_cleared_kg')
+        )->first();
+
+        $clearedCount = (int) max($clearedBatches?->bills_count ?? 0, $clearedMatches?->bills_count ?? 0);
+        $clearedQty = round((float) ($clearedBatches?->total_cleared_kg ?? 0) + (float) ($clearedMatches?->total_cleared_kg ?? 0), 2);
+
+        // Count received from warehouse bills
+        $receivedQuery = PurchaseInvoice::query()
+            ->whereNull('cancelled_at')
+            ->whereNotIn('status', ['cancelled'])
+            ->where(function ($q): void {
+                $q->whereNotNull('purchaser_cart_id')
+                    ->orWhereNotNull('purchaser_submitted_by');
+            })
+            ->where(function ($sourceQ): void {
+                $sourceQ->whereNull('purchase_source')
+                    ->orWhere('purchase_source', '!=', 'shop');
+            })
+            ->whereNull('shop_id')
+            ->whereDoesntHave('purchaserCart', fn ($cartQ) => $cartQ->where('purchase_source', 'shop'))
+            ->whereDoesntHave('goodsReceived.purchaseOrder', fn ($poQ) => $poQ->where('fulfillment_type', 'shop'))
+            ->whereNotIn('id', $allPendingIds)
+            ->whereHas('goodsReceived', function ($grnQ) use ($whId): void {
+                $grnQ->where('status', '!=', 'cancelled')
+                    ->where('receipt_type', '!=', 'warehouse_advance')
+                    ->when($whId !== null, fn ($wQ) => $wQ->where('warehouse_id', $whId))
+                    ->whereHas('stockBatches');
+            });
+
+        if ($whId !== null) {
+            $receivedQuery->whereHas('goodsReceived', fn ($q) => $q->where('warehouse_id', $whId));
+        }
+
+        if ($purchaserId !== null) {
+            $receivedQuery->where(function ($q) use ($purchaserId): void {
+                $q->where('purchaser_submitted_by', $purchaserId)
+                    ->orWhereHas('purchaserCart', fn ($cQ) => $cQ->where('user_id', $purchaserId));
+            });
+        }
+
+        if ($supplierId !== null) {
+            $receivedQuery->where('supplier_id', $supplierId);
+        }
+
+        if ($range !== null) {
+            $startDateStr = $range['start']->toDateString();
+            $endDateStr = $range['end']->toDateString();
+            $receivedQuery->where(function ($dateQ) use ($range, $startDateStr, $endDateStr): void {
+                $dateQ->whereBetween('purchase_invoices.created_at', [$range['start'], $range['end']])
+                    ->orWhereBetween('purchase_invoices.original_business_date', [$startDateStr, $endDateStr])
+                    ->orWhereHas('purchaserCart', fn ($cQ) => $cQ->whereBetween('business_date', [$startDateStr, $endDateStr]))
+                    ->orWhereHas('goodsReceived', function ($grnQ) use ($range): void {
+                        $grnQ->whereBetween('received_at', [$range['start'], $range['end']])
+                            ->orWhereHas('stockBatches', fn ($bQ) => $bQ->whereBetween('warehouse_confirmed_at', [$range['start'], $range['end']]));
+                    });
+            });
+        }
+
+        $receivedFromWarehouseCount = (int) max($receivedQuery->count(), $clearedCount);
+
+        // Pre-check matchable bills among filtered pending bills
         $eligibleForAdvanceCount = 0;
-
-        $pendingBillsCollection = collect($pendingData['bills']);
-        $notReceivedCount = $pendingBillsCollection->where('status', 'Not Received')->count();
-        $partiallyReceivedCount = $pendingBillsCollection->where('status', 'Partially Received')->count();
-
-        // Count cleared / received from warehouse bills
-        $receivedFromWarehouseCount = (int) Cache::remember(
-            'pending_bills_received_warehouse_count_'.($whId ?? 'all'),
-            60,
-            function () use ($whId, $pendingIds): int {
-                return PurchaseInvoice::query()
-                    ->whereNull('cancelled_at')
-                    ->whereNotIn('status', ['cancelled'])
-                    ->where(function ($q): void {
-                        $q->whereNotNull('purchaser_cart_id')
-                            ->orWhereNotNull('purchaser_submitted_by');
-                    })
-                    ->where(function ($sourceQ): void {
-                        $sourceQ->whereNull('purchase_source')
-                            ->orWhere('purchase_source', '!=', 'shop');
-                    })
-                    ->whereNull('shop_id')
-                    ->whereDoesntHave('purchaserCart', fn ($cartQ) => $cartQ->where('purchase_source', 'shop'))
-                    ->whereDoesntHave('goodsReceived.purchaseOrder', fn ($poQ) => $poQ->where('fulfillment_type', 'shop'))
-                    ->whereNotIn('id', $pendingIds)
-                    ->whereHas('goodsReceived', function ($grnQ) use ($whId): void {
-                        $grnQ->where('status', '!=', 'cancelled')
-                            ->where('receipt_type', '!=', 'warehouse_advance')
-                            ->when($whId !== null, fn ($wQ) => $wQ->where('warehouse_id', $whId))
-                            ->whereHas('stockBatches');
-                    })
-                    ->count();
-            }
-        );
-
-        if (! empty($pendingIds)) {
+        if (! empty($filteredPendingIds)) {
             $invoices = PurchaseInvoice::query()
-                ->whereIn('id', $pendingIds)
+                ->whereIn('id', $filteredPendingIds)
                 ->with(['goodsReceived.items', 'purchaserCart.goodsReceived.items'])
                 ->get();
 
@@ -139,6 +253,7 @@ class PendingWarehouseBillsManagementService
             $openAdvanceRecords = GoodsReceived::query()
                 ->where('receipt_type', 'warehouse_advance')
                 ->where('status', 'approved')
+                ->when($whId !== null, fn ($wQ) => $wQ->where('warehouse_id', $whId))
                 ->with(['items'])
                 ->get();
 
@@ -191,8 +306,8 @@ class PendingWarehouseBillsManagementService
             'awaiting_matching_count' => $eligibleForAdvanceCount,
             'bills_eligible_for_advance_matching' => $eligibleForAdvanceCount,
             'awaiting_physical_receiving' => $awaitingPhysicalReceiving,
-            'cleared_today_count' => $clearedTodayCount,
-            'cleared_today_qty' => $clearedTodayQty,
+            'cleared_today_count' => $clearedCount,
+            'cleared_today_qty' => $clearedQty,
         ];
     }
 
@@ -203,7 +318,7 @@ class PendingWarehouseBillsManagementService
     {
         $statusFilter = (string) ($filters['status'] ?? 'pending');
         $search = trim((string) ($filters['search'] ?? ''));
-        $datePreset = (string) ($filters['date_preset'] ?? 'all');
+        $datePreset = (string) ($filters['date_preset'] ?? 'today');
         $startDate = $filters['start_date'] ?? null;
         $endDate = $filters['end_date'] ?? null;
         $purchaserId = ! empty($filters['purchaser_id']) ? (int) $filters['purchaser_id'] : null;
@@ -212,10 +327,44 @@ class PendingWarehouseBillsManagementService
         $orderBy = (string) ($filters['order_by'] ?? 'created_at');
         $orderDir = strtolower((string) ($filters['order_dir'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
 
+        $range = ($datePreset !== 'all') ? $this->resolveDateRange($datePreset, $startDate, $endDate) : null;
+
         // Retrieve authoritative pending data snapshot
-        $pendingData = $this->pendingBillsService->getPendingBillsData();
-        $pendingBillsById = collect($pendingData['bills'])->keyBy('id');
-        $pendingIds = $pendingBillsById->keys()->all();
+        $allPendingData = $this->pendingBillsService->getPendingBillsData();
+        $allPendingBills = collect($allPendingData['bills']);
+        $pendingBillsById = $allPendingBills->keyBy('id');
+        $allPendingIds = $allPendingBills->pluck('id')->all();
+
+        $filteredPendingCollection = $allPendingBills;
+        if ($warehouseId !== null) {
+            $filteredPendingCollection = $filteredPendingCollection->where('warehouse_id', $warehouseId);
+        }
+        if ($purchaserId !== null) {
+            $filteredPendingCollection = $filteredPendingCollection->where('purchaser_id', $purchaserId);
+        }
+        if ($supplierId !== null) {
+            $filteredPendingCollection = $filteredPendingCollection->where('supplier_id', $supplierId);
+        }
+
+        if ($range !== null) {
+            $startDateStr = $range['start']->toDateString();
+            $endDateStr = $range['end']->toDateString();
+            $startTime = $range['start'];
+            $endTime = $range['end'];
+
+            $filteredPendingCollection = $filteredPendingCollection->filter(function ($b) use ($startDateStr, $endDateStr, $startTime, $endTime): bool {
+                $bDate = $b['business_date'] ?? null;
+                $rawDate = $b['raw_date'] ?? null;
+                $cDate = $rawDate ? Carbon::parse($rawDate) : null;
+
+                $matchesBusinessDate = $bDate && $bDate >= $startDateStr && $bDate <= $endDateStr;
+                $matchesCreatedAt = $cDate && $cDate->betweenIncluded($startTime, $endTime);
+
+                return $matchesBusinessDate || $matchesCreatedAt;
+            });
+        }
+
+        $filteredPendingIds = $filteredPendingCollection->pluck('id')->all();
 
         $query = PurchaseInvoice::query()
             ->whereNull('cancelled_at')
@@ -234,22 +383,61 @@ class PendingWarehouseBillsManagementService
 
         // Status filter
         if ($statusFilter === 'pending') {
-            $query->whereIn('id', $pendingIds);
+            if (empty($filteredPendingIds)) {
+                $query->whereRaw('0 = 1');
+            } else {
+                $query->whereIn('id', $filteredPendingIds);
+            }
         } elseif ($statusFilter === 'not_received') {
-            $notReceivedIds = $pendingBillsById->where('status', 'Not Received')->keys()->all();
-            $query->whereIn('id', $notReceivedIds);
+            $notReceivedIds = $filteredPendingCollection->where('status', 'Not Received')->pluck('id')->all();
+            if (empty($notReceivedIds)) {
+                $query->whereRaw('0 = 1');
+            } else {
+                $query->whereIn('id', $notReceivedIds);
+            }
         } elseif ($statusFilter === 'partially_received') {
-            $partiallyReceivedIds = $pendingBillsById->where('status', 'Partially Received')->keys()->all();
-            $query->whereIn('id', $partiallyReceivedIds);
+            $partiallyReceivedIds = $filteredPendingCollection->where('status', 'Partially Received')->pluck('id')->all();
+            if (empty($partiallyReceivedIds)) {
+                $query->whereRaw('0 = 1');
+            } else {
+                $query->whereIn('id', $partiallyReceivedIds);
+            }
         } elseif ($statusFilter === 'cleared' || $statusFilter === 'received') {
-            $query->whereNotIn('id', $pendingIds)
-                ->whereHas('goodsReceived', function ($grnQ): void {
+            $query->whereNotIn('id', $allPendingIds)
+                ->whereHas('goodsReceived', function ($grnQ) use ($warehouseId): void {
                     $grnQ->where('status', '!=', 'cancelled')
                         ->where('receipt_type', '!=', 'warehouse_advance')
+                        ->when($warehouseId !== null, fn ($wQ) => $wQ->where('warehouse_id', $warehouseId))
                         ->whereHas('stockBatches');
                 });
+
+            if ($range !== null) {
+                $startDateStr = $range['start']->toDateString();
+                $endDateStr = $range['end']->toDateString();
+                $query->where(function ($dateQ) use ($range, $startDateStr, $endDateStr): void {
+                    $dateQ->whereBetween('purchase_invoices.created_at', [$range['start'], $range['end']])
+                        ->orWhereBetween('purchase_invoices.original_business_date', [$startDateStr, $endDateStr])
+                        ->orWhereHas('purchaserCart', fn ($cQ) => $cQ->whereBetween('business_date', [$startDateStr, $endDateStr]))
+                        ->orWhereHas('goodsReceived', function ($grnQ) use ($range): void {
+                            $grnQ->whereBetween('received_at', [$range['start'], $range['end']])
+                                ->orWhereHas('stockBatches', fn ($bQ) => $bQ->whereBetween('warehouse_confirmed_at', [$range['start'], $range['end']]));
+                        });
+                });
+            }
         } elseif ($statusFilter === 'all') {
-            // Keep all warehouse purchaser invoices
+            if ($range !== null) {
+                $startDateStr = $range['start']->toDateString();
+                $endDateStr = $range['end']->toDateString();
+                $query->where(function ($dateQ) use ($range, $startDateStr, $endDateStr): void {
+                    $dateQ->whereBetween('purchase_invoices.created_at', [$range['start'], $range['end']])
+                        ->orWhereBetween('purchase_invoices.original_business_date', [$startDateStr, $endDateStr])
+                        ->orWhereHas('purchaserCart', fn ($cQ) => $cQ->whereBetween('business_date', [$startDateStr, $endDateStr]))
+                        ->orWhereHas('goodsReceived', function ($grnQ) use ($range): void {
+                            $grnQ->whereBetween('received_at', [$range['start'], $range['end']])
+                                ->orWhereHas('stockBatches', fn ($bQ) => $bQ->whereBetween('warehouse_confirmed_at', [$range['start'], $range['end']]));
+                        });
+                });
+            }
         }
 
         // Warehouse filter
@@ -268,14 +456,6 @@ class PendingWarehouseBillsManagementService
         // Supplier filter
         if ($supplierId) {
             $query->where('supplier_id', $supplierId);
-        }
-
-        // Date range filter
-        if ($datePreset !== 'all') {
-            $range = $this->resolveDateRange($datePreset, $startDate, $endDate);
-            if ($range) {
-                $query->whereBetween('created_at', [$range['start'], $range['end']]);
-            }
         }
 
         // Search keyword
@@ -298,7 +478,7 @@ class PendingWarehouseBillsManagementService
         }
 
         /** @var LengthAwarePaginator $paginator */
-        $paginator = $query->paginate($perPage);
+        $paginator = $query->paginate($perPage)->withQueryString();
 
         // Transform records with live receipt, advance suggestions, and action states
         $pageInvoices = $paginator->getCollection();
@@ -924,28 +1104,39 @@ class PendingWarehouseBillsManagementService
      *
      * @return array{start: Carbon, end: Carbon}|null
      */
-    private function resolveDateRange(string $preset, ?string $start, ?string $end): ?array
+    public function resolveDateRange(string $preset, ?string $start, ?string $end): ?array
     {
+        $tz = 'Asia/Kolkata';
+        $today = Carbon::today($tz);
+
         return match ($preset) {
             'today' => [
-                'start' => Carbon::today()->startOfDay(),
-                'end' => Carbon::today()->endOfDay(),
+                'start' => $today->copy()->startOfDay(),
+                'end' => $today->copy()->endOfDay(),
             ],
             'yesterday' => [
-                'start' => Carbon::yesterday()->startOfDay(),
-                'end' => Carbon::yesterday()->endOfDay(),
+                'start' => $today->copy()->subDay()->startOfDay(),
+                'end' => $today->copy()->subDay()->endOfDay(),
+            ],
+            'this_week', 'week' => [
+                'start' => $today->copy()->startOfWeek()->startOfDay(),
+                'end' => $today->copy()->endOfWeek()->endOfDay(),
             ],
             'last_7_days' => [
-                'start' => Carbon::today()->subDays(6)->startOfDay(),
-                'end' => Carbon::today()->endOfDay(),
+                'start' => $today->copy()->subDays(6)->startOfDay(),
+                'end' => $today->copy()->endOfDay(),
             ],
-            'this_month' => [
-                'start' => Carbon::today()->startOfMonth()->startOfDay(),
-                'end' => Carbon::today()->endOfMonth()->endOfDay(),
+            'this_month', 'month' => [
+                'start' => $today->copy()->startOfMonth()->startOfDay(),
+                'end' => $today->copy()->endOfMonth()->endOfDay(),
             ],
-            'custom' => ($start && $end) ? [
-                'start' => Carbon::parse($start)->startOfDay(),
-                'end' => Carbon::parse($end)->endOfDay(),
+            'prev_month', 'last_month' => [
+                'start' => $today->copy()->subMonth()->startOfMonth()->startOfDay(),
+                'end' => $today->copy()->subMonth()->endOfMonth()->endOfDay(),
+            ],
+            'custom' => ($start || $end) ? [
+                'start' => Carbon::parse($start ?: $end, $tz)->startOfDay(),
+                'end' => Carbon::parse($end ?: $start, $tz)->endOfDay(),
             ] : null,
             default => null,
         };

@@ -7164,7 +7164,7 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $filters = $this->pendingBillsReportFilters($request);
-        $metrics = $pendingBillsService->getSummaryMetrics($filters['warehouse_id'] ?? null);
+        $metrics = $pendingBillsService->getSummaryMetrics($filters);
         $bills = $pendingBillsService->getBillsPaginated($filters, (int) ($filters['per_page'] ?? 25));
         $filterOptions = $pendingBillsService->getFilterOptions();
 
@@ -7392,9 +7392,12 @@ final class CashbookController extends Controller
         $validated = $request->validate([
             'status' => ['nullable', 'string', 'in:pending,not_received,partially_received,cleared,received,all'],
             'search' => ['nullable', 'string', 'max:100'],
-            'date_preset' => ['nullable', 'string', 'in:all,today,yesterday,last_7_days,this_month,custom'],
+            'date_preset' => ['nullable', 'string', 'in:all,today,yesterday,week,this_week,last_7_days,month,this_month,prev_month,last_month,custom'],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+            'date' => ['nullable', 'date'],
             'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
             'supplier_id' => ['nullable', 'integer', 'exists:suppliers,id'],
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
@@ -7403,12 +7406,35 @@ final class CashbookController extends Controller
             'per_page' => ['nullable', 'integer', 'in:15,25,50,100'],
         ]);
 
+        $startDate = $validated['start_date'] ?? $validated['from'] ?? null;
+        $endDate = $validated['end_date'] ?? $validated['to'] ?? null;
+        if (! $startDate && ! $endDate && ! empty($validated['date'])) {
+            $startDate = $validated['date'];
+            $endDate = $validated['date'];
+        }
+
+        $preset = $validated['date_preset'] ?? null;
+        if (! $preset) {
+            if ($startDate || $endDate) {
+                $preset = 'custom';
+            } else {
+                $preset = 'today';
+            }
+        }
+
+        $preset = match ($preset) {
+            'week' => 'this_week',
+            'month' => 'this_month',
+            'last_month' => 'prev_month',
+            default => $preset,
+        };
+
         return [
             'status' => $validated['status'] ?? 'pending',
             'search' => trim((string) ($validated['search'] ?? '')),
-            'date_preset' => $validated['date_preset'] ?? 'all',
-            'start_date' => $validated['start_date'] ?? null,
-            'end_date' => $validated['end_date'] ?? null,
+            'date_preset' => $preset,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
             'purchaser_id' => isset($validated['purchaser_id']) ? (int) $validated['purchaser_id'] : null,
             'supplier_id' => isset($validated['supplier_id']) ? (int) $validated['supplier_id'] : null,
             'warehouse_id' => isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null,

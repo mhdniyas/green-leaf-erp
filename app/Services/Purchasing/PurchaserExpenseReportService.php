@@ -249,20 +249,46 @@ class PurchaserExpenseReportService
 
         // Filter rows if specific entry_type is requested
         $displayRows = match ($entryType) {
-            'expense' => $expenseRows->sortByDesc('raw_date')->values(),
-            'purchase' => $purchaseRows->sortByDesc('raw_date')->values(),
+            'expense' => $expenseRows,
+            'purchase' => $purchaseRows,
             default => $combinedRows,
         };
 
-        $summary['filtered_entries'] = $displayRows->count();
+        // Resolve sort column & direction
+        $sortBy = strtolower(trim((string) ($filters['sort_by'] ?? $filters['sort'] ?? 'date')));
+        $rawSortDir = strtolower(trim((string) ($filters['sort_dir'] ?? $filters['direction'] ?? 'desc')));
+        $sortDir = in_array($rawSortDir, ['asc', 'desc'], true) ? $rawSortDir : 'desc';
+
+        $isNumeric = in_array($sortBy, ['purchase', 'purchase_amount', 'expense', 'expense_amount', 'total'], true);
+        $sortKey = match ($sortBy) {
+            'type' => 'type',
+            'purchaser', 'purchaser_name' => 'purchaser_name',
+            'supplier', 'supplier_name' => 'supplier_name',
+            'reference' => 'reference',
+            'details' => 'details',
+            'purchase', 'purchase_amount' => 'purchase_amount',
+            'expense', 'expense_amount' => 'expense_amount',
+            'total' => 'total',
+            default => 'raw_date',
+        };
+
+        if ($sortDir === 'asc') {
+            $sortedRows = $displayRows->sortBy($sortKey, $isNumeric ? SORT_NUMERIC : SORT_NATURAL | SORT_FLAG_CASE)->values();
+        } else {
+            $sortedRows = $displayRows->sortByDesc($sortKey, $isNumeric ? SORT_NUMERIC : SORT_NATURAL | SORT_FLAG_CASE)->values();
+        }
+
+        $summary['sort_by'] = $sortBy;
+        $summary['sort_dir'] = $sortDir;
+        $summary['filtered_entries'] = $sortedRows->count();
 
         // 6. Paginate if perPage is specified
         if ($perPage !== null && $perPage > 0) {
             $currentPage = LengthAwarePaginator::resolveCurrentPage();
-            $pagedRows = $displayRows->slice(($currentPage - 1) * $perPage, $perPage)->values();
+            $pagedRows = $sortedRows->slice(($currentPage - 1) * $perPage, $perPage)->values();
             $paginator = new LengthAwarePaginator(
                 $pagedRows,
-                $displayRows->count(),
+                $sortedRows->count(),
                 $perPage,
                 $currentPage,
                 ['path' => LengthAwarePaginator::resolveCurrentPath(), 'query' => request()->query()]
@@ -272,7 +298,7 @@ class PurchaserExpenseReportService
                 'summary' => $summary,
                 'paginator' => $paginator,
                 'rows' => $pagedRows,
-                'all_rows' => $displayRows,
+                'all_rows' => $sortedRows,
                 'filters' => $filters,
             ];
         }
@@ -280,8 +306,8 @@ class PurchaserExpenseReportService
         return [
             'summary' => $summary,
             'paginator' => null,
-            'rows' => $displayRows,
-            'all_rows' => $displayRows,
+            'rows' => $sortedRows,
+            'all_rows' => $sortedRows,
             'filters' => $filters,
         ];
     }

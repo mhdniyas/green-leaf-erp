@@ -170,6 +170,14 @@
             'active' => request()->routeIs('admin.warehouses.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 12 3l9 4.5M4.5 8.25v8.25A2.25 2.25 0 0 0 6.75 18.75h10.5A2.25 2.25 0 0 0 19.5 16.5V8.25M9 12h6" /></svg>',
         ];
+        if ($currentUser?->can('cashbook.inventory.view') || $currentUser?->hasRole('admin')) {
+            $adminItems[] = [
+                'label' => 'Advance Warehouse Receive',
+                'href' => route('admin.cashbook.inventory'),
+                'active' => request()->routeIs('admin.cashbook.inventory*'),
+                'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 0 0-3.213-9.193 2.056 2.056 0 0 0-1.58-.86H14.25M16.5 18.75h-2.25m0-11.25V3.75A1.125 1.125 0 0 0 13.125 2.625h-8.25A1.125 1.125 0 0 0 3.75 3.75v10.5m10.5-6.75h4.5" /></svg>',
+            ];
+        }
         $adminItems[] = [
             'label' => 'Empty Warehouse',
             'href' => route('admin.inventory-empty.index'),

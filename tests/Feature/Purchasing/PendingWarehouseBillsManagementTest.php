@@ -2455,4 +2455,246 @@ class PendingWarehouseBillsManagementTest extends TestCase
 
         $this->assertSame($first, $second);
     }
+
+    public function test_pending_bills_page_defaults_to_today_preset(): void
+    {
+        $res = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.pending-bills'));
+        $res->assertOk();
+        $res->assertViewHas('filters', fn ($f) => $f['date_preset'] === 'today');
+    }
+
+    public function test_changing_date_preset_updates_summary_metrics_and_tables(): void
+    {
+        app(PurchaserBillsNotReceivedService::class)->clearMemoizedData();
+
+        $today = now('Asia/Kolkata')->toDateString();
+        $yesterday = now('Asia/Kolkata')->subDay()->toDateString();
+
+        // 1. Bill from yesterday
+        $cartYesterday = PurchaserCart::create([
+            'cart_number' => 'CART-DATE-YESTERDAY',
+            'user_id' => $this->purchaserUser->id,
+            'supplier_id' => $this->supplier->id,
+            'business_date' => $yesterday,
+            'status' => 'submitted',
+        ]);
+        $grnYesterday = GoodsReceived::create([
+            'purchaser_cart_id' => $cartYesterday->id,
+            'grn_number' => 'GRN-DATE-YESTERDAY',
+            'status' => 'pending_approval',
+            'receipt_type' => 'purchaser',
+            'warehouse_id' => $this->warehouse->id,
+            'received_by' => $this->admin->id,
+            'received_at' => $yesterday,
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $grnYesterday->id,
+            'product_id' => $this->product->id,
+            'received_qty' => 10.0,
+            'variance' => 0.0,
+        ]);
+        StockBatch::create([
+            'goods_received_id' => $grnYesterday->id,
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'received_at' => $yesterday,
+            'total_kg' => 10.0,
+            'warehouse_receive_pending' => true,
+            'status' => BatchStatus::Pending,
+            'purchase_grade' => 'A',
+            'reference' => 'BAT-DATE-YESTERDAY',
+            'cost_per_kg' => 20.0,
+        ]);
+        $invYesterday = PurchaseInvoice::create([
+            'goods_received_id' => $grnYesterday->id,
+            'purchaser_cart_id' => $cartYesterday->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'BILL-DATE-YESTERDAY',
+            'amount' => 200.0,
+            'status' => 'pending',
+            'purchaser_submitted_by' => $this->purchaserUser->id,
+            'original_business_date' => $yesterday,
+        ]);
+        $invYesterday->created_at = Carbon::parse($yesterday.' 10:00:00');
+        $invYesterday->save();
+
+        // 2. Bill from today
+        $cartToday = PurchaserCart::create([
+            'cart_number' => 'CART-DATE-TODAY',
+            'user_id' => $this->purchaserUser->id,
+            'supplier_id' => $this->supplier->id,
+            'business_date' => $today,
+            'status' => 'submitted',
+        ]);
+        $grnToday = GoodsReceived::create([
+            'purchaser_cart_id' => $cartToday->id,
+            'grn_number' => 'GRN-DATE-TODAY',
+            'status' => 'pending_approval',
+            'receipt_type' => 'purchaser',
+            'warehouse_id' => $this->warehouse->id,
+            'received_by' => $this->admin->id,
+            'received_at' => $today,
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $grnToday->id,
+            'product_id' => $this->product->id,
+            'received_qty' => 25.0,
+            'variance' => 0.0,
+        ]);
+        StockBatch::create([
+            'goods_received_id' => $grnToday->id,
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'received_at' => $today,
+            'total_kg' => 25.0,
+            'warehouse_receive_pending' => true,
+            'status' => BatchStatus::Pending,
+            'purchase_grade' => 'A',
+            'reference' => 'BAT-DATE-TODAY',
+            'cost_per_kg' => 20.0,
+        ]);
+        $invToday = PurchaseInvoice::create([
+            'goods_received_id' => $grnToday->id,
+            'purchaser_cart_id' => $cartToday->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'BILL-DATE-TODAY',
+            'amount' => 500.0,
+            'status' => 'pending',
+            'purchaser_submitted_by' => $this->purchaserUser->id,
+            'original_business_date' => $today,
+        ]);
+        $invToday->created_at = Carbon::parse($today.' 10:00:00');
+        $invToday->save();
+
+        // Test Today preset: only today's bill is returned in table and metrics
+        $resToday = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.pending-bills', ['date_preset' => 'today']));
+        $resToday->assertOk();
+        $resToday->assertSee('BILL-DATE-TODAY');
+        $resToday->assertDontSee('BILL-DATE-YESTERDAY');
+        $resToday->assertViewHas('metrics', fn ($m) => $m['total_pending_bills'] === 1 && (float) $m['total_outstanding_qty'] === 25.0);
+
+        // Test Yesterday preset: only yesterday's bill is returned
+        $resYesterday = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.pending-bills', ['date_preset' => 'yesterday']));
+        $resYesterday->assertOk();
+        $resYesterday->assertSee('BILL-DATE-YESTERDAY');
+        $resYesterday->assertDontSee('BILL-DATE-TODAY');
+        $resYesterday->assertViewHas('metrics', fn ($m) => $m['total_pending_bills'] === 1 && (float) $m['total_outstanding_qty'] === 10.0);
+
+        // Test All Time preset: both bills returned
+        $resAll = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.pending-bills', ['date_preset' => 'all']));
+        $resAll->assertOk();
+        $resAll->assertSee('BILL-DATE-TODAY');
+        $resAll->assertSee('BILL-DATE-YESTERDAY');
+        $resAll->assertViewHas('metrics', fn ($m) => $m['total_pending_bills'] === 2 && (float) $m['total_outstanding_qty'] === 35.0);
+
+        // Test Custom date range: only yesterday
+        $resCustom = $this->actingAs($this->admin)->get(route('admin.cashbook.reports-v1.pending-bills', [
+            'date_preset' => 'custom',
+            'start_date' => $yesterday,
+            'end_date' => $yesterday,
+        ]));
+        $resCustom->assertOk();
+        $resCustom->assertSee('BILL-DATE-YESTERDAY');
+        $resCustom->assertDontSee('BILL-DATE-TODAY');
+        $resCustom->assertViewHas('metrics', fn ($m) => $m['total_pending_bills'] === 1 && (float) $m['total_outstanding_qty'] === 10.0);
+    }
+
+    public function test_cleared_and_received_from_warehouse_metrics_respect_date_filter(): void
+    {
+        app(PurchaserBillsNotReceivedService::class)->clearMemoizedData();
+
+        $today = now('Asia/Kolkata')->toDateString();
+        $lastMonth = now('Asia/Kolkata')->subMonth()->toDateString();
+
+        // Cleared bill today
+        $grnToday = GoodsReceived::create([
+            'grn_number' => 'GRN-CLEARED-TODAY',
+            'receipt_type' => 'purchaser',
+            'status' => 'approved',
+            'warehouse_id' => $this->warehouse->id,
+            'received_by' => $this->admin->id,
+            'received_at' => $today,
+        ]);
+        StockBatch::create([
+            'goods_received_id' => $grnToday->id,
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'received_at' => $today,
+            'total_kg' => 40.0,
+            'warehouse_receive_pending' => false,
+            'warehouse_confirmed_at' => now('Asia/Kolkata'),
+            'warehouse_confirmed_by' => $this->admin->id,
+            'status' => BatchStatus::Sorted,
+            'purchase_grade' => 'A',
+            'reference' => 'BAT-CLEARED-TODAY',
+            'cost_per_kg' => 20.0,
+        ]);
+        $invToday = PurchaseInvoice::create([
+            'goods_received_id' => $grnToday->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'BILL-CLEARED-TODAY',
+            'amount' => 800.0,
+            'status' => 'approved',
+            'purchaser_submitted_by' => $this->purchaserUser->id,
+            'original_business_date' => $today,
+        ]);
+        $invToday->created_at = Carbon::parse($today.' 10:00:00');
+        $invToday->save();
+
+        // Cleared bill last month
+        $grnLastMonth = GoodsReceived::create([
+            'grn_number' => 'GRN-CLEARED-LAST-MONTH',
+            'receipt_type' => 'purchaser',
+            'status' => 'approved',
+            'warehouse_id' => $this->warehouse->id,
+            'received_by' => $this->admin->id,
+            'received_at' => $lastMonth,
+        ]);
+        $grnLastMonth->created_at = Carbon::parse($lastMonth.' 10:00:00');
+        $grnLastMonth->save();
+
+        StockBatch::create([
+            'goods_received_id' => $grnLastMonth->id,
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'created_by' => $this->admin->id,
+            'received_at' => $lastMonth,
+            'total_kg' => 60.0,
+            'warehouse_receive_pending' => false,
+            'warehouse_confirmed_at' => Carbon::parse($lastMonth.' 10:00:00'),
+            'warehouse_confirmed_by' => $this->admin->id,
+            'status' => BatchStatus::Sorted,
+            'purchase_grade' => 'A',
+            'reference' => 'BAT-CLEARED-LAST-MONTH',
+            'cost_per_kg' => 20.0,
+        ]);
+        $invLastMonth = PurchaseInvoice::create([
+            'goods_received_id' => $grnLastMonth->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'BILL-CLEARED-LAST-MONTH',
+            'amount' => 1200.0,
+            'status' => 'approved',
+            'purchaser_submitted_by' => $this->purchaserUser->id,
+            'original_business_date' => $lastMonth,
+        ]);
+        $invLastMonth->created_at = Carbon::parse($lastMonth.' 10:00:00');
+        $invLastMonth->save();
+
+        $service = app(PendingWarehouseBillsManagementService::class);
+
+        // Today metrics: only today's cleared bill is counted
+        $todayMetrics = $service->getSummaryMetrics(['date_preset' => 'today'], true);
+        $this->assertEquals(1, $todayMetrics['received_from_warehouse_count']);
+        $this->assertEquals(1, $todayMetrics['cleared_today_count']);
+        $this->assertEquals(40.0, $todayMetrics['cleared_today_qty']);
+
+        // All Time metrics: both are counted
+        $allMetrics = $service->getSummaryMetrics(['date_preset' => 'all'], true);
+        $this->assertEquals(2, $allMetrics['received_from_warehouse_count']);
+        $this->assertEquals(2, $allMetrics['cleared_today_count']);
+        $this->assertEquals(100.0, $allMetrics['cleared_today_qty']);
+    }
 }

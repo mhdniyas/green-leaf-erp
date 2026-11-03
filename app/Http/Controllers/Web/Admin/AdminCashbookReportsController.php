@@ -10,6 +10,7 @@ use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
+use App\Exports\InventoryBusinessDayExport;
 use App\Http\Controllers\Controller;
 use App\Models\AdvanceReceiveMatch;
 use App\Models\Cashbook\ShopLedgerProfile;
@@ -61,7 +62,9 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Maatwebsite\Excel\Facades\Excel;
 use Spatie\Activitylog\Models\Activity;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
@@ -1549,9 +1552,16 @@ class AdminCashbookReportsController extends Controller
     /**
      * Daily Inventory Comparison (Advance vs Bill by Product and Unit)
      */
-    public function inventory(Request $request): View
+    public function inventory(Request $request): mixed
     {
         $this->ensureAuthorized($request);
+
+        if ($request->input('format') === 'pdf' || $request->input('export') === 'pdf') {
+            return $this->exportInventoryBusinessDayPdf($request);
+        }
+        if ($request->input('format') === 'excel' || $request->input('export') === 'excel') {
+            return $this->exportInventoryBusinessDayExcel($request);
+        }
 
         $selectedWarehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
         if ($selectedWarehouseId !== null && ! Warehouse::query()->where('id', $selectedWarehouseId)->exists()) {
@@ -1571,40 +1581,7 @@ class AdminCashbookReportsController extends Controller
             abort(403, 'Unauthorized warehouse access.');
         }
 
-        if ($request->filled('date')) {
-            $date = Carbon::parse((string) $request->input('date'))->toDateString();
-        } else {
-            $latestAdvDate = GoodsReceived::query()
-                ->where('receipt_type', 'warehouse_advance')
-                ->where('status', '!=', 'cancelled')
-                ->whereNotNull('received_at')
-                ->when($selectedWarehouseId !== null, fn (Builder $wq) => $wq->where('warehouse_id', $selectedWarehouseId))
-                ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $wq) => $wq->whereIn('warehouse_id', $authorizedWarehouseIds))
-                ->latest('received_at')
-                ->value('received_at');
-
-            $latestBillDate = GoodsReceivedItem::query()
-                ->whereHas('goodsReceived', function (Builder $q): void {
-                    $q->where(function (Builder $sub): void {
-                        $sub->where('receipt_type', '!=', 'warehouse_advance')
-                            ->orWhereNull('receipt_type');
-                    })
-                        ->where('status', '!=', 'cancelled')
-                        ->whereNotNull('received_at');
-                })
-                ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->whereHas('product', fn (Builder $pq) => $pq->where('default_warehouse_id', $selectedWarehouseId)))
-                ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereHas('product', fn (Builder $pq) => $pq->whereIn('default_warehouse_id', $authorizedWarehouseIds)))
-                ->join('goods_received', 'goods_received_items.goods_received_id', '=', 'goods_received.id')
-                ->latest('goods_received.received_at')
-                ->value('goods_received.received_at');
-
-            $latestDates = array_filter([$latestAdvDate, $latestBillDate]);
-            $latestReceiptDate = ! empty($latestDates) ? max($latestDates) : null;
-
-            $date = $latestReceiptDate
-                ? ($latestReceiptDate instanceof Carbon ? $latestReceiptDate->toDateString() : Carbon::parse($latestReceiptDate)->toDateString())
-                : today()->toDateString();
-        }
+        $date = $this->resolveInventoryDate($request, $selectedWarehouseId, $authorizedWarehouseIds);
 
         $carbonDate = Carbon::parse($date);
         $prevDate = $carbonDate->copy()->subDay()->toDateString();
@@ -1722,40 +1699,7 @@ class AdminCashbookReportsController extends Controller
             abort(403, 'Unauthorized warehouse access.');
         }
 
-        if ($request->filled('date')) {
-            $date = Carbon::parse((string) $request->input('date'))->toDateString();
-        } else {
-            $latestAdvDate = GoodsReceived::query()
-                ->where('receipt_type', 'warehouse_advance')
-                ->where('status', '!=', 'cancelled')
-                ->whereNotNull('received_at')
-                ->when($selectedWarehouseId !== null, fn (Builder $wq) => $wq->where('warehouse_id', $selectedWarehouseId))
-                ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $wq) => $wq->whereIn('warehouse_id', $authorizedWarehouseIds))
-                ->latest('received_at')
-                ->value('received_at');
-
-            $latestBillDate = GoodsReceivedItem::query()
-                ->whereHas('goodsReceived', function (Builder $q): void {
-                    $q->where(function (Builder $sub): void {
-                        $sub->where('receipt_type', '!=', 'warehouse_advance')
-                            ->orWhereNull('receipt_type');
-                    })
-                        ->where('status', '!=', 'cancelled')
-                        ->whereNotNull('received_at');
-                })
-                ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->whereHas('product', fn (Builder $pq) => $pq->where('default_warehouse_id', $selectedWarehouseId)))
-                ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereHas('product', fn (Builder $pq) => $pq->whereIn('default_warehouse_id', $authorizedWarehouseIds)))
-                ->join('goods_received', 'goods_received_items.goods_received_id', '=', 'goods_received.id')
-                ->latest('goods_received.received_at')
-                ->value('goods_received.received_at');
-
-            $latestDates = array_filter([$latestAdvDate, $latestBillDate]);
-            $latestReceiptDate = ! empty($latestDates) ? max($latestDates) : null;
-
-            $date = $latestReceiptDate
-                ? ($latestReceiptDate instanceof Carbon ? $latestReceiptDate->toDateString() : Carbon::parse($latestReceiptDate)->toDateString())
-                : today()->toDateString();
-        }
+        $date = $this->resolveInventoryDate($request, $selectedWarehouseId, $authorizedWarehouseIds);
 
         $warehouses = Warehouse::query()
             ->where('is_active', true)
@@ -1829,6 +1773,166 @@ class AdminCashbookReportsController extends Controller
     protected function buildInventoryComparisonRows(string $date, ?int $selectedWarehouseId, ?array $authorizedWarehouseIds): Collection
     {
         return app(DailyInventoryComparisonService::class)->buildComparisonRows($date, $selectedWarehouseId, $authorizedWarehouseIds);
+    }
+
+    /**
+     * Export Business Day Inventory Report as PDF (4 columns: #, CODE, PRODUCT, ADVANCE).
+     */
+    public function exportInventoryBusinessDayPdf(Request $request): mixed
+    {
+        $exportData = $this->getInventoryExportData($request);
+        $date = $exportData['date'];
+        $warehouse = $exportData['selectedWarehouse'];
+        $rows = $exportData['rows'];
+        $filename = "business-day-inventory-{$date}.pdf";
+
+        $pdf = Pdf::loadView('admin.cashbook.reports.pdf.inventory_business_day', [
+            'date' => $date,
+            'warehouse' => $warehouse,
+            'rows' => $rows,
+            'title' => 'Business Day',
+            'generatedAt' => now()->format('d M Y, h:i A'),
+            'generatedBy' => $request->user()?->name ?? 'Admin',
+        ])
+            ->setPaper('a4', 'portrait')
+            ->setOption(['isRemoteEnabled' => true, 'isHtml5ParserEnabled' => true]);
+
+        if ($request->boolean('download') || $request->input('download') === '1') {
+            return $pdf->download($filename);
+        }
+
+        return $pdf->stream($filename);
+    }
+
+    /**
+     * Export Business Day Inventory Report as Excel (4 columns: #, CODE, PRODUCT, ADVANCE).
+     */
+    public function exportInventoryBusinessDayExcel(Request $request): BinaryFileResponse
+    {
+        $exportData = $this->getInventoryExportData($request);
+        $date = $exportData['date'];
+        $warehouse = $exportData['selectedWarehouse'];
+        $warehouseName = $warehouse?->name ?? 'All Warehouses';
+        $rows = $exportData['rows'];
+        $dateFormatted = Carbon::parse($date)->format('d M Y');
+        $filename = "business-day-inventory-{$date}.xlsx";
+
+        return Excel::download(
+            new InventoryBusinessDayExport($rows, $dateFormatted, $warehouseName, 'Business Day'),
+            $filename
+        );
+    }
+
+    /**
+     * Resolve scoped and sorted comparison rows for Business Day export.
+     *
+     * @return array{date: string, selectedWarehouse: Warehouse|null, selectedWarehouseId: int|null, rows: Collection<int, array<string, mixed>>}
+     */
+    protected function getInventoryExportData(Request $request): array
+    {
+        $this->ensureAuthorized($request);
+
+        $selectedWarehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        if ($selectedWarehouseId !== null && ! Warehouse::query()->where('id', $selectedWarehouseId)->exists()) {
+            abort(404, 'Warehouse not found.');
+        }
+
+        $userAuthorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user()
+        );
+
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user(),
+            $selectedWarehouseId
+        );
+
+        if ($selectedWarehouseId !== null && $userAuthorizedWarehouseIds !== null && ! in_array($selectedWarehouseId, $userAuthorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $date = $this->resolveInventoryDate($request, $selectedWarehouseId, $authorizedWarehouseIds);
+
+        $selectedWarehouse = $selectedWarehouseId !== null
+            ? Warehouse::query()->find($selectedWarehouseId)
+            : null;
+
+        $comparisonRows = $this->buildInventoryComparisonRows($date, $selectedWarehouseId, $authorizedWarehouseIds);
+
+        $sortBy = (string) $request->input('sort_by', $request->input('sort_column', 'product_code'));
+        $sortDir = strtolower((string) $request->input('sort_dir', $request->input('sort_direction', 'asc'))) === 'desc' ? 'desc' : 'asc';
+
+        $rows = $this->sortComparisonRows($comparisonRows, $sortBy, $sortDir);
+
+        if ($request->filled('search')) {
+            $q = mb_strtolower(trim((string) $request->input('search')));
+            $rows = $rows->filter(function (array $r) use ($q): bool {
+                $name = mb_strtolower((string) ($r['product_name'] ?? ''));
+                $code = mb_strtolower((string) ($r['product_code'] ?? ($r['sku'] ?? '')));
+
+                return str_contains($name, $q) || str_contains($code, $q);
+            });
+        }
+
+        $matchFilter = (string) $request->input('match_filter', 'all');
+        if ($matchFilter === 'pending_only') {
+            $rows = $rows->filter(function (array $r): bool {
+                $adv = (float) ($r['advance_qty'] ?? 0);
+                $matched = (float) ($r['matched_bill_qty'] ?? 0);
+                $pending = max(0.0, $adv - $matched);
+
+                return ! empty($r['unit_mismatch']) || $pending > 0.0001 || ((float) ($r['unmatched_bill_qty'] ?? 0) > 0.0001);
+            });
+        } elseif ($matchFilter === 'unit_fix') {
+            $rows = $rows->filter(fn (array $r): bool => ! empty($r['unit_mismatch']));
+        }
+
+        return [
+            'date' => $date,
+            'selectedWarehouse' => $selectedWarehouse,
+            'selectedWarehouseId' => $selectedWarehouseId,
+            'rows' => $rows->values(),
+        ];
+    }
+
+    /**
+     * Resolve inventory date from request or latest advance/bill receipts.
+     */
+    protected function resolveInventoryDate(Request $request, ?int $selectedWarehouseId, ?array $authorizedWarehouseIds): string
+    {
+        if ($request->filled('date')) {
+            return Carbon::parse((string) $request->input('date'))->toDateString();
+        }
+
+        $latestAdvDate = GoodsReceived::query()
+            ->where('receipt_type', 'warehouse_advance')
+            ->where('status', '!=', 'cancelled')
+            ->whereNotNull('received_at')
+            ->when($selectedWarehouseId !== null, fn (Builder $wq) => $wq->where('warehouse_id', $selectedWarehouseId))
+            ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $wq) => $wq->whereIn('warehouse_id', $authorizedWarehouseIds))
+            ->latest('received_at')
+            ->value('received_at');
+
+        $latestBillDate = GoodsReceivedItem::query()
+            ->whereHas('goodsReceived', function (Builder $q): void {
+                $q->where(function (Builder $sub): void {
+                    $sub->where('receipt_type', '!=', 'warehouse_advance')
+                        ->orWhereNull('receipt_type');
+                })
+                    ->where('status', '!=', 'cancelled')
+                    ->whereNotNull('received_at');
+            })
+            ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->whereHas('product', fn (Builder $pq) => $pq->where('default_warehouse_id', $selectedWarehouseId)))
+            ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereHas('product', fn (Builder $pq) => $pq->whereIn('default_warehouse_id', $authorizedWarehouseIds)))
+            ->join('goods_received', 'goods_received_items.goods_received_id', '=', 'goods_received.id')
+            ->latest('goods_received.received_at')
+            ->value('goods_received.received_at');
+
+        $latestDates = array_filter([$latestAdvDate, $latestBillDate]);
+        $latestReceiptDate = ! empty($latestDates) ? max($latestDates) : null;
+
+        return $latestReceiptDate
+            ? ($latestReceiptDate instanceof Carbon ? $latestReceiptDate->toDateString() : Carbon::parse($latestReceiptDate)->toDateString())
+            : today()->toDateString();
     }
 
     /**
