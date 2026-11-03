@@ -30,6 +30,7 @@ class StockBatch extends Model
         'purchase_grade',
         'grading_mode',
         'created_by',
+        'updated_by',
         'reference',
         'received_at',
         'total_kg',
@@ -100,6 +101,11 @@ class StockBatch extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function updatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'updated_by');
     }
 
     public function warehouseConfirmedBy(): BelongsTo
@@ -299,5 +305,20 @@ class StockBatch extends Model
     public function getRouteKeyName(): string
     {
         return 'reference';
+    }
+
+    /**
+     * Retrieve the model for a bound value, matching by reference or numeric ID.
+     */
+    public function resolveRouteBindingQuery($query, $value, $field = null)
+    {
+        $field ??= $this->getRouteKeyName();
+
+        return $query->where(function ($q) use ($field, $value): void {
+            $q->where($field, $value);
+            if (is_numeric($value)) {
+                $q->orWhere($this->getKeyName(), (int) $value);
+            }
+        });
     }
 }

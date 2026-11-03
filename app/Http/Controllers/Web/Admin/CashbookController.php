@@ -7439,7 +7439,7 @@ final class CashbookController extends Controller
             'grade' => ['nullable', 'string', 'in:all,A,B,C,U,mixed,unsorted'],
             'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
             'client_id' => ['nullable', 'integer', 'exists:clients,id'],
-            'tab' => ['nullable', 'string', 'in:overview,selling_loss,damage,daily_monthly,client_shop'],
+            'tab' => ['nullable', 'string', 'in:overview,selling_loss,damage,damage_movements,segregation,daily_monthly,client_shop'],
             'search' => ['nullable', 'string', 'max:100'],
             'page' => ['nullable', 'integer', 'min:1'],
         ]);

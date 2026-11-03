@@ -23,6 +23,7 @@ class StockMovement extends Model
         'shop_order_item_id',
         'warehouse_sale_item_id',
         'created_by',
+        'updated_by',
         'grade',
         'type',
         'quantity',
@@ -71,6 +72,11 @@ class StockMovement extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function updatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'updated_by');
     }
 
     // Computed

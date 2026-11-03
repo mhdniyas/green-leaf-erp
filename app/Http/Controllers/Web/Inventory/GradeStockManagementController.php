@@ -8,6 +8,7 @@ use App\Actions\Inventory\TransferGradeStockAction;
 use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Inventory\GradeStockDamageRequest;
 use App\Http\Requests\Inventory\GradeStockTransferRequest;
 use App\Models\Product;
 use App\Models\StockBatch;
@@ -15,6 +16,7 @@ use App\Models\StockMovement;
 use App\Models\Warehouse;
 use App\Repositories\Inventory\StockMovementRepository;
 use App\Services\Inventory\ProductWarehouseResolver;
+use App\Services\Purchasing\PurchaserReadCacheService;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -175,7 +177,8 @@ class GradeStockManagementController extends Controller
             $gradeA = $stockMap[$pId]['A'] ?? 0.0;
             $gradeB = $stockMap[$pId]['B'] ?? 0.0;
             $gradeC = $stockMap[$pId]['C'] ?? 0.0;
-            $total = round($mixed + $gradeA + $gradeB + $gradeC, 3);
+            $dmg = $stockMap[$pId]['DMG'] ?? 0.0;
+            $total = round($mixed + $gradeA + $gradeB + $gradeC + $dmg, 3);
 
             return [
                 'product_id' => $pId,
@@ -187,6 +190,7 @@ class GradeStockManagementController extends Controller
                 'grade_a_qty' => $gradeA,
                 'grade_b_qty' => $gradeB,
                 'grade_c_qty' => $gradeC,
+                'damage_qty' => $dmg,
                 'total_stock' => $total,
             ];
         });
@@ -200,6 +204,7 @@ class GradeStockManagementController extends Controller
             'total_grade_a' => 0.0,
             'total_grade_b' => 0.0,
             'total_grade_c' => 0.0,
+            'total_damage' => 0.0,
             'total_all' => 0.0,
         ];
 
@@ -272,6 +277,8 @@ class GradeStockManagementController extends Controller
             clientSubmissionId: $clientSubmissionId
         );
 
+        app(PurchaserReadCacheService::class)->invalidate(['products', 'orders']);
+
         $msg = "Successfully transferred {$quantity} kg from Grade {$sourceGrade->value} to Grade {$targetGrade->value}.";
 
         if ($request->wantsJson()) {
@@ -285,6 +292,51 @@ class GradeStockManagementController extends Controller
             'warehouse_id' => $warehouse->id,
             'tab' => 'transfer',
             'product_id' => $product->id,
+        ])->with('success', $msg);
+    }
+
+    /**
+     * Move stock directly to Damage quarantine (DMG) from Grade Stock page.
+     */
+    public function moveToDamage(GradeStockDamageRequest $request): JsonResponse|RedirectResponse
+    {
+        $validated = $request->validated();
+        $product = Product::findOrFail((int) $validated['product_id']);
+        $warehouse = Warehouse::findOrFail((int) $validated['warehouse_id']);
+        $sourceGrade = ProductGrade::tryResolve($validated['source_grade']);
+        $quantity = (float) $validated['quantity'];
+        $notes = $validated['notes'] ?? null;
+        $clientSubmissionId = $validated['client_submission_id'] ?? null;
+
+        $damageNotes = $notes ?: "Moved to damage from Grade {$sourceGrade->value}";
+
+        $result = $this->transferAction->execute(
+            product: $product,
+            warehouse: $warehouse,
+            sourceGrade: $sourceGrade,
+            targetGrade: ProductGrade::Damage,
+            quantity: $quantity,
+            userId: (int) $request->user()->id,
+            sourceBatch: null,
+            notes: $damageNotes,
+            clientSubmissionId: $clientSubmissionId
+        );
+
+        app(PurchaserReadCacheService::class)->invalidate(['products', 'orders']);
+
+        $unit = $product->unit ?? 'kg';
+        $msg = "Successfully moved {$quantity} {$unit} of {$product->name} (Grade {$sourceGrade->value}) to Damage (DMG).";
+
+        if ($request->wantsJson()) {
+            return ApiResponse::success([
+                'result' => $result,
+                'updated_stock' => $this->buildProductStockBreakdown($product->id, $warehouse->id),
+            ], $msg);
+        }
+
+        return redirect()->route('inventory.grade-stock.index', [
+            'warehouse_id' => $warehouse->id,
+            'tab' => 'inventory',
         ])->with('success', $msg);
     }
 
@@ -311,6 +363,8 @@ class GradeStockManagementController extends Controller
             clientSubmissionId: $clientSubmissionId
         );
 
+        app(PurchaserReadCacheService::class)->invalidate(['products', 'orders']);
+
         $msg = "Successfully reversed {$quantity} kg back to source grade.";
 
         if ($request->wantsJson()) {
@@ -323,7 +377,7 @@ class GradeStockManagementController extends Controller
     /**
      * Calculate global warehouse summary totals across all produce.
      *
-     * @return array{total_mixed: float, total_grade_a: float, total_grade_b: float, total_grade_c: float, total_all: float}
+     * @return array{total_mixed: float, total_grade_a: float, total_grade_b: float, total_grade_c: float, total_damage: float, total_all: float}
      */
     private function calculateWarehouseTotals(int $warehouseId): array
     {
@@ -340,10 +394,10 @@ class GradeStockManagementController extends Controller
 
         $totalMixed = round((float) $pendingBatches->sum(fn (StockBatch $b) => $b->available_mixed_qty), 3);
 
-        // 2. Graded totals from StockMovement in warehouse
+        // 2. Graded totals from StockMovement in warehouse (including DMG quarantine)
         $movementSums = StockMovement::query()
             ->where('warehouse_id', $warehouseId)
-            ->whereIn('grade', ['A', 'B', 'C'])
+            ->whereIn('grade', ['A', 'B', 'C', 'DMG'])
             ->selectRaw("grade, SUM(CASE WHEN type IN ('in', 'sale_reversal') THEN quantity WHEN type IN ('out', 'wastage', 'sale', 'adjustment') THEN -quantity ELSE 0 END) as net_stock")
             ->groupBy('grade')
             ->get();
@@ -351,13 +405,15 @@ class GradeStockManagementController extends Controller
         $gradeA = round(max(0.0, (float) ($movementSums->firstWhere('grade', 'A')?->net_stock ?? 0.0)), 3);
         $gradeB = round(max(0.0, (float) ($movementSums->firstWhere('grade', 'B')?->net_stock ?? 0.0)), 3);
         $gradeC = round(max(0.0, (float) ($movementSums->firstWhere('grade', 'C')?->net_stock ?? 0.0)), 3);
+        $dmg = round(max(0.0, (float) ($movementSums->firstWhere('grade', 'DMG')?->net_stock ?? 0.0)), 3);
 
         return [
             'total_mixed' => $totalMixed,
             'total_grade_a' => $gradeA,
             'total_grade_b' => $gradeB,
             'total_grade_c' => $gradeC,
-            'total_all' => round($totalMixed + $gradeA + $gradeB + $gradeC, 3),
+            'total_damage' => $dmg,
+            'total_all' => round($totalMixed + $gradeA + $gradeB + $gradeC + $dmg, 3),
         ];
     }
 
@@ -376,10 +432,12 @@ class GradeStockManagementController extends Controller
             'A' => $this->mapBatchList($this->transferAction->findEligibleBatches($product->id, $warehouseId, ProductGrade::GradeA), ProductGrade::GradeA),
             'B' => $this->mapBatchList($this->transferAction->findEligibleBatches($product->id, $warehouseId, ProductGrade::GradeB), ProductGrade::GradeB),
             'C' => $this->mapBatchList($this->transferAction->findEligibleBatches($product->id, $warehouseId, ProductGrade::GradeC), ProductGrade::GradeC),
+            'DMG' => $this->mapBatchList($this->transferAction->findEligibleBatches($product->id, $warehouseId, ProductGrade::Damage), ProductGrade::Damage),
         ];
 
         // Reversible transferred child batches
         $reversibleBatches = StockBatch::query()
+            ->with(['parentBatch', 'createdBy', 'updatedBy'])
             ->where('product_id', $product->id)
             ->where('warehouse_id', $warehouseId)
             ->whereNotNull('parent_batch_id')
@@ -391,9 +449,16 @@ class GradeStockManagementController extends Controller
                 'id' => (int) $b->id,
                 'reference' => $b->reference,
                 'parent_batch_id' => (int) $b->parent_batch_id,
+                'parent_reference' => $b->parentBatch?->reference,
+                'source_grade' => $b->parentBatch?->purchase_grade ?? 'U',
                 'grade' => $b->purchase_grade,
                 'available_qty' => $this->transferAction->availableQuantityOnBatch($b, ProductGrade::tryResolve($b->purchase_grade) ?? ProductGrade::GradeA),
+                'performed_by' => $b->createdBy?->name ?? 'System',
+                'updated_by' => $b->updatedBy?->name ?? '—',
+                'performed_at' => $b->created_at?->format('d M Y H:i'),
+                'updated_at' => $b->updated_at != $b->created_at ? $b->updated_at?->format('d M Y H:i') : null,
                 'created_at' => $b->created_at?->format('d M Y H:i'),
+                'notes' => $b->notes,
             ])
             ->values()
             ->all();
@@ -417,7 +482,7 @@ class GradeStockManagementController extends Controller
     /**
      * Build canonical stock breakdown for a product and warehouse.
      *
-     * @return array{mixed: float, grade_a: float, grade_b: float, grade_c: float, total: float}
+     * @return array{mixed: float, grade_a: float, grade_b: float, grade_c: float, dmg: float, total: float}
      */
     private function buildProductStockBreakdown(int $productId, int $warehouseId): array
     {
@@ -430,13 +495,15 @@ class GradeStockManagementController extends Controller
         $gradeA = round(max(0.0, (float) $rawStocks->where('grade', 'A')->sum('current_stock')), 3);
         $gradeB = round(max(0.0, (float) $rawStocks->where('grade', 'B')->sum('current_stock')), 3);
         $gradeC = round(max(0.0, (float) $rawStocks->where('grade', 'C')->sum('current_stock')), 3);
+        $dmg = round(max(0.0, (float) $rawStocks->where('grade', 'DMG')->sum('current_stock')), 3);
 
         return [
             'mixed' => $mixed,
             'grade_a' => $gradeA,
             'grade_b' => $gradeB,
             'grade_c' => $gradeC,
-            'total' => round($mixed + $gradeA + $gradeB + $gradeC, 3),
+            'dmg' => $dmg,
+            'total' => round($mixed + $gradeA + $gradeB + $gradeC + $dmg, 3),
         ];
     }
 

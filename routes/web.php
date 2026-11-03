@@ -419,6 +419,7 @@ Route::middleware('auth')->group(function () {
             Route::get('grade-stock', [GradeStockManagementController::class, 'index'])->name('grade-stock.index');
             Route::get('grade-stock/product-details/{product}', [GradeStockManagementController::class, 'productDetails'])->name('grade-stock.product-details');
             Route::post('grade-stock/transfer', [GradeStockManagementController::class, 'transfer'])->name('grade-stock.transfer');
+            Route::post('grade-stock/move-to-damage', [GradeStockManagementController::class, 'moveToDamage'])->name('grade-stock.move-to-damage');
             Route::post('grade-stock/reverse/{childBatch}', [GradeStockManagementController::class, 'reverse'])->name('grade-stock.reverse');
             Route::get('reports/fulfillment', FulfillmentReportController::class)->name('reports.fulfillment');
         });

@@ -389,6 +389,24 @@
             </button>
             <button
                 type="button"
+                @click="setTab('damage_movements')"
+                :class="currentTab === 'damage_movements' ? 'border-rose-600 text-rose-600 bg-rose-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+                class="flex items-center gap-2 border-b-2 py-3 px-4 text-xs font-bold transition rounded-t-xl"
+            >
+                <i data-lucide="archive" class="h-4 w-4"></i>
+                Damage Movements ({{ $damageMovements->count() }})
+            </button>
+            <button
+                type="button"
+                @click="setTab('segregation')"
+                :class="currentTab === 'segregation' ? 'border-rose-600 text-rose-600 bg-rose-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+                class="flex items-center gap-2 border-b-2 py-3 px-4 text-xs font-bold transition rounded-t-xl"
+            >
+                <i data-lucide="split" class="h-4 w-4"></i>
+                Inventory Segregation ({{ $segregations->count() }})
+            </button>
+            <button
+                type="button"
                 @click="setTab('daily_monthly')"
                 :class="currentTab === 'daily_monthly' ? 'border-rose-600 text-rose-600 bg-rose-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
                 class="flex items-center gap-2 border-b-2 py-3 px-4 text-xs font-bold transition rounded-t-xl"
@@ -657,6 +675,230 @@
                                             <span class="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
                                                 Warehouse Unallocated
                                             </span>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
+        </div>
+    </div>
+
+    <!-- TAB: DAMAGE MOVEMENTS (GRADE STOCK → DMG QUARANTINE) -->
+    <div x-show="currentTab === 'damage_movements'" class="space-y-6" style="display: none;">
+        <div class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 bg-slate-50/75 px-5 py-3.5">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="archive" class="h-4 w-4 text-rose-600"></i>
+                        <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">Grade Stock Damage Movements (Quarantine)</h3>
+                        <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-800">{{ $damageMovements->count() }} movements</span>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-0.5">
+                        Authoritative physical stock movements into unsellable DMG quarantine. Conserves total physical stock until formal disposal/write-off.
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="rounded-lg bg-rose-50 border border-rose-200 px-3 py-1 text-xs font-bold text-rose-700">
+                        Total Moved: {{ number_format($damageMovementsSummary->total_qty ?? 0, 1) }} kg
+                    </span>
+                    <span class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-1 text-xs font-bold text-amber-800">
+                        In Quarantine: {{ number_format($damageMovementsSummary->quarantine_qty ?? 0, 1) }} kg
+                    </span>
+                </div>
+            </div>
+
+            @if($damageMovements->isEmpty())
+                <div class="p-12 text-center text-slate-400">
+                    <i data-lucide="check-circle" class="h-8 w-8 mx-auto text-emerald-500 mb-2"></i>
+                    <h4 class="text-sm font-bold text-slate-700">No Grade Stock Damage Movements</h4>
+                    <p class="text-xs text-slate-500 mt-1">No stock was moved to damage quarantine in the selected period.</p>
+                </div>
+            @else
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                            <tr>
+                                <th class="py-2.5 px-3">Date</th>
+                                <th class="py-2.5 px-3">Product</th>
+                                <th class="py-2.5 px-3">Warehouse</th>
+                                <th class="py-2.5 px-3">From Grade</th>
+                                <th class="py-2.5 px-3 text-right">Damage Qty (kg)</th>
+                                <th class="py-2.5 px-3">Reason / Remarks</th>
+                                <th class="py-2.5 px-3">Performed By</th>
+                                <th class="py-2.5 px-3">Updated By</th>
+                                <th class="py-2.5 px-3">Batch Ref</th>
+                                <th class="py-2.5 px-3 text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
+                            @foreach($damageMovements as $dm)
+                                <tr class="hover:bg-slate-50/75 transition {{ $dm->is_reversed ? 'opacity-50' : '' }}">
+                                    <td class="py-2 px-3 whitespace-nowrap text-slate-500 font-mono">
+                                        <div>{{ $dm->date }}</div>
+                                        <div class="text-[10px] text-slate-400">{{ $dm->time }}</div>
+                                    </td>
+                                    <td class="py-2 px-3 whitespace-nowrap">
+                                        <div class="font-bold text-slate-900">{{ $dm->product_name }}</div>
+                                        @if(!empty($dm->product_sku))
+                                            <div class="text-[10px] font-mono text-slate-400">SKU: {{ $dm->product_sku }}</div>
+                                        @endif
+                                    </td>
+                                    <td class="py-2 px-3 whitespace-nowrap text-slate-600">{{ $dm->warehouse_name }}</td>
+                                    <td class="py-2 px-3 whitespace-nowrap">
+                                        <span class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold font-mono text-slate-800">
+                                            {{ $dm->from_grade_label }}
+                                        </span>
+                                    </td>
+                                    <td class="py-2 px-3 text-right font-mono font-black text-rose-700 whitespace-nowrap">
+                                        {{ number_format($dm->damage_qty, 2) }} {{ $dm->product_unit }}
+                                    </td>
+                                    <td class="py-2 px-3 max-w-xs truncate text-slate-600" title="{{ $dm->reason }}">
+                                        {{ $dm->reason }}
+                                    </td>
+                                    <td class="py-2 px-3 whitespace-nowrap">
+                                        <span class="font-bold text-slate-900">{{ $dm->performed_by }}</span>
+                                        <div class="text-[10px] text-slate-400">{{ $dm->performed_at }}</div>
+                                    </td>
+                                    <td class="py-2 px-3 whitespace-nowrap text-slate-500">
+                                        @if($dm->updated_by && $dm->updated_by !== '—')
+                                            <span class="font-bold text-slate-800">{{ $dm->updated_by }}</span>
+                                            @if($dm->updated_at)
+                                                <div class="text-[10px] text-slate-400">{{ $dm->updated_at }}</div>
+                                            @endif
+                                        @else
+                                            <span class="text-slate-400">—</span>
+                                        @endif
+                                    </td>
+                                    <td class="py-2 px-3 whitespace-nowrap font-mono text-[10px] text-slate-500">
+                                        <div>{{ $dm->batch_reference }}</div>
+                                        @if($dm->parent_reference && $dm->parent_reference !== '—')
+                                            <div class="text-[9px] text-slate-400">From: {{ $dm->parent_reference }}</div>
+                                        @endif
+                                    </td>
+                                    <td class="py-2 px-3 whitespace-nowrap text-center">
+                                        @if($dm->is_reversed)
+                                            <span class="rounded bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-bold text-rose-700">
+                                                Reversed
+                                            </span>
+                                        @elseif($dm->remaining_qty <= 0.0001)
+                                            <span class="rounded bg-slate-100 border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                                                Cleared
+                                            </span>
+                                        @else
+                                            <span class="rounded bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                                                Quarantine Active
+                                            </span>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
+        </div>
+    </div>
+
+    <!-- TAB: INVENTORY SEGREGATION -->
+    <div x-show="currentTab === 'segregation'" class="space-y-6" style="display: none;">
+        <div class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 bg-slate-50/75 px-5 py-3.5">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="split" class="h-4 w-4 text-indigo-600"></i>
+                        <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">Inventory Segregation Log</h3>
+                        <span class="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-bold text-indigo-800">{{ $segregations->count() }} operations</span>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-0.5">
+                        Authoritative records of commercial grade segregation operations (e.g., Mixed U → A/B/C and cross-grade transfers). Normal segregation is physical sorting, not financial loss.
+                    </p>
+                </div>
+                <span class="rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-1 text-xs font-bold text-indigo-700">
+                    Total Segregated: {{ number_format($segregationsSummary->total_qty ?? 0, 1) }} kg
+                </span>
+            </div>
+
+            @if($segregations->isEmpty())
+                <div class="p-12 text-center text-slate-400">
+                    <i data-lucide="check-circle" class="h-8 w-8 mx-auto text-emerald-500 mb-2"></i>
+                    <h4 class="text-sm font-bold text-slate-700">No Inventory Segregations</h4>
+                    <p class="text-xs text-slate-500 mt-1">No grade segregations were recorded in the selected period.</p>
+                </div>
+            @else
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                            <tr>
+                                <th class="py-2.5 px-3">Date</th>
+                                <th class="py-2.5 px-3">Product</th>
+                                <th class="py-2.5 px-3">Warehouse</th>
+                                <th class="py-2.5 px-3 text-center">From</th>
+                                <th class="py-2.5 px-3 text-center">To</th>
+                                <th class="py-2.5 px-3 text-right">Quantity</th>
+                                <th class="py-2.5 px-3">Performed By</th>
+                                <th class="py-2.5 px-3">Updated By</th>
+                                <th class="py-2.5 px-3">Remarks</th>
+                                <th class="py-2.5 px-3">Movement Ref</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
+                            @foreach($segregations as $seg)
+                                <tr class="hover:bg-slate-50/75 transition {{ $seg->is_reversed ? 'opacity-50' : '' }}">
+                                    <td class="py-2 px-3 whitespace-nowrap text-slate-500 font-mono">
+                                        <div>{{ $seg->date }}</div>
+                                        <div class="text-[10px] text-slate-400">{{ $seg->time }}</div>
+                                    </td>
+                                    <td class="py-2 px-3 whitespace-nowrap">
+                                        <div class="font-bold text-slate-900">{{ $seg->product_name }}</div>
+                                        @if(!empty($seg->product_sku))
+                                            <div class="text-[10px] font-mono text-slate-400">SKU: {{ $seg->product_sku }}</div>
+                                        @endif
+                                    </td>
+                                    <td class="py-2 px-3 whitespace-nowrap text-slate-600">{{ $seg->warehouse_name }}</td>
+                                    <td class="py-2 px-3 text-center whitespace-nowrap">
+                                        <span class="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold font-mono text-slate-800">
+                                            {{ $seg->from_grade }}
+                                        </span>
+                                    </td>
+                                    <td class="py-2 px-3 text-center whitespace-nowrap">
+                                        <span class="rounded bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold font-mono text-emerald-800">
+                                            {{ $seg->to_grade }}
+                                        </span>
+                                    </td>
+                                    <td class="py-2 px-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                                        {{ number_format($seg->quantity, 2) }} {{ $seg->product_unit }}
+                                    </td>
+                                    <td class="py-2 px-3 whitespace-nowrap">
+                                        <span class="font-bold text-slate-900">{{ $seg->performed_by }}</span>
+                                        <div class="text-[10px] text-slate-400">{{ $seg->performed_at }}</div>
+                                    </td>
+                                    <td class="py-2 px-3 whitespace-nowrap text-slate-500">
+                                        @if($seg->updated_by && $seg->updated_by !== '—')
+                                            <span class="font-bold text-slate-800">{{ $seg->updated_by }}</span>
+                                            @if($seg->updated_at)
+                                                <div class="text-[10px] text-slate-400">{{ $seg->updated_at }}</div>
+                                            @endif
+                                        @else
+                                            <span class="text-slate-400">—</span>
+                                        @endif
+                                    </td>
+                                    <td class="py-2 px-3 max-w-xs truncate text-slate-600" title="{{ $seg->remarks }}">
+                                        {{ $seg->remarks }}
+                                        @if($seg->has_subsequent_damage)
+                                            <div class="mt-0.5">
+                                                <span class="inline-flex items-center gap-1 rounded bg-rose-50 border border-rose-200 px-1.5 py-0.5 text-[9px] font-bold text-rose-700" title="Subsequent Damage Quarantine: {{ $seg->subsequent_damage_ref }}">
+                                                    Subsequent DMG: {{ $seg->subsequent_damage_ref }} ({{ number_format($seg->subsequent_damage_qty, 1) }} kg)
+                                                </span>
+                                            </div>
+                                        @endif
+                                    </td>
+                                    <td class="py-2 px-3 whitespace-nowrap font-mono text-[10px] text-slate-500">
+                                        <div>{{ $seg->reference }}</div>
+                                        @if($seg->parent_reference && $seg->parent_reference !== '—')
+                                            <div class="text-[9px] text-slate-400">Parent: {{ $seg->parent_reference }}</div>
                                         @endif
                                     </td>
                                 </tr>

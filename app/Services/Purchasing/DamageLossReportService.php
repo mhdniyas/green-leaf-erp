@@ -154,6 +154,17 @@ final class DamageLossReportService
             'summary' => (object) $raw['summary'],
             'sellingLossLines' => collect($raw['sellingLossLines'] ?? [])->map(fn ($item) => (object) $item),
             'damageEntries' => collect($raw['damageEntries'] ?? [])->map(fn ($item) => (object) $item),
+            'damageMovements' => collect($raw['damageMovements'] ?? [])->map(fn ($item) => (object) $item),
+            'damageMovementsSummary' => (object) ($raw['damageMovementsSummary'] ?? [
+                'total_qty' => 0.0,
+                'quarantine_qty' => 0.0,
+                'total_count' => 0,
+            ]),
+            'segregations' => collect($raw['segregations'] ?? [])->map(fn ($item) => (object) $item),
+            'segregationsSummary' => (object) ($raw['segregationsSummary'] ?? [
+                'total_qty' => 0.0,
+                'total_count' => 0,
+            ]),
             'dailySummary' => collect($raw['dailySummary'] ?? [])->map(fn ($item) => (object) $item),
             'monthlySummary' => collect($raw['monthlySummary'] ?? [])->map(fn ($item) => (object) $item),
             'clientShopSummary' => collect($raw['clientShopSummary'] ?? [])->map(fn ($item) => (object) $item),
@@ -301,10 +312,43 @@ final class DamageLossReportService
             $damageEntries
         );
 
+        // -------------------------------------------------------------
+        // SECTION 6: GRADE STOCK DAMAGE MOVEMENTS (QUARANTINE)
+        // -------------------------------------------------------------
+        $damageMovementsResults = $this->extractGradeStockDamageMovements(
+            $product?->id,
+            $startDate,
+            $endDate,
+            $warehouseId,
+            $gradeFilter
+        );
+
+        // -------------------------------------------------------------
+        // SECTION 7: INVENTORY SEGREGATION OPERATIONS
+        // -------------------------------------------------------------
+        $segregationsResults = $this->extractInventorySegregations(
+            $product?->id,
+            $startDate,
+            $endDate,
+            $warehouseId,
+            $gradeFilter
+        );
+
         return [
             'summary' => (array) $summary,
             'sellingLossLines' => $sellingLossLines->map(fn ($l) => (array) $l)->all(),
             'damageEntries' => $damageEntries->map(fn ($e) => (array) $e)->all(),
+            'damageMovements' => $damageMovementsResults['movements']->map(fn ($m) => (array) $m)->all(),
+            'damageMovementsSummary' => [
+                'total_qty' => $damageMovementsResults['total_damage_qty'],
+                'quarantine_qty' => $damageMovementsResults['quarantine_qty'],
+                'total_count' => $damageMovementsResults['count'],
+            ],
+            'segregations' => $segregationsResults['segregations']->map(fn ($s) => (array) $s)->all(),
+            'segregationsSummary' => [
+                'total_qty' => $segregationsResults['total_segregated_qty'],
+                'total_count' => $segregationsResults['count'],
+            ],
             'dailySummary' => $reconciliation['daily']->map(fn ($d) => (array) $d)->all(),
             'monthlySummary' => $reconciliation['monthly']->map(fn ($m) => (array) $m)->all(),
             'clientShopSummary' => $clientShopData['clients']->map(fn ($c) => (array) $c)->all(),
@@ -954,5 +998,262 @@ final class DamageLossReportService
                 'total_loss' => $totalLoss,
             ];
         })->sortByDesc('total_loss')->values();
+    }
+
+    /**
+     * Extract Grade Stock Move to Damage operations (quarantine stock).
+     *
+     * @return array{
+     *     movements: Collection<int, object>,
+     *     total_damage_qty: float,
+     *     quarantine_qty: float,
+     *     count: int
+     * }
+     */
+    private function extractGradeStockDamageMovements(
+        ?int $productId,
+        ?string $startDate,
+        ?string $endDate,
+        ?int $warehouseId,
+        string $gradeFilter
+    ): array {
+        $query = StockBatch::withTrashed()
+            ->with([
+                'product',
+                'warehouse',
+                'createdBy',
+                'updatedBy',
+                'parentBatch',
+                'stockMovements',
+            ])
+            ->whereNotNull('parent_batch_id')
+            ->where('purchase_grade', ProductGrade::Damage->value);
+
+        if ($productId) {
+            $query->where('product_id', $productId);
+        }
+
+        if ($warehouseId) {
+            $query->where('warehouse_id', $warehouseId);
+        }
+
+        if ($startDate) {
+            $query->whereDate('created_at', '>=', $startDate);
+        }
+
+        if ($endDate) {
+            $query->whereDate('created_at', '<=', $endDate);
+        }
+
+        if ($gradeFilter !== 'all') {
+            $query->whereHas('parentBatch', function ($pq) use ($gradeFilter): void {
+                if ($gradeFilter === 'U') {
+                    $pq->whereIn('purchase_grade', ['U', 'MIXED', 'UNSORTED'])->orWhereNull('purchase_grade');
+                } else {
+                    $pq->where('purchase_grade', $gradeFilter);
+                }
+            });
+        }
+
+        $batches = $query->orderByDesc('created_at')->orderByDesc('id')->get();
+
+        $movements = collect();
+        $totalDamageQty = 0.0;
+        $quarantineQty = 0.0;
+
+        foreach ($batches as $b) {
+            $inMovement = $b->stockMovements->firstWhere('type', StockMovementType::In);
+            $initialQty = (float) ($inMovement?->quantity ?? $b->total_kg);
+            $currentRemaining = (float) $b->total_kg;
+            $unitCost = (float) $b->cost_per_kg;
+
+            $isReversed = $b->trashed();
+            if (! $isReversed) {
+                $totalDamageQty += $initialQty;
+                $quarantineQty += $currentRemaining;
+            }
+
+            $fromGrade = $b->parentBatch?->purchase_grade ?: 'U';
+            $fromGradeLabel = ProductGrade::tryResolve($fromGrade)?->label() ?? $fromGrade;
+
+            // Clean notes of metadata brackets
+            $cleanReason = preg_replace('/\[(dest|submission_id):[^\]]+\]/i', '', (string) $b->notes);
+            $cleanReason = trim((string) $cleanReason) ?: 'Moved to Damage quarantine';
+
+            $status = $isReversed
+                ? 'Reversed'
+                : ($currentRemaining <= 0.0001 ? 'Cleared / Written Off' : 'In Quarantine');
+
+            $movements->push((object) [
+                'id' => $b->id,
+                'date' => $b->created_at?->format('d M Y') ?? '',
+                'time' => $b->created_at?->format('H:i') ?? '',
+                'created_at' => $b->created_at?->toIso8601String() ?? '',
+                'product_id' => $b->product_id,
+                'product_name' => $b->product?->name ?? 'Product',
+                'product_sku' => $b->product?->sku ?? '',
+                'product_unit' => $b->product?->unit ?: 'kg',
+                'warehouse_id' => $b->warehouse_id,
+                'warehouse_name' => $b->warehouse?->name ?? 'Main Warehouse',
+                'from_grade' => $fromGrade,
+                'from_grade_label' => $fromGradeLabel,
+                'to_grade' => 'DMG',
+                'damage_qty' => round($initialQty, 3),
+                'remaining_qty' => round($currentRemaining, 3),
+                'cost_per_kg' => round($unitCost, 2),
+                'total_cost' => round($initialQty * $unitCost, 2),
+                'reason' => $cleanReason,
+                'performed_by' => $b->createdBy?->name ?? 'Staff User',
+                'updated_by' => $b->updatedBy?->name ?? '—',
+                'performed_at' => $b->created_at?->format('d M Y H:i') ?? '',
+                'updated_at' => $b->updated_at && $b->updated_at != $b->created_at ? $b->updated_at->format('d M Y H:i') : null,
+                'batch_reference' => $b->reference,
+                'parent_reference' => $b->parentBatch?->reference ?? '—',
+                'is_reversed' => $isReversed,
+                'status' => $status,
+            ]);
+        }
+
+        return [
+            'movements' => $movements,
+            'total_damage_qty' => round($totalDamageQty, 3),
+            'quarantine_qty' => round($quarantineQty, 3),
+            'count' => $movements->count(),
+        ];
+    }
+
+    /**
+     * Extract authoritative commercial inventory segregation operations (U -> A/B/C and cross-grade transfers).
+     *
+     * @return array{
+     *     segregations: Collection<int, object>,
+     *     total_segregated_qty: float,
+     *     count: int
+     * }
+     */
+    private function extractInventorySegregations(
+        ?int $productId,
+        ?string $startDate,
+        ?string $endDate,
+        ?int $warehouseId,
+        string $gradeFilter
+    ): array {
+        $query = StockBatch::withTrashed()
+            ->with([
+                'product',
+                'warehouse',
+                'createdBy',
+                'updatedBy',
+                'parentBatch',
+                'stockMovements',
+            ])
+            ->whereNotNull('parent_batch_id')
+            ->where('purchase_grade', '!=', ProductGrade::Damage->value);
+
+        if ($productId) {
+            $query->where('product_id', $productId);
+        }
+
+        if ($warehouseId) {
+            $query->where('warehouse_id', $warehouseId);
+        }
+
+        if ($startDate) {
+            $query->whereDate('created_at', '>=', $startDate);
+        }
+
+        if ($endDate) {
+            $query->whereDate('created_at', '<=', $endDate);
+        }
+
+        if ($gradeFilter !== 'all') {
+            $query->where(function ($sub) use ($gradeFilter): void {
+                if ($gradeFilter === 'U') {
+                    $sub->whereIn('purchase_grade', ['U', 'MIXED', 'UNSORTED'])
+                        ->orWhereHas('parentBatch', fn ($pq) => $pq->whereIn('purchase_grade', ['U', 'MIXED', 'UNSORTED'])->orWhereNull('purchase_grade'));
+                } else {
+                    $sub->where('purchase_grade', $gradeFilter)
+                        ->orWhereHas('parentBatch', fn ($pq) => $pq->where('purchase_grade', $gradeFilter));
+                }
+            });
+        }
+
+        $batches = $query->orderByDesc('created_at')->orderByDesc('id')->get();
+
+        // Check for subsequent damage child batches
+        $childBatchIds = $batches->pluck('id')->all();
+        $subsequentDamageMap = collect();
+        if (! empty($childBatchIds)) {
+            $subsequentDamageMap = StockBatch::withTrashed()
+                ->whereIn('parent_batch_id', $childBatchIds)
+                ->where('purchase_grade', ProductGrade::Damage->value)
+                ->get()
+                ->groupBy('parent_batch_id');
+        }
+
+        $segregations = collect();
+        $totalSegregatedQty = 0.0;
+
+        foreach ($batches as $b) {
+            $inMovement = $b->stockMovements->firstWhere('type', StockMovementType::In);
+            $qty = (float) ($inMovement?->quantity ?? $b->total_kg);
+
+            $isReversed = $b->trashed();
+            if (! $isReversed) {
+                $totalSegregatedQty += $qty;
+            }
+
+            $fromGrade = $b->parentBatch?->purchase_grade ?: 'U';
+            $fromGradeLabel = ProductGrade::tryResolve($fromGrade)?->label() ?? $fromGrade;
+            $toGrade = $b->purchase_grade;
+            $toGradeLabel = ProductGrade::tryResolve($toGrade)?->label() ?? $toGrade;
+
+            $cleanRemarks = preg_replace('/\[(dest|submission_id):[^\]]+\]/i', '', (string) $b->notes);
+            $cleanRemarks = trim((string) $cleanRemarks) ?: "Segregated from Grade {$fromGrade} to Grade {$toGrade}";
+
+            $subDamageBatches = $subsequentDamageMap->get($b->id);
+            $subDamageRef = null;
+            $subDamageQty = null;
+            if ($subDamageBatches && $subDamageBatches->isNotEmpty()) {
+                $subDamageRef = $subDamageBatches->pluck('reference')->implode(', ');
+                $subDamageQty = (float) $subDamageBatches->sum('total_kg');
+            }
+
+            $segregations->push((object) [
+                'id' => $b->id,
+                'date' => $b->created_at?->format('d M Y') ?? '',
+                'time' => $b->created_at?->format('H:i') ?? '',
+                'created_at' => $b->created_at?->toIso8601String() ?? '',
+                'product_id' => $b->product_id,
+                'product_name' => $b->product?->name ?? 'Product',
+                'product_sku' => $b->product?->sku ?? '',
+                'product_unit' => $b->product?->unit ?: 'kg',
+                'warehouse_id' => $b->warehouse_id,
+                'warehouse_name' => $b->warehouse?->name ?? 'Main Warehouse',
+                'from_grade' => $fromGrade,
+                'from_grade_label' => $fromGradeLabel,
+                'to_grade' => $toGrade,
+                'to_grade_label' => $toGradeLabel,
+                'quantity' => round($qty, 3),
+                'cost_per_kg' => (float) $b->cost_per_kg,
+                'performed_by' => $b->createdBy?->name ?? 'Staff User',
+                'updated_by' => $b->updatedBy?->name ?? '—',
+                'performed_at' => $b->created_at?->format('d M Y H:i') ?? '',
+                'updated_at' => $b->updated_at && $b->updated_at != $b->created_at ? $b->updated_at->format('d M Y H:i') : null,
+                'remarks' => $cleanRemarks,
+                'reference' => $b->reference,
+                'parent_reference' => $b->parentBatch?->reference ?? '—',
+                'is_reversed' => $isReversed,
+                'has_subsequent_damage' => $subDamageRef !== null,
+                'subsequent_damage_ref' => $subDamageRef,
+                'subsequent_damage_qty' => $subDamageQty,
+            ]);
+        }
+
+        return [
+            'segregations' => $segregations,
+            'total_segregated_qty' => round($totalSegregatedQty, 3),
+            'count' => $segregations->count(),
+        ];
     }
 }

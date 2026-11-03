@@ -221,6 +221,14 @@
             font-size: 7.5px;
             vertical-align: middle;
         }
+        table.data-table tfoot td {
+            background-color: #f1f5f9;
+            border-top: 2px solid #0f172a;
+            border-bottom: 2px solid #0f172a;
+            font-weight: bold;
+            font-size: 8px;
+            padding: 4px;
+        }
         .text-right {
             text-align: right !important;
         }
@@ -469,6 +477,32 @@
                     </tr>
                 @endforeach
             </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="5" class="text-right" style="font-weight: bold; text-transform: uppercase;">
+                        TOTAL ({{ number_format($invoices->count()) }} {{ \Illuminate\Support\Str::plural('BILL', $invoices->count()) }})
+                    </td>
+                    <td class="text-right mono-bold">
+                        {{ formatPdfInr($invoices->sum('total_purchase')) }}
+                    </td>
+                    <td class="text-right mono-bold green-text">
+                        {{ formatPdfInr($invoices->sum('paid_amount')) }}
+                    </td>
+                    <td class="text-right mono-bold" style="color: #64748b;">
+                        {{ formatPdfInr($invoices->sum('discount')) }}
+                    </td>
+                    <td class="text-center" style="font-size: 7px; font-weight: bold;">
+                        @php
+                            $totalDue = (float) $invoices->sum('outstanding');
+                        @endphp
+                        @if($totalDue <= 0.009)
+                            <span style="color: #047857;">SETTLED</span>
+                        @else
+                            <span class="rose-text">{{ formatPdfInr($totalDue) }}</span>
+                        @endif
+                    </td>
+                </tr>
+            </tfoot>
         </table>
     @endif
 

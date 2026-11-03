@@ -919,6 +919,37 @@ final class VendorPurchaseReportInvoiceCardsTest extends TestCase
         $this->assertStringContainsString('Underlying Purchase Bills &amp; Invoices &mdash; Detailed Reconciliation', $pdfHtml);
     }
 
+    public function test_detailed_reconciliation_table_in_pdf_shows_totals_in_footer(): void
+    {
+        $vendor = Supplier::factory()->create(['name' => 'RECON TOTAL TEST VENDOR']);
+        $this->invoiceWithItems('2026-10-15', 'Cash', [
+            ['category' => 'Fruits', 'product' => 'Apple', 'line_total' => 4000.00],
+        ], null, $vendor);
+        $this->invoiceWithItems('2026-10-15', 'Cash', [
+            ['category' => 'Fruits', 'product' => 'Mango', 'line_total' => 6000.00],
+        ], null, $vendor);
+
+        $data = app(PurchaseReportingService::class)->vendorReportData([
+            'period' => 'today',
+            'start_date' => '2026-10-15',
+            'end_date' => '2026-10-15',
+            'vendor_id' => $vendor->id,
+        ]);
+
+        $pdfHtml = view('admin.cashbook.finance.purchase.reports.vendors_overview_pdf', array_merge($data, [
+            'generatedAt' => now(),
+            'purchaserName' => 'All Purchasers',
+            'productFilterName' => 'All Products',
+            'singleVendor' => $vendor,
+            'includeDetails' => true,
+        ]))->render();
+
+        $this->assertStringContainsString('Underlying Purchase Bills &amp; Invoices &mdash; Detailed Reconciliation', $pdfHtml);
+        $this->assertStringContainsString('<tfoot>', $pdfHtml);
+        $this->assertStringContainsString('TOTAL (2 BILLS)', $pdfHtml);
+        $this->assertStringContainsString('Rs. 10,000.00', $pdfHtml);
+    }
+
     public function test_lazy_load_endpoint_returns_only_unsettled_bills_with_bounded_batch_of_five(): void
     {
         $vendor = Supplier::factory()->create(['name' => 'LAZY LOAD BATCH VENDOR']);

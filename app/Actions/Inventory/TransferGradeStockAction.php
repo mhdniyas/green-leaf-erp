@@ -537,7 +537,10 @@ class TransferGradeStockAction
                     if ($newInQty <= 0.0001) {
                         $inMovement->delete();
                     } else {
-                        $inMovement->update(['quantity' => $newInQty]);
+                        $inMovement->update([
+                            'quantity' => $newInQty,
+                            'updated_by' => $userId,
+                        ]);
                     }
                 }
             }
@@ -547,11 +550,13 @@ class TransferGradeStockAction
                 $lockedDest->update([
                     'total_kg' => 0.0,
                     'status' => BatchStatus::Closed,
+                    'updated_by' => $userId,
                 ]);
                 $lockedDest->delete();
             } else {
                 $lockedDest->update([
                     'total_kg' => $newDestTotal,
+                    'updated_by' => $userId,
                 ]);
             }
 
@@ -567,12 +572,18 @@ class TransferGradeStockAction
                 if ($newOutQty <= 0.0001) {
                     $parentOutMovement->delete();
                 } else {
-                    $parentOutMovement->update(['quantity' => $newOutQty]);
+                    $parentOutMovement->update([
+                        'quantity' => $newOutQty,
+                        'updated_by' => $userId,
+                    ]);
                 }
             }
 
             $newParentTotal = round((float) $lockedParent->total_kg + $quantityToReverse, 3);
-            $parentUpdates = ['total_kg' => $newParentTotal];
+            $parentUpdates = [
+                'total_kg' => $newParentTotal,
+                'updated_by' => $userId,
+            ];
             if ($lockedParent->status === BatchStatus::Closed) {
                 $parentUpdates['status'] = $lockedParent->grading_mode === 'fixed_purchase_grade'
                     ? BatchStatus::Sorted

@@ -69,7 +69,7 @@
             </div>
 
             <!-- Global Warehouse Summary Cards -->
-            <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-6">
                 <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Total Physical</p>
                     <p class="mt-1 text-xl font-black text-slate-950">{{ number_format($summaryTotals['total_all'], 1) }} <span class="text-xs font-bold text-slate-500">kg</span></p>
@@ -89,6 +89,10 @@
                 <div class="rounded-xl border border-purple-200 bg-purple-50/50 p-3">
                     <p class="text-[10px] font-black uppercase tracking-wider text-purple-800">Grade C</p>
                     <p class="mt-1 text-xl font-black text-purple-950">{{ number_format($summaryTotals['total_grade_c'], 1) }} <span class="text-xs font-bold text-purple-700">kg</span></p>
+                </div>
+                <div class="rounded-xl border border-rose-200 bg-rose-50/50 p-3">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-rose-800">Damage (DMG)</p>
+                    <p class="mt-1 text-xl font-black text-rose-950">{{ number_format($summaryTotals['total_damage'] ?? 0, 1) }} <span class="text-xs font-bold text-rose-700">kg</span></p>
                 </div>
             </div>
 
@@ -139,6 +143,7 @@
                                 <th class="px-4 py-3 text-right">Grade A</th>
                                 <th class="px-4 py-3 text-right">Grade B</th>
                                 <th class="px-4 py-3 text-right">Grade C</th>
+                                <th class="px-4 py-3 text-right text-rose-700">Damage (DMG)</th>
                                 <th class="px-4 py-3 text-right">Total Physical</th>
                                 <th class="px-4 py-3 text-center">Action</th>
                             </tr>
@@ -151,7 +156,9 @@
                                     $gradeA = $stockMap[$pId]['A'] ?? 0.0;
                                     $gradeB = $stockMap[$pId]['B'] ?? 0.0;
                                     $gradeC = $stockMap[$pId]['C'] ?? 0.0;
-                                    $totalStock = round($mixed + $gradeA + $gradeB + $gradeC, 3);
+                                    $dmg = $stockMap[$pId]['DMG'] ?? 0.0;
+                                    $totalStock = round($mixed + $gradeA + $gradeB + $gradeC + $dmg, 3);
+                                    $sellableStock = round($mixed + $gradeA + $gradeB + $gradeC, 3);
                                 @endphp
                                 <tr class="hover:bg-slate-50/80 transition-colors {{ $totalStock > 0 ? '' : 'opacity-60' }}">
                                     <td class="px-4 py-3.5">
@@ -180,18 +187,44 @@
                                             {{ number_format($gradeC, 2) }}
                                         </span>
                                     </td>
+                                    <td class="px-4 py-3.5 text-right font-mono">
+                                        <span class="inline-block rounded-lg px-2 py-0.5 {{ $dmg > 0 ? 'bg-rose-100 text-rose-900 font-black' : 'text-slate-400' }}">
+                                            {{ number_format($dmg, 2) }}
+                                        </span>
+                                    </td>
                                     <td class="px-4 py-3.5 text-right font-mono text-slate-950 font-black">
                                         {{ number_format($totalStock, 2) }} {{ $prod->unit ?? 'kg' }}
                                     </td>
                                     <td class="px-4 py-3.5 text-center">
-                                        <button type="button" @click="startTransfer({{ $prod->id }})" class="inline-flex h-8 items-center justify-center rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-[11px] font-black text-indigo-700 hover:bg-indigo-100 transition shadow-2xs">
-                                            Transfer
-                                        </button>
+                                        <div class="inline-flex items-center gap-1.5">
+                                            <button type="button" @click="startTransfer({{ $prod->id }})" class="inline-flex h-8 items-center justify-center rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 text-[11px] font-black text-indigo-700 hover:bg-indigo-100 transition shadow-2xs">
+                                                Transfer
+                                            </button>
+                                            <button type="button" 
+                                                @click="openDamageModal({
+                                                    id: {{ $prod->id }},
+                                                    name: '{{ addslashes($prod->name) }}',
+                                                    sku: '{{ addslashes($prod->sku) }}',
+                                                    unit: '{{ addslashes($prod->unit ?? 'kg') }}',
+                                                    stock: {
+                                                        U: {{ $mixed }},
+                                                        A: {{ $gradeA }},
+                                                        B: {{ $gradeB }},
+                                                        C: {{ $gradeC }},
+                                                        DMG: {{ $dmg }}
+                                                    }
+                                                })"
+                                                @disabled($sellableStock <= 0.0001)
+                                                class="inline-flex h-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-2.5 text-[11px] font-black text-rose-700 hover:bg-rose-100 disabled:opacity-40 disabled:cursor-not-allowed transition shadow-2xs"
+                                                title="{{ $sellableStock <= 0.0001 ? 'No stock available to move to damage' : 'Move stock to Damage (DMG)' }}">
+                                                Move to Damage
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="9" class="px-4 py-12 text-center text-slate-400">
+                                    <td colspan="10" class="px-4 py-12 text-center text-slate-400">
                                         No products found matching the criteria.
                                     </td>
                                 </tr>
@@ -418,25 +451,161 @@
                             <p class="text-[11px] text-slate-500 font-semibold">Batches eligible for reversal back to source grade.</p>
                             <div class="space-y-2">
                                 <template x-for="rb in reversibleBatches" :key="rb.id">
-                                    <div class="flex items-center justify-between rounded-lg border border-slate-100 p-2 text-xs">
-                                        <div>
-                                            <span class="font-black font-mono text-slate-900" x-text="rb.reference"></span>
-                                            <span class="ml-1 text-[10px] text-slate-400 font-bold" x-text="'Grade ' + rb.grade"></span>
+                                    <div class="rounded-lg border border-slate-100 p-2.5 text-xs space-y-1.5 hover:bg-slate-50/50 transition">
+                                        <div class="flex items-start justify-between">
+                                            <div>
+                                                <div class="flex items-center gap-1.5">
+                                                    <span class="font-black font-mono text-slate-900" x-text="rb.reference"></span>
+                                                    <span class="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] text-indigo-700 font-bold" x-text="(rb.source_grade || '?') + ' → ' + rb.grade"></span>
+                                                </div>
+                                                <div class="mt-0.5 text-[10px] text-slate-400">
+                                                    <span x-text="'By: ' + (rb.performed_by || 'Staff')"></span>
+                                                    <template x-if="rb.updated_by && rb.updated_by !== '—'">
+                                                        <span class="ml-1 text-slate-500 font-bold" x-text="'(Updated by: ' + rb.updated_by + ')'"></span>
+                                                    </template>
+                                                    <span class="ml-1 text-slate-300">•</span>
+                                                    <span class="ml-1" x-text="rb.performed_at || rb.created_at"></span>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <span class="font-mono font-bold text-slate-700" x-text="rb.available_qty.toFixed(2) + ' kg'"></span>
+                                                <form method="POST" :action="'{{ url('inventory/grade-stock/reverse') }}/' + rb.id" onsubmit="return confirm('Reverse this grade transfer back to its source batch?')">
+                                                    @csrf
+                                                    <input type="hidden" name="quantity" :value="rb.available_qty">
+                                                    <button type="submit" class="rounded-md bg-rose-50 px-2 py-0.5 text-[10px] font-black text-rose-700 hover:bg-rose-100">Reverse</button>
+                                                </form>
+                                            </div>
                                         </div>
-                                        <div class="flex items-center gap-2">
-                                            <span class="font-mono font-bold text-slate-600" x-text="rb.available_qty.toFixed(2) + ' kg'"></span>
-                                            <form method="POST" :action="'{{ url('inventory/grade-stock/reverse') }}/' + rb.id" onsubmit="return confirm('Reverse this grade transfer back to its source batch?')">
-                                                @csrf
-                                                <input type="hidden" name="quantity" :value="rb.available_qty">
-                                                <button type="submit" class="rounded-md bg-rose-50 px-2 py-0.5 text-[10px] font-black text-rose-700 hover:bg-rose-100">Reverse</button>
-                                            </form>
-                                        </div>
+                                        <template x-if="rb.notes">
+                                            <div class="text-[10px] text-slate-500 italic truncate" x-text="rb.notes"></div>
+                                        </template>
                                     </div>
                                 </template>
                             </div>
                         </div>
                     </template>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MOVE TO DAMAGE MODAL                       -->
+    <!-- ========================================== -->
+    <div x-show="isDamageModalOpen" style="display: none;" class="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+        <!-- Backdrop -->
+        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" @click="closeDamageModal()"></div>
+
+        <div class="flex min-h-full items-center justify-center p-4">
+            <div class="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 space-y-5" @click.stop>
+                <div class="flex items-start justify-between border-b border-slate-100 pb-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-rose-100 text-rose-700">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                            </span>
+                            <h3 class="text-base font-black text-slate-950">Move to Damage (DMG)</h3>
+                        </div>
+                        <p class="mt-1 text-xs text-slate-500 font-medium">
+                            Quarantine physical stock into unsellable DMG grade.
+                        </p>
+                    </div>
+                    <button type="button" @click="closeDamageModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+
+                <!-- Product & Warehouse Context -->
+                <div class="rounded-xl bg-slate-50 p-3.5 border border-slate-100 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                        <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Product</span>
+                        <span class="font-black text-slate-900" x-text="damageModalProduct?.name"></span>
+                        <span class="text-[11px] font-mono text-slate-500 block" x-text="'SKU: ' + damageModalProduct?.sku"></span>
+                    </div>
+                    <div>
+                        <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Warehouse</span>
+                        <span class="font-black text-slate-900">{{ $warehouses->firstWhere('id', $selectedWarehouseId)?->name ?? 'Selected Warehouse' }}</span>
+                        <span class="text-[11px] text-slate-500 block" x-text="'Stock Unit: ' + (damageModalProduct?.unit || 'kg')"></span>
+                    </div>
+                </div>
+
+                <form method="POST" action="{{ route('inventory.grade-stock.move-to-damage') }}" @submit="onDamageFormSubmit($event)" class="space-y-4">
+                    @csrf
+                    <input type="hidden" name="product_id" :value="damageModalProduct?.id">
+                    <input type="hidden" name="warehouse_id" :value="selectedWarehouseId">
+                    <input type="hidden" name="client_submission_id" :value="damageSubmissionId">
+
+                    <!-- 1. Source Grade Selection -->
+                    <div class="space-y-1.5">
+                        <label class="text-[11px] font-black uppercase tracking-wider text-slate-600">Source Grade (Move From)</label>
+                        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            <template x-for="g in damageEligibleGrades" :key="'dmg_src_' + g.code">
+                                <label :class="damageSourceGrade === g.code ? 'border-rose-600 bg-rose-50/50 ring-2 ring-rose-500/20' : (g.available > 0 ? 'border-slate-200 bg-white hover:border-slate-300' : 'border-slate-100 bg-slate-50/60 opacity-50 cursor-not-allowed')" class="flex cursor-pointer flex-col rounded-xl border p-2.5 transition">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-black text-slate-900" x-text="g.label"></span>
+                                        <input type="radio" name="source_grade" :value="g.code" x-model="damageSourceGrade" :disabled="g.available <= 0" @change="onDamageGradeChange()" class="text-rose-600 focus:ring-rose-500">
+                                    </div>
+                                    <div class="mt-1.5 text-[11px] font-bold text-slate-500">
+                                        Avail: <span class="font-mono text-slate-900 font-black" x-text="g.available.toFixed(2)"></span> <span x-text="damageModalProduct?.unit || 'kg'"></span>
+                                    </div>
+                                </label>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- 2. Quantity Input -->
+                    <div class="space-y-1.5">
+                        <div class="flex items-center justify-between">
+                            <label class="text-[11px] font-black uppercase tracking-wider text-slate-600">Quantity to Move (<span x-text="damageModalProduct?.unit || 'kg'"></span>)</label>
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-xs font-bold text-slate-500">Max: <span class="font-black text-slate-900" x-text="damageMaxAvailable.toFixed(2)"></span></span>
+                                <button type="button" @click="damageQuantity = damageMaxAvailable" class="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-700 hover:bg-slate-200">MAX</button>
+                            </div>
+                        </div>
+                        <input type="number" step="0.001" min="0.001" :max="damageMaxAvailable" name="quantity" x-model.number="damageQuantity" placeholder="0.000" required class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20">
+                    </div>
+
+                    <!-- 3. Reason / Remarks -->
+                    <div class="space-y-1.5">
+                        <label class="text-[11px] font-black uppercase tracking-wider text-slate-600">Reason / Remarks</label>
+                        <input type="text" name="notes" x-model="damageNotes" placeholder="e.g., Transit damage, decay, bruising, pest damage..." class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20">
+                    </div>
+
+                    <!-- Live Preview & Invariant Box -->
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs space-y-1.5">
+                        <div class="flex items-center justify-between text-slate-600 font-bold">
+                            <span>Source Grade (<span x-text="damageSourceGrade"></span>) Balance:</span>
+                            <div class="font-mono">
+                                <span class="text-slate-500" x-text="damageMaxAvailable.toFixed(2)"></span>
+                                <span class="text-slate-400 mx-1">→</span>
+                                <span class="text-rose-600 font-black" x-text="Math.max(0, damageMaxAvailable - (parseFloat(damageQuantity) || 0)).toFixed(2)"></span>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between text-slate-600 font-bold">
+                            <span>Damage Quarantine (DMG):</span>
+                            <div class="font-mono">
+                                <span class="text-slate-500" x-text="(damageModalProduct?.stock?.DMG || 0).toFixed(2)"></span>
+                                <span class="text-slate-400 mx-1">→</span>
+                                <span class="text-emerald-700 font-black" x-text="((damageModalProduct?.stock?.DMG || 0) + (parseFloat(damageQuantity) || 0)).toFixed(2)"></span>
+                            </div>
+                        </div>
+                        <div class="pt-1.5 border-t border-slate-200 flex items-center justify-between text-[11px]">
+                            <span class="font-bold text-slate-700">Total Physical Invariant:</span>
+                            <span class="font-mono font-black text-emerald-800">Unchanged (Conserved)</span>
+                        </div>
+                    </div>
+
+                    <!-- Buttons -->
+                    <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                        <button type="button" @click="closeDamageModal()" class="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">
+                            Cancel
+                        </button>
+                        <button type="submit" :disabled="!isDamageValid || isDamageSubmitting" class="rounded-xl bg-rose-600 px-5 py-2.5 text-xs font-black uppercase tracking-wider text-white hover:bg-rose-700 disabled:opacity-50 transition shadow-sm flex items-center gap-2">
+                            <svg x-show="isDamageSubmitting" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <span x-text="isDamageSubmitting ? 'Moving to Damage...' : 'Confirm Move to Damage'"></span>
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -460,13 +629,15 @@
                     { code: 'U', label: 'Mixed (U)' },
                     { code: 'A', label: 'Grade A' },
                     { code: 'B', label: 'Grade B' },
-                    { code: 'C', label: 'Grade C' }
+                    { code: 'C', label: 'Grade C' },
+                    { code: 'DMG', label: 'Damage (DMG)' }
                 ],
                 currentStock: {
                     mixed: config.initialProductDetails ? config.initialProductDetails.stock.mixed : 0,
                     grade_a: config.initialProductDetails ? config.initialProductDetails.stock.grade_a : 0,
                     grade_b: config.initialProductDetails ? config.initialProductDetails.stock.grade_b : 0,
                     grade_c: config.initialProductDetails ? config.initialProductDetails.stock.grade_c : 0,
+                    dmg: config.initialProductDetails ? (config.initialProductDetails.stock.dmg || 0) : 0,
                     total: config.initialProductDetails ? config.initialProductDetails.stock.total : 0
                 },
                 previewStock: {
@@ -474,10 +645,20 @@
                     grade_a: 0,
                     grade_b: 0,
                     grade_c: 0,
+                    dmg: 0,
                     total: 0
                 },
-                batchesByGrade: config.initialProductDetails ? config.initialProductDetails.batches_by_grade : { U: [], A: [], B: [], C: [] },
+                batchesByGrade: config.initialProductDetails ? config.initialProductDetails.batches_by_grade : { U: [], A: [], B: [], C: [], DMG: [] },
                 reversibleBatches: config.initialProductDetails ? (config.initialProductDetails.reversible_batches || []) : [],
+
+                // Damage Modal State
+                isDamageModalOpen: false,
+                damageModalProduct: null,
+                damageSourceGrade: 'A',
+                damageQuantity: '',
+                damageNotes: '',
+                damageSubmissionId: '',
+                isDamageSubmitting: false,
 
                 init() {
                     this.updatePreview();
@@ -497,6 +678,59 @@
                     this.selectedProductId = productId;
                     this.setTab('transfer');
                     this.onProductSelect(productId);
+                },
+
+                openDamageModal(productData) {
+                    this.damageModalProduct = productData;
+                    const available = ['A', 'B', 'C', 'U'].find(g => (productData.stock[g] || 0) > 0.0001) || 'A';
+                    this.damageSourceGrade = available;
+                    this.damageQuantity = '';
+                    this.damageNotes = '';
+                    this.damageSubmissionId = 'dmg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                    this.isDamageSubmitting = false;
+                    this.isDamageModalOpen = true;
+                },
+
+                closeDamageModal() {
+                    this.isDamageModalOpen = false;
+                },
+
+                get damageEligibleGrades() {
+                    if (!this.damageModalProduct) return [];
+                    return [
+                        { code: 'A', label: 'Grade A', available: this.damageModalProduct.stock['A'] || 0 },
+                        { code: 'B', label: 'Grade B', available: this.damageModalProduct.stock['B'] || 0 },
+                        { code: 'C', label: 'Grade C', available: this.damageModalProduct.stock['C'] || 0 },
+                        { code: 'U', label: 'Mixed (U)', available: this.damageModalProduct.stock['U'] || 0 },
+                    ];
+                },
+
+                get damageMaxAvailable() {
+                    if (!this.damageModalProduct || !this.damageSourceGrade) return 0;
+                    return this.damageModalProduct.stock[this.damageSourceGrade] || 0;
+                },
+
+                get isDamageValid() {
+                    const q = parseFloat(this.damageQuantity);
+                    return this.damageModalProduct &&
+                           this.damageSourceGrade &&
+                           !isNaN(q) &&
+                           q > 0.0001 &&
+                           q <= (this.damageMaxAvailable + 0.001);
+                },
+
+                onDamageGradeChange() {
+                    if (parseFloat(this.damageQuantity) > this.damageMaxAvailable) {
+                        this.damageQuantity = this.damageMaxAvailable;
+                    }
+                },
+
+                onDamageFormSubmit(event) {
+                    if (!this.isDamageValid || this.isDamageSubmitting) {
+                        event.preventDefault();
+                        return;
+                    }
+                    this.isDamageSubmitting = true;
                 },
 
                 async onProductSelect(productId) {
@@ -529,6 +763,7 @@
                     if (gradeCode === 'A') return this.currentStock.grade_a;
                     if (gradeCode === 'B') return this.currentStock.grade_b;
                     if (gradeCode === 'C') return this.currentStock.grade_c;
+                    if (gradeCode === 'DMG') return this.currentStock.dmg || 0;
                     return 0;
                 },
 
@@ -574,20 +809,23 @@
                     this.previewStock.grade_a = this.currentStock.grade_a;
                     this.previewStock.grade_b = this.currentStock.grade_b;
                     this.previewStock.grade_c = this.currentStock.grade_c;
+                    this.previewStock.dmg = this.currentStock.dmg || 0;
 
                     if (this.sourceGrade && this.targetGrade && this.sourceGrade !== this.targetGrade && q > 0) {
                         if (this.sourceGrade === 'U') this.previewStock.mixed = Math.max(0, this.currentStock.mixed - q);
                         if (this.sourceGrade === 'A') this.previewStock.grade_a = Math.max(0, this.currentStock.grade_a - q);
                         if (this.sourceGrade === 'B') this.previewStock.grade_b = Math.max(0, this.currentStock.grade_b - q);
                         if (this.sourceGrade === 'C') this.previewStock.grade_c = Math.max(0, this.currentStock.grade_c - q);
+                        if (this.sourceGrade === 'DMG') this.previewStock.dmg = Math.max(0, (this.currentStock.dmg || 0) - q);
 
                         if (this.targetGrade === 'U') this.previewStock.mixed += q;
                         if (this.targetGrade === 'A') this.previewStock.grade_a += q;
                         if (this.targetGrade === 'B') this.previewStock.grade_b += q;
                         if (this.targetGrade === 'C') this.previewStock.grade_c += q;
+                        if (this.targetGrade === 'DMG') this.previewStock.dmg = (this.currentStock.dmg || 0) + q;
                     }
 
-                    this.previewStock.total = this.previewStock.mixed + this.previewStock.grade_a + this.previewStock.grade_b + this.previewStock.grade_c;
+                    this.previewStock.total = this.previewStock.mixed + this.previewStock.grade_a + this.previewStock.grade_b + this.previewStock.grade_c + this.previewStock.dmg;
                 },
 
                 onFormSubmit(event) {

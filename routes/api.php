@@ -128,6 +128,7 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::get('inventory', [GradeStockManagementController::class, 'inventory'])->name('inventory');
             Route::get('product-details/{product?}', [GradeStockManagementController::class, 'productDetails'])->name('product-details');
             Route::post('transfer', [GradeStockManagementController::class, 'transfer'])->name('transfer');
+            Route::post('move-to-damage', [GradeStockManagementController::class, 'moveToDamage'])->name('move-to-damage');
             Route::post('reverse/{childBatch}', [GradeStockManagementController::class, 'reverse'])->name('reverse');
         });
 

@@ -421,7 +421,10 @@ class ProcessPartialSegregationAction
                 if ($newInQty <= 0.0001) {
                     $inMovement->delete();
                 } else {
-                    $inMovement->update(['quantity' => $newInQty]);
+                    $inMovement->update([
+                        'quantity' => $newInQty,
+                        'updated_by' => $userId,
+                    ]);
                 }
             }
 
@@ -429,11 +432,13 @@ class ProcessPartialSegregationAction
                 $lockedChild->update([
                     'total_kg' => 0.0,
                     'status' => BatchStatus::Closed,
+                    'updated_by' => $userId,
                 ]);
                 $lockedChild->delete();
             } else {
                 $lockedChild->update([
                     'total_kg' => $newChildTotal,
+                    'updated_by' => $userId,
                 ]);
             }
 
@@ -449,13 +454,19 @@ class ProcessPartialSegregationAction
                 if ($newOutQty <= 0.0001) {
                     $parentOutMovement->delete();
                 } else {
-                    $parentOutMovement->update(['quantity' => $newOutQty]);
+                    $parentOutMovement->update([
+                        'quantity' => $newOutQty,
+                        'updated_by' => $userId,
+                    ]);
                 }
             }
 
             // Restore parent batch total_kg and status
             $newParentTotal = round((float) $parentBatch->total_kg + $quantityToReverse, 3);
-            $parentUpdates = ['total_kg' => $newParentTotal];
+            $parentUpdates = [
+                'total_kg' => $newParentTotal,
+                'updated_by' => $userId,
+            ];
             if ($parentBatch->status === BatchStatus::Closed) {
                 $parentUpdates['status'] = $parentBatch->grading_mode === 'fixed_purchase_grade'
                     ? BatchStatus::Sorted
