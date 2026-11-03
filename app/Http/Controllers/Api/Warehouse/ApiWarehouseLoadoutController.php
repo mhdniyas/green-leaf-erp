@@ -98,7 +98,7 @@ class ApiWarehouseLoadoutController extends Controller
         $perPage = (int) ($validated['per_page'] ?? 25);
 
         $orders = ShopOrder::query()
-            ->select(['id', 'shop_id', 'order_number', 'business_date', 'delivery_status', 'order_source', 'created_at', 'updated_at'])
+            ->select(['id', 'shop_id', 'order_number', 'business_date', 'delivery_status', 'state', 'order_source', 'created_at', 'updated_at'])
             ->whereIn('delivery_status', [
                 'pending_delivery',
                 'ready_for_dispatch',
@@ -159,6 +159,7 @@ class ApiWarehouseLoadoutController extends Controller
                 'order_number' => $shopOrder->order_number,
                 'business_date' => $shopOrder->business_date->toDateString(),
                 'delivery_status' => $shopOrder->delivery_status,
+                'state' => $shopOrder->state,
                 'order_source' => $shopOrder->order_source,
                 'display_name' => $shopOrder->loadoutDisplayName(),
                 'shop' => $shopOrder->shop ? [
@@ -408,6 +409,7 @@ class ApiWarehouseLoadoutController extends Controller
                 'business_date' => $shopOrder->business_date->toDateString(),
                 'price_matrix_date' => $pricingDiagnostics['price_matrix_date'],
                 'delivery_status' => $shopOrder->delivery_status,
+                'state' => $shopOrder->state,
                 'display_name' => $shopOrder->loadoutDisplayName(),
                 'delivery_notes' => $shopOrder->delivery_notes,
                 'shop' => $shopOrder->shop ? [

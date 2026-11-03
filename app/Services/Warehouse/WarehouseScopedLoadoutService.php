@@ -92,6 +92,7 @@ class WarehouseScopedLoadoutService
                     'order_number' => $order->order_number,
                     'business_date' => $order->business_date->toDateString(),
                     'delivery_status' => $order->delivery_status,
+                    'state' => $order->state,
                     'order_source' => $order->order_source,
                     'display_name' => $order->loadoutDisplayName(),
                     'shop' => $this->shopData($order),
