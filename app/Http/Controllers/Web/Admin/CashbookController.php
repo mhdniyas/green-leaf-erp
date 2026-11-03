@@ -67,6 +67,8 @@ use App\Models\Payment;
 use App\Models\PayrollPayment;
 use App\Models\PayrollRunItem;
 use App\Models\ProcurementExpense;
+use App\Models\ProcurementExpenseCategory;
+use App\Models\ProcurementExpenseSubCategory;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\PurchaseInvoice;
@@ -7584,7 +7586,7 @@ final class CashbookController extends Controller
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date'],
             'month' => ['nullable', 'string', 'regex:/^\d{4}-\d{2}$/'],
-            'grade' => ['nullable', 'string', 'in:all,A,B,C,U,mixed,unsorted'],
+            'grade' => ['nullable', 'string', 'in:all,A,B,C,U,mixed,unsorted,damage,DMG,DAMAGE'],
             'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
             'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
         ]);
@@ -7641,9 +7643,9 @@ final class CashbookController extends Controller
                 $endDate = Carbon::parse($rawTo)->startOfDay();
                 $period = 'custom';
             }
-        } else {
+        } elseif (! empty($validated['month'])) {
             $periodMode = 'month';
-            $month = (string) ($validated['month'] ?? $today->format('Y-m'));
+            $month = (string) $validated['month'];
             if (! preg_match('/^\d{4}-\d{2}$/', $month)) {
                 $month = $today->format('Y-m');
             }
@@ -7651,6 +7653,12 @@ final class CashbookController extends Controller
             $startDate = $monthCarbon->copy()->startOfMonth()->startOfDay();
             $endDate = $monthCarbon->copy()->endOfMonth()->startOfDay();
             $period = $periodParam ?: 'this_month';
+        } else {
+            // Default to Today for Daily Grade Summary
+            $periodMode = 'day';
+            $period = 'today';
+            $startDate = $today->copy();
+            $endDate = $today->copy();
         }
 
         if ($startDate->greaterThan($endDate)) {
@@ -7663,6 +7671,11 @@ final class CashbookController extends Controller
 
         $whId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : (isset($validated['warehouse']) ? (int) $validated['warehouse'] : null);
 
+        $gradeVal = $validated['grade'] ?? 'all';
+        if (strtoupper($gradeVal) === 'DMG') {
+            $gradeVal = 'DAMAGE';
+        }
+
         return [
             'product' => $validated['product'] ?? $validated['product_uuid'] ?? null,
             'product_uuid' => $validated['product_uuid'] ?? null,
@@ -7673,8 +7686,9 @@ final class CashbookController extends Controller
             'period_mode' => $periodMode,
             'start_date' => $startDate->toDateString(),
             'end_date' => $endDate->toDateString(),
+            'date' => $startDate->toDateString(),
             'formatted_range' => $formattedRange,
-            'grade' => $validated['grade'] ?? 'all',
+            'grade' => $gradeVal,
             'purchaser_id' => isset($validated['purchaser_id']) ? (int) $validated['purchaser_id'] : null,
             'shop_id' => isset($validated['shop_id']) ? (int) $validated['shop_id'] : null,
             'search' => trim((string) ($validated['search'] ?? $validated['search_product'] ?? '')),
@@ -7951,19 +7965,70 @@ final class CashbookController extends Controller
             ->orderBy('name')
             ->get(['id', 'name']);
 
-        $expenseTypes = ProcurementExpense::categories();
+        // Fetch dynamic categories and locations
+        $dbCategories = ProcurementExpenseCategory::query()
+            ->with(['subCategories' => fn ($q) => $q->orderBy('name')])
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
+
+        $categoryLocationsMap = [];
+        $categoriesList = collect();
+
+        foreach ($dbCategories as $cat) {
+            $locations = $cat->subCategories->map(fn ($sub) => [
+                'id' => (int) $sub->id,
+                'name' => (string) $sub->name,
+                'code' => (string) ($sub->code ?? ''),
+                'is_active' => (bool) $sub->is_active,
+            ])->values()->all();
+
+            $categoryLocationsMap[$cat->key] = $locations;
+
+            $categoriesList->put($cat->key, [
+                'key' => $cat->key,
+                'name' => $cat->name,
+                'sub_category_mode' => $cat->sub_category_mode,
+                'is_active' => $cat->is_active,
+                'locations' => $locations,
+            ]);
+        }
+
+        // Include any historical category keys from ProcurementExpense not in dbCategories
+        $historicalExpenseCategories = ProcurementExpense::query()->distinct()->pluck('category')->filter()->all();
+        $defaultCategories = ProcurementExpense::categories();
+        foreach ($historicalExpenseCategories as $hCat) {
+            $hKey = (string) $hCat;
+            if (! $categoriesList->has($hKey)) {
+                $categoriesList->put($hKey, [
+                    'key' => $hKey,
+                    'name' => $defaultCategories[$hKey] ?? str($hKey)->replace('_', ' ')->title()->toString(),
+                    'sub_category_mode' => ProcurementExpenseCategory::SUB_CATEGORY_MODE_NONE,
+                    'is_active' => true,
+                    'locations' => [],
+                ]);
+                $categoryLocationsMap[$hKey] = [];
+            }
+        }
+
+        $expenseTypes = $categoriesList->mapWithKeys(fn ($c, $k) => [$k => $c['name']])->all();
 
         return view('admin.cashbook.finance.purchase.reports.purchaser_expenses', array_merge(
             $this->purchaseLayoutData(),
             [
                 'reportData' => $reportData,
                 'summary' => $reportData['summary'],
+                'breakdown' => $reportData['breakdown'],
                 'rows' => $reportData['rows'],
                 'paginator' => $reportData['paginator'],
                 'filters' => $filters,
                 'purchasers' => $purchasers,
                 'suppliers' => $suppliers,
                 'expenseTypes' => $expenseTypes,
+                'categoriesList' => $categoriesList,
+                'categoryLocationsMap' => $categoryLocationsMap,
+                'selectedCategory' => $filters['category'] ?? null,
+                'selectedLocation' => $filters['location'] ?? null,
             ]
         ));
     }
@@ -7991,9 +8056,27 @@ final class CashbookController extends Controller
             }
         }
 
+        $categoryName = 'All Categories';
+        if (filled($filters['category'] ?? null)) {
+            $catDef = ProcurementExpenseCategory::where('key', $filters['category'])->first();
+            $categoryName = $catDef?->name ?? (ProcurementExpense::categories()[$filters['category']] ?? ucfirst((string) $filters['category']));
+        }
+
+        $locationName = 'All Locations';
+        if (($filters['location'] ?? null) === 'unassigned') {
+            $locationName = 'Unassigned';
+        } elseif (is_numeric($filters['location'] ?? null)) {
+            $locDef = ProcurementExpenseSubCategory::find((int) $filters['location']);
+            if ($locDef) {
+                $locationName = $locDef->name;
+            }
+        }
+
         $pdfData = array_merge($reportData, [
             'purchaserName' => $purchaserName,
             'supplierName' => $supplierName,
+            'categoryName' => $categoryName,
+            'locationName' => $locationName,
             'generatedAt' => now('Asia/Kolkata'),
         ]);
 
@@ -8024,6 +8107,7 @@ final class CashbookController extends Controller
                 'Reference',
                 'Purchase Amount',
                 'Expense Type',
+                'Location / Route',
                 'Expense Amount',
                 'Total',
             ]);
@@ -8035,7 +8119,8 @@ final class CashbookController extends Controller
                     $row['supplier_name'],
                     $row['reference'],
                     number_format((float) $row['purchase_amount'], 2, '.', ''),
-                    $row['expense_type'],
+                    $row['type'] === 'expense' ? ($row['category_name'] ?? $row['expense_type']) : '-',
+                    $row['type'] === 'expense' ? ($row['location_name'] ?? 'Unassigned') : '-',
                     number_format((float) $row['expense_amount'], 2, '.', ''),
                     number_format((float) $row['total'], 2, '.', ''),
                 ]);
@@ -8138,6 +8223,32 @@ final class CashbookController extends Controller
         $filters['prev_month'] = $prevMonth;
         $filters['next_month'] = $nextMonth;
         $filters['month_title'] = $monthTitle;
+
+        // Category and location normalization
+        $category = filled($request->input('category'))
+            ? (string) $request->input('category')
+            : (filled($request->input('expense_type')) ? (string) $request->input('expense_type') : null);
+
+        $location = filled($request->input('location'))
+            ? (string) $request->input('location')
+            : (filled($request->input('sub_category_id')) ? (string) $request->input('sub_category_id') : null);
+
+        // Server-side validation of category and location compatibility
+        if ($category !== null && $location !== null && is_numeric($location)) {
+            $belongsToCategory = ProcurementExpenseSubCategory::query()
+                ->whereKey((int) $location)
+                ->whereHas('category', fn ($q) => $q->where('key', $category))
+                ->exists();
+
+            if (! $belongsToCategory) {
+                $location = null;
+            }
+        }
+
+        $filters['category'] = $category;
+        $filters['expense_type'] = $category;
+        $filters['location'] = $location;
+        $filters['sub_category_id'] = $location;
 
         return $filters;
     }

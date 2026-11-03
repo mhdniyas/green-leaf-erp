@@ -441,7 +441,7 @@
                             Vendor Carts
                         </x-nav-item>
                         <x-nav-item href="{{ route('purchaser.procurement-expenses.index', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.procurement-expenses.*')" :sub="true">
-                            Procurement Expenses
+                            Expense
                         </x-nav-item>
                         <x-nav-item href="{{ route('purchasing.invoices.index', ['date' => $navDate]) }}" :active="request()->routeIs('purchasing.invoices.*')" :sub="true">
                             Purchase Invoices
@@ -547,7 +547,7 @@
                                 Cash
                             </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.procurement-expenses.index', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.procurement-expenses.*')" :sub="true">
-                                Procurement Expenses
+                                Expense
                             </x-nav-item>
                         </div>
                         <div class="space-y-1">

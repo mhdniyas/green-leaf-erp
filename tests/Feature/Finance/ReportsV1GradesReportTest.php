@@ -141,6 +141,7 @@ class ReportsV1GradesReportTest extends TestCase
             'period' => 'this_month',
         ]));
 
+        dump($response->viewData('tabMetrics'));
         $response->assertOk();
         $response->assertSee('Carrot');
         $response->assertSee('150.0');
@@ -162,6 +163,7 @@ class ReportsV1GradesReportTest extends TestCase
             'period' => 'this_month',
         ]));
 
+        dump($response->viewData('tabMetrics'));
         $response->assertOk();
 
         $content = $response->getContent();
@@ -208,6 +210,7 @@ class ReportsV1GradesReportTest extends TestCase
             'period' => 'this_month',
         ]));
 
+        dump($response->viewData('tabMetrics'));
         $response->assertOk();
         // Mixed row physical loadout must show 25 kg
         // Commercial loadout for Grade B must reflect 25 kg (from Mixed)
@@ -240,6 +243,7 @@ class ReportsV1GradesReportTest extends TestCase
             'period' => 'this_month',
         ]));
 
+        dump($response->viewData('tabMetrics'));
         $response->assertOk();
         $response->assertSee('Apple');
         $response->assertSee('15.0');
@@ -268,6 +272,7 @@ class ReportsV1GradesReportTest extends TestCase
             'period' => 'this_month',
         ]));
 
+        dump($response->viewData('tabMetrics'));
         $response->assertOk();
         $response->assertSee('6.5');
         // Loss: 6.5 * 18 = ₹117
@@ -311,6 +316,7 @@ class ReportsV1GradesReportTest extends TestCase
             'period' => 'this_month',
         ]));
 
+        dump($response->viewData('tabMetrics'));
         $response->assertOk();
         $response->assertSee('Pending Cost Reconciliation');
     }
@@ -343,6 +349,7 @@ class ReportsV1GradesReportTest extends TestCase
             'period' => 'this_month',
         ]));
 
+        dump($response->viewData('tabMetrics'));
         $response->assertOk();
         $response->assertSee('90.00');
         $response->assertSee('2,700');
@@ -375,6 +382,7 @@ class ReportsV1GradesReportTest extends TestCase
             'period' => 'this_month',
         ]));
 
+        dump($response->viewData('tabMetrics'));
         $response->assertOk();
         // Weighted cost = (100*20 + 100*40) / 200 = 30.00
         $response->assertSee('30.00');
@@ -427,6 +435,7 @@ class ReportsV1GradesReportTest extends TestCase
             'period' => 'this_month',
         ]));
 
+        dump($response->viewData('tabMetrics'));
         $response->assertOk();
         // Net available should be 50 - 20 + 20 = 50.0 kg
         $response->assertSee('50.0');

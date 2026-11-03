@@ -18,7 +18,7 @@
         ];
         $reportTabs = [
             'cash' => 'Cash Flow',
-            'procurement' => 'Procurement Expenses',
+            'procurement' => 'Operating Expenses',
             'other' => 'Other Expenses',
             'summary' => 'Summary',
         ];
@@ -278,7 +278,7 @@
                         <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format($reportTotals['cash_out'], 2) }}</p>
                     </div>
                     <div class="rounded-2xl border border-slate-200 bg-white p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">Procurement Expenses</p>
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">Operating Expenses</p>
                         <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format($reportTotals['procurement'], 2) }}</p>
                     </div>
                     <div class="rounded-2xl border border-slate-200 bg-white p-4">
@@ -288,7 +288,7 @@
                     <div class="rounded-2xl border border-slate-300 bg-slate-950 p-4 text-white">
                         <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">Total Purchaser Expenses</p>
                         <p class="mt-2 text-2xl font-black">Rs. {{ number_format($reportTotals['total_purchaser_expenses'], 2) }}</p>
-                        <p class="mt-1 text-[10px] font-semibold text-slate-300">Procurement + Other</p>
+                        <p class="mt-1 text-[10px] font-semibold text-slate-300">Operating + Other</p>
                     </div>
                     <div class="rounded-2xl border border-slate-200 bg-white p-4">
                         <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">Cash Balance</p>
@@ -420,7 +420,7 @@
                     <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div class="grid gap-3 sm:grid-cols-3">
                             <div>
-                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Procurement Expenses</p>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Operating Expenses</p>
                                 <p class="mt-1 text-xl font-black text-slate-950">Rs. {{ number_format($reportTotals['procurement'], 2) }}</p>
                             </div>
                             <div>
@@ -476,7 +476,7 @@
                                             <td class="px-4 py-3 font-semibold text-slate-700">{{ $expense->companyAccountingEntry?->journalEntry?->reference ?? '-' }}</td>
                                         </tr>
                                     @empty
-                                        <tr><td colspan="7" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No procurement expenses for the selected filters.</td></tr>
+                                        <tr><td colspan="7" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No operating expenses for the selected filters.</td></tr>
                                     @endforelse
                                 </tbody>
                             </table>
@@ -495,7 +495,7 @@
                                 <p class="mt-1 text-xl font-black text-slate-950">Rs. {{ number_format($reportTotals['other_expenses'], 2) }}</p>
                             </div>
                             <div>
-                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Procurement Expenses</p>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Operating Expenses</p>
                                 <p class="mt-1 text-xl font-black text-slate-950">Rs. {{ number_format($reportTotals['procurement'], 2) }}</p>
                             </div>
                             <div>

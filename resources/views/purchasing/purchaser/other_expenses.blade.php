@@ -8,7 +8,7 @@
                     <div class="min-w-0">
                         <p class="text-[9px] font-black uppercase tracking-[0.16em] text-slate-300">Purchaser</p>
                         <h1 class="mt-0.5 truncate text-lg font-black tracking-tight sm:text-2xl">Other Expenses</h1>
-                        <p class="mt-1 hidden max-w-2xl text-sm font-semibold text-slate-300 sm:block">Other purchaser costs post separately from procurement expenses.</p>
+                        <p class="mt-1 hidden max-w-2xl text-sm font-semibold text-slate-300 sm:block">Other purchaser costs post separately from operating expenses.</p>
                     </div>
                     <form method="GET" action="{{ route('purchaser.other-expenses.index') }}" class="flex shrink-0 items-center gap-1 rounded-xl bg-white/10 p-1">
                         <a href="{{ route('purchaser.other-expenses.index', ['date' => $previousDate]) }}" class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/15" title="Previous day" aria-label="Previous day">

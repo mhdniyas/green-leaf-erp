@@ -6,7 +6,7 @@
 @endsection
 
 @section('header_subtitle')
-    Combined purchase totals and procurement expenses by purchaser.
+    Combined purchase totals and operating expenses by purchaser.
 @endsection
 
 @section('content')
@@ -55,7 +55,7 @@
 <div class="mx-auto max-w-[96rem] space-y-5">
     @include('admin.cashbook.finance.purchase.reports._header', [
         'reportName' => 'Purchaser Purchase & Expense Report',
-        'reportDescription' => 'Canonical combined report of purchaser orders, bills, and procurement expenses.'
+        'reportDescription' => 'Canonical combined report of purchaser orders, bills, and operating expenses.'
     ])
 
     <!-- Interactive Summary KPI Cards (Click to filter table below) -->
@@ -185,7 +185,10 @@
             'purchaser' => request('purchaser', $filters['purchaser'] ?? null),
             'purchaser_id' => request('purchaser_id', $filters['purchaser_id'] ?? null),
             'supplier_id' => request('supplier_id', $filters['supplier_id'] ?? null),
+            'category' => request('category', $filters['category'] ?? null),
+            'location' => request('location', $filters['location'] ?? null),
             'expense_type' => request('expense_type', $filters['expense_type'] ?? null),
+            'sub_category_id' => request('sub_category_id', $filters['sub_category_id'] ?? null),
             'entry_type' => request('entry_type', $filters['entry_type'] ?? null),
             'sort_by' => request('sort_by', $filters['sort_by'] ?? null),
             'sort_dir' => request('sort_dir', $filters['sort_dir'] ?? null),
@@ -195,7 +198,7 @@
         <input type="hidden" name="sort_by" value="{{ $sortBy }}">
         <input type="hidden" name="sort_dir" value="{{ $sortDir }}">
 
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 items-end">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 items-end">
             <div>
                 <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Type</label>
                 <select name="entry_type" onchange="this.form.submit()" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
@@ -230,14 +233,22 @@
             </div>
 
             <div>
-                <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Expense Category</label>
-                <select name="expense_type" onchange="this.form.submit()" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
+                <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Category</label>
+                <select name="category" id="report-category-select" onchange="onCategoryFilterChanged(this.value)" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
                     <option value="">All Categories</option>
-                    @foreach($expenseTypes as $key => $label)
-                        <option value="{{ $key }}" {{ request('expense_type') == $key ? 'selected' : '' }}>
-                            {{ $label }}
+                    @foreach($categoriesList ?? [] as $catKey => $cat)
+                        <option value="{{ $catKey }}" {{ ($selectedCategory ?? request('category', request('expense_type'))) == $catKey ? 'selected' : '' }}>
+                            {{ $cat['name'] }}
                         </option>
                     @endforeach
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Location / Route</label>
+                <select name="location" id="report-location-select" onchange="this.form.submit()" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
+                    <option value="">All Locations</option>
+                    <option value="unassigned" {{ ($selectedLocation ?? request('location', request('sub_category_id'))) === 'unassigned' ? 'selected' : '' }}>Unassigned</option>
                 </select>
             </div>
 
@@ -247,6 +258,79 @@
                        class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500" />
             </div>
         </div>
+
+        <script>
+            const categoryLocationsMap = @json($categoryLocationsMap ?? []);
+            const initialSelectedCategory = @json($selectedCategory ?? request('category', request('expense_type', '')));
+            const initialSelectedLocation = @json($selectedLocation ?? request('location', request('sub_category_id', '')));
+
+            function populateLocationFilter(catKey, locVal) {
+                const select = document.getElementById('report-location-select');
+                if (!select) return;
+
+                const currentVal = locVal !== undefined && locVal !== null ? String(locVal) : select.value;
+                select.innerHTML = '';
+
+                const optAll = document.createElement('option');
+                optAll.value = '';
+                optAll.textContent = 'All Locations';
+                select.appendChild(optAll);
+
+                const optUnassigned = document.createElement('option');
+                optUnassigned.value = 'unassigned';
+                optUnassigned.textContent = 'Unassigned';
+                if (currentVal === 'unassigned') optUnassigned.selected = true;
+                select.appendChild(optUnassigned);
+
+                let locations = [];
+                if (catKey && categoryLocationsMap[catKey]) {
+                    locations = categoryLocationsMap[catKey];
+                } else {
+                    const seen = new Set();
+                    for (const key in categoryLocationsMap) {
+                        (categoryLocationsMap[key] || []).forEach(l => {
+                            if (!seen.has(l.id)) {
+                                seen.add(l.id);
+                                locations.push(l);
+                            }
+                        });
+                    }
+                }
+
+                locations.forEach(l => {
+                    const opt = document.createElement('option');
+                    opt.value = String(l.id);
+                    opt.textContent = l.name + (!l.is_active ? ' (Inactive)' : '');
+                    if (String(l.id) === currentVal) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            }
+
+            function onCategoryFilterChanged(newCatKey) {
+                const locSelect = document.getElementById('report-location-select');
+                const currentLocVal = locSelect ? locSelect.value : '';
+
+                let keepLoc = false;
+                if (currentLocVal === 'unassigned') {
+                    keepLoc = true;
+                } else if (newCatKey && categoryLocationsMap[newCatKey]) {
+                    keepLoc = categoryLocationsMap[newCatKey].some(l => String(l.id) === currentLocVal);
+                }
+
+                populateLocationFilter(newCatKey, keepLoc ? currentLocVal : '');
+
+                const form = document.querySelector('form[action*="purchaser-expenses"]') || document.forms[0];
+                if (form) form.submit();
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', function() {
+                    populateLocationFilter(initialSelectedCategory, initialSelectedLocation);
+                });
+            } else {
+                populateLocationFilter(initialSelectedCategory, initialSelectedLocation);
+            }
+        </script>
 
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-3 border-t border-slate-100">
             <div class="flex items-center gap-2">
@@ -321,6 +405,132 @@
                 <i data-lucide="x" class="h-3.5 w-3.5"></i> Show All Transactions ({{ $summary['total_entries'] }})
             </a>
         </div>
+    @endif
+
+    <!-- Category & Location Breakdown Section -->
+    @if(isset($breakdown) && ($breakdown['grand_total_entries'] > 0 || !empty($selectedCategory) || !empty($selectedLocation)))
+        <section class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 bg-slate-50/75 px-4 py-3 gap-2">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="inline-flex h-6 w-6 items-center justify-center rounded-md bg-amber-100 text-amber-800">
+                            <i data-lucide="pie-chart" class="h-3.5 w-3.5"></i>
+                        </span>
+                        <h3 class="text-xs font-black uppercase tracking-wider text-slate-800">Category & Location Breakdown</h3>
+                    </div>
+                    <p class="text-[11px] text-slate-500 mt-0.5">
+                        Grouped operating expenses for the selected period. Click any row to filter transactions below.
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    @if(!empty($selectedCategory) || !empty($selectedLocation))
+                        <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses', array_filter(array_merge(request()->query(), ['category' => null, 'location' => null, 'expense_type' => null, 'sub_category_id' => null, 'page' => 1]))) }}"
+                           class="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-900 hover:bg-amber-100 transition shadow-xs">
+                            <i data-lucide="x" class="h-3 w-3"></i> Clear Category/Location Filter
+                        </a>
+                    @endif
+                    <span class="rounded-full bg-slate-200/70 px-2.5 py-0.5 text-[10px] font-bold text-slate-700">
+                        Total: ₹{{ number_format($breakdown['grand_total_amount'], 2) }}
+                    </span>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-100 select-none">
+                        <tr>
+                            <th class="p-3">Category</th>
+                            <th class="p-3">Location / Route</th>
+                            <th class="p-3 text-right">Entries</th>
+                            <th class="p-3 text-right">Total Amount (₹)</th>
+                            <th class="p-3 text-right">% of Expenses</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @forelse($breakdown['categories'] as $catGroup)
+                            @foreach($catGroup['locations'] as $loc)
+                                @php
+                                    $isRowActive = ($selectedCategory === $catGroup['category_key']) && ((string)($selectedLocation ?? '') === (string)$loc['location_filter_value']);
+                                    $rowFilterParams = array_filter(array_merge(request()->query(), [
+                                        'category' => $catGroup['category_key'],
+                                        'location' => $loc['location_filter_value'],
+                                        'page' => 1,
+                                    ]), fn($v) => $v !== null && $v !== '');
+                                    $rowUrl = route('admin.cashbook.finance.purchase.purchaser-expenses', $rowFilterParams);
+                                @endphp
+                                <tr onclick="window.location.href='{{ $rowUrl }}'"
+                                    class="group transition cursor-pointer {{ $isRowActive ? 'bg-amber-100/70 font-semibold ring-1 ring-inset ring-amber-400' : 'hover:bg-amber-50/60' }}"
+                                    title="Click to filter transactions for {{ $catGroup['category_name'] }} • {{ $loc['location_name'] }}">
+                                    <td class="p-3 font-bold text-slate-900 whitespace-nowrap">
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="inline-block h-2 w-2 rounded-full {{ $isRowActive ? 'bg-amber-600' : 'bg-slate-300 group-hover:bg-amber-500' }}"></span>
+                                            <span>{{ $catGroup['category_name'] }}</span>
+                                        </div>
+                                    </td>
+                                    <td class="p-3 whitespace-nowrap">
+                                        @if($loc['is_unassigned'])
+                                            <span class="inline-flex items-center gap-1 text-slate-400 italic">
+                                                <i data-lucide="map-pin-off" class="h-3 w-3"></i> Unassigned
+                                            </span>
+                                        @else
+                                            <span class="inline-flex items-center gap-1 font-medium text-slate-800">
+                                                <i data-lucide="map-pin" class="h-3 w-3 text-emerald-600"></i> {{ $loc['location_name'] }}
+                                            </span>
+                                        @endif
+                                    </td>
+                                    <td class="p-3 text-right font-mono text-slate-700 whitespace-nowrap">
+                                        {{ $loc['entries_count'] }}
+                                    </td>
+                                    <td class="p-3 text-right font-mono font-bold text-amber-700 whitespace-nowrap">
+                                        ₹{{ number_format($loc['total_amount'], 2) }}
+                                    </td>
+                                    <td class="p-3 text-right font-mono text-slate-600 whitespace-nowrap">
+                                        <div class="inline-flex items-center justify-end gap-1.5">
+                                            <span class="w-12 text-right">{{ number_format($loc['percentage'], 2) }}%</span>
+                                            <div class="h-1.5 w-12 rounded-full bg-slate-100 overflow-hidden">
+                                                <div class="h-full bg-amber-500 rounded-full" style="width: {{ min(100, max(0, $loc['percentage'])) }}%"></div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            @endforeach
+                            @if(count($catGroup['locations']) > 1)
+                                <tr class="bg-slate-50/60 font-semibold text-[11px] text-slate-700 border-t border-slate-100">
+                                    <td colspan="2" class="p-2.5 pl-6 text-slate-600 uppercase tracking-wider">
+                                        Subtotal: {{ $catGroup['category_name'] }}
+                                    </td>
+                                    <td class="p-2.5 text-right font-mono">{{ $catGroup['entries_count'] }}</td>
+                                    <td class="p-2.5 text-right font-mono text-amber-800">₹{{ number_format($catGroup['total_amount'], 2) }}</td>
+                                    <td class="p-2.5 text-right font-mono text-slate-700">{{ number_format($catGroup['percentage'], 2) }}%</td>
+                                </tr>
+                            @endif
+                        @empty
+                            <tr>
+                                <td colspan="5" class="p-6 text-center text-slate-400">
+                                    No operating expenses recorded for the selected period and filters.
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                    @if($breakdown['grand_total_entries'] > 0)
+                        <tfoot class="bg-slate-100/80 border-t-2 border-slate-200 text-xs font-black text-slate-900">
+                            <tr>
+                                <td colspan="2" class="p-3 uppercase tracking-wider">
+                                    Report Operating Expenses Grand Total
+                                </td>
+                                <td class="p-3 text-right font-mono">{{ $breakdown['grand_total_entries'] }}</td>
+                                <td class="p-3 text-right font-mono text-amber-800">₹{{ number_format($breakdown['grand_total_amount'], 2) }}</td>
+                                <td class="p-3 text-right font-mono">100.00%</td>
+                            </tr>
+                        </tfoot>
+                    @endif
+                </table>
+            </div>
+            <div class="bg-slate-50 px-4 py-2 text-[10px] text-slate-400 border-t border-slate-100 flex items-center justify-between">
+                <span>* Percentages are relative to filtered operating expenses total (₹{{ number_format($breakdown['grand_total_amount'], 2) }}).</span>
+                <span>Click any row to filter matching transactions below</span>
+            </div>
+        </section>
     @endif
 
     <!-- Data Table -->
@@ -439,11 +649,19 @@
                             <td class="p-3 font-bold text-slate-900">{{ $row['purchaser_name'] }}</td>
                             <td class="p-3 font-medium text-slate-700">{{ $row['supplier_name'] }}</td>
                             <td class="p-3 font-mono font-semibold text-slate-800 whitespace-nowrap">{{ $row['reference'] }}</td>
-                            <td class="p-3 text-slate-600 max-w-xs truncate" title="{{ $row['type'] === 'expense' ? $row['expense_type'] . ' - ' . $row['details'] : $row['details'] }}">
+                            <td class="p-3 text-slate-600 max-w-sm" title="{{ $row['type'] === 'expense' ? ($row['display_category_location'] ?? $row['expense_type']) . ' - ' . $row['details'] : $row['details'] }}">
                                 @if($row['type'] === 'expense')
-                                    <span class="font-bold text-amber-800">{{ $row['expense_type'] }}:</span>
+                                    <div class="font-bold text-amber-800">
+                                        {{ $row['display_category_location'] ?? $row['expense_type'] }}
+                                    </div>
+                                    @if(filled($row['details']) && $row['details'] !== ($row['category_name'] ?? $row['expense_type']))
+                                        <div class="text-[11px] text-slate-500 truncate mt-0.5">
+                                            {{ $row['details'] }}
+                                        </div>
+                                    @endif
+                                @else
+                                    {{ $row['details'] }}
                                 @endif
-                                {{ $row['details'] }}
                             </td>
                             <td class="p-3 text-right font-mono font-medium text-slate-900">
                                 {{ $row['purchase_amount'] > 0 ? '₹' . number_format($row['purchase_amount'], 2) : '-' }}

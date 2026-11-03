@@ -34,6 +34,7 @@ use App\Http\Controllers\Web\Admin\GreenLeafMonthlyReportController;
 use App\Http\Controllers\Web\Admin\GreenLeafMonthlyReportExportController;
 use App\Http\Controllers\Web\Admin\Integrations\ZohoBooksIntegrationController;
 use App\Http\Controllers\Web\Admin\MonthlyClosingSummaryController;
+use App\Http\Controllers\Web\Admin\OperatingExpenseSettingsController;
 use App\Http\Controllers\Web\Admin\PurchaseProductFilterController;
 use App\Http\Controllers\Web\Admin\PurchaserMonthlySummaryController;
 use App\Http\Controllers\Web\Admin\StaffManagementController;
@@ -779,6 +780,26 @@ Route::middleware('auth')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
         Route::get('company-settings', [CompanySettingsController::class, 'edit'])->name('company-settings.edit');
         Route::patch('company-settings', [CompanySettingsController::class, 'update'])->name('company-settings.update');
+
+        Route::prefix('company-settings')->name('company-settings.')->group(function () {
+            Route::post('operating-expense-categories', [OperatingExpenseSettingsController::class, 'storeCategory'])
+                ->name('operating-expense-categories.store');
+            Route::patch('operating-expense-categories/{category}', [OperatingExpenseSettingsController::class, 'updateCategory'])
+                ->name('operating-expense-categories.update');
+            Route::patch('operating-expense-categories/{category}/toggle-status', [OperatingExpenseSettingsController::class, 'toggleCategoryStatus'])
+                ->name('operating-expense-categories.toggle-status');
+            Route::delete('operating-expense-categories/{category}', [OperatingExpenseSettingsController::class, 'destroyCategory'])
+                ->name('operating-expense-categories.destroy');
+
+            Route::post('operating-expense-categories/{category}/sub-categories', [OperatingExpenseSettingsController::class, 'storeSubCategory'])
+                ->name('operating-expense-sub-categories.store');
+            Route::patch('operating-expense-sub-categories/{subCategory}', [OperatingExpenseSettingsController::class, 'updateSubCategory'])
+                ->name('operating-expense-sub-categories.update');
+            Route::patch('operating-expense-sub-categories/{subCategory}/toggle-status', [OperatingExpenseSettingsController::class, 'toggleSubCategoryStatus'])
+                ->name('operating-expense-sub-categories.toggle-status');
+            Route::delete('operating-expense-sub-categories/{subCategory}', [OperatingExpenseSettingsController::class, 'destroySubCategory'])
+                ->name('operating-expense-sub-categories.destroy');
+        });
 
         // ── Zoho Books Integration ─────────────────────────────────────────
         Route::prefix('integrations/zoho-books')->name('integrations.zoho-books.')->group(function () {

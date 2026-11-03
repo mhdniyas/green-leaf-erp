@@ -116,6 +116,12 @@
             <span class="meta-item"><span class="meta-label">Period:</span> {{ $summary['date_from_formatted'] }} - {{ $summary['date_to_formatted'] }}</span>
             <span class="meta-item"><span class="meta-label">Purchaser:</span> {{ $purchaserName }}</span>
             <span class="meta-item"><span class="meta-label">Supplier:</span> {{ $supplierName }}</span>
+            @if(!empty($categoryName) && $categoryName !== 'All Categories')
+                <span class="meta-item"><span class="meta-label">Category:</span> {{ $categoryName }}</span>
+            @endif
+            @if(!empty($locationName) && $locationName !== 'All Locations')
+                <span class="meta-item"><span class="meta-label">Location:</span> {{ $locationName }}</span>
+            @endif
         </div>
     </div>
 
@@ -155,7 +161,7 @@
                     <td class="font-mono">{{ $row['reference'] }}</td>
                     <td>
                         @if($row['type'] === 'expense')
-                            <strong>{{ $row['expense_type'] }}:</strong>
+                            <strong>{{ $row['display_category_location'] ?? $row['expense_type'] }}:</strong>
                         @endif
                         {{ $row['details'] }}
                     </td>

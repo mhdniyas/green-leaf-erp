@@ -1,4 +1,4 @@
-<x-layouts.app title="Procurement Expenses">
+<x-layouts.app title="Expense">
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-2 py-2 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
         @include('purchasing.purchaser.partials.feedback')
 
@@ -7,8 +7,8 @@
                 <div class="flex items-center justify-between gap-3">
                     <div class="min-w-0">
                         <p class="text-[9px] font-black uppercase tracking-[0.16em] text-teal-200">Purchaser</p>
-                        <h1 class="mt-0.5 truncate text-lg font-black tracking-tight sm:text-2xl">Procurement Expenses</h1>
-                        <p class="mt-1 hidden max-w-2xl text-sm font-semibold text-slate-200 sm:block">Daily procurement costs post to company expense automatically.</p>
+                        <h1 class="mt-0.5 truncate text-lg font-black tracking-tight sm:text-2xl">Expense</h1>
+                        <p class="mt-1 hidden max-w-2xl text-sm font-semibold text-slate-200 sm:block">Daily operating costs post to company expense automatically.</p>
                     </div>
                     <form method="GET" action="{{ route('purchaser.procurement-expenses.index') }}" class="flex shrink-0 items-center gap-1 rounded-xl bg-white/10 p-1">
                         <input type="hidden" name="view" value="{{ $view }}">
@@ -64,7 +64,7 @@
                 <div class="flex items-center justify-between gap-2">
                     <div class="min-w-0">
                         <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{{ $editingExpense ? 'Edit' : 'New' }}</p>
-                        <h2 class="mt-0.5 truncate text-base font-black text-slate-950">{{ $editingExpense ? 'Update expense' : 'Add expense' }}</h2>
+                        <h2 class="mt-0.5 truncate text-base font-black text-slate-950">{{ $editingExpense ? 'Edit Expense' : 'Add Expense' }}</h2>
                     </div>
                     @if($editingExpense)
                         <a href="{{ route('purchaser.procurement-expenses.index', ['date' => $date->toDateString()]) }}" class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100" title="Cancel edit" aria-label="Cancel edit">
@@ -104,6 +104,38 @@
                             </div>
                         </div>
                     </label>
+
+                    <div id="location-field-container" class="col-span-2 hidden">
+                        <label>
+                            <div class="flex items-center justify-between">
+                                <span class="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">Location / Route</span>
+                                <span id="location-mode-badge" class="rounded px-1.5 py-0.5 text-[8px] font-black uppercase">Optional</span>
+                            </div>
+                            <div class="procurement-location-select relative mt-1">
+                                <button type="button"
+                                        id="procurement-location-trigger"
+                                        class="procurement-location-trigger flex h-9 w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-2 text-left text-xs font-black text-slate-900 transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100"
+                                        aria-haspopup="listbox"
+                                        aria-expanded="false">
+                                    <span id="procurement-location-label" class="procurement-location-label truncate">Select location / route</span>
+                                    <svg class="h-4 w-4 shrink-0 text-slate-500 transition-transform duration-200" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="m6 9 6 6 6-6"/>
+                                    </svg>
+                                </button>
+                                <input type="hidden"
+                                       name="procurement_expense_sub_category_id"
+                                       id="procurement-location-select"
+                                       class="procurement-location-input"
+                                       value="{{ old('procurement_expense_sub_category_id', $editingExpense?->procurement_expense_sub_category_id ?? '') }}">
+                                <div id="procurement-location-options"
+                                     class="procurement-location-options absolute left-0 right-0 top-[calc(100%+0.25rem)] z-40 hidden max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl"
+                                     role="listbox"
+                                     aria-label="Location / Route">
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+
                     <label class="col-span-2">
                         <span class="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">Amount</span>
                         <input type="number" name="amount" min="0.01" step="0.01" value="{{ old('amount', $editingExpense?->amount) }}" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-right text-sm font-black text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100" placeholder="0.00" required>
@@ -116,15 +148,15 @@
 
                 <button type="submit" class="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-teal-600 px-3 text-[11px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-teal-500">
                     <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
-                    {{ $editingExpense ? 'Update' : 'Add' }}
+                    {{ $editingExpense ? 'Update Expense' : 'Add Expense' }}
                 </button>
             </form>
 
             <section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:rounded-[2rem]">
                 <div class="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5 lg:px-4 lg:py-3">
                     <div class="min-w-0">
-                        <h2 class="truncate text-sm font-black text-slate-950">Expense List</h2>
-                        <p class="mt-0.5 truncate text-[10px] font-semibold text-slate-500">{{ $date->format('M Y') }} procurement expenses</p>
+                        <h2 class="truncate text-sm font-black text-slate-950">Expense History</h2>
+                        <p class="mt-0.5 truncate text-[10px] font-semibold text-slate-500">{{ $date->format('M Y') }} operating expenses</p>
                     </div>
                     <a href="{{ route('purchaser.daily', ['date' => $date->toDateString()]) }}" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100" title="Daily" aria-label="Daily">
                         <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
@@ -153,9 +185,14 @@
                         <div class="px-3 py-2">
                             <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                                 <div class="min-w-0">
-                                    <div class="flex min-w-0 items-center gap-1.5">
+                                    <div class="flex min-w-0 flex-wrap items-center gap-1.5">
                                         <p class="shrink-0 text-[11px] font-black text-slate-950">{{ $expense->expense_date?->format('d M') }}</p>
-                                        <span class="min-w-0 truncate rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.1em] text-slate-600">{{ $expense->categoryLabel() }}</span>
+                                        <span class="min-w-0 truncate rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.1em] text-slate-600">{{ $expense->categoryDefinition?->name ?? $expense->categoryLabel() }}</span>
+                                        @if($expense->sub_category || $expense->subCategory)
+                                            <span class="min-w-0 truncate rounded-full bg-blue-50 px-2 py-0.5 text-[8px] font-black tracking-wide text-blue-700 border border-blue-200/60">
+                                                📍 {{ $expense->sub_category ?: $expense->subCategory?->name }}
+                                            </span>
+                                        @endif
                                         <span class="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-black uppercase text-emerald-700">Added</span>
                                     </div>
                                     <p class="mt-1 truncate text-[10px] font-semibold text-slate-600">{{ $expense->note ?: 'No note' }}</p>
@@ -181,7 +218,7 @@
                             </div>
                         </div>
                         @empty
-                            <div class="px-3 py-8 text-center text-xs font-bold text-slate-400">No procurement expenses for this month.</div>
+                            <div class="px-3 py-8 text-center text-xs font-bold text-slate-400">No operating expenses for this month.</div>
                         @endforelse
                     </div>
 
@@ -191,6 +228,7 @@
                             <tr>
                                 <th class="px-4 py-3">Date</th>
                                 <th class="px-4 py-3">Category</th>
+                                <th class="px-4 py-3">Location / Route</th>
                                 <th class="px-4 py-3">Note</th>
                                 <th class="px-4 py-3 text-right">Amount</th>
                                 <th class="px-4 py-3">Status</th>
@@ -201,7 +239,16 @@
                             @forelse($expenses as $expense)
                                 <tr>
                                     <td class="px-4 py-3 font-black text-slate-950">{{ $expense->expense_date?->format('d M Y') }}</td>
-                                    <td class="px-4 py-3 font-semibold text-slate-700">{{ $expense->categoryLabel() }}</td>
+                                    <td class="px-4 py-3 font-semibold text-slate-700">{{ $expense->categoryDefinition?->name ?? $expense->categoryLabel() }}</td>
+                                    <td class="px-4 py-3 text-xs">
+                                        @if($expense->sub_category || $expense->subCategory)
+                                            <span class="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-bold text-blue-700 border border-blue-200/60">
+                                                📍 {{ $expense->sub_category ?: $expense->subCategory?->name }}
+                                            </span>
+                                        @else
+                                            <span class="text-slate-400">—</span>
+                                        @endif
+                                    </td>
                                     <td class="max-w-xs px-4 py-3">
                                         <p class="truncate font-semibold text-slate-600">{{ $expense->note ?: 'No note' }}</p>
                                         @if($expense->companyAccountingEntry)
@@ -228,7 +275,7 @@
                                     </td>
                                 </tr>
                             @empty
-                                <tr><td colspan="6" class="px-4 py-10 text-center text-sm font-bold text-slate-400">No procurement expenses for this month.</td></tr>
+                                <tr><td colspan="6" class="px-4 py-10 text-center text-sm font-bold text-slate-400">No operating expenses for this month.</td></tr>
                             @endforelse
                         </tbody>
                     </table>
@@ -240,11 +287,18 @@
 
     <script>
         document.addEventListener('click', (event) => {
-            const trigger = event.target.closest('.procurement-category-trigger');
-
-            if (trigger) {
-                const container = trigger.closest('.procurement-category-select');
+            // 1. Category Trigger Click
+            const catTrigger = event.target.closest('.procurement-category-trigger');
+            if (catTrigger) {
+                const container = catTrigger.closest('.procurement-category-select');
                 const options = container?.querySelector('.procurement-category-options');
+
+                // Close any open location dropdown
+                document.querySelectorAll('.procurement-location-options').forEach(panel => {
+                    panel.classList.add('hidden');
+                    panel.closest('.procurement-location-select')?.querySelector('.procurement-location-trigger')?.setAttribute('aria-expanded', 'false');
+                    panel.closest('.procurement-location-select')?.querySelector('.procurement-location-trigger svg')?.classList.remove('rotate-180');
+                });
 
                 document.querySelectorAll('.procurement-category-options').forEach((panel) => {
                     if (panel !== options) {
@@ -256,26 +310,26 @@
 
                 options?.classList.toggle('hidden');
                 const isOpen = options ? ! options.classList.contains('hidden') : false;
-                trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-                trigger.querySelector('svg')?.classList.toggle('rotate-180', isOpen);
+                catTrigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                catTrigger.querySelector('svg')?.classList.toggle('rotate-180', isOpen);
                 return;
             }
 
-            const option = event.target.closest('.procurement-category-option');
-
-            if (option) {
-                const container = option.closest('.procurement-category-select');
+            // 2. Category Option Click
+            const catOption = event.target.closest('.procurement-category-option');
+            if (catOption) {
+                const container = catOption.closest('.procurement-category-select');
                 const input = container?.querySelector('.procurement-category-input');
                 const label = container?.querySelector('.procurement-category-label');
                 const options = container?.querySelector('.procurement-category-options');
-                const selectedValue = option.dataset.value ?? '';
-                const selectedLabel = option.dataset.label ?? option.textContent.trim();
+                const selectedValue = catOption.dataset.value ?? '';
+                const selectedLabel = catOption.dataset.label ?? catOption.textContent.trim();
 
                 if (input) input.value = selectedValue;
                 if (label) label.textContent = selectedLabel;
 
                 container?.querySelectorAll('.procurement-category-option').forEach((item) => {
-                    const isSelected = item === option;
+                    const isSelected = item === catOption;
                     item.setAttribute('aria-selected', isSelected ? 'true' : 'false');
                     item.classList.toggle('bg-teal-50', isSelected);
                     item.classList.toggle('font-black', isSelected);
@@ -291,9 +345,68 @@
                 const selectedTrigger = container?.querySelector('.procurement-category-trigger');
                 selectedTrigger?.setAttribute('aria-expanded', 'false');
                 selectedTrigger?.querySelector('svg')?.classList.remove('rotate-180');
+
+                updateLocationSelector(selectedValue, null);
                 return;
             }
 
+            // 3. Location Trigger Click
+            const locTrigger = event.target.closest('.procurement-location-trigger');
+            if (locTrigger) {
+                const container = locTrigger.closest('.procurement-location-select');
+                const options = container?.querySelector('.procurement-location-options');
+
+                // Close any open category dropdown
+                document.querySelectorAll('.procurement-category-options').forEach(panel => {
+                    panel.classList.add('hidden');
+                    panel.closest('.procurement-category-select')?.querySelector('.procurement-category-trigger')?.setAttribute('aria-expanded', 'false');
+                    panel.closest('.procurement-category-select')?.querySelector('.procurement-category-trigger svg')?.classList.remove('rotate-180');
+                });
+
+                options?.classList.toggle('hidden');
+                const isOpen = options ? ! options.classList.contains('hidden') : false;
+                locTrigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                locTrigger.querySelector('svg')?.classList.toggle('rotate-180', isOpen);
+                return;
+            }
+
+            // 4. Location Option Click
+            const locOption = event.target.closest('.procurement-location-option');
+            if (locOption) {
+                const container = locOption.closest('.procurement-location-select');
+                const input = container?.querySelector('.procurement-location-input');
+                const label = container?.querySelector('.procurement-location-label');
+                const options = container?.querySelector('.procurement-location-options');
+                const selectedValue = locOption.dataset.value ?? '';
+                const selectedLabel = locOption.dataset.label ?? locOption.textContent.trim();
+
+                if (input) input.value = selectedValue;
+                if (label) label.textContent = selectedLabel;
+
+                // Remove red error highlight if present
+                const trigger = container?.querySelector('.procurement-location-trigger');
+                trigger?.classList.remove('border-rose-400', 'ring-2', 'ring-rose-100');
+
+                container?.querySelectorAll('.procurement-location-option').forEach((item) => {
+                    const isSelected = item === locOption;
+                    item.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+                    item.classList.toggle('bg-teal-50', isSelected);
+                    item.classList.toggle('font-black', isSelected);
+                    item.classList.toggle('text-teal-800', isSelected);
+                    item.classList.toggle('font-bold', ! isSelected);
+                    item.classList.toggle('text-slate-700', ! isSelected);
+                    item.classList.toggle('hover:bg-slate-50', ! isSelected);
+                    item.classList.toggle('hover:text-slate-950', ! isSelected);
+                    item.querySelector('.procurement-location-check')?.classList.toggle('hidden', ! isSelected);
+                });
+
+                options?.classList.add('hidden');
+                trigger?.setAttribute('aria-expanded', 'false');
+                trigger?.querySelector('svg')?.classList.remove('rotate-180');
+                return;
+            }
+
+            // 5. Click Outside: Close any open dropdowns
             if (! event.target.closest('.procurement-category-select')) {
                 document.querySelectorAll('.procurement-category-options').forEach((panel) => {
                     panel.classList.add('hidden');
@@ -301,6 +414,114 @@
                     panel.closest('.procurement-category-select')?.querySelector('.procurement-category-trigger svg')?.classList.remove('rotate-180');
                 });
             }
+            if (! event.target.closest('.procurement-location-select')) {
+                document.querySelectorAll('.procurement-location-options').forEach((panel) => {
+                    panel.classList.add('hidden');
+                    panel.closest('.procurement-location-select')?.querySelector('.procurement-location-trigger')?.setAttribute('aria-expanded', 'false');
+                    panel.closest('.procurement-location-select')?.querySelector('.procurement-location-trigger svg')?.classList.remove('rotate-180');
+                });
+            }
         });
+
+        const categoryConfigs = @json($categoryConfigs ?? []);
+        const initialCategory = '{{ $selectedCategory }}';
+        const initialLocationId = '{{ old('procurement_expense_sub_category_id', $editingExpense?->procurement_expense_sub_category_id ?? '') }}';
+
+        function updateLocationSelector(categoryKey, preselectedLocationId = null) {
+            const container = document.getElementById('location-field-container');
+            const input = document.getElementById('procurement-location-select');
+            const label = document.getElementById('procurement-location-label');
+            const optionsContainer = document.getElementById('procurement-location-options');
+            const badge = document.getElementById('location-mode-badge');
+            const trigger = document.getElementById('procurement-location-trigger');
+            if (!container || !input || !label || !optionsContainer || !badge) return;
+
+            // Clear any error states
+            trigger?.classList.remove('border-rose-400', 'ring-2', 'ring-rose-100');
+
+            const config = categoryConfigs.find(c => c.key === categoryKey);
+            if (!config || config.mode === 'none') {
+                container.classList.add('hidden');
+                optionsContainer.innerHTML = '';
+                input.value = '';
+                input.removeAttribute('required');
+                label.textContent = 'No locations available';
+                return;
+            }
+
+            container.classList.remove('hidden');
+
+            const isRequired = config.mode === 'required';
+            if (isRequired) {
+                badge.textContent = 'Required';
+                badge.className = 'rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide bg-purple-50 text-purple-700 border border-purple-200/60';
+                input.setAttribute('required', 'required');
+            } else {
+                badge.textContent = 'Optional';
+                badge.className = 'rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide bg-blue-50 text-blue-700 border border-blue-200/60';
+                input.removeAttribute('required');
+            }
+
+            const defaultPlaceholder = isRequired ? 'Select required location / route' : 'Select location (optional)';
+            const locations = config.locations || [];
+
+            let selectedLoc = null;
+            if (preselectedLocationId) {
+                selectedLoc = locations.find(l => String(l.id) === String(preselectedLocationId));
+            }
+
+            const activeValue = selectedLoc ? String(selectedLoc.id) : '';
+            input.value = activeValue;
+            label.textContent = selectedLoc ? (selectedLoc.name + (selectedLoc.code ? ` (${selectedLoc.code})` : '')) : defaultPlaceholder;
+
+            let optionsHtml = '';
+            if (!isRequired) {
+                const isPlaceholderSelected = !activeValue;
+                optionsHtml += `
+                    <button type="button" data-value="" data-label="${defaultPlaceholder}" class="procurement-location-option flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs ${isPlaceholderSelected ? 'bg-teal-50 font-black text-teal-800' : 'font-bold text-slate-500 hover:bg-slate-50 hover:text-slate-900'}" role="option" aria-selected="${isPlaceholderSelected ? 'true' : 'false'}">
+                        <span class="truncate italic">${defaultPlaceholder}</span>
+                        <svg class="procurement-location-check h-3.5 w-3.5 shrink-0 text-teal-600 ${isPlaceholderSelected ? '' : 'hidden'}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 6 9 17l-5-5"/>
+                        </svg>
+                    </button>
+                `;
+            }
+
+            locations.forEach(loc => {
+                const locLabel = loc.name + (loc.code ? ` (${loc.code})` : '');
+                const isSelected = String(loc.id) === activeValue;
+                optionsHtml += `
+                    <button type="button" data-value="${loc.id}" data-label="${locLabel}" class="procurement-location-option flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs ${isSelected ? 'bg-teal-50 font-black text-teal-800' : 'font-bold text-slate-700 hover:bg-slate-50 hover:text-slate-950'}" role="option" aria-selected="${isSelected ? 'true' : 'false'}">
+                        <span class="truncate">${locLabel}</span>
+                        <svg class="procurement-location-check h-3.5 w-3.5 shrink-0 text-teal-600 ${isSelected ? '' : 'hidden'}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 6 9 17l-5-5"/>
+                        </svg>
+                    </button>
+                `;
+            });
+
+            optionsContainer.innerHTML = optionsHtml;
+        }
+
+        // Validate on form submission if location is required
+        document.querySelector('form[action*="procurement-expenses"]')?.addEventListener('submit', function(e) {
+            const container = document.getElementById('location-field-container');
+            const input = document.getElementById('procurement-location-select');
+            const badge = document.getElementById('location-mode-badge');
+            const trigger = document.getElementById('procurement-location-trigger');
+            if (container && !container.classList.contains('hidden') && badge?.textContent.trim() === 'Required') {
+                if (!input || !input.value) {
+                    e.preventDefault();
+                    trigger?.classList.add('border-rose-400', 'ring-2', 'ring-rose-100');
+                    trigger?.focus();
+                }
+            }
+        });
+
+        // Initialize on page load
+        updateLocationSelector(initialCategory, initialLocationId);
+
+        // Initialize on page load
+        updateLocationSelector(initialCategory, initialLocationId);
     </script>
 </x-layouts.app>

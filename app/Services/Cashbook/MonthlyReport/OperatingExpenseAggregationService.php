@@ -87,8 +87,9 @@ final class OperatingExpenseAggregationService
 
         // 3. Procurement Expenses
         $procurementExpenses = ProcurementExpense::query()
-            ->with(['purchaser'])
-            ->whereBetween('expense_date', [$startDate, $endDate])
+            ->with(['purchaser', 'categoryDefinition'])
+            ->whereDate('expense_date', '>=', $startDate)
+            ->whereDate('expense_date', '<=', $endDate)
             ->orderBy('expense_date')
             ->orderBy('id')
             ->get();
@@ -137,7 +138,8 @@ final class OperatingExpenseAggregationService
         // 4. Other Purchaser Expenses
         $otherExpenses = OtherExpense::query()
             ->with(['purchaser'])
-            ->whereBetween('expense_date', [$startDate, $endDate])
+            ->whereDate('expense_date', '>=', $startDate)
+            ->whereDate('expense_date', '<=', $endDate)
             ->orderBy('expense_date')
             ->orderBy('id')
             ->get();
@@ -185,7 +187,8 @@ final class OperatingExpenseAggregationService
             ->with(['category'])
             ->where('type', 'expense')
             ->where('status', 'final')
-            ->whereBetween('business_date', [$startDate, $endDate])
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
             ->when(! empty($linkedCompanyEntryIds), fn ($q) => $q->whereNotIn('id', array_unique($linkedCompanyEntryIds)))
             ->orderBy('business_date')
             ->orderBy('id')

@@ -28,11 +28,7 @@
             </div>
         @endif
 
-        <form method="POST" action="{{ route('admin.company-settings.update') }}" class="space-y-5">
-            @csrf
-            @method('PATCH')
-            <input type="hidden" name="active_tab" id="settings-active-tab" value="{{ request('tab', 'company') }}">
-
+        <div class="space-y-5">
             <section class="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
                 <div class="flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-2" role="tablist" aria-label="Company settings sections">
                     <button type="button" data-settings-tab="company" role="tab" aria-selected="true" class="settings-tab shrink-0 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-black text-white">Company</button>
@@ -40,10 +36,15 @@
                     <button type="button" data-settings-tab="purchaser-business-day" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Purchaser Business Day</button>
                     <button type="button" data-settings-tab="warehouse-sales" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Warehouse Sales</button>
                     <button type="button" data-settings-tab="auto-load" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Auto Load All</button>
+                    <button type="button" data-settings-tab="operating-expenses" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Operating Expense Settings</button>
                     <button type="button" data-settings-tab="history" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Trigger History</button>
                 </div>
 
                 <div class="p-5 sm:p-6">
+                    <form method="POST" action="{{ route('admin.company-settings.update') }}" id="company-settings-form">
+                        @csrf
+                        @method('PATCH')
+                        <input type="hidden" name="active_tab" id="settings-active-tab" value="{{ request('tab', 'company') }}">
                     <section data-settings-panel="company" role="tabpanel" class="settings-panel grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
                         <div class="grid gap-4">
                             <div>
@@ -504,47 +505,49 @@
                         </div>
                     </section>
 
-                    <section data-settings-panel="history" role="tabpanel" class="settings-panel hidden">
-                        <div class="flex items-start justify-between gap-4">
-                            <div>
-                                <p class="text-[11px] font-black uppercase tracking-[0.18em] text-violet-500">Auto Load All History</p>
-                                <p class="mt-1 text-sm font-semibold text-slate-500">Manual and scheduled trigger summaries. Per-order details stay on manual run screen.</p>
-                            </div>
-                            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{{ $autoLoadAllRuns->count() }} recent</span>
-                        </div>
+                    <div id="company-settings-save-bar" class="flex items-center justify-between border-t border-slate-200 bg-slate-50 p-4 rounded-xl mt-6">
+                        <p class="text-xs font-semibold text-slate-500">Changes apply to all warehouse operations.</p>
+                        <button type="submit" class="inline-flex h-11 items-center justify-center rounded-xl bg-teal-600 px-5 text-sm font-black text-white shadow-sm transition hover:bg-teal-500">
+                            Save Settings
+                        </button>
+                    </div>
+                </form>
 
-                        <div class="mt-5 overflow-hidden rounded-2xl border border-slate-200">
-                            @forelse($autoLoadAllRuns as $run)
-                                @php($properties = $run->properties)
-                                <div class="grid gap-3 border-b border-slate-100 p-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-                                    <div>
-                                        <div class="flex flex-wrap items-center gap-2">
-                                            <span class="rounded-full px-2.5 py-1 text-[10px] font-black uppercase {{ data_get($properties, 'status') === 'completed' ? 'bg-emerald-100 text-emerald-700' : (data_get($properties, 'status') === 'stopped' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700') }}">{{ data_get($properties, 'status', 'unknown') }}</span>
-                                            <span class="text-xs font-black text-slate-900">{{ ucfirst((string) data_get($properties, 'trigger_mode', 'manual')) }} trigger</span>
-                                            <span class="text-xs font-semibold text-slate-400">{{ data_get($properties, 'business_date', 'No date') }}</span>
-                                        </div>
-                                        <p class="mt-2 text-xs font-semibold text-slate-500">{{ data_get($properties, 'loaded_orders', 0) }} loaded · {{ data_get($properties, 'skipped_orders', 0) }} skipped · {{ data_get($properties, 'failed_orders', 0) }} failed · {{ $run->causer?->name ?? 'System' }}</p>
-                                        @if(data_get($properties, 'notes'))
-                                            <p class="mt-1 text-xs font-semibold text-slate-400">{{ data_get($properties, 'notes') }}</p>
-                                        @endif
+                <section data-settings-panel="history" role="tabpanel" class="settings-panel hidden">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-violet-500">Auto Load All History</p>
+                            <p class="mt-1 text-sm font-semibold text-slate-500">Manual and scheduled trigger summaries. Per-order details stay on manual run screen.</p>
+                        </div>
+                        <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{{ $autoLoadAllRuns->count() }} recent</span>
+                    </div>
+
+                    <div class="mt-5 overflow-hidden rounded-2xl border border-slate-200">
+                        @forelse($autoLoadAllRuns as $run)
+                            @php($properties = $run->properties)
+                            <div class="grid gap-3 border-b border-slate-100 p-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                                <div>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="rounded-full px-2.5 py-1 text-[10px] font-black uppercase {{ data_get($properties, 'status') === 'completed' ? 'bg-emerald-100 text-emerald-700' : (data_get($properties, 'status') === 'stopped' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700') }}">{{ data_get($properties, 'status', 'unknown') }}</span>
+                                        <span class="text-xs font-black text-slate-900">{{ ucfirst((string) data_get($properties, 'trigger_mode', 'manual')) }} trigger</span>
+                                        <span class="text-xs font-semibold text-slate-400">{{ data_get($properties, 'business_date', 'No date') }}</span>
                                     </div>
-                                    <time class="text-xs font-bold text-slate-400">{{ $run->created_at?->timezone('Asia/Kolkata')->format('d M Y, h:i A') }}</time>
+                                    <p class="mt-2 text-xs font-semibold text-slate-500">{{ data_get($properties, 'loaded_orders', 0) }} loaded · {{ data_get($properties, 'skipped_orders', 0) }} skipped · {{ data_get($properties, 'failed_orders', 0) }} failed · {{ $run->causer?->name ?? 'System' }}</p>
+                                    @if(data_get($properties, 'notes'))
+                                        <p class="mt-1 text-xs font-semibold text-slate-400">{{ data_get($properties, 'notes') }}</p>
+                                    @endif
                                 </div>
-                            @empty
-                                <div class="p-8 text-center text-sm font-semibold text-slate-500">No manual or automatic trigger recorded yet.</div>
-                            @endforelse
-                        </div>
-                    </section>
-                </div>
+                                <time class="text-xs font-bold text-slate-400">{{ $run->created_at?->timezone('Asia/Kolkata')->format('d M Y, h:i A') }}</time>
+                            </div>
+                        @empty
+                            <div class="p-8 text-center text-sm font-semibold text-slate-500">No manual or automatic trigger recorded yet.</div>
+                        @endforelse
+                    </div>
+                </section>
 
-                <div class="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-5 py-4 sm:px-6">
-                    <p class="text-xs font-semibold text-slate-500">Changes apply to all warehouse operations.</p>
-                    <button type="submit" class="inline-flex h-11 items-center justify-center rounded-xl bg-teal-600 px-5 text-sm font-black text-white shadow-sm transition hover:bg-teal-500">
-                        Save Settings
-                    </button>
-                </div>
-            </section>
-        </form>
+                @include('admin.company-settings.partials.operating_expenses')
+            </div>
+        </section>
     </div>
 
     <script>
@@ -564,6 +567,11 @@
             document.querySelectorAll('.settings-panel').forEach((panel) => {
                 panel.classList.toggle('hidden', panel.dataset.settingsPanel !== selectedTab);
             });
+
+            const saveBar = document.getElementById('company-settings-save-bar');
+            if (saveBar) {
+                saveBar.classList.toggle('hidden', selectedTab === 'operating-expenses' || selectedTab === 'history');
+            }
 
             if (activeTabInput) {
                 activeTabInput.value = selectedTab;

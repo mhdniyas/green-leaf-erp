@@ -44,6 +44,8 @@ class PurchaserExpenseReportExport implements FromArray, ShouldAutoSize, WithTit
                 'Purchaser',
                 'Supplier',
                 'Reference',
+                'Category',
+                'Location / Route',
                 'Details / Expense Type',
                 'Purchase Amount',
                 'Expense Amount',
@@ -58,6 +60,8 @@ class PurchaserExpenseReportExport implements FromArray, ShouldAutoSize, WithTit
                 $row['purchaser_name'],
                 $row['supplier_name'],
                 $row['reference'],
+                $row['type'] === 'expense' ? ($row['category_name'] ?? $row['expense_type']) : '-',
+                $row['type'] === 'expense' ? ($row['location_name'] ?? 'Unassigned') : '-',
                 $row['type'] === 'expense' ? $row['expense_type'].' - '.$row['details'] : $row['details'],
                 (float) $row['purchase_amount'],
                 (float) $row['expense_amount'],
@@ -68,6 +72,8 @@ class PurchaserExpenseReportExport implements FromArray, ShouldAutoSize, WithTit
         $sheetRows[] = [];
         $sheetRows[] = [
             'TOTAL',
+            '',
+            '',
             '',
             '',
             '',

@@ -384,7 +384,7 @@
         </div>
 
         <p class="text-xs font-semibold text-slate-500">
-            Reconciles opening cash (₹0.00 for Sep), monthly funding received, cash spent on purchase invoices, cash returned to company, and procurement expenses.
+            Reconciles opening cash (₹0.00 for Sep), monthly funding received, cash spent on purchase invoices, cash returned to company, and operating expenses.
         </p>
 
         <!-- Cash Step Breakdown -->

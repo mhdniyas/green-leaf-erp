@@ -6,6 +6,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Schema;
 
 class ProcurementExpense extends Model
 {
@@ -32,7 +33,7 @@ class ProcurementExpense extends Model
      */
     public static function categories(): array
     {
-        return [
+        $default = [
             self::CategoryVehicle => 'Vehicle',
             self::CategoryLabour => 'Labour',
             self::CategoryFood => 'Food',
@@ -40,6 +41,24 @@ class ProcurementExpense extends Model
             self::CategoryTollParking => 'Toll/Parking',
             self::CategoryOther => 'Other',
         ];
+
+        try {
+            if (Schema::hasTable('procurement_expense_categories')) {
+                $dbCategories = ProcurementExpenseCategory::query()
+                    ->orderBy('sort_order')
+                    ->orderBy('name')
+                    ->pluck('name', 'key')
+                    ->toArray();
+
+                if (! empty($dbCategories)) {
+                    return $dbCategories;
+                }
+            }
+        } catch (\Throwable) {
+            // Fallback to default
+        }
+
+        return $default;
     }
 
     protected $fillable = [
@@ -48,12 +67,15 @@ class ProcurementExpense extends Model
         'expense_date',
         'category',
         'funding_source',
+        'procurement_expense_sub_category_id',
+        'sub_category',
         'amount',
         'note',
     ];
 
     protected $casts = [
         'expense_date' => 'date',
+        'procurement_expense_sub_category_id' => 'integer',
         'amount' => 'decimal:2',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -69,8 +91,20 @@ class ProcurementExpense extends Model
         return $this->belongsTo(CompanyAccountingEntry::class);
     }
 
+    public function subCategory(): BelongsTo
+    {
+        return $this->belongsTo(ProcurementExpenseSubCategory::class, 'procurement_expense_sub_category_id');
+    }
+
+    public function categoryDefinition(): BelongsTo
+    {
+        return $this->belongsTo(ProcurementExpenseCategory::class, 'category', 'key');
+    }
+
     public function categoryLabel(): string
     {
-        return self::categories()[$this->category] ?? str((string) $this->category)->replace('_', ' ')->title()->toString();
+        return $this->categoryDefinition?->name
+            ?? self::categories()[$this->category]
+            ?? str((string) $this->category)->replace('_', ' ')->title()->toString();
     }
 }

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\BusinessSetting;
+use App\Models\ProcurementExpenseCategory;
 use App\Models\Shop;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -120,6 +121,22 @@ class CompanySettingsController extends Controller
 
         $businessDayWarehouseSettings = app(PurchaserBusinessDayService::class)->getAllWarehouseSettings();
 
+        $operatingExpenseCategories = ProcurementExpenseCategory::query()
+            ->withCount(['subCategories', 'expenses'])
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
+
+        $selectedCategoryId = (int) $request->input('category_id', $operatingExpenseCategories->first()?->id ?? 0);
+        $selectedExpenseCategory = $operatingExpenseCategories->firstWhere('id', $selectedCategoryId) ?? $operatingExpenseCategories->first();
+        $selectedExpenseLocations = $selectedExpenseCategory
+            ? $selectedExpenseCategory->subCategories()
+                ->withCount('expenses')
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->get()
+            : collect();
+
         return view('admin.company-settings.edit', compact(
             'companyDetails',
             'purchaserBusinessDayGlobalSettings',
@@ -131,7 +148,10 @@ class CompanySettingsController extends Controller
             'warehouseSalesConfig',
             'operationalDate',
             'autoLoadAllRuns',
-            'businessDayWarehouseSettings'
+            'businessDayWarehouseSettings',
+            'operatingExpenseCategories',
+            'selectedExpenseCategory',
+            'selectedExpenseLocations'
         ));
     }
 

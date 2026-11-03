@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WastageEntry;
 use Carbon\Carbon;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -89,12 +90,13 @@ final class GradesReportService
 
         // Calculate summary cards and product/grade rows
         $reportContent = $this->compileReportContent($product, $filters);
+        $dailySummary = $this->compileDailyGradeSummary($product, $filters);
 
         return array_merge([
             'product' => $product,
             'searchResults' => $searchResults,
             'options' => $options,
-        ], $reportContent);
+        ], $reportContent, $dailySummary);
     }
 
     /**
@@ -1228,5 +1230,787 @@ final class GradesReportService
             'movements' => $movements,
             'wastages' => $wastages,
         ];
+    }
+
+    /**
+     * Compile authoritative Daily Grade & Stock Summary for V2 report.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array<string, mixed>
+     */
+    public function compileDailyGradeSummary(?Product $selectedProduct, array $filters): array
+    {
+        $startDate = (string) ($filters['start_date'] ?? ($filters['date'] ?? now('Asia/Kolkata')->toDateString()));
+        $endDate = (string) ($filters['end_date'] ?? ($filters['date'] ?? now('Asia/Kolkata')->toDateString()));
+        $reportDate = $startDate;
+        $warehouseId = ! empty($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
+        $rawGrade = strtoupper(trim((string) ($filters['grade'] ?? 'A')));
+        $selectedGrade = in_array($rawGrade, ['A', 'B', 'C', 'DAMAGE', 'DMG'], true) ? ($rawGrade === 'DMG' ? 'DAMAGE' : $rawGrade) : 'A';
+        $search = trim((string) ($filters['search'] ?? $filters['search_product'] ?? ''));
+        $todayDate = now('Asia/Kolkata')->toDateString();
+        $isToday = ($reportDate === $todayDate && $startDate === $endDate);
+        $productId = $selectedProduct?->id;
+
+        // 1. Tab Quick-Indicators (Grade A, B, C, Damage)
+        $tabMetrics = [
+            'A' => $this->getTabSummaryMetric('A', $startDate, $endDate, $warehouseId, $productId),
+            'B' => $this->getTabSummaryMetric('B', $startDate, $endDate, $warehouseId, $productId),
+            'C' => $this->getTabSummaryMetric('C', $startDate, $endDate, $warehouseId, $productId),
+            'DAMAGE' => $this->getTabDamageMetric($startDate, $endDate, $warehouseId, $productId),
+        ];
+
+        // 2. Active Grade Summary (Section 3) for A, B, C
+        $gradeSummary = null;
+        $dailyProducts = null;
+        $productRows = [];
+
+        if (in_array($selectedGrade, ['A', 'B', 'C'], true)) {
+            $availData = $this->calculateGradeAvailableStock($selectedGrade, $warehouseId, $productId, $startDate, $endDate);
+            $dispData = $this->calculateGradeDispatched($selectedGrade, $startDate, $endDate, $warehouseId, $productId);
+            $billData = $this->calculateGradeBilled($selectedGrade, $startDate, $endDate, $warehouseId, $productId);
+            $dmgData = $this->calculateGradeDamage($selectedGrade, $startDate, $endDate, $warehouseId, $productId);
+
+            $gradeSummary = [
+                'grade' => $selectedGrade,
+                'available_total' => $availData['total'],
+                'available_formatted' => self::formatUnitSummary($availData['units']),
+                'available_units' => $availData['units'],
+                'dispatched_total' => $dispData['total'],
+                'dispatched_formatted' => self::formatUnitSummary($dispData['units']),
+                'dispatched_units' => $dispData['units'],
+                'billed_total' => $billData['total'],
+                'billed_val' => $billData['total_val'],
+                'billed_formatted' => self::formatUnitSummary($billData['units']),
+                'billed_units' => $billData['units'],
+                'damage_total' => $dmgData['total'],
+                'damage_formatted' => self::formatUnitSummary($dmgData['units']),
+                'damage_units' => $dmgData['units'],
+                'is_today' => $isToday,
+            ];
+
+            // Section 4 Product Table
+            // Scope candidates: products having available stock OR activity on report date
+            $candidatePids = collect();
+            if ($productId !== null) {
+                $candidatePids->push($productId);
+            } else {
+                $batchPids = StockBatch::query()
+                    ->where('purchase_grade', $selectedGrade)
+                    ->whereDate('received_at', '<=', $endDate)
+                    ->whereDate('received_at', '>=', $startDate)
+                    ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
+                    ->distinct()
+                    ->pluck('product_id');
+
+                $candidatePids = $candidatePids
+                    ->merge(array_keys($availData['by_product']))
+                    ->merge(array_keys($dispData['by_product']))
+                    ->merge(array_keys($billData['by_product']))
+                    ->merge(array_keys($dmgData['by_product']))
+                    ->merge($batchPids)
+                    ->unique();
+            }
+
+            $prodQuery = Product::query()->with('category');
+            if ($productId !== null) {
+                $prodQuery->where('id', $productId);
+            } else {
+                $prodQuery->whereIn('id', $candidatePids);
+                if ($search !== '') {
+                    $prodQuery->where(function ($sq) use ($search): void {
+                        $sq->where('name', 'like', "%{$search}%")
+                            ->orWhere('sku', 'like', "%{$search}%");
+                    });
+                }
+            }
+
+            $dailyProducts = $prodQuery->orderBy('name')->paginate(5)->withQueryString();
+
+            foreach ($dailyProducts->items() as $p) {
+                $pId = (int) $p->id;
+                $pUnit = strtoupper((string) ($p->unit ?: 'KG'));
+
+                $rowAvailable = $availData['by_product'][$pId] ?? null;
+                if ($rowAvailable === null) {
+                    $batchSum = (float) StockBatch::query()
+                        ->where('product_id', $pId)
+                        ->where('purchase_grade', $selectedGrade)
+                        ->where('warehouse_receive_pending', false)
+                        ->where('reference', 'not like', 'NEG-%')
+                        ->where('status', '!=', BatchStatus::Closed)
+                        ->whereDate('received_at', '<=', $endDate)
+                        ->whereDate('received_at', '>=', $startDate)
+                        ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
+                        ->sum('total_kg');
+                    $rowAvailable = $batchSum;
+                }
+
+                $productRows[] = [
+                    'id' => $pId,
+                    'product' => $p,
+                    'name' => $p->name,
+                    'sku' => $p->sku,
+                    'unit' => $pUnit,
+                    'available' => round((float) $rowAvailable, 3),
+                    'dispatched' => round($dispData['by_product'][$pId] ?? 0.0, 3),
+                    'billed' => round($billData['by_product'][$pId] ?? 0.0, 3),
+                    'billed_rate' => $billData['by_product_rate'][$pId] ?? 0.0,
+                    'damage' => round($dmgData['by_product'][$pId] ?? 0.0, 3),
+                ];
+            }
+        }
+
+        // 3. Section 5 Damage Tab Data
+        $damageData = null;
+        if ($selectedGrade === 'DAMAGE') {
+            $damageData = $this->compileDailyDamageReport($startDate, $endDate, $warehouseId, $productId, $search);
+        }
+
+        // 4. Section 6 Shop Returns Data (Independent of active tab)
+        $shopReturns = $this->compileDailyShopReturns($startDate, $endDate, $warehouseId, $search);
+
+        return [
+            'selectedGrade' => $selectedGrade,
+            'reportDate' => $reportDate,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'isToday' => $isToday,
+            'tabMetrics' => $tabMetrics,
+            'gradeSummary' => $gradeSummary,
+            'dailyProducts' => $dailyProducts,
+            'productRows' => $productRows,
+            'damageData' => $damageData,
+            'shopReturns' => $shopReturns,
+        ];
+    }
+
+    /**
+     * Quick summary metrics for Grade A, B, C tabs.
+     *
+     * @return array<string, mixed>
+     */
+    private function getTabSummaryMetric(string $grade, string $startDate, string $endDate, ?int $warehouseId, ?int $productId): array
+    {
+        $avail = $this->calculateGradeAvailableStock($grade, $warehouseId, $productId, $startDate, $endDate);
+        $disp = $this->calculateGradeDispatched($grade, $startDate, $endDate, $warehouseId, $productId);
+
+        return [
+            'grade' => $grade,
+            'available' => $avail['total'],
+            'available_formatted' => self::formatUnitSummary($avail['units']),
+            'dispatched' => $disp['total'],
+            'dispatched_formatted' => self::formatUnitSummary($disp['units']),
+            'from_mixed' => $disp['from_mixed'] ?? 0.0,
+        ];
+    }
+
+    /**
+     * Quick summary metrics for Damage tab.
+     *
+     * @return array<string, mixed>
+     */
+    private function getTabDamageMetric(string $startDate, string $endDate, ?int $warehouseId, ?int $productId): array
+    {
+        $wQuery = WastageEntry::query()->whereNull('deleted_at');
+        if ($startDate === $endDate) {
+            $wQuery->whereDate('wastage_date', $startDate);
+        } else {
+            $wQuery->whereDate('wastage_date', '>=', $startDate)->whereDate('wastage_date', '<=', $endDate);
+        }
+        if ($warehouseId) {
+            $wQuery->whereHas('batch', fn ($b) => $b->where('warehouse_id', $warehouseId));
+        }
+        if ($productId) {
+            $wQuery->where('product_id', $productId);
+        }
+        $wTotal = (float) $wQuery->sum('quantity');
+
+        $bQuery = StockBatch::query()
+            ->where('purchase_grade', ProductGrade::Damage->value)
+            ->whereNotNull('parent_batch_id')
+            ->whereNull('deleted_at');
+        if ($startDate === $endDate) {
+            $bQuery->whereDate('created_at', $startDate);
+        } else {
+            $bQuery->whereDate('created_at', '>=', $startDate)->whereDate('created_at', '<=', $endDate);
+        }
+        if ($warehouseId) {
+            $bQuery->where('warehouse_id', $warehouseId);
+        }
+        if ($productId) {
+            $bQuery->where('product_id', $productId);
+        }
+        $bTotal = (float) $bQuery->sum('total_kg');
+
+        $quarantine = (float) StockBatch::query()
+            ->where('purchase_grade', ProductGrade::Damage->value)
+            ->where('status', '!=', BatchStatus::Closed)
+            ->where('total_kg', '>', 0)
+            ->whereNull('deleted_at')
+            ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
+            ->when($productId, fn ($q) => $q->where('product_id', $productId))
+            ->sum('total_kg');
+
+        return [
+            'moved_today' => round($wTotal + $bTotal, 3),
+            'quarantine' => round($quarantine, 3),
+        ];
+    }
+
+    /**
+     * Calculate current available stock for given grade.
+     *
+     * @return array{total: float, units: array<string, float>, by_product: array<int, float>}
+     */
+    private function calculateGradeAvailableStock(string $grade, ?int $warehouseId, ?int $productId, ?string $startDate = null, ?string $endDate = null): array
+    {
+        $query = DB::table('stock_batches as b')
+            ->join('products as p', 'p.id', '=', 'b.product_id')
+            ->where('b.purchase_grade', $grade)
+            ->where('b.warehouse_receive_pending', false)
+            ->where('b.reference', 'not like', 'NEG-%')
+            ->where('b.status', '!=', BatchStatus::Closed->value)
+            ->where('b.total_kg', '>', 0)
+            ->whereNull('b.deleted_at');
+
+        if ($warehouseId) {
+            $query->where('b.warehouse_id', $warehouseId);
+        }
+        if ($productId) {
+            $query->where('b.product_id', $productId);
+        }
+        if ($endDate) {
+            $query->whereDate('b.received_at', '<=', $endDate);
+        }
+        if ($startDate) {
+            $query->whereDate('b.received_at', '>=', $startDate);
+        }
+
+        $results = $query->selectRaw('b.product_id, p.unit, SUM(b.total_kg) as total_kg')
+            ->groupBy('b.product_id', 'p.unit')
+            ->get();
+
+        $byProduct = [];
+        $units = [];
+        $total = 0.0;
+
+        foreach ($results as $r) {
+            $pId = (int) $r->product_id;
+            $qty = (float) $r->total_kg;
+            $u = strtolower((string) ($r->unit ?: 'kg'));
+
+            $byProduct[$pId] = ($byProduct[$pId] ?? 0.0) + $qty;
+            $units[$u] = ($units[$u] ?? 0.0) + $qty;
+            $total += $qty;
+        }
+
+        return [
+            'total' => round($total, 3),
+            'units' => $units,
+            'by_product' => $byProduct,
+        ];
+    }
+
+    /**
+     * Calculate physically dispatched quantity on given date for grade.
+     *
+     * @return array{total: float, units: array<string, float>, by_product: array<int, float>, from_mixed: float}
+     */
+    private function calculateGradeDispatched(string $grade, string $startDate, string $endDate, ?int $warehouseId, ?int $productId): array
+    {
+        $query = StockMovement::query()
+            ->join('products as p', 'p.id', '=', 'stock_movements.product_id')
+            ->whereIn('stock_movements.type', [StockMovementType::Out->value, StockMovementType::Sale->value]);
+
+        if ($startDate === $endDate) {
+            $query->whereDate('stock_movements.created_at', $startDate);
+        } else {
+            $query->whereDate('stock_movements.created_at', '>=', $startDate)
+                ->whereDate('stock_movements.created_at', '<=', $endDate);
+        }
+
+        if ($warehouseId) {
+            $query->where('stock_movements.warehouse_id', $warehouseId);
+        }
+        if ($productId) {
+            $query->where('stock_movements.product_id', $productId);
+        }
+
+        $query->where(function ($sq) use ($grade): void {
+            $sq->where('stock_movements.grade', $grade)
+                ->orWhere(function ($mixedSub) use ($grade): void {
+                    $mixedSub->where('stock_movements.grade', 'U')
+                        ->whereHas('shopOrderItem', fn ($soi) => $soi->where('product_grade', $grade));
+                });
+        });
+
+        $results = $query->selectRaw('stock_movements.product_id, stock_movements.grade, p.unit, SUM(stock_movements.quantity) as total_qty')
+            ->groupBy('stock_movements.product_id', 'stock_movements.grade', 'p.unit')
+            ->get();
+
+        $byProduct = [];
+        $units = [];
+        $total = 0.0;
+        $fromMixed = 0.0;
+
+        foreach ($results as $r) {
+            $pId = (int) $r->product_id;
+            $qty = (float) $r->total_qty;
+            $u = strtolower((string) ($r->unit ?: 'kg'));
+
+            $byProduct[$pId] = ($byProduct[$pId] ?? 0.0) + $qty;
+            $units[$u] = ($units[$u] ?? 0.0) + $qty;
+            $total += $qty;
+
+            $rGrade = $r->grade instanceof \BackedEnum ? $r->grade->value : (string) $r->grade;
+            if ($rGrade === 'U') {
+                $fromMixed += $qty;
+            }
+        }
+
+        return [
+            'total' => round($total, 3),
+            'units' => $units,
+            'by_product' => $byProduct,
+            'from_mixed' => round($fromMixed, 3),
+        ];
+    }
+
+    /**
+     * Calculate billed quantity from finalized shop invoices on given date for grade.
+     *
+     * @return array{total: float, units: array<string, float>, by_product: array<int, float>}
+     */
+    private function calculateGradeBilled(string $grade, string $startDate, string $endDate, ?int $warehouseId, ?int $productId): array
+    {
+        $query = DB::table('shop_invoice_items')
+            ->join('shop_invoices', 'shop_invoices.id', '=', 'shop_invoice_items.shop_invoice_id')
+            ->leftJoin('products', 'products.id', '=', 'shop_invoice_items.product_id')
+            ->where('shop_invoices.status', '!=', 'cancelled')
+            ->where(function ($sub): void {
+                $sub->whereNotNull('shop_invoices.finalized_at')
+                    ->orWhereIn('shop_invoices.status', ['finalized', 'payment_pending', 'paid'])
+                    ->orWhereIn('shop_invoices.delivery_status', ['received_full', 'approved_after_discrepancy']);
+            })
+            ->where('shop_invoice_items.product_grade', $grade)
+            ->where('shop_invoice_items.delivered_qty', '>', 0);
+
+        if ($startDate === $endDate) {
+            $query->whereDate('shop_invoices.business_date', $startDate);
+        } else {
+            $query->whereDate('shop_invoices.business_date', '>=', $startDate)
+                ->whereDate('shop_invoices.business_date', '<=', $endDate);
+        }
+
+        if ($productId) {
+            $query->where('shop_invoice_items.product_id', $productId);
+        }
+
+        $results = $query->selectRaw('shop_invoice_items.product_id, COALESCE(shop_invoice_items.unit, products.unit) as unit, SUM(shop_invoice_items.delivered_qty) as total_qty, SUM(shop_invoice_items.final_line_total) as total_val')
+            ->groupBy('shop_invoice_items.product_id', DB::raw('COALESCE(shop_invoice_items.unit, products.unit)'))
+            ->get();
+
+        $byProduct = [];
+        $byProductRate = [];
+        $byProductVal = [];
+        $units = [];
+        $total = 0.0;
+        $totalVal = 0.0;
+
+        foreach ($results as $r) {
+            $pId = (int) $r->product_id;
+            $qty = (float) $r->total_qty;
+            $val = (float) ($r->total_val ?? 0.0);
+            $u = strtolower((string) ($r->unit ?: 'kg'));
+
+            $byProduct[$pId] = ($byProduct[$pId] ?? 0.0) + $qty;
+            $byProductVal[$pId] = ($byProductVal[$pId] ?? 0.0) + $val;
+            $byProductRate[$pId] = $qty > 0 ? round($val / $qty, 2) : 0.0;
+            $units[$u] = ($units[$u] ?? 0.0) + $qty;
+            $total += $qty;
+            $totalVal += $val;
+        }
+
+        return [
+            'total' => round($total, 3),
+            'total_val' => round($totalVal, 2),
+            'units' => $units,
+            'by_product' => $byProduct,
+            'by_product_rate' => $byProductRate,
+            'by_product_val' => $byProductVal,
+        ];
+    }
+
+    /**
+     * Calculate quantity moved to damage on given date for grade.
+     *
+     * @return array{total: float, units: array<string, float>, by_product: array<int, float>}
+     */
+    private function calculateGradeDamage(string $grade, string $startDate, string $endDate, ?int $warehouseId, ?int $productId): array
+    {
+        // 1. WastageEntry
+        $wQuery = WastageEntry::query()
+            ->join('products as p', 'p.id', '=', 'wastage_entries.product_id')
+            ->where('wastage_entries.grade', $grade)
+            ->whereNull('wastage_entries.deleted_at');
+
+        if ($startDate === $endDate) {
+            $wQuery->whereDate('wastage_entries.wastage_date', $startDate);
+        } else {
+            $wQuery->whereDate('wastage_entries.wastage_date', '>=', $startDate)
+                ->whereDate('wastage_entries.wastage_date', '<=', $endDate);
+        }
+
+        if ($productId) {
+            $wQuery->where('wastage_entries.product_id', $productId);
+        }
+        if ($warehouseId) {
+            $wQuery->whereHas('batch', fn ($b) => $b->where('warehouse_id', $warehouseId));
+        }
+
+        $wResults = $wQuery->selectRaw('wastage_entries.product_id, p.unit, SUM(wastage_entries.quantity) as total_qty')
+            ->groupBy('wastage_entries.product_id', 'p.unit')
+            ->get();
+
+        // 2. Child batches created with purchase_grade = 'DMG' from this grade
+        $dQuery = StockBatch::query()
+            ->join('products as p', 'p.id', '=', 'stock_batches.product_id')
+            ->where('stock_batches.purchase_grade', ProductGrade::Damage->value)
+            ->whereNotNull('stock_batches.parent_batch_id')
+            ->whereNull('stock_batches.deleted_at')
+            ->whereHas('parentBatch', fn ($pb) => $pb->where('purchase_grade', $grade));
+
+        if ($startDate === $endDate) {
+            $dQuery->whereDate('stock_batches.created_at', $startDate);
+        } else {
+            $dQuery->whereDate('stock_batches.created_at', '>=', $startDate)
+                ->whereDate('stock_batches.created_at', '<=', $endDate);
+        }
+
+        if ($productId) {
+            $dQuery->where('stock_batches.product_id', $productId);
+        }
+        if ($warehouseId) {
+            $dQuery->where('stock_batches.warehouse_id', $warehouseId);
+        }
+
+        $dResults = $dQuery->selectRaw('stock_batches.product_id, p.unit, SUM(stock_batches.total_kg) as total_qty')
+            ->groupBy('stock_batches.product_id', 'p.unit')
+            ->get();
+
+        $byProduct = [];
+        $units = [];
+        $total = 0.0;
+
+        foreach ($wResults as $r) {
+            $pId = (int) $r->product_id;
+            $qty = (float) $r->total_qty;
+            $u = strtolower((string) ($r->unit ?: 'kg'));
+
+            $byProduct[$pId] = ($byProduct[$pId] ?? 0.0) + $qty;
+            $units[$u] = ($units[$u] ?? 0.0) + $qty;
+            $total += $qty;
+        }
+
+        foreach ($dResults as $r) {
+            $pId = (int) $r->product_id;
+            $qty = (float) $r->total_qty;
+            $u = strtolower((string) ($r->unit ?: 'kg'));
+
+            $byProduct[$pId] = ($byProduct[$pId] ?? 0.0) + $qty;
+            $units[$u] = ($units[$u] ?? 0.0) + $qty;
+            $total += $qty;
+        }
+
+        return [
+            'total' => round($total, 3),
+            'units' => $units,
+            'by_product' => $byProduct,
+        ];
+    }
+
+    /**
+     * Compile Section 5 Damage tab detailed report.
+     *
+     * @return array<string, mixed>
+     */
+    private function compileDailyDamageReport(string $startDate, string $endDate, ?int $warehouseId, ?int $productId, string $search): array
+    {
+        $wQuery = WastageEntry::query()
+            ->with(['product', 'batch.warehouse', 'recordedBy'])
+            ->whereNull('deleted_at');
+
+        if ($startDate === $endDate) {
+            $wQuery->whereDate('wastage_date', $startDate);
+        } else {
+            $wQuery->whereDate('wastage_date', '>=', $startDate)->whereDate('wastage_date', '<=', $endDate);
+        }
+
+        if ($productId) {
+            $wQuery->where('product_id', $productId);
+        }
+        if ($warehouseId) {
+            $wQuery->whereHas('batch', fn ($b) => $b->where('warehouse_id', $warehouseId));
+        }
+        if ($search !== '') {
+            $wQuery->whereHas('product', fn ($pq) => $pq->where('name', 'like', "%{$search}%")->orWhere('sku', 'like', "%{$search}%"));
+        }
+
+        $wEntries = $wQuery->orderByDesc('id')->get();
+
+        $bQuery = StockBatch::query()
+            ->with(['product', 'parentBatch', 'warehouse', 'createdBy', 'updatedBy'])
+            ->where('purchase_grade', ProductGrade::Damage->value)
+            ->whereNotNull('parent_batch_id')
+            ->whereNull('deleted_at');
+
+        if ($startDate === $endDate) {
+            $bQuery->whereDate('created_at', $startDate);
+        } else {
+            $bQuery->whereDate('created_at', '>=', $startDate)->whereDate('created_at', '<=', $endDate);
+        }
+
+        if ($productId) {
+            $bQuery->where('product_id', $productId);
+        }
+        if ($warehouseId) {
+            $bQuery->where('warehouse_id', $warehouseId);
+        }
+        if ($search !== '') {
+            $bQuery->whereHas('product', fn ($pq) => $pq->where('name', 'like', "%{$search}%")->orWhere('sku', 'like', "%{$search}%"));
+        }
+
+        $bEntries = $bQuery->orderByDesc('id')->get();
+
+        $totalMoved = 0.0;
+        $units = [];
+        $items = collect();
+
+        foreach ($wEntries as $we) {
+            $qty = (float) $we->quantity;
+            $unit = strtolower((string) ($we->product?->unit ?: 'kg'));
+            $totalMoved += $qty;
+            $units[$unit] = ($units[$unit] ?? 0.0) + $qty;
+
+            $origGrade = $we->grade?->value ?? (string) $we->grade ?: 'U';
+            $reasonStr = $we->reason?->value ?? (string) $we->reason;
+            if (! empty($we->notes)) {
+                $cleanNote = preg_replace('/\[(dest|submission_id):[^\]]+\]/i', '', (string) $we->notes);
+                $reasonStr .= ' • '.trim((string) $cleanNote);
+            }
+
+            $items->push((object) [
+                'id' => 'w-'.$we->id,
+                'product_name' => $we->product?->name ?? 'Unknown',
+                'product_sku' => $we->product?->sku ?? '',
+                'original_grade' => $origGrade,
+                'quantity' => round($qty, 3),
+                'unit' => strtoupper($unit),
+                'reason' => trim($reasonStr, ' •'),
+                'updated_by' => $we->recordedBy?->name ?? 'Staff',
+                'status' => 'Written Off',
+                'reference' => $we->batch?->reference ?? 'Wastage #'.$we->id,
+                'time' => $we->created_at?->format('H:i') ?? '—',
+            ]);
+        }
+
+        foreach ($bEntries as $be) {
+            $qty = (float) $be->total_kg;
+            $unit = strtolower((string) ($be->product?->unit ?: 'kg'));
+            $totalMoved += $qty;
+            $units[$unit] = ($units[$unit] ?? 0.0) + $qty;
+
+            $origGrade = $be->parentBatch?->purchase_grade ?: 'U';
+            $cleanReason = preg_replace('/\[(dest|submission_id):[^\]]+\]/i', '', (string) $be->notes);
+            $cleanReason = trim((string) $cleanReason) ?: 'Moved to Damage quarantine';
+
+            $status = $be->total_kg <= 0.0001 ? 'Written Off' : 'In Quarantine';
+
+            $items->push((object) [
+                'id' => 'b-'.$be->id,
+                'product_name' => $be->product?->name ?? 'Unknown',
+                'product_sku' => $be->product?->sku ?? '',
+                'original_grade' => $origGrade,
+                'quantity' => round($qty, 3),
+                'unit' => strtoupper($unit),
+                'reason' => $cleanReason,
+                'updated_by' => $be->updatedBy?->name ?? ($be->createdBy?->name ?? 'Staff'),
+                'status' => $status,
+                'reference' => $be->reference,
+                'time' => $be->created_at?->format('H:i') ?? '—',
+            ]);
+        }
+
+        $quarantineRemaining = (float) StockBatch::query()
+            ->where('purchase_grade', ProductGrade::Damage->value)
+            ->where('status', '!=', BatchStatus::Closed)
+            ->where('total_kg', '>', 0)
+            ->whereNull('deleted_at')
+            ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
+            ->when($productId, fn ($q) => $q->where('product_id', $productId))
+            ->sum('total_kg');
+
+        $page = (int) request()->get('page', 1);
+        $perPage = 5;
+        $paginatedItems = new LengthAwarePaginator(
+            $items->forPage($page, $perPage)->values(),
+            $items->count(),
+            $perPage,
+            $page,
+            ['path' => request()->url(), 'query' => request()->query()]
+        );
+
+        return [
+            'moved_today' => round($totalMoved, 3),
+            'moved_formatted' => self::formatUnitSummary($units),
+            'quarantine_remaining' => round($quarantineRemaining, 3),
+            'items' => $paginatedItems,
+        ];
+    }
+
+    /**
+     * Compile Section 6 Shop Returns report data.
+     *
+     * @return array<string, mixed>
+     */
+    private function compileDailyShopReturns(string $startDate, string $endDate, ?int $warehouseId, string $search): array
+    {
+        $query = ShopOrderItem::query()
+            ->whereHas('order', function ($oq) use ($startDate, $endDate): void {
+                if ($startDate === $endDate) {
+                    $oq->whereDate('business_date', $startDate);
+                } else {
+                    $oq->whereDate('business_date', '>=', $startDate)->whereDate('business_date', '<=', $endDate);
+                }
+            })
+            ->where(function ($q): void {
+                $q->where('shortage_qty', '>', 0)
+                    ->orWhere('shop_reported_returned_qty', '>', 0)
+                    ->orWhere('shop_reported_damaged_qty', '>', 0);
+            })
+            ->with([
+                'order.shop',
+                'order.shopCheckedBy',
+                'order.adminReviewedBy',
+                'product',
+                'stockMovements.warehouse',
+            ]);
+
+        if ($warehouseId) {
+            $query->whereHas('stockMovements', fn ($sm) => $sm->where('warehouse_id', $warehouseId));
+        }
+
+        if ($search !== '') {
+            $query->where(function ($sub) use ($search): void {
+                $sub->whereHas('product', fn ($pq) => $pq->where('name', 'like', "%{$search}%")->orWhere('sku', 'like', "%{$search}%"))
+                    ->orWhereHas('order.shop', fn ($sq) => $sq->where('name', 'like', "%{$search}%"));
+            });
+        }
+
+        $items = $query->orderByDesc('id')->get();
+
+        $itemIds = $items->pluck('id')->all();
+        $saleReversalItemIds = StockMovement::query()
+            ->whereIn('shop_order_item_id', $itemIds)
+            ->where('type', StockMovementType::SaleReversal->value)
+            ->pluck('shop_order_item_id')
+            ->flip();
+
+        $wastageItemIds = collect();
+        if (! empty($itemIds)) {
+            $wastages = WastageEntry::query()
+                ->where(function ($wq) use ($itemIds): void {
+                    foreach (array_slice($itemIds, 0, 100) as $itemId) {
+                        $wq->orWhere('notes', 'like', "%Item: {$itemId}%");
+                    }
+                })
+                ->get(['id', 'notes']);
+
+            foreach ($wastages as $w) {
+                if (preg_match('/Item:\s*(\d+)/i', (string) $w->notes, $m)) {
+                    $wastageItemIds->put((int) $m[1], true);
+                }
+            }
+        }
+
+        $returnRows = collect();
+        $totalQty = 0.0;
+        $units = [];
+
+        foreach ($items as $item) {
+            $order = $item->order;
+            $shop = $order?->shop;
+            $product = $item->product;
+
+            $qty = (float) ($item->shortage_qty > 0 ? $item->shortage_qty : ($item->shop_reported_returned_qty > 0 ? $item->shop_reported_returned_qty : $item->shop_reported_damaged_qty));
+            $unit = strtolower((string) ($item->unit ?: ($product?->unit ?: 'kg')));
+
+            $totalQty += $qty;
+            $units[$unit] = ($units[$unit] ?? 0.0) + $qty;
+
+            if ($order?->delivery_review_status === 'pending' || $order?->delivery_status === 'awaiting_review') {
+                $status = 'Pending';
+                $statusColor = 'amber';
+            } elseif (isset($saleReversalItemIds[$item->id])) {
+                $status = 'Restocked';
+                $statusColor = 'emerald';
+            } elseif ($wastageItemIds->has($item->id)) {
+                $status = 'Moved to Damage';
+                $statusColor = 'rose';
+            } else {
+                $status = 'Received';
+                $statusColor = 'blue';
+            }
+
+            $reason = $item->delivery_discrepancy_type ?: ($item->delivery_discrepancy_note ?: ($item->loadout_discrepancy_type ?: 'Shortage reported on delivery'));
+            if ($item->delivery_discrepancy_note && $item->delivery_discrepancy_note !== $reason) {
+                $reason .= ' — '.$item->delivery_discrepancy_note;
+            }
+
+            $movementWh = $item->stockMovements->first()?->warehouse?->name;
+            $user = $order?->adminReviewedBy?->name ?? ($order?->shopCheckedBy?->name ?? 'Staff');
+
+            $returnRows->push((object) [
+                'id' => $item->id,
+                'shop_name' => $shop?->name ?? 'Shop #'.$order?->shop_id,
+                'shop_code' => $shop?->code ?? '',
+                'product_name' => $product?->name ?? 'Product #'.$item->product_id,
+                'product_sku' => $product?->sku ?? '',
+                'grade' => $item->product_grade ? (is_object($item->product_grade) ? $item->product_grade->value : (string) $item->product_grade) : 'A',
+                'quantity' => round($qty, 3),
+                'unit' => strtoupper($unit),
+                'status' => $status,
+                'status_color' => $statusColor,
+                'reason' => $reason,
+                'returned_date' => $order?->business_date?->format('d M Y') ?? $startDate,
+                'warehouse_name' => $movementWh ?: 'Main Warehouse',
+                'responsible_user' => $user,
+                'order_number' => $order?->order_number ?? '',
+            ]);
+        }
+
+        return [
+            'total_count' => $returnRows->count(),
+            'total_qty' => round($totalQty, 3),
+            'unit_summary' => self::formatUnitSummary($units),
+            'items' => $returnRows,
+        ];
+    }
+
+    /**
+     * Format a map of units => quantity into a clean human readable summary.
+     *
+     * @param  array<string, float>  $unitTotals
+     */
+    public static function formatUnitSummary(array $unitTotals): string
+    {
+        $parts = [];
+        foreach ($unitTotals as $unit => $qty) {
+            if ($qty > 0.0001) {
+                $parts[] = number_format($qty, 1).' '.strtoupper((string) $unit);
+            }
+        }
+
+        return ! empty($parts) ? implode(' · ', $parts) : '0 KG';
     }
 }

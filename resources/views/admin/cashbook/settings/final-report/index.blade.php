@@ -363,11 +363,11 @@
                     ];
                 @endphp
 
-                {{-- Procurement Expense Categories --}}
+                {{-- Operating Expense Categories --}}
                 <div class="space-y-3">
                     <h4 class="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
                         <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
-                        Procurement Expense Categories
+                        Operating Expense Categories
                     </h4>
                     <div class="overflow-x-auto rounded-xl border border-slate-200">
                         <table class="w-full text-left text-xs">
