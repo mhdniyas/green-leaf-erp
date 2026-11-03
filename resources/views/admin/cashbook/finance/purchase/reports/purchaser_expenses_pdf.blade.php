@@ -176,8 +176,8 @@
             <tfoot>
                 <tr style="font-weight: bold; background-color: #f8fafc;">
                     <td colspan="6" class="text-right" style="text-transform: uppercase;">Total</td>
-                    <td class="text-right font-mono">₹{{ number_format($summary['total_purchase'], 2) }}</td>
-                    <td class="text-right font-mono" style="color: #b45309;">₹{{ number_format($summary['total_expenses'], 2) }}</td>
+                    <td class="text-right font-mono">₹{{ number_format(collect($rows)->sum('purchase_amount'), 2) }}</td>
+                    <td class="text-right font-mono" style="color: #b45309;">₹{{ number_format(collect($rows)->sum('expense_amount'), 2) }}</td>
                 </tr>
             </tfoot>
         @endif

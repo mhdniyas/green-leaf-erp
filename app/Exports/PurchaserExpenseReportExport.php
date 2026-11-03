@@ -73,9 +73,9 @@ class PurchaserExpenseReportExport implements FromArray, ShouldAutoSize, WithTit
             '',
             '',
             '',
-            (float) ($summary['total_purchase'] ?? 0.0),
-            (float) ($summary['total_expenses'] ?? 0.0),
-            (float) ($summary['combined_total'] ?? 0.0),
+            (float) collect($rows)->sum('purchase_amount'),
+            (float) collect($rows)->sum('expense_amount'),
+            (float) collect($rows)->sum('total'),
         ];
 
         return $sheetRows;

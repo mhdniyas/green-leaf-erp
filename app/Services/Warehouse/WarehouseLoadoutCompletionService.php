@@ -109,15 +109,17 @@ class WarehouseLoadoutCompletionService
         User $user,
     ): void {
         foreach ($items as $item) {
-            if ($item->sorting_status === 'not_available') {
-                continue;
-            }
+            $isNotAvailable = $item->sorting_status === 'not_available'
+                || $item->loadout_discrepancy_type === 'not_available';
 
-            $targetQuantity = (float) ($item->actual_weight ?? $item->loaded_qty ?? 0);
+            $targetQuantity = $isNotAvailable
+                ? 0.0
+                : (float) ($item->actual_weight ?? $item->loaded_qty ?? 0);
+
             $alreadyDeducted = $this->stockLedgerService->netDeductedQuantityForOrderItem($item->id);
             $diff = round($targetQuantity - $alreadyDeducted, 3);
 
-            if ($diff > 0.001) {
+            if ($diff > 0.001 && ! $isNotAvailable) {
                 $itemGrade = ProductGrade::tryResolve($item->product_grade) ?? ProductGrade::GradeA;
                 $this->stockLedgerService->consumeStockForProductAllowingNegative(
                     $item->product_id,

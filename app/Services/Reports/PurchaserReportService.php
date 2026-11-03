@@ -359,6 +359,7 @@ class PurchaserReportService
             ->join('goods_received', 'goods_received.id', '=', 'goods_received_items.goods_received_id')
             ->whereNull('goods_received_items.deleted_at')
             ->whereNull('goods_received.deleted_at')
+            ->where('goods_received.status', 'approved')
             ->whereIn('goods_received_items.product_id', $productIds)
             ->whereDate('goods_received.received_at', '>=', $filters['date_from'])
             ->whereDate('goods_received.received_at', '<=', $filters['date_to'])
@@ -367,9 +368,26 @@ class PurchaserReportService
             ->groupBy('goods_received_items.product_id')
             ->pluck('incoming_quantity', 'product_id');
 
-        return $rows->map(function (object $row) use ($deliveries, $incoming): array {
+        $matchedBillIncoming = DB::table('advance_receive_matches')
+            ->join('goods_received as bill_gr', 'bill_gr.id', '=', 'advance_receive_matches.bill_goods_received_id')
+            ->join('goods_received as adv_gr', 'adv_gr.id', '=', 'advance_receive_matches.advance_goods_received_id')
+            ->whereNull('bill_gr.deleted_at')
+            ->whereNull('adv_gr.deleted_at')
+            ->where('bill_gr.status', 'approved')
+            ->where('adv_gr.status', 'approved')
+            ->whereIn('advance_receive_matches.product_id', $productIds)
+            ->whereDate('bill_gr.received_at', '>=', $filters['date_from'])
+            ->whereDate('bill_gr.received_at', '<=', $filters['date_to'])
+            ->select('advance_receive_matches.product_id')
+            ->selectRaw('SUM(advance_receive_matches.base_qty) as matched_quantity')
+            ->groupBy('advance_receive_matches.product_id')
+            ->pluck('matched_quantity', 'product_id');
+
+        return $rows->map(function (object $row) use ($deliveries, $incoming, $matchedBillIncoming): array {
             $item = $this->itemRow($row);
-            $incomingQuantity = (float) ($incoming[$row->product_id] ?? 0);
+            $rawIncomingQuantity = (float) ($incoming[$row->product_id] ?? 0);
+            $reconciledDeduction = (float) ($matchedBillIncoming[$row->product_id] ?? 0);
+            $incomingQuantity = max(0.0, $rawIncomingQuantity - $reconciledDeduction);
             $outgoingQuantity = (float) $row->billed_quantity;
             $key = $row->product_id.'|'.strtoupper((string) $row->unit);
 

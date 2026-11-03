@@ -224,6 +224,14 @@ class PurchaserExpenseReportService
         $totalExpenses = round((float) $expenseRows->sum('expense_amount'), 2);
         $combinedTotal = round($totalPurchase + $totalExpenses, 2);
 
+        // Resolve entry_type filter: 'all', 'purchase', or 'expense'
+        $rawEntryType = strtolower(trim((string) ($filters['entry_type'] ?? $filters['record_type'] ?? $filters['type'] ?? 'all')));
+        $entryType = match ($rawEntryType) {
+            'expense', 'expenses' => 'expense',
+            'purchase', 'purchases' => 'purchase',
+            default => 'all',
+        };
+
         $summary = [
             'total_purchase' => $totalPurchase,
             'total_expenses' => $totalExpenses,
@@ -231,6 +239,7 @@ class PurchaserExpenseReportService
             'bills_count' => $purchaseRows->count(),
             'expenses_count' => $expenseRows->count(),
             'total_entries' => $combinedRows->count(),
+            'entry_type' => $entryType,
             'date_from' => $startDate->format('Y-m-d'),
             'date_to' => $endDate->format('Y-m-d'),
             'date_from_formatted' => $startDate->format('d M Y'),
@@ -238,13 +247,22 @@ class PurchaserExpenseReportService
             'active_quick_filter' => $activeQuickFilter,
         ];
 
+        // Filter rows if specific entry_type is requested
+        $displayRows = match ($entryType) {
+            'expense' => $expenseRows->sortByDesc('raw_date')->values(),
+            'purchase' => $purchaseRows->sortByDesc('raw_date')->values(),
+            default => $combinedRows,
+        };
+
+        $summary['filtered_entries'] = $displayRows->count();
+
         // 6. Paginate if perPage is specified
         if ($perPage !== null && $perPage > 0) {
             $currentPage = LengthAwarePaginator::resolveCurrentPage();
-            $pagedRows = $combinedRows->slice(($currentPage - 1) * $perPage, $perPage)->values();
+            $pagedRows = $displayRows->slice(($currentPage - 1) * $perPage, $perPage)->values();
             $paginator = new LengthAwarePaginator(
                 $pagedRows,
-                $combinedRows->count(),
+                $displayRows->count(),
                 $perPage,
                 $currentPage,
                 ['path' => LengthAwarePaginator::resolveCurrentPath(), 'query' => request()->query()]
@@ -254,7 +272,7 @@ class PurchaserExpenseReportService
                 'summary' => $summary,
                 'paginator' => $paginator,
                 'rows' => $pagedRows,
-                'all_rows' => $combinedRows,
+                'all_rows' => $displayRows,
                 'filters' => $filters,
             ];
         }
@@ -262,8 +280,8 @@ class PurchaserExpenseReportService
         return [
             'summary' => $summary,
             'paginator' => null,
-            'rows' => $combinedRows,
-            'all_rows' => $combinedRows,
+            'rows' => $displayRows,
+            'all_rows' => $displayRows,
             'filters' => $filters,
         ];
     }

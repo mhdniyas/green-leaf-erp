@@ -52,6 +52,8 @@ class PurchaserExpenseReportTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertSee('Purchaser Purchase &amp; Expense Report', false);
+        // Verify sidebar link under Reports V1
+        $response->assertSee(route('admin.cashbook.finance.purchase.purchaser-expenses'), false);
     }
 
     public function test_same_date_and_filter_as_purchaser_history_gives_same_totals(): void
@@ -333,5 +335,118 @@ class PurchaserExpenseReportTest extends TestCase
 
         $redirectResponse = $this->actingAs($this->admin)->get('/admin/cashbook/finance/purchasers/'.$this->purchaser->public_uuid.'/details');
         $redirectResponse->assertRedirect();
+    }
+
+    public function test_clicking_expenses_card_filters_table_to_only_expenses(): void
+    {
+        $today = now('Asia/Kolkata')->format('Y-m-d');
+
+        $cart = PurchaserCart::create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'business_date' => $today,
+            'status' => 'submitted',
+            'cart_number' => 'CART-PURCHASE-ONLY-99',
+            'discount_amount' => 0.0,
+        ]);
+        PurchaserCartItem::create([
+            'purchaser_cart_id' => $cart->id,
+            'product_id' => $this->product->id,
+            'quantity' => 10.0,
+            'line_total' => 800.0,
+        ]);
+
+        ProcurementExpense::create([
+            'user_id' => $this->purchaser->id,
+            'expense_date' => $today,
+            'category' => 'fuel',
+            'amount' => 250.0,
+            'note' => 'Diesel for pickup',
+        ]);
+
+        // Request with entry_type=expense
+        $response = $this->actingAs($this->admin)->get("/admin/cashbook/finance/purchase/purchaser-expenses?date_from={$today}&date_to={$today}&entry_type=expense");
+
+        $response->assertStatus(200);
+        // Summary cards still show both totals
+        $response->assertSee('800.00'); // Total Purchase
+        $response->assertSee('250.00'); // Total Expenses
+        // Banner and active filter
+        $response->assertSee('Filtered by: Total Expenses Only');
+        $response->assertSee('Diesel for pickup');
+        // Table does NOT show the purchase cart reference in rows
+        $response->assertDontSee('CART-PURCHASE-ONLY-99');
+    }
+
+    public function test_clicking_purchases_card_filters_table_to_only_purchases(): void
+    {
+        $today = now('Asia/Kolkata')->format('Y-m-d');
+
+        $cart = PurchaserCart::create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'business_date' => $today,
+            'status' => 'submitted',
+            'cart_number' => 'CART-CHECK-PURCHASE-77',
+            'discount_amount' => 0.0,
+        ]);
+        PurchaserCartItem::create([
+            'purchaser_cart_id' => $cart->id,
+            'product_id' => $this->product->id,
+            'quantity' => 5.0,
+            'line_total' => 450.0,
+        ]);
+
+        ProcurementExpense::create([
+            'user_id' => $this->purchaser->id,
+            'expense_date' => $today,
+            'category' => 'food',
+            'amount' => 120.0,
+            'note' => 'Lunch meal for team',
+        ]);
+
+        // Request with entry_type=purchase
+        $response = $this->actingAs($this->admin)->get("/admin/cashbook/finance/purchase/purchaser-expenses?date_from={$today}&date_to={$today}&entry_type=purchase");
+
+        $response->assertStatus(200);
+        $response->assertSee('Filtered by: Total Purchases Only');
+        $response->assertSee('CART-CHECK-PURCHASE-77');
+        $response->assertDontSee('Lunch meal for team');
+    }
+
+    public function test_export_respects_entry_type_filter(): void
+    {
+        $today = now('Asia/Kolkata')->format('Y-m-d');
+
+        $cart = PurchaserCart::create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'business_date' => $today,
+            'status' => 'submitted',
+            'cart_number' => 'CART-EXPORT-CHECK-88',
+            'discount_amount' => 0.0,
+        ]);
+        PurchaserCartItem::create([
+            'purchaser_cart_id' => $cart->id,
+            'product_id' => $this->product->id,
+            'quantity' => 2.0,
+            'line_total' => 300.0,
+        ]);
+
+        ProcurementExpense::create([
+            'user_id' => $this->purchaser->id,
+            'expense_date' => $today,
+            'category' => 'other',
+            'amount' => 95.0,
+            'note' => 'Crate repair fee',
+        ]);
+
+        $response = $this->actingAs($this->admin)->get("/admin/cashbook/finance/purchase/purchaser-expenses/export/csv?date_from={$today}&date_to={$today}&entry_type=expense");
+
+        $response->assertStatus(200);
+        $csvContent = $response->streamedContent();
+        $this->assertStringContainsString('EXP-', $csvContent);
+        $this->assertStringContainsString('95.00', $csvContent);
+        $this->assertStringNotContainsString('CART-EXPORT-CHECK-88', $csvContent);
     }
 }

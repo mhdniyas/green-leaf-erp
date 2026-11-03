@@ -136,11 +136,12 @@
 
     $isPurchaseReportActive = request()->routeIs('admin.cashbook.finance.purchase')
         && ! request()->routeIs('admin.cashbook.finance.purchase.*');
+    $isPurchaserExpensesActive = request()->routeIs('admin.cashbook.finance.purchase.purchaser-expenses*');
     $isItemPurchaseReportActive = request()->routeIs('admin.cashbook.reports-v1.item-purchase*');
     $isGradesReportActive = request()->routeIs('admin.cashbook.reports-v1.grades*');
     $isDamageLossReportActive = request()->routeIs('admin.cashbook.reports-v1.damage-loss*');
     $isPendingBillsActive = request()->routeIs('admin.cashbook.reports-v1.pending-bills*');
-    $isReportsV1Active = $isPurchaseReportActive || $isItemPurchaseReportActive || $isGradesReportActive || $isDamageLossReportActive || $isPendingBillsActive;
+    $isReportsV1Active = $isPurchaseReportActive || $isPurchaserExpensesActive || $isItemPurchaseReportActive || $isGradesReportActive || $isDamageLossReportActive || $isPendingBillsActive;
 
     $reportsV1SidebarItem = [
         'label' => 'Reports V1',
@@ -152,6 +153,11 @@
                 'label' => 'Purchase Report',
                 'href' => route('admin.cashbook.finance.purchase'),
                 'active' => $isPurchaseReportActive,
+            ],
+            [
+                'label' => 'Purchaser Expenses',
+                'href' => route('admin.cashbook.finance.purchase.purchaser-expenses'),
+                'active' => $isPurchaserExpensesActive,
             ],
             [
                 'label' => 'Item Purchase Report',

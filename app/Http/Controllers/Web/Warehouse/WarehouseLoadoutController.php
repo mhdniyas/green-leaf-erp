@@ -589,15 +589,25 @@ class WarehouseLoadoutController extends Controller
                     $conversionToBase = (float) ($firstRow->requested_unit_conversion_to_base ?? 1.0);
                     $hasRequestedUnit = filled($firstRow->requested_unit)
                         && strtolower((string) $firstRow->requested_unit) !== 'kg';
-                    $loadedOrderUnitQty = $submittedUnitQty ?? ($hasRequestedUnit ? $requestedUnitQty : null);
-                    $convertedQty = round(max(0.0, (float) $loadedOrderUnitQty) * max(0.0, $conversionToBase), 3);
-                    // For dual-unit items, prefer explicitly entered actual kg if provided;
-                    // otherwise keep the legacy conversion path from order-unit count.
-                    $submittedQty = $hasRequestedUnit
-                        ? ($actualWeight > 0.0001 ? $actualWeight : $convertedQty)
-                        : ($actualWeight > 0.0001
-                            ? $actualWeight
-                            : max(0.0, (float) ($itemsInput[$key] ?? 0)));
+
+                    $isNotAvailable = ($request->input("item_status.{$key}") === 'not_available') || ($request->input("item_status.{$productId}") === 'not_available');
+                    $discrepancyNote = $request->input("item_notes.{$key}") ?? $request->input("item_notes.{$productId}") ?? null;
+
+                    if ($isNotAvailable) {
+                        $loadedOrderUnitQty = $hasRequestedUnit ? 0.0 : null;
+                        $convertedQty = 0.0;
+                        $submittedQty = 0.0;
+                    } else {
+                        $loadedOrderUnitQty = $submittedUnitQty ?? ($hasRequestedUnit ? $requestedUnitQty : null);
+                        $convertedQty = round(max(0.0, (float) $loadedOrderUnitQty) * max(0.0, $conversionToBase), 3);
+                        // For dual-unit items, prefer explicitly entered actual kg if provided;
+                        // otherwise keep the legacy conversion path from order-unit count.
+                        $submittedQty = $hasRequestedUnit
+                            ? ($actualWeight > 0.0001 ? $actualWeight : $convertedQty)
+                            : ($actualWeight > 0.0001
+                                ? $actualWeight
+                                : max(0.0, (float) ($itemsInput[$key] ?? 0)));
+                    }
 
                     // Fix 2: Calculate difference-based deduction against actual net deducted quantity from the ledger
                     $alreadyDeducted = $this->stockLedgerService->netDeductedQuantityForOrderItems($rows->pluck('id')->all());
@@ -642,9 +652,6 @@ class WarehouseLoadoutController extends Controller
                         'product_grade' => $firstRow->product_grade ?? $itemGrade->value,
                         'fulfillment_type' => $firstRow->fulfillment_type,
                     ];
-
-                    $isNotAvailable = ($request->input("item_status.{$key}") === 'not_available') || ($request->input("item_status.{$productId}") === 'not_available');
-                    $discrepancyNote = $request->input("item_notes.{$key}") ?? $request->input("item_notes.{$productId}") ?? null;
 
                     // Build the target row shape first, then reuse/update existing rows in
                     // place instead of soft-deleting and recreating them on every save.
