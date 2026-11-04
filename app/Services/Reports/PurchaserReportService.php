@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Reports;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Models\DailyPriceApproval;
 use App\Models\Product;
 use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
+use App\Models\ShopInvoiceItem;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder;
@@ -161,10 +163,7 @@ class PurchaserReportService
                 ->whereColumn('si.shop_id', 'shop_daily_product_prices.shop_id')
                 ->whereColumn('si.business_date', 'shop_daily_product_prices.business_date')
                 ->whereColumn('sii.product_id', 'shop_daily_product_prices.product_id')
-                ->where(function ($gradeQuery): void {
-                    $gradeQuery->where('sii.product_grade', 'A')
-                        ->orWhereNull('sii.product_grade');
-                })
+                ->whereRaw("UPPER(COALESCE(sii.product_grade, 'A')) = UPPER(COALESCE(shop_daily_product_prices.product_grade, 'A'))")
                 ->whereRaw('ABS(sii.unit_price - shop_daily_product_prices.selling_price) < 0.005');
         };
 
@@ -178,6 +177,9 @@ class PurchaserReportService
             ->whereDate('shop_daily_product_prices.business_date', '>=', $filters['date_from'])
             ->whereDate('shop_daily_product_prices.business_date', '<=', $filters['date_to'])
             ->when($filters['shop_id'] !== null, fn (EloquentBuilder $q) => $q->where('shop_daily_product_prices.shop_id', $filters['shop_id']))
+            ->when(! empty($filters['grade']) && in_array(strtoupper($filters['grade']), ['A', 'B', 'C'], true), function (EloquentBuilder $q) use ($filters): void {
+                $q->where('shop_daily_product_prices.product_grade', strtoupper($filters['grade']));
+            })
             ->when(! empty($filters['category_ids']), function (EloquentBuilder $q) use ($filters): void {
                 $q->whereHas('product', fn (EloquentBuilder $pq) => $pq->whereIn('category_id', $filters['category_ids']));
             })
@@ -236,6 +238,9 @@ class PurchaserReportService
                 ->orderBy('shop_daily_product_prices.product_id', 'asc'),
             'price', 'special_price' => $query
                 ->orderBy('shop_daily_product_prices.selling_price', $direction),
+            'grade' => $query
+                ->orderBy('shop_daily_product_prices.product_grade', $direction)
+                ->orderBy('shop_daily_product_prices.product_id', 'asc'),
             'status' => $query
                 ->orderBy('shop_daily_product_prices.status', $direction)
                 ->orderByDesc('shop_daily_product_prices.business_date'),
@@ -261,6 +266,9 @@ class PurchaserReportService
             ->whereDate('business_date', '>=', $filters['date_from'])
             ->whereDate('business_date', '<=', $filters['date_to'])
             ->when($filters['shop_id'] !== null, fn (EloquentBuilder $q) => $q->where('shop_id', $filters['shop_id']))
+            ->when(! empty($filters['grade']) && in_array(strtoupper($filters['grade']), ['A', 'B', 'C'], true), function (EloquentBuilder $q) use ($filters): void {
+                $q->where('product_grade', strtoupper($filters['grade']));
+            })
             ->when(! empty($filters['category_ids']), function (EloquentBuilder $q) use ($filters): void {
                 $q->whereHas('product', fn (EloquentBuilder $pq) => $pq->whereIn('category_id', $filters['category_ids']));
             })
@@ -279,10 +287,7 @@ class PurchaserReportService
                 ->whereColumn('si.shop_id', 'shop_daily_product_prices.shop_id')
                 ->whereColumn('si.business_date', 'shop_daily_product_prices.business_date')
                 ->whereColumn('sii.product_id', 'shop_daily_product_prices.product_id')
-                ->where(function ($gradeQuery): void {
-                    $gradeQuery->where('sii.product_grade', 'A')
-                        ->orWhereNull('sii.product_grade');
-                })
+                ->whereRaw("UPPER(COALESCE(sii.product_grade, 'A')) = UPPER(COALESCE(shop_daily_product_prices.product_grade, 'A'))")
                 ->whereRaw('ABS(sii.unit_price - shop_daily_product_prices.selling_price) < 0.005');
         };
 
@@ -326,27 +331,29 @@ class PurchaserReportService
             ->whereIn('product_id', $productIds)
             ->whereDate('business_date', '>=', $minDate)
             ->whereDate('business_date', '<=', $maxDate)
-            ->where('grade', 'A')
             ->get()
-            ->keyBy(fn (DailyPriceApproval $a): string => $a->product_id.'|'.$a->business_date->format('Y-m-d'));
+            ->keyBy(function (DailyPriceApproval $a): string {
+                $grade = $a->grade instanceof ProductGrade
+                    ? $a->grade->value
+                    : (string) $a->grade;
+
+                return $a->product_id.'|'.$a->business_date->format('Y-m-d').'|'.strtoupper($grade);
+            });
 
         $invoices = ShopInvoice::query()
             ->with(['items' => function ($iq) use ($productIds): void {
-                $iq->whereIn('product_id', $productIds)
-                    ->where(function ($gq): void {
-                        $gq->where('product_grade', 'A')
-                            ->orWhereNull('product_grade');
-                    });
+                $iq->whereIn('product_id', $productIds);
             }])
             ->whereIn('shop_id', $shopIds)
             ->whereDate('business_date', '>=', $minDate)
             ->whereDate('business_date', '<=', $maxDate)
             ->get()
-            ->keyBy(fn (ShopInvoice $inv): string => $inv->shop_id.'|'.$inv->business_date->format('Y-m-d'));
+            ->groupBy(fn (ShopInvoice $inv): string => $inv->shop_id.'|'.$inv->business_date->format('Y-m-d'));
 
         return $items->map(function (ShopDailyProductPrice $row) use ($approvals, $invoices, $operationalDate): array {
             $dateString = $row->business_date->toDateString();
-            $approval = $approvals->get($row->product_id.'|'.$dateString);
+            $rowGrade = strtoupper((string) ($row->product_grade ?: 'A'));
+            $approval = $approvals->get($row->product_id.'|'.$dateString.'|'.$rowGrade);
 
             $group = $row->shop?->priceGroup;
             $groupName = strtoupper((string) ($group?->name ?? ''));
@@ -365,8 +372,24 @@ class PurchaserReportService
             $specialPrice = round((float) $row->selling_price, 2);
             $difference = $normalPrice !== null ? round($specialPrice - $normalPrice, 2) : null;
 
-            $invoice = $invoices->get($row->shop_id.'|'.$dateString);
-            $invoiceItem = $invoice?->items->firstWhere('product_id', $row->product_id);
+            $shopInvoices = $invoices->get($row->shop_id.'|'.$dateString);
+            $invoice = null;
+            $invoiceItem = null;
+
+            if ($shopInvoices instanceof Collection) {
+                foreach ($shopInvoices as $inv) {
+                    $item = $inv->items->first(function (ShopInvoiceItem $sii) use ($row, $rowGrade): bool {
+                        return (int) $sii->product_id === (int) $row->product_id
+                            && strtoupper((string) ($sii->product_grade ?: 'A')) === $rowGrade;
+                    });
+                    if ($item) {
+                        $invoice = $inv;
+                        $invoiceItem = $item;
+                        break;
+                    }
+                }
+                $invoice ??= $shopInvoices->first();
+            }
 
             $isApplied = false;
             $isMismatch = false;
@@ -412,8 +435,8 @@ class PurchaserReportService
                 'shop_name' => $row->shop?->name ?? 'Unknown Shop',
                 'shop_code' => $row->shop?->code ?? '—',
                 'price_group' => $groupName !== '' ? $groupName : 'N/A',
-                'grade' => 'A',
-                'grade_label' => 'Grade A',
+                'grade' => $rowGrade,
+                'grade_label' => 'Grade '.$rowGrade,
                 'normal_price' => $normalPrice,
                 'normal_price_formatted' => $normalPrice !== null ? '₹'.number_format($normalPrice, 2) : '—',
                 'special_price' => $specialPrice,

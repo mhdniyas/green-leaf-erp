@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Purchasing;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Product;
@@ -17,6 +18,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -160,13 +162,32 @@ class BillPriceApprovalController extends Controller
             ))
             ->values();
 
-        $specialPrices = ShopDailyProductPrice::query()
+        $specialPricesList = ShopDailyProductPrice::query()
             ->with(['createdBy', 'approvedBy'])
             ->whereDate('business_date', $invoice->business_date)
             ->where('shop_id', $invoice->shop_id)
             ->whereIn('product_id', $invoice->items->pluck('product_id')->filter()->unique()->values())
-            ->get()
-            ->keyBy('product_id');
+            ->get();
+
+        $specialPrices = collect();
+        foreach ($invoice->items as $invItem) {
+            $grade = $invItem->product_grade ?? 'A';
+            $matched = $specialPricesList->first(
+                fn ($sp) => (int) $sp->product_id === (int) $invItem->product_id
+                    && (string) ($sp->product_grade ?? 'A') === (string) $grade
+            );
+            if ($matched) {
+                $specialPrices->put($invItem->id, $matched);
+                $specialPrices->put($invItem->product_id.'|'.$grade, $matched);
+            }
+        }
+        foreach ($specialPricesList as $sp) {
+            $grade = $sp->product_grade ?? 'A';
+            $specialPrices->put($sp->product_id.'|'.$grade, $sp);
+            if (! $specialPrices->has($sp->product_id)) {
+                $specialPrices->put($sp->product_id, $sp);
+            }
+        }
 
         return view('purchasing.purchaser.bill-price-show', [
             'invoice' => $invoice,
@@ -208,6 +229,12 @@ class BillPriceApprovalController extends Controller
 
         $invoice->loadMissing(['shop', 'items.product']);
 
+        if ($invoice->isFinalLocked()) {
+            throw ValidationException::withMessages([
+                'invoice' => 'This shop invoice is finalized. Create a price adjustment instead of repricing the original invoice.',
+            ]);
+        }
+
         $validated = $request->validate([
             'category_id' => ['nullable', 'integer', 'exists:categories,id'],
             'search' => ['nullable', 'string', 'max:255'],
@@ -248,42 +275,43 @@ class BillPriceApprovalController extends Controller
         $userId = (int) $request->user()->id;
         $updated = 0;
 
-        foreach ($discountedPrices as $row) {
-            $existingCreatedBy = ShopDailyProductPrice::query()
-                ->whereDate('business_date', $invoice->business_date)
-                ->where('shop_id', $invoice->shop_id)
-                ->where('product_id', $row['product_id'])
-                ->value('created_by');
+        DB::transaction(function () use ($discountedPrices, $invoice, $userId, $request, &$updated): void {
+            foreach ($discountedPrices as $row) {
+                $grade = (string) ($row['product_grade'] ?? 'A');
+                $existingCreatedBy = ShopDailyProductPrice::query()
+                    ->whereDate('business_date', $invoice->business_date)
+                    ->where('shop_id', $invoice->shop_id)
+                    ->where('product_id', $row['product_id'])
+                    ->where('product_grade', $grade)
+                    ->value('created_by');
 
-            ShopDailyProductPrice::query()->updateOrCreate(
-                [
-                    'business_date' => $invoice->business_date->toDateString(),
-                    'shop_id' => (int) $invoice->shop_id,
-                    'product_id' => $row['product_id'],
-                ],
-                [
-                    'selling_price' => $row['selling_price'],
-                    'price_unit' => $row['price_unit'],
-                    'status' => 'approved',
-                    'reason' => 'Selected product discount from bill total',
-                    'created_by' => $existingCreatedBy ?? $userId,
-                    'approved_by' => $userId,
-                    'approved_at' => now(),
-                ]
-            );
+                ShopDailyProductPrice::query()->updateOrCreate(
+                    [
+                        'business_date' => $invoice->business_date->toDateString(),
+                        'shop_id' => (int) $invoice->shop_id,
+                        'product_id' => $row['product_id'],
+                        'product_grade' => $grade,
+                    ],
+                    [
+                        'selling_price' => $row['selling_price'],
+                        'price_unit' => $row['price_unit'],
+                        'status' => 'approved',
+                        'reason' => 'Selected product discount from bill total',
+                        'created_by' => $existingCreatedBy ?? $userId,
+                        'approved_by' => $userId,
+                        'approved_at' => now(),
+                    ]
+                );
 
-            $updated++;
-        }
+                $updated++;
+            }
 
-        try {
             $this->shopInvoiceService->repriceInvoice(
                 $invoice,
                 $userId,
                 'Selected product discount applied by '.$request->user()->name.' for '.$invoice->invoice_number,
             );
-        } catch (ValidationException $exception) {
-            return back()->withErrors($exception->errors())->withInput();
-        }
+        });
 
         return redirect()
             ->route('purchaser.bill-prices.show', array_filter([
@@ -301,6 +329,8 @@ class BillPriceApprovalController extends Controller
         $validated = $request->validate([
             'business_date' => ['required', 'date'],
             'product_id' => ['required', 'integer', 'exists:products,id'],
+            'product_grade' => ['nullable', 'string', 'max:5'],
+            'grade' => ['nullable', 'string', 'max:5'],
             'shop_id' => ['required', 'integer', 'exists:shops,id'],
             'selling_price' => ['required', 'numeric', 'min:0.01'],
             'price_unit' => ['nullable', 'string', 'max:20'],
@@ -309,6 +339,9 @@ class BillPriceApprovalController extends Controller
 
         $userId = (int) $request->user()->id;
         $date = Carbon::parse($validated['business_date'])->toDateString();
+        $gradeInput = $validated['product_grade'] ?? $validated['grade'] ?? null;
+        $grade = $gradeInput !== null ? ProductGrade::tryResolve($gradeInput)?->value ?? 'A' : 'A';
+
         $payload = [
             'selling_price' => round((float) $validated['selling_price'], 2),
             'price_unit' => filled($validated['price_unit'] ?? null) ? trim((string) $validated['price_unit']) : null,
@@ -321,12 +354,14 @@ class BillPriceApprovalController extends Controller
                 'business_date' => $date,
                 'shop_id' => (int) $validated['shop_id'],
                 'product_id' => (int) $validated['product_id'],
+                'product_grade' => $grade,
             ],
             $payload + [
                 'created_by' => ShopDailyProductPrice::query()
                     ->whereDate('business_date', $date)
                     ->where('shop_id', (int) $validated['shop_id'])
                     ->where('product_id', (int) $validated['product_id'])
+                    ->where('product_grade', $grade)
                     ->value('created_by') ?? $userId,
                 'approved_by' => null,
                 'approved_at' => null,
@@ -356,71 +391,121 @@ class BillPriceApprovalController extends Controller
 
         $invoice->loadMissing(['shop', 'items.product']);
 
+        if ($invoice->isFinalLocked()) {
+            throw ValidationException::withMessages([
+                'invoice' => 'This shop invoice is finalized. Create a price adjustment instead of repricing the original invoice.',
+            ]);
+        }
+
         $validated = $request->validate([
             'category_id' => ['nullable', 'integer', 'exists:categories,id'],
             'prices' => ['required', 'array'],
             'prices.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'prices.*.item_id' => ['nullable', 'integer'],
+            'prices.*.product_grade' => ['nullable', 'string', 'max:5'],
+            'prices.*.grade' => ['nullable', 'string', 'max:5'],
             'prices.*.selling_price' => ['nullable', 'numeric', 'min:0.01'],
             'prices.*.price_unit' => ['nullable', 'string', 'max:20'],
             'prices.*.reason' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $invoiceProductIds = $invoice->items->pluck('product_id')->filter()->map(fn ($id): int => (int) $id)->unique();
         $userId = (int) $request->user()->id;
         $updatedProductNames = [];
         $updated = 0;
 
-        foreach ($validated['prices'] as $row) {
-            $productId = (int) $row['product_id'];
+        DB::transaction(function () use ($validated, $invoice, $userId, $request, &$updated, &$updatedProductNames): void {
+            foreach ($validated['prices'] as $key => $row) {
+                $productId = (int) $row['product_id'];
 
-            if (! $invoiceProductIds->contains($productId) || ! filled($row['selling_price'] ?? null)) {
-                continue;
+                if (! filled($row['selling_price'] ?? null)) {
+                    continue;
+                }
+
+                // Resolve matching invoice item and grade
+                $invoiceItem = null;
+                $itemId = isset($row['item_id']) && (int) $row['item_id'] > 0
+                    ? (int) $row['item_id']
+                    : (is_numeric($key) && (int) $key > 0 ? (int) $key : 0);
+
+                if ($itemId > 0) {
+                    $invoiceItem = $invoice->items->firstWhere('id', $itemId);
+                    if ($invoiceItem && (int) $invoiceItem->product_id !== $productId) {
+                        throw ValidationException::withMessages([
+                            'prices' => "Item #{$itemId} does not match product #{$productId}.",
+                        ]);
+                    }
+                }
+
+                if (! $invoiceItem && is_string($key) && str_contains($key, '|')) {
+                    $parts = explode('|', $key);
+                    $keyProduct = (int) $parts[0];
+                    $keyGrade = trim($parts[1]);
+                    if ($keyProduct === $productId) {
+                        $invoiceItem = $invoice->items
+                            ->where('product_id', $productId)
+                            ->first(fn ($i) => ($i->product_grade ?? 'A') === $keyGrade);
+                    }
+                }
+
+                if (! $invoiceItem) {
+                    $matchingByProduct = $invoice->items->where('product_id', $productId);
+                    $explicitGrade = ProductGrade::tryResolve($row['product_grade'] ?? $row['grade'] ?? null)?->value;
+
+                    if ($explicitGrade !== null) {
+                        $invoiceItem = $matchingByProduct->first(fn ($i) => ($i->product_grade ?? 'A') === $explicitGrade);
+                    } elseif ($matchingByProduct->count() === 1) {
+                        $invoiceItem = $matchingByProduct->first();
+                    } else {
+                        $invoiceItem = $matchingByProduct->first(fn ($i) => ($i->product_grade ?? 'A') === 'A')
+                            ?? $matchingByProduct->first();
+                    }
+                }
+
+                if (! $invoiceItem) {
+                    continue;
+                }
+
+                $targetGrade = (string) ($invoiceItem->product_grade ?? 'A');
+
+                $existingCreatedBy = ShopDailyProductPrice::query()
+                    ->whereDate('business_date', $invoice->business_date)
+                    ->where('shop_id', $invoice->shop_id)
+                    ->where('product_id', $productId)
+                    ->where('product_grade', $targetGrade)
+                    ->value('created_by');
+
+                $specialPrice = ShopDailyProductPrice::query()->updateOrCreate(
+                    [
+                        'business_date' => $invoice->business_date->toDateString(),
+                        'shop_id' => (int) $invoice->shop_id,
+                        'product_id' => $productId,
+                        'product_grade' => $targetGrade,
+                    ],
+                    [
+                        'selling_price' => round((float) $row['selling_price'], 2),
+                        'price_unit' => filled($row['price_unit'] ?? null) ? trim((string) $row['price_unit']) : null,
+                        'status' => 'approved',
+                        'reason' => filled($row['reason'] ?? null) ? trim((string) $row['reason']) : null,
+                        'created_by' => $existingCreatedBy ?? $userId,
+                        'approved_by' => $userId,
+                        'approved_at' => now(),
+                    ]
+                );
+
+                $updatedProductNames[] = $specialPrice->product?->name
+                    ?? $invoiceItem->product_name
+                    ?? 'item';
+                $updated++;
             }
 
-            $existingCreatedBy = ShopDailyProductPrice::query()
-                ->whereDate('business_date', $invoice->business_date)
-                ->where('shop_id', $invoice->shop_id)
-                ->where('product_id', $productId)
-                ->value('created_by');
-
-            $specialPrice = ShopDailyProductPrice::query()->updateOrCreate(
-                [
-                    'business_date' => $invoice->business_date->toDateString(),
-                    'shop_id' => (int) $invoice->shop_id,
-                    'product_id' => $productId,
-                ],
-                [
-                    'selling_price' => round((float) $row['selling_price'], 2),
-                    'price_unit' => filled($row['price_unit'] ?? null) ? trim((string) $row['price_unit']) : null,
-                    'status' => 'approved',
-                    'reason' => filled($row['reason'] ?? null) ? trim((string) $row['reason']) : null,
-                    'created_by' => $existingCreatedBy ?? $userId,
-                    'approved_by' => $userId,
-                    'approved_at' => now(),
-                ]
-            );
-
-            $updatedProductNames[] = $specialPrice->product?->name
-                ?? $invoice->items->firstWhere('product_id', $productId)?->product_name
-                ?? 'item';
-            $updated++;
-        }
-
-        $invoiceRepriced = false;
-        $invoiceRepriceSkipped = false;
-
-        if ($updated > 0) {
-            try {
+            if ($updated > 0) {
                 $this->shopInvoiceService->repriceInvoice(
                     $invoice,
                     $userId,
                     'Special price auto-saved by '.$request->user()->name.' for '.$invoice->invoice_number,
                 );
-                $invoiceRepriced = true;
-            } catch (ValidationException) {
-                $invoiceRepriceSkipped = true;
             }
-        }
+        });
 
         if ($request->wantsJson()) {
             $updatedByName = (string) $request->user()->name;
@@ -436,8 +521,8 @@ class BillPriceApprovalController extends Controller
                 'updated_by_name' => $updatedByName,
                 'updated_time' => now()->format('g:i A'),
                 'updated_at_formatted' => now()->format('d M Y \a\t g:i A'),
-                'invoice_repriced' => $invoiceRepriced,
-                'invoice_reprice_skipped' => $invoiceRepriceSkipped,
+                'invoice_repriced' => $updated > 0,
+                'invoice_reprice_skipped' => false,
             ]);
         }
 
@@ -532,6 +617,7 @@ class BillPriceApprovalController extends Controller
                     'business_date' => $todayDate,
                     'shop_id' => $sourcePrice->shop_id,
                     'product_id' => $sourcePrice->product_id,
+                    'product_grade' => $sourcePrice->product_grade ?? 'A',
                 ],
                 [
                     'selling_price' => (float) $sourcePrice->selling_price,
@@ -599,7 +685,7 @@ class BillPriceApprovalController extends Controller
     }
 
     /**
-     * @return array<int, array{product_id: int, selling_price: float, price_unit: string|null}>
+     * @return array<int, array{item_id: int, product_id: int, product_grade: string, selling_price: float, price_unit: string|null}>
      */
     private function discountedSpecialPricesFor(Collection $selectedItems, float $discountAmount): array
     {
@@ -638,7 +724,9 @@ class BillPriceApprovalController extends Controller
             }
 
             $prices[] = [
+                'item_id' => (int) $item->id,
                 'product_id' => (int) $item->product_id,
+                'product_grade' => (string) ($item->product_grade ?? 'A'),
                 'selling_price' => $sellingPrice,
                 'price_unit' => filled($item->price_unit ?? null) ? (string) $item->price_unit : ($item->unit ?: null),
             ];

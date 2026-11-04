@@ -49,37 +49,36 @@ class ApprovedDailyPriceResolver
         $productGrade = $grade instanceof ProductGrade ? $grade : (ProductGrade::tryResolve($grade) ?? ProductGrade::GradeA);
         $gradeVal = $productGrade->value;
 
-        // Special prices only apply to Grade A unless grade-specific special prices are defined
-        if ($productGrade === ProductGrade::GradeA) {
-            $specialPrice = ShopDailyProductPrice::query()
-                ->where('business_date', '>=', $businessDate->toDateString())
-                ->where('business_date', '<', $nextBusinessDate->toDateString())
-                ->where('shop_id', $shop->id)
-                ->where('product_id', $product->id)
-                ->where('status', 'approved')
-                ->first();
+        // Look up approved special price matching date, shop, product, and grade
+        $specialPrice = ShopDailyProductPrice::query()
+            ->where('business_date', '>=', $businessDate->toDateString())
+            ->where('business_date', '<', $nextBusinessDate->toDateString())
+            ->where('shop_id', $shop->id)
+            ->where('product_id', $product->id)
+            ->where('product_grade', $gradeVal)
+            ->where('status', 'approved')
+            ->first();
 
-            if ($specialPrice instanceof ShopDailyProductPrice) {
-                $price = round((float) $specialPrice->selling_price, 2);
+        if ($specialPrice instanceof ShopDailyProductPrice) {
+            $price = round((float) $specialPrice->selling_price, 2);
 
-                if ($price <= 0.0) {
-                    throw ValidationException::withMessages([
-                        'prices' => "Special price for {$product->name} on date {$businessDate->toDateString()} is invalid.",
-                    ]);
-                }
-
-                return [
-                    'source' => 'special',
-                    'approval' => null,
-                    'special_price' => $specialPrice,
-                    'group' => $group,
-                    'price' => $price,
-                    'price_unit' => ProductUnit::normalizeUnit((string) ($specialPrice->price_unit ?: $product->unit ?: 'kg')),
-                    'price_column' => 'special',
-                    'category_code' => 'SPECIAL',
-                    'grade' => $gradeVal,
-                ];
+            if ($price <= 0.0) {
+                throw ValidationException::withMessages([
+                    'prices' => "Special price for {$product->name} (Grade {$gradeVal}) on date {$businessDate->toDateString()} is invalid.",
+                ]);
             }
+
+            return [
+                'source' => 'special',
+                'approval' => null,
+                'special_price' => $specialPrice,
+                'group' => $group,
+                'price' => $price,
+                'price_unit' => ProductUnit::normalizeUnit((string) ($specialPrice->price_unit ?: $product->unit ?: 'kg')),
+                'price_column' => 'special',
+                'category_code' => 'SPECIAL',
+                'grade' => $gradeVal,
+            ];
         }
 
         $priceColumn = $this->priceColumnForGroup($group);

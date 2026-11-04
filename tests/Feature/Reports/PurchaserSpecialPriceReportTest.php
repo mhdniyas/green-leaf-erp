@@ -14,6 +14,8 @@ use App\Models\ShopInvoiceItem;
 use App\Models\ShopOrder;
 use App\Models\ShopPriceGroup;
 use App\Models\User;
+use App\Services\Purchasing\PurchaserBusinessDayService;
+use App\Services\Reports\PurchaserReportService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -45,6 +47,12 @@ class PurchaserSpecialPriceReportTest extends TestCase
     {
         parent::setUp();
         $this->seed(RolePermissionSeeder::class);
+
+        Carbon::setTestNow(Carbon::parse('2026-11-04 10:00:00'));
+        $this->mock(PurchaserBusinessDayService::class, function ($mock): void {
+            $mock->shouldReceive('operationalDate')->andReturn(Carbon::parse('2026-11-04'));
+            $mock->shouldReceive('currentCalendarDate')->andReturn(Carbon::parse('2026-11-04'));
+        });
 
         $this->purchaser = User::factory()->create(['name' => 'Purchaser Niyas']);
         $this->purchaser->assignRole('purchaser');
@@ -502,6 +510,12 @@ class PurchaserSpecialPriceReportTest extends TestCase
         $this->assertStringContainsString('45.00', $content);
     }
 
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
+
     public function test_sidebar_contains_special_price_report_link(): void
     {
         $response = $this->actingAs($this->purchaser)
@@ -510,5 +524,338 @@ class PurchaserSpecialPriceReportTest extends TestCase
         $response->assertOk();
         $response->assertSee(route('purchaser.reports.special-prices'));
         $response->assertSee('Special Price Report');
+    }
+
+    public function test_grade_a_b_c_records_appear_independently(): void
+    {
+        $today = today()->toDateString();
+
+        ShopDailyProductPrice::create([
+            'business_date' => $today,
+            'shop_id' => $this->shop1->id,
+            'product_id' => $this->productTomato->id,
+            'product_grade' => 'A',
+            'selling_price' => 45.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        ShopDailyProductPrice::create([
+            'business_date' => $today,
+            'shop_id' => $this->shop1->id,
+            'product_id' => $this->productTomato->id,
+            'product_grade' => 'B',
+            'selling_price' => 32.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        ShopDailyProductPrice::create([
+            'business_date' => $today,
+            'shop_id' => $this->shop1->id,
+            'product_id' => $this->productTomato->id,
+            'product_grade' => 'C',
+            'selling_price' => 22.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        $response = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.reports.special-prices', ['date' => $today]));
+
+        $response->assertOk();
+        $response->assertSee('Grade A');
+        $response->assertSee('Grade B');
+        $response->assertSee('Grade C');
+        $response->assertSee('₹45.00');
+        $response->assertSee('₹32.00');
+        $response->assertSee('₹22.00');
+    }
+
+    public function test_grade_filter_filters_by_specific_grade(): void
+    {
+        $today = today()->toDateString();
+
+        ShopDailyProductPrice::create([
+            'business_date' => $today,
+            'shop_id' => $this->shop1->id,
+            'product_id' => $this->productTomato->id,
+            'product_grade' => 'A',
+            'selling_price' => 45.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        ShopDailyProductPrice::create([
+            'business_date' => $today,
+            'shop_id' => $this->shop1->id,
+            'product_id' => $this->productTomato->id,
+            'product_grade' => 'B',
+            'selling_price' => 32.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        // Filter Grade B
+        $responseB = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.reports.special-prices', ['date' => $today, 'grade' => 'B']));
+
+        $responseB->assertOk();
+        $responseB->assertSee('₹32.00');
+        $responseB->assertSee('Grade B');
+        $responseB->assertDontSee('₹45.00');
+
+        // Filter Grade A
+        $responseA = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.reports.special-prices', ['date' => $today, 'grade' => 'A']));
+
+        $responseA->assertOk();
+        $responseA->assertSee('₹45.00');
+        $responseA->assertSee('Grade A');
+        $responseA->assertDontSee('₹32.00');
+
+        // Filter All
+        $responseAll = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.reports.special-prices', ['date' => $today, 'grade' => 'all']));
+
+        $responseAll->assertOk();
+        $responseAll->assertSee('₹45.00');
+        $responseAll->assertSee('₹32.00');
+    }
+
+    public function test_normal_prices_match_selected_grade_and_price_group(): void
+    {
+        $today = today()->toDateString();
+
+        // Standard approvals for Grade A, B, C with distinct prices
+        DailyPriceApproval::create([
+            'product_id' => $this->productTomato->id,
+            'business_date' => $today,
+            'grade' => 'A',
+            'price_a' => 50.00,
+            'price_b' => 50.00,
+            'price_c' => 50.00,
+            'purchase_price' => 30.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'approved_at' => now(),
+            'approved_by' => $this->purchaser->id,
+        ]);
+
+        DailyPriceApproval::create([
+            'product_id' => $this->productTomato->id,
+            'business_date' => $today,
+            'grade' => 'B',
+            'price_a' => 35.00,
+            'price_b' => 35.00,
+            'price_c' => 35.00,
+            'purchase_price' => 20.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'approved_at' => now(),
+            'approved_by' => $this->purchaser->id,
+        ]);
+
+        DailyPriceApproval::create([
+            'product_id' => $this->productTomato->id,
+            'business_date' => $today,
+            'grade' => 'C',
+            'price_a' => 25.00,
+            'price_b' => 25.00,
+            'price_c' => 25.00,
+            'purchase_price' => 15.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'approved_at' => now(),
+            'approved_by' => $this->purchaser->id,
+        ]);
+
+        // Special prices
+        ShopDailyProductPrice::create([
+            'business_date' => $today,
+            'shop_id' => $this->shop1->id,
+            'product_id' => $this->productTomato->id,
+            'product_grade' => 'A',
+            'selling_price' => 45.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        ShopDailyProductPrice::create([
+            'business_date' => $today,
+            'shop_id' => $this->shop1->id,
+            'product_id' => $this->productTomato->id,
+            'product_grade' => 'B',
+            'selling_price' => 30.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        ShopDailyProductPrice::create([
+            'business_date' => $today,
+            'shop_id' => $this->shop1->id,
+            'product_id' => $this->productTomato->id,
+            'product_grade' => 'C',
+            'selling_price' => 20.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        $response = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.reports.special-prices', ['date' => $today]));
+
+        $response->assertOk();
+        // Grade A: Normal ₹50.00, Special ₹45.00, Diff -₹5.00
+        $response->assertSee('₹50.00');
+        $response->assertSee('-₹5.00');
+
+        // Grade B: Normal ₹35.00, Special ₹30.00, Diff -₹5.00
+        $response->assertSee('₹35.00');
+
+        // Grade C: Normal ₹25.00, Special ₹20.00, Diff -₹5.00
+        $response->assertSee('₹25.00');
+    }
+
+    public function test_invoice_application_status_matches_correct_grade_only(): void
+    {
+        $today = today()->toDateString();
+
+        $order = ShopOrder::factory()->approved()->create([
+            'shop_id' => $this->shop1->id,
+            'business_date' => $today,
+        ]);
+
+        $invoice = ShopInvoice::create([
+            'invoice_number' => 'INV-TEST-001',
+            'shop_order_id' => $order->id,
+            'shop_id' => $this->shop1->id,
+            'business_date' => $today,
+            'status' => 'issued',
+            'subtotal' => 450.00,
+            'final_total' => 450.00,
+        ]);
+
+        // Invoice ONLY contains Grade A item
+        ShopInvoiceItem::create([
+            'shop_invoice_id' => $invoice->id,
+            'product_id' => $this->productTomato->id,
+            'product_name' => 'Fresh Tomato',
+            'product_grade' => 'A',
+            'unit' => 'kg',
+            'price_unit' => 'kg',
+            'unit_price' => 45.00,
+            'approved_qty' => 10,
+            'delivered_qty' => 10,
+            'line_subtotal' => 450.00,
+            'final_line_total' => 450.00,
+        ]);
+
+        // Special Price for Grade A (matches invoice item)
+        ShopDailyProductPrice::create([
+            'business_date' => $today,
+            'shop_id' => $this->shop1->id,
+            'product_id' => $this->productTomato->id,
+            'product_grade' => 'A',
+            'selling_price' => 45.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        // Special Price for Grade B (NOT on invoice!)
+        ShopDailyProductPrice::create([
+            'business_date' => $today,
+            'shop_id' => $this->shop1->id,
+            'product_id' => $this->productTomato->id,
+            'product_grade' => 'B',
+            'selling_price' => 32.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        $reportService = app(PurchaserReportService::class);
+        $reportData = $reportService->specialPricesReport([
+            'date_from' => $today,
+            'date_to' => $today,
+            'shop_id' => $this->shop1->id,
+            'status' => 'all',
+            'grade' => 'all',
+            'search' => '',
+            'page' => 1,
+            'per_page' => 25,
+            'sort' => 'grade',
+            'direction' => 'asc',
+            'operational_date' => $today,
+        ]);
+
+        $items = collect($reportData['items']);
+        $itemGradeA = $items->firstWhere('grade', 'A');
+        $itemGradeB = $items->firstWhere('grade', 'B');
+
+        $this->assertNotNull($itemGradeA);
+        $this->assertNotNull($itemGradeB);
+
+        // Grade A is applied to invoice
+        $this->assertTrue($itemGradeA['is_applied']);
+        $this->assertSame('applied', $itemGradeA['status_key']);
+
+        // Grade B is NOT applied to invoice simply because Grade A is on the invoice!
+        $this->assertFalse($itemGradeB['is_applied']);
+        $this->assertNotSame('applied', $itemGradeB['status_key']);
+    }
+
+    public function test_csv_export_includes_grade_and_respects_grade_filter(): void
+    {
+        $today = today()->toDateString();
+
+        ShopDailyProductPrice::create([
+            'business_date' => $today,
+            'shop_id' => $this->shop1->id,
+            'product_id' => $this->productTomato->id,
+            'product_grade' => 'A',
+            'selling_price' => 45.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        ShopDailyProductPrice::create([
+            'business_date' => $today,
+            'shop_id' => $this->shop1->id,
+            'product_id' => $this->productTomato->id,
+            'product_grade' => 'B',
+            'selling_price' => 32.00,
+            'price_unit' => 'kg',
+            'status' => 'approved',
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        // Export all
+        $response = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.reports.special-prices.csv', ['date' => $today]));
+        $response->assertOk();
+        $content = $response->streamedContent();
+
+        $this->assertStringContainsString('Grade', $content);
+        $this->assertStringContainsString('Grade A', $content);
+        $this->assertStringContainsString('Grade B', $content);
+
+        // Export only Grade B
+        $responseB = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.reports.special-prices.csv', ['date' => $today, 'grade' => 'B']));
+        $responseB->assertOk();
+        $contentB = $responseB->streamedContent();
+
+        $this->assertStringContainsString('Grade B', $contentB);
+        $this->assertStringNotContainsString('Grade A', $contentB);
     }
 }

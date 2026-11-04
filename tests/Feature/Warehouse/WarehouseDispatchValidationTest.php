@@ -15,6 +15,7 @@ use App\Models\ShopPriceGroup;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -36,6 +37,8 @@ class WarehouseDispatchValidationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        Carbon::setTestNow(Carbon::parse('2026-10-28 10:00:00'));
 
         $this->seed(RolePermissionSeeder::class);
 
@@ -89,6 +92,12 @@ class WarehouseDispatchValidationTest extends TestCase
             'base_price' => 40.00,
             'is_active' => true,
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     /**

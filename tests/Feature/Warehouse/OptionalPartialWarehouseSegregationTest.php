@@ -36,6 +36,7 @@ use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Warehouse\AutoLoadAllService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -74,6 +75,8 @@ class OptionalPartialWarehouseSegregationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        Carbon::setTestNow(Carbon::parse('2026-11-04 10:00:00'));
 
         Role::firstOrCreate(['name' => 'warehouse_receiver']);
         Role::firstOrCreate(['name' => 'admin']);
@@ -194,6 +197,12 @@ class OptionalPartialWarehouseSegregationTest extends TestCase
         $this->stockLedgerService = app(StockLedgerService::class);
         $this->stockMovementRepository = app(StockMovementRepository::class);
         $this->segregationAction = app(ProcessPartialSegregationAction::class);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     /**

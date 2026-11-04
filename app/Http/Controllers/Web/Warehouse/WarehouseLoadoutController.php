@@ -430,9 +430,17 @@ class WarehouseLoadoutController extends Controller
         $this->authorizeAccess($request);
         $this->ensureLoadoutEditable($shopOrder);
 
+        if ($shopOrder->isFinanciallyLocked()) {
+            return redirect()
+                ->route('warehouse.loadout.show', $shopOrder)
+                ->withErrors(['Cannot add addon to a delivered or finalized order.']);
+        }
+
         $validated = $request->validate([
             'product_id' => ['required', 'integer', 'exists:products,id'],
             'quantity' => ['required', 'numeric', 'min:0.01'],
+            'product_grade' => ['nullable', 'string', 'in:A,B,C,a,b,c'],
+            'grade' => ['nullable', 'string', 'in:A,B,C,a,b,c'],
         ]);
 
         $product = Product::query()
@@ -440,22 +448,36 @@ class WarehouseLoadoutController extends Controller
             ->findOrFail((int) $validated['product_id']);
         $quantity = round((float) $validated['quantity'], 3);
 
-        if ($shopOrder->items()->where('product_id', $product->id)->exists()) {
+        $rawGrade = strtoupper(trim((string) ($validated['product_grade'] ?? $validated['grade'] ?? 'A')));
+        $grade = ProductGrade::tryResolve($rawGrade) ?? ProductGrade::GradeA;
+
+        $existingItemQuery = $shopOrder->items()->where('product_id', $product->id);
+        if ($grade === ProductGrade::GradeA) {
+            $existingItemQuery->where(function ($q): void {
+                $q->where('product_grade', 'A')->orWhereNull('product_grade');
+            });
+        } else {
+            $existingItemQuery->where('product_grade', $grade->value);
+        }
+
+        if ($existingItemQuery->exists()) {
+            $gradeSuffix = $grade === ProductGrade::GradeA ? '' : " (Grade {$grade->value})";
+
             return redirect()
                 ->route('warehouse.loadout.show', $shopOrder)
-                ->withErrors(["{$product->name} is already in this loadout order. Edit the existing line instead."]);
+                ->withErrors(["{$product->name}{$gradeSuffix} is already in this loadout order. Edit the existing line instead."]);
         }
 
         $shopOrder->loadMissing('shop');
-        $price = $this->priceBoardService->sellingPriceFor($product, $shopOrder->shop, ProductGrade::GradeA);
+        $price = $this->priceBoardService->sellingPriceFor($product, $shopOrder->shop, $grade);
 
-        DB::transaction(function () use ($shopOrder, $product, $quantity, $price, $request): void {
+        DB::transaction(function () use ($shopOrder, $product, $quantity, $price, $grade, $request): void {
             $userId = (int) $request->user()->id;
 
-            ShopOrderItem::create([
+            $item = ShopOrderItem::create([
                 'shop_order_id' => $shopOrder->id,
                 'product_id' => $product->id,
-                'product_grade' => ProductGrade::GradeA->value,
+                'product_grade' => $grade->value,
                 'requested_qty' => $quantity,
                 'approved_qty' => $quantity,
                 'loaded_qty' => $quantity,
@@ -477,15 +499,17 @@ class WarehouseLoadoutController extends Controller
                 $userId,
                 StockMovementType::Out,
                 "Loadout dispatch to delivery — Order: {$shopOrder->order_number}",
-                null,
+                $item->id,
                 $product->default_warehouse_id,
-                ProductGrade::GradeA,
+                $grade,
             );
         });
 
+        $gradeSuffix = $grade === ProductGrade::GradeA ? '' : " (Grade {$grade->value})";
+
         return redirect()
             ->route('warehouse.loadout.show', $shopOrder)
-            ->with('success', "{$product->name} added and marked loaded. Inventory updated.");
+            ->with('success', "{$product->name}{$gradeSuffix} added and marked loaded. Inventory updated.");
     }
 
     /**

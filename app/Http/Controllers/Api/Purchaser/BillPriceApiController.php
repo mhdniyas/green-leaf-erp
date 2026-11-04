@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Purchaser;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
 use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
@@ -13,6 +14,7 @@ use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class BillPriceApiController extends Controller
@@ -41,6 +43,8 @@ class BillPriceApiController extends Controller
             'order_number' => ['required', 'string', 'max:100'],
             'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
             'product_id' => ['nullable', 'integer', 'exists:products,id'],
+            'product_grade' => ['nullable', 'string', 'max:5'],
+            'grade' => ['nullable', 'string', 'max:5'],
             'business_date' => ['nullable', 'date'],
             'date' => ['nullable', 'date'],
             'unit_price' => ['nullable', 'numeric', 'min:0.01'],
@@ -59,6 +63,12 @@ class BillPriceApiController extends Controller
         $invoice = $this->resolveInvoice($validated);
         $invoice?->loadMissing(['shop', 'items.product', 'order.items.product']);
 
+        if ($invoice && $invoice->isFinalLocked()) {
+            throw ValidationException::withMessages([
+                'invoice' => 'This shop invoice is finalized. Create a price adjustment instead of repricing the original invoice.',
+            ]);
+        }
+
         $item = $invoice ? $this->resolveInvoiceItem($invoice, $validated) : null;
         $businessDate = $invoice?->business_date?->toDateString()
             ?? $this->requiredBusinessDate($validated);
@@ -71,56 +81,90 @@ class BillPriceApiController extends Controller
             ]);
         }
 
+        if ($item) {
+            if (isset($validated['product_id']) && (int) $validated['product_id'] !== (int) $item->product_id) {
+                throw ValidationException::withMessages([
+                    'product_id' => 'The product ID does not match the invoice item.',
+                ]);
+            }
+            if ($invoice && isset($validated['shop_id']) && (int) $validated['shop_id'] !== (int) $invoice->shop_id) {
+                throw ValidationException::withMessages([
+                    'shop_id' => 'The shop ID does not match the invoice.',
+                ]);
+            }
+        }
+
+        $derivedGrade = $item ? ($item->product_grade ?? 'A') : null;
+        $explicitGradeInput = $validated['product_grade'] ?? $validated['grade'] ?? null;
+        $explicitGrade = $explicitGradeInput !== null ? ProductGrade::tryResolve($explicitGradeInput)?->value : null;
+
+        if ($derivedGrade !== null && $explicitGrade !== null && $explicitGrade !== $derivedGrade) {
+            throw ValidationException::withMessages([
+                'product_grade' => "The specified grade '{$explicitGrade}' does not match the invoice item grade '{$derivedGrade}'.",
+            ]);
+        }
+
+        $targetGrade = $derivedGrade ?? $explicitGrade ?? 'A';
         $userId = (int) $request->user()->id;
 
-        $existingCreatedBy = ShopDailyProductPrice::query()
-            ->whereDate('business_date', $businessDate)
-            ->where('shop_id', $shopId)
-            ->where('product_id', $productId)
-            ->value('created_by');
+        [$specialPrice, $invoiceRepriced] = DB::transaction(function () use (
+            $businessDate,
+            $shopId,
+            $productId,
+            $targetGrade,
+            $price,
+            $validated,
+            $item,
+            $markSpecial,
+            $userId,
+            $invoice,
+            $request
+        ): array {
+            $existingCreatedBy = ShopDailyProductPrice::query()
+                ->whereDate('business_date', $businessDate)
+                ->where('shop_id', $shopId)
+                ->where('product_id', $productId)
+                ->where('product_grade', $targetGrade)
+                ->value('created_by');
 
-        $specialPrice = ShopDailyProductPrice::query()->updateOrCreate(
-            [
-                'business_date' => $businessDate,
-                'shop_id' => $shopId,
-                'product_id' => $productId,
-            ],
-            [
-                'selling_price' => round((float) $price, 2),
-                'price_unit' => filled($validated['price_unit'] ?? null)
-                    ? trim((string) $validated['price_unit'])
-                    : ($item?->price_unit ?: null),
-                'status' => 'approved',
-                'reason' => filled($validated['notes'] ?? null)
-                    ? trim((string) $validated['notes'])
-                    : ($markSpecial ? 'Updated from mobile special price approval.' : 'Updated from mobile bill price edit.'),
-                'created_by' => $existingCreatedBy ?? $userId,
-                'approved_by' => $userId,
-                'approved_at' => now(),
-            ]
-        );
+            $specialPrice = ShopDailyProductPrice::query()->updateOrCreate(
+                [
+                    'business_date' => $businessDate,
+                    'shop_id' => $shopId,
+                    'product_id' => $productId,
+                    'product_grade' => $targetGrade,
+                ],
+                [
+                    'selling_price' => round((float) $price, 2),
+                    'price_unit' => filled($validated['price_unit'] ?? null)
+                        ? trim((string) $validated['price_unit'])
+                        : ($item?->price_unit ?: null),
+                    'status' => 'approved',
+                    'reason' => filled($validated['notes'] ?? null)
+                        ? trim((string) $validated['notes'])
+                        : ($markSpecial ? 'Updated from mobile special price approval.' : 'Updated from mobile bill price edit.'),
+                    'created_by' => $existingCreatedBy ?? $userId,
+                    'approved_by' => $userId,
+                    'approved_at' => now(),
+                ]
+            );
 
-        $invoiceRepriced = false;
-        $invoiceRepriceSkipped = false;
-        $freshItem = $item;
-
-        if ($invoice) {
-            try {
-                $invoice = $this->shopInvoiceService->repriceInvoice(
+            $repriced = false;
+            if ($invoice) {
+                $this->shopInvoiceService->repriceInvoice(
                     $invoice,
                     $userId,
                     'Mobile bill price update by '.$request->user()->name.' for '.$invoice->invoice_number,
                 );
-                $invoiceRepriced = true;
-            } catch (ValidationException) {
-                $invoiceRepriceSkipped = true;
-                $invoice->refresh();
+                $repriced = true;
             }
 
-            $freshItem = $invoice->items()
-                ->where('product_id', $productId)
-                ->first() ?? $item?->fresh();
-        }
+            return [$specialPrice, $repriced];
+        });
+
+        $freshItem = $invoice
+            ? ($invoice->items()->where('product_id', $productId)->where('product_grade', $targetGrade)->first() ?? $item?->fresh())
+            : null;
 
         return response()->json([
             'success' => true,
@@ -131,12 +175,13 @@ class BillPriceApiController extends Controller
                 'invoice_number' => $invoice?->invoice_number,
                 'item_id' => $freshItem?->id,
                 'product_id' => $productId,
+                'product_grade' => $targetGrade,
                 'unit_price' => round((float) $price, 2),
                 'special_price' => round((float) $price, 2),
                 'line_total' => $freshItem ? (float) $freshItem->final_line_total : null,
                 'invoice_final_total' => $invoice ? (float) $invoice->final_total : null,
                 'invoice_repriced' => $invoiceRepriced,
-                'invoice_reprice_skipped' => $invoiceRepriceSkipped,
+                'invoice_reprice_skipped' => ! $invoiceRepriced && $invoice !== null,
                 'updated_by_name' => (string) $request->user()->name,
                 'updated_time' => now()->format('g:i A'),
             ],
@@ -210,8 +255,31 @@ class BillPriceApiController extends Controller
         }
 
         $productId = (int) ($validated['product_id'] ?? 0);
+        $gradeInput = $validated['product_grade'] ?? $validated['grade'] ?? null;
+        $grade = $gradeInput !== null ? ProductGrade::tryResolve($gradeInput)?->value : null;
+
         if ($productId > 0) {
-            $item = $invoice->items->firstWhere('product_id', $productId);
+            if ($grade !== null) {
+                $item = $invoice->items
+                    ->where('product_id', $productId)
+                    ->first(fn ($i) => ($i->product_grade ?? 'A') === $grade);
+                if ($item instanceof ShopInvoiceItem) {
+                    return $item;
+                }
+            }
+
+            $matchingItems = $invoice->items->where('product_id', $productId);
+            if ($matchingItems->count() === 1) {
+                return $matchingItems->first();
+            }
+
+            // For legacy requests without grade, match Grade A if present
+            $item = $matchingItems->first(fn ($i) => ($i->product_grade ?? 'A') === 'A');
+            if ($item instanceof ShopInvoiceItem) {
+                return $item;
+            }
+
+            $item = $matchingItems->first();
             if ($item instanceof ShopInvoiceItem) {
                 return $item;
             }

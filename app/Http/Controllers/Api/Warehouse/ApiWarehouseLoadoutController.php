@@ -948,7 +948,9 @@ class ApiWarehouseLoadoutController extends Controller
         return $request->header('X-Client-Supports-Multi-Grade') === 'true'
             || $request->header('X-Client-Supports-Multi-Grade') === '1'
             || $request->header('X-Warehouse-Client-Supports-Multi-Grade') === 'true'
-            || $request->header('X-Warehouse-Client-Supports-Multi-Grade') === '1';
+            || $request->header('X-Warehouse-Client-Supports-Multi-Grade') === '1'
+            || $request->filled('product_grade')
+            || $request->filled('grade');
     }
 
     private function authorizeAccess(Request $request): void
@@ -1198,11 +1200,24 @@ class ApiWarehouseLoadoutController extends Controller
     {
         $this->authorizeAccess($request);
 
-        $existingProductIds = $shopOrder->items
-            ->pluck('product_id')
-            ->filter()
-            ->map(fn ($id) => (int) $id)
-            ->all();
+        $existingProductIds = $this->isCompatibleMultiGradeClient($request)
+            ? $shopOrder->items
+                ->groupBy('product_id')
+                ->filter(function ($items): bool {
+                    $grades = $items->pluck('product_grade')
+                        ->map(fn ($g) => strtoupper(trim((string) ($g ?? 'A'))))
+                        ->unique();
+
+                    return $grades->contains('A') && $grades->contains('B') && $grades->contains('C');
+                })
+                ->keys()
+                ->map(fn ($id) => (int) $id)
+                ->all()
+            : $shopOrder->items
+                ->pluck('product_id')
+                ->filter()
+                ->map(fn ($id) => (int) $id)
+                ->all();
 
         $categories = Category::query()
             ->where('is_active', true)
@@ -1248,13 +1263,15 @@ class ApiWarehouseLoadoutController extends Controller
             ], 422);
         }
 
-        if ($shopOrder->delivery_status === 'delivered') {
-            return response()->json(['success' => false, 'message' => 'Cannot add addon to a delivered order.'], 422);
+        if ($shopOrder->delivery_status === 'delivered' || $shopOrder->isFinanciallyLocked()) {
+            return response()->json(['success' => false, 'message' => 'Cannot add addon to a delivered or finalized order.'], 422);
         }
 
         $validated = $request->validate([
             'product_id' => ['required', 'integer', 'exists:products,id'],
             'quantity' => ['required', 'numeric', 'min:0.01'],
+            'product_grade' => ['nullable', 'string', 'in:A,B,C,a,b,c'],
+            'grade' => ['nullable', 'string', 'in:A,B,C,a,b,c'],
         ]);
 
         $product = Product::query()
@@ -1262,23 +1279,40 @@ class ApiWarehouseLoadoutController extends Controller
             ->findOrFail((int) $validated['product_id']);
         $quantity = round((float) $validated['quantity'], 3);
 
-        if ($shopOrder->items()->where('product_id', $product->id)->exists()) {
+        $rawGrade = strtoupper(trim((string) ($validated['product_grade'] ?? $validated['grade'] ?? 'A')));
+        $grade = ProductGrade::tryResolve($rawGrade) ?? ProductGrade::GradeA;
+
+        $existingItemQuery = $shopOrder->items()
+            ->where('product_id', $product->id);
+
+        if ($grade === ProductGrade::GradeA) {
+            $existingItemQuery->where(function ($q): void {
+                $q->where('product_grade', 'A')
+                    ->orWhereNull('product_grade');
+            });
+        } else {
+            $existingItemQuery->where('product_grade', $grade->value);
+        }
+
+        if ($existingItemQuery->exists()) {
+            $gradeSuffix = $grade === ProductGrade::GradeA ? '' : " (Grade {$grade->value})";
+
             return response()->json([
                 'success' => false,
-                'message' => "{$product->name} is already in this loadout order. Edit the existing line instead.",
+                'message' => "{$product->name}{$gradeSuffix} is already in this loadout order. Edit the existing line instead.",
             ], 422);
         }
 
         $shopOrder->loadMissing('shop');
-        $price = $this->priceBoardService->sellingPriceFor($product, $shopOrder->shop, ProductGrade::GradeA);
+        $price = $this->priceBoardService->sellingPriceFor($product, $shopOrder->shop, $grade);
 
-        $item = DB::transaction(function () use ($shopOrder, $product, $quantity, $price, $request) {
+        $item = DB::transaction(function () use ($shopOrder, $product, $quantity, $price, $grade, $request) {
             $userId = (int) $request->user()->id;
 
             $item = ShopOrderItem::create([
                 'shop_order_id' => $shopOrder->id,
                 'product_id' => $product->id,
-                'product_grade' => ProductGrade::GradeA->value,
+                'product_grade' => $grade->value,
                 'requested_qty' => $quantity,
                 'approved_qty' => $quantity,
                 'loaded_qty' => $quantity,
@@ -1302,17 +1336,28 @@ class ApiWarehouseLoadoutController extends Controller
                 "Loadout dispatch to delivery — Order: {$shopOrder->order_number}",
                 $item->id,
                 $product->default_warehouse_id,
-                ProductGrade::GradeA,
+                $grade,
             );
 
             $this->markLoadoutStartedForProducts($shopOrder, collect([(int) $product->id]));
 
+            if ($shopOrder->invoice && ! $shopOrder->invoice->isFinalLocked()) {
+                try {
+                    $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
+                    $this->shopInvoiceService->recalculateAndSaveInvoiceSummary($invoice, $userId);
+                } catch (Throwable) {
+                    // Do not fail physical addon creation if invoice repricing matrix is incomplete
+                }
+            }
+
             return $item;
         });
 
+        $gradeSuffix = $grade === ProductGrade::GradeA ? '' : " (Grade {$grade->value})";
+
         return response()->json([
             'success' => true,
-            'message' => "{$product->name} added as addon product successfully and marked loaded. Inventory updated.",
+            'message' => "{$product->name}{$gradeSuffix} added as addon product successfully and marked loaded. Inventory updated.",
             'item' => $item,
         ]);
     }

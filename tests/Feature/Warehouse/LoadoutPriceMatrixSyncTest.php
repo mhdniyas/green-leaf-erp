@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class LoadoutPriceMatrixSyncTest extends TestCase
@@ -41,6 +42,8 @@ class LoadoutPriceMatrixSyncTest extends TestCase
     {
         parent::setUp();
         $this->seed(RolePermissionSeeder::class);
+
+        Carbon::setTestNow(Carbon::parse('2026-10-28 10:00:00'));
 
         $this->user = User::factory()->create();
         $this->user->assignRole('warehouse_receiver');
@@ -78,6 +81,12 @@ class LoadoutPriceMatrixSyncTest extends TestCase
             'unit' => 'kg',
             'sku' => 'VEG-POT-01',
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     /**

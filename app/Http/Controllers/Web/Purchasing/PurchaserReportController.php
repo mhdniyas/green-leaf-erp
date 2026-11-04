@@ -292,11 +292,12 @@ class PurchaserReportController extends Controller
             'date_from' => ['nullable', 'date_format:Y-m-d'],
             'date_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:date_from'],
             'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
+            'grade' => ['nullable', 'string', Rule::in(['all', 'A', 'B', 'C', 'a', 'b', 'c'])],
             'status' => ['nullable', Rule::in(['all', 'applied', 'not_applied', 'approved', 'draft', 'expired'])],
             'search' => ['nullable', 'string', 'max:120'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-            'sort' => ['nullable', 'string', Rule::in(['product', 'name', 'sku', 'shop', 'date', 'price', 'special_price', 'status', 'updated_at'])],
+            'sort' => ['nullable', 'string', Rule::in(['product', 'name', 'sku', 'shop', 'grade', 'date', 'price', 'special_price', 'status', 'updated_at'])],
             'direction' => ['nullable', 'string', Rule::in(['asc', 'desc', 'ASC', 'DESC'])],
         ]);
 
@@ -315,10 +316,14 @@ class PurchaserReportController extends Controller
             abort(422, 'The report period may not exceed 366 days.');
         }
 
+        $grade = strtoupper(trim((string) ($validated['grade'] ?? '')));
+        $gradeFilter = in_array($grade, ['A', 'B', 'C'], true) ? $grade : 'all';
+
         return [
             'date_from' => $dateFrom->toDateString(),
             'date_to' => $dateTo->toDateString(),
             'shop_id' => isset($validated['shop_id']) ? (int) $validated['shop_id'] : null,
+            'grade' => $gradeFilter,
             'status' => (string) ($validated['status'] ?? 'all'),
             'search' => trim((string) ($validated['search'] ?? '')),
             'page' => (int) ($validated['page'] ?? 1),

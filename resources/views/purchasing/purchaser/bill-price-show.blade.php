@@ -95,14 +95,22 @@
                         <div class="space-y-3">
                             @forelse($items as $item)
                                 @php
-                                    $specialPrice = $specialPrices->get($item->product_id);
+                                    $itemGrade = (string) ($item->product_grade ?? 'A');
+                                    $specialPrice = $specialPrices->get($item->id)
+                                        ?? $specialPrices->get($item->product_id . '|' . $itemGrade)
+                                        ?? $specialPrices->get($item->product_id);
                                     $quantity = (float) ($item->delivered_price_quantity ?: $item->price_quantity);
                                     $lineTotal = (float) ($item->final_line_total ?: $item->line_subtotal);
                                 @endphp
                                 <article class="rounded-xl border border-slate-200 bg-slate-50 p-3">
                                     <div class="flex items-start justify-between gap-3">
                                         <div class="min-w-0">
-                                            <p class="truncate text-sm font-black text-slate-950">{{ $item->product?->name ?? $item->product_name }}</p>
+                                            <p class="truncate text-sm font-black text-slate-950">
+                                                {{ $item->product?->name ?? $item->product_name }}
+                                                @if($itemGrade !== 'A')
+                                                    <span class="ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-black bg-blue-100 text-blue-800">Grade {{ $itemGrade }}</span>
+                                                @endif
+                                            </p>
                                             <p class="mt-0.5 text-[11px] font-semibold text-slate-500">Code {{ $item->product?->sku ?: 'NA' }} • {{ $item->product?->category?->name ?? 'No Category' }} • Qty {{ number_format($quantity, 2) }} {{ $item->price_unit ?: $item->unit }}</p>
                                         </div>
                                         <p class="shrink-0 text-xs font-black text-slate-950">₹{{ number_format($lineTotal, 2) }}</p>
@@ -115,7 +123,9 @@
                                         </div>
                                         <div>
                                             <label class="text-[9px] font-black uppercase tracking-wider text-slate-400">Special Price</label>
+                                            <input type="hidden" name="prices[{{ $item->id }}][item_id]" value="{{ $item->id }}">
                                             <input type="hidden" name="prices[{{ $item->id }}][product_id]" value="{{ $item->product_id }}">
+                                            <input type="hidden" name="prices[{{ $item->id }}][product_grade]" value="{{ $itemGrade }}">
                                             <input type="hidden" name="prices[{{ $item->id }}][price_unit]" value="{{ $item->price_unit ?: $item->unit }}">
                                             <input type="hidden" name="prices[{{ $item->id }}][reason]" value="Bill special price edit">
                                             <input type="number" step="0.01" min="0.01" name="prices[{{ $item->id }}][selling_price]" value="{{ $specialPrice ? number_format((float) $specialPrice->selling_price, 2, '.', '') : '' }}" class="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-right text-sm font-black text-slate-950 outline-none focus:border-lime-400" placeholder="0.00" data-special-price-input data-item-id="{{ $item->id }}" data-product-id="{{ $item->product_id }}" data-product-name="{{ $item->product?->name ?? $item->product_name }}" data-price-unit="{{ $item->price_unit ?: $item->unit }}">

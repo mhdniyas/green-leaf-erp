@@ -68,7 +68,7 @@
                 @endforeach
             </div>
 
-            <form method="GET" action="{{ route('purchaser.reports.special-prices') }}" class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.2fr_1.2fr_1.5fr_auto_auto]">
+            <form method="GET" action="{{ route('purchaser.reports.special-prices') }}" class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.2fr_0.8fr_1.2fr_1.5fr_auto_auto]">
                 <input type="hidden" name="range" value="{{ $selectedRange }}">
                 @if (!empty($filters['sort']))
                     <input type="hidden" name="sort" value="{{ $filters['sort'] }}">
@@ -94,6 +94,16 @@
                         @foreach ($shops as $shop)
                             <option value="{{ $shop->id }}" @selected($filters['shop_id'] === $shop->id)>{{ $shop->name }}</option>
                         @endforeach
+                    </select>
+                </label>
+
+                <label class="text-[10px] font-black uppercase text-slate-500">
+                    Grade
+                    <select name="grade" class="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-2 text-sm font-semibold text-slate-900">
+                        <option value="all" @selected(($filters['grade'] ?? 'all') === 'all')>All</option>
+                        <option value="A" @selected(($filters['grade'] ?? '') === 'A')>Grade A</option>
+                        <option value="B" @selected(($filters['grade'] ?? '') === 'B')>Grade B</option>
+                        <option value="C" @selected(($filters['grade'] ?? '') === 'C')>Grade C</option>
                     </select>
                 </label>
 
@@ -188,7 +198,16 @@
                                     @endif
                                 </a>
                             </th>
-                            <th class="px-3 py-3 text-center">Grade</th>
+                            <th class="px-3 py-3 text-center">
+                                <a href="{{ $sortUrl('grade', 'asc') }}" class="group inline-flex items-center gap-1 font-black uppercase hover:text-slate-900 transition">
+                                    <span>Grade</span>
+                                    @if ($currentSort === 'grade')
+                                        <span class="text-[10px] font-black text-emerald-600">{{ $currentDirection === 'asc' ? '▲' : '▼' }}</span>
+                                    @else
+                                        <span class="text-[9px] text-slate-300 opacity-0 group-hover:opacity-100 transition">▲▼</span>
+                                    @endif
+                                </a>
+                            </th>
                             <th class="px-3 py-3 text-right">Normal Price</th>
                             <th class="px-4 py-3 text-right">
                                 <a href="{{ $sortUrl('price', 'asc') }}" class="group inline-flex items-center justify-end gap-1 font-black uppercase hover:text-slate-900 transition">
