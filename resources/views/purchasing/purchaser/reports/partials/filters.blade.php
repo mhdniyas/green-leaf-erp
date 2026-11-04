@@ -30,6 +30,12 @@
 
     <form method="GET" action="{{ route($routeName) }}" class="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_1.3fr_auto]">
         <input type="hidden" name="range" value="{{ $selectedRange }}">
+        @if (!empty($filters['sort']))
+            <input type="hidden" name="sort" value="{{ $filters['sort'] }}">
+        @endif
+        @if (!empty($filters['direction']))
+            <input type="hidden" name="direction" value="{{ $filters['direction'] }}">
+        @endif
         <label class="text-[10px] font-black uppercase text-slate-500">
             From
             <input type="date" name="date_from" value="{{ $filters['date_from'] }}" class="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900" @disabled($selectedRange !== 'custom')>
