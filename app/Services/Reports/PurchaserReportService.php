@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Reports;
 
+use App\Models\Product;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
@@ -58,8 +59,11 @@ class PurchaserReportService
             ->selectRaw('COUNT(DISTINCT shop_invoice_items.product_id) as distinct_products')
             ->first();
 
-        $rows = $this->sortedItemRows($aggregate, (string) ($filters['sort'] ?? 'sku'))
-            ->paginate($filters['per_page'], ['*'], 'page', $filters['page']);
+        $rows = $this->sortedItemRows(
+            $aggregate,
+            (string) ($filters['sort'] ?? 'sku'),
+            (string) ($filters['direction'] ?? 'asc')
+        )->paginate($filters['per_page'], ['*'], 'page', $filters['page']);
         $pageItems = collect($rows->items());
 
         return [
@@ -87,7 +91,11 @@ class PurchaserReportService
             ->selectRaw('COUNT(DISTINCT shop_invoice_items.product_id) as distinct_products')
             ->first();
 
-        $sortedRows = $this->sortedItemRows($aggregate, (string) ($filters['sort'] ?? 'sku'))->get();
+        $sortedRows = $this->sortedItemRows(
+            $aggregate,
+            (string) ($filters['sort'] ?? 'sku'),
+            (string) ($filters['direction'] ?? 'asc')
+        )->get();
 
         return [
             'summary' => [
@@ -260,14 +268,55 @@ class PurchaserReportService
             ->groupByRaw($unitExpression);
     }
 
-    private function sortedItemRows(Builder $query, string $sort): Builder
+    private function sortedItemRows(Builder $query, string $sort, string $direction = 'asc'): Builder
     {
-        return $sort === 'balance'
-            ? $query->orderByDesc('billed_quantity')->orderBy('product_sku')->orderBy('product_name')
-            : $query->orderByRaw("CASE WHEN product_sku IS NULL OR product_sku = '' THEN 1 ELSE 0 END")
+        $dir = strtolower($direction) === 'desc' ? 'desc' : 'asc';
+
+        return match ($sort) {
+            'product', 'name' => $query->orderBy('product_name', $dir)
+                ->orderByRaw("CASE WHEN product_sku IS NULL OR product_sku = '' THEN 1 ELSE 0 END ASC")
                 ->orderBy('product_sku')
+                ->orderBy('unit'),
+            'category' => $query->orderByRaw("CASE WHEN category_name IS NULL OR category_name = '' THEN 1 ELSE 0 END ASC")
+                ->orderBy('category_name', $dir)
                 ->orderBy('product_name')
-                ->orderBy('unit');
+                ->orderBy('unit'),
+            'unit' => $query->orderBy('unit', $dir)
+                ->orderBy('product_name')
+                ->orderBy('product_sku'),
+            'quantity', 'billed_quantity' => $query->orderBy('billed_quantity', $dir)
+                ->orderBy('product_name')
+                ->orderBy('unit'),
+            'sales', 'line_sales_amount' => $query->orderBy('line_sales_amount', $dir)
+                ->orderBy('product_name')
+                ->orderBy('unit'),
+            'shops', 'shop_count' => $query->orderBy('shop_count', $dir)
+                ->orderBy('product_name')
+                ->orderBy('unit'),
+            'invoices', 'invoice_count' => $query->orderBy('invoice_count', $dir)
+                ->orderBy('product_name')
+                ->orderBy('unit'),
+            'balance' => $query->orderBy('billed_quantity', $dir === 'asc' ? 'asc' : 'desc')
+                ->orderBy('product_sku')
+                ->orderBy('product_name'),
+            default => $this->applySkuOrder($query, $dir),
+        };
+    }
+
+    private function applySkuOrder(Builder $query, string $direction = 'asc'): Builder
+    {
+        $dir = strtolower($direction) === 'desc' ? 'desc' : 'asc';
+        $driver = $query->getConnection()->getDriverName();
+        $priority = Product::numericSkuPriorityExpression('product_sku', $driver);
+        $value = Product::numericSkuValueExpression('product_sku', $driver);
+
+        return $query
+            ->orderByRaw("CASE WHEN product_sku IS NULL OR product_sku = '' THEN 1 ELSE 0 END ASC")
+            ->orderByRaw("{$priority} ASC")
+            ->orderByRaw("{$value} {$dir}")
+            ->orderBy('product_sku', $dir)
+            ->orderBy('product_name', 'asc')
+            ->orderBy('unit', 'asc');
     }
 
     /** @param array<int, int> $categoryIds */

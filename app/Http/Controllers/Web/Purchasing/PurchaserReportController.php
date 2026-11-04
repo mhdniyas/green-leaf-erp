@@ -102,7 +102,7 @@ class PurchaserReportController extends Controller
         ]);
     }
 
-    /** @return array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int,category_ids:?array<int, int>} */
+    /** @return array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int,sort:string,direction:string,category_ids:?array<int, int>} */
     private function filters(Request $request): array
     {
         $validated = $request->validate([
@@ -114,6 +114,8 @@ class PurchaserReportController extends Controller
             'search' => ['nullable', 'string', 'max:120'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'sort' => ['nullable', 'string', Rule::in(['sku', 'product', 'name', 'category', 'unit', 'quantity', 'billed_quantity', 'sales', 'line_sales_amount', 'shops', 'shop_count', 'invoices', 'invoice_count', 'balance'])],
+            'direction' => ['nullable', 'string', Rule::in(['asc', 'desc', 'ASC', 'DESC'])],
         ]);
 
         $range = (string) ($validated['range'] ?? 'today');
@@ -131,6 +133,8 @@ class PurchaserReportController extends Controller
             'search' => trim((string) ($validated['search'] ?? '')),
             'page' => (int) ($validated['page'] ?? 1),
             'per_page' => (int) ($validated['per_page'] ?? 25),
+            'sort' => (string) ($validated['sort'] ?? 'sku'),
+            'direction' => strtolower((string) ($validated['direction'] ?? 'asc')),
             'category_ids' => $request->user()?->hasAssignedCategoryFilter()
                 ? $request->user()->assignedCategoryIds()
                 : null,
@@ -230,11 +234,12 @@ class PurchaserReportController extends Controller
             ['Item Summary'],
             ['Products', $summary['distinct_products'], 'Product Units', $summary['product_unit_rows'], 'Invoice Lines', $summary['invoice_lines']],
             [],
-            ['Product', 'SKU', 'Category', 'Unit', 'Quantity', 'Sales', 'Invoice Lines', 'Invoices', 'Shops'],
+            ['SL', 'Product', 'SKU', 'Category', 'Unit', 'Quantity', 'Sales', 'Invoice Lines', 'Invoices', 'Shops'],
         ];
 
-        foreach ($report['items'] as $item) {
+        foreach ($report['items'] as $index => $item) {
             $rows[] = [
+                $index + 1,
                 $item['product_name'],
                 $item['product_sku'] ?? '',
                 $item['category_name'] ?? 'Uncategorized',

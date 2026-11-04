@@ -30,7 +30,8 @@ class PurchaserReportRequest extends FormRequest
             'search' => ['nullable', 'string', 'max:120'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-            'sort' => ['nullable', Rule::in(['sku', 'balance'])],
+            'sort' => ['nullable', Rule::in(['sku', 'balance', 'product', 'name', 'category', 'unit', 'quantity', 'billed_quantity', 'sales', 'line_sales_amount', 'shops', 'shop_count', 'invoices', 'invoice_count'])],
+            'direction' => ['nullable', Rule::in(['asc', 'desc', 'ASC', 'DESC'])],
         ];
     }
 

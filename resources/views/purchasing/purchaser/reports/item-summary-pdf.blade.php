@@ -28,10 +28,11 @@
     </div>
 
     <table>
-        <thead><tr><th>Product</th><th>SKU</th><th>Category</th><th>Unit</th><th class="num">Quantity</th><th class="num">Sales</th><th class="num">Invoices</th><th class="num">Shops</th></tr></thead>
+        <thead><tr><th style="width: 32px; text-align: center;">SL</th><th>Product</th><th>SKU</th><th>Category</th><th>Unit</th><th class="num">Quantity</th><th class="num">Sales</th><th class="num">Invoices</th><th class="num">Shops</th></tr></thead>
         <tbody>
             @foreach ($report['items'] as $item)
                 <tr>
+                    <td style="text-align: center;">{{ $loop->iteration }}</td>
                     <td>{{ $item['product_name'] }}</td>
                     <td>{{ $item['product_sku'] ?? '' }}</td>
                     <td>{{ $item['category_name'] ?? 'Uncategorized' }}</td>
