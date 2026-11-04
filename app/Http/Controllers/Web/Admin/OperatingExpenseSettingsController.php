@@ -62,7 +62,8 @@ class OperatingExpenseSettingsController extends Controller
 
         return redirect()
             ->route('admin.company-settings.edit', [
-                'tab' => 'operating-expenses',
+                'tab' => 'purchaser',
+                'subtab' => 'operating-expenses',
                 'category_id' => $category->id,
             ])
             ->with('success', "Operating expense category '{$category->name}' created successfully.");
@@ -109,7 +110,8 @@ class OperatingExpenseSettingsController extends Controller
 
         return redirect()
             ->route('admin.company-settings.edit', [
-                'tab' => 'operating-expenses',
+                'tab' => 'purchaser',
+                'subtab' => 'operating-expenses',
                 'category_id' => $category->id,
             ])
             ->with('success', "Category '{$category->name}' updated successfully.");
@@ -127,7 +129,8 @@ class OperatingExpenseSettingsController extends Controller
 
         return redirect()
             ->route('admin.company-settings.edit', [
-                'tab' => 'operating-expenses',
+                'tab' => 'purchaser',
+                'subtab' => 'operating-expenses',
                 'category_id' => $category->id,
             ])
             ->with('success', "Category '{$category->name}' {$statusLabel} successfully.");
@@ -157,7 +160,10 @@ class OperatingExpenseSettingsController extends Controller
         });
 
         return redirect()
-            ->route('admin.company-settings.edit', ['tab' => 'operating-expenses'])
+            ->route('admin.company-settings.edit', [
+                'tab' => 'purchaser',
+                'subtab' => 'operating-expenses',
+            ])
             ->with('success', "Category '{$categoryName}' deleted successfully.");
     }
 
@@ -192,7 +198,8 @@ class OperatingExpenseSettingsController extends Controller
 
         return redirect()
             ->route('admin.company-settings.edit', [
-                'tab' => 'operating-expenses',
+                'tab' => 'purchaser',
+                'subtab' => 'operating-expenses',
                 'category_id' => $category->id,
             ])
             ->with('success', "Location '{$validated['name']}' added to {$category->name}.");
@@ -246,7 +253,8 @@ class OperatingExpenseSettingsController extends Controller
 
         return redirect()
             ->route('admin.company-settings.edit', [
-                'tab' => 'operating-expenses',
+                'tab' => 'purchaser',
+                'subtab' => 'operating-expenses',
                 'category_id' => $subCategory->procurement_expense_category_id,
             ])
             ->with('success', "Location '{$subCategory->name}' updated successfully.");
@@ -277,7 +285,8 @@ class OperatingExpenseSettingsController extends Controller
 
         return redirect()
             ->route('admin.company-settings.edit', [
-                'tab' => 'operating-expenses',
+                'tab' => 'purchaser',
+                'subtab' => 'operating-expenses',
                 'category_id' => $subCategory->procurement_expense_category_id,
             ])
             ->with('success', "Location '{$subCategory->name}' {$statusLabel} successfully.");
@@ -319,7 +328,8 @@ class OperatingExpenseSettingsController extends Controller
 
         return redirect()
             ->route('admin.company-settings.edit', [
-                'tab' => 'operating-expenses',
+                'tab' => 'purchaser',
+                'subtab' => 'operating-expenses',
                 'category_id' => $categoryId,
             ])
             ->with('success', "Location '{$locationName}' deleted successfully.");

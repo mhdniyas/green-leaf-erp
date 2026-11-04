@@ -49,6 +49,8 @@ final class DailySellingPriceGradeASafetyPhase1Test extends TestCase
     {
         parent::setUp();
 
+        Carbon::setTestNow('2026-10-21 08:30:00');
+
         $this->seed(RolePermissionSeeder::class);
 
         Role::findOrCreate('admin', 'web');
@@ -104,6 +106,12 @@ final class DailySellingPriceGradeASafetyPhase1Test extends TestCase
         ]);
 
         $this->approvedDailyPriceResolver = app(ApprovedDailyPriceResolver::class);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     /**
@@ -691,7 +699,7 @@ final class DailySellingPriceGradeASafetyPhase1Test extends TestCase
      */
     public function test_12_invoice_repricing_respects_quality_grades(): void
     {
-        Carbon::setTestNow('2026-10-21 10:00:00');
+        Carbon::setTestNow('2026-10-21 08:30:00');
 
         $product = Product::factory()->create([
             'category_id' => $this->category->id,
@@ -770,8 +778,6 @@ final class DailySellingPriceGradeASafetyPhase1Test extends TestCase
         $this->assertEquals(120.00, (float) $itemA->fresh()->unit_price);
         // Item B MUST remain 85.00 (not overwritten with Grade A price 120.00)
         $this->assertEquals(85.00, (float) $itemB->fresh()->unit_price);
-
-        Carbon::setTestNow();
     }
 
     /**

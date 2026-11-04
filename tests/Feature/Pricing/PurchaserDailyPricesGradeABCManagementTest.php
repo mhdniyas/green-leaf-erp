@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Services\Pricing\GradeSellingPriceService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -35,6 +36,8 @@ final class PurchaserDailyPricesGradeABCManagementTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        Carbon::setTestNow('2026-10-21 08:30:00');
 
         $this->seed(RolePermissionSeeder::class);
 
@@ -60,9 +63,16 @@ final class PurchaserDailyPricesGradeABCManagementTest extends TestCase
             'name' => 'Shop A',
             'shop_price_group_id' => $this->groupA->id,
             'status' => 'active',
+            'allowed_product_grades' => ['allowed' => ['A', 'B', 'C']],
         ]);
 
         $this->gradePriceService = app(GradeSellingPriceService::class);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     /**

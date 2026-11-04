@@ -33,10 +33,9 @@
                 <div class="flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-2" role="tablist" aria-label="Company settings sections">
                     <button type="button" data-settings-tab="company" role="tab" aria-selected="true" class="settings-tab shrink-0 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-black text-white">Company</button>
                     <button type="button" data-settings-tab="operations" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Operations</button>
-                    <button type="button" data-settings-tab="purchaser-business-day" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Purchaser Business Day</button>
+                    <button type="button" data-settings-tab="purchaser" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Purchaser</button>
                     <button type="button" data-settings-tab="warehouse-sales" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Warehouse Sales</button>
                     <button type="button" data-settings-tab="auto-load" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Auto Load All</button>
-                    <button type="button" data-settings-tab="operating-expenses" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Operating Expense Settings</button>
                     <button type="button" data-settings-tab="history" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Trigger History</button>
                 </div>
 
@@ -44,7 +43,8 @@
                     <form method="POST" action="{{ route('admin.company-settings.update') }}" id="company-settings-form">
                         @csrf
                         @method('PATCH')
-                        <input type="hidden" name="active_tab" id="settings-active-tab" value="{{ request('tab', 'company') }}">
+                        <input type="hidden" name="active_tab" id="settings-active-tab" value="{{ $activeTab ?? request('tab', 'company') }}">
+                        <input type="hidden" name="active_subtab" id="settings-active-subtab" value="{{ $activeSubtab ?? request('subtab', 'daily-prices') }}">
                     <section data-settings-panel="company" role="tabpanel" class="settings-panel grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
                         <div class="grid gap-4">
                             <div>
@@ -93,23 +93,206 @@
                         </aside>
                     </section>
 
-                    <section data-settings-panel="operations" role="tabpanel" class="settings-panel hidden max-w-3xl space-y-4">
+                    {{-- Dedicated Purchaser Section --}}
+                    <section data-settings-panel="purchaser" role="tabpanel" class="settings-panel hidden max-w-4xl space-y-6">
                         <div>
-                        <label for="default_purchaser_user_id" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Default Purchaser Account</label>
-                        <select id="default_purchaser_user_id" name="default_purchaser_user_id" class="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
-                            <option value="">Select default purchaser</option>
-                            @foreach($purchaserUsers as $purchaserUser)
-                                <option value="{{ $purchaserUser->id }}" @selected((int) old('default_purchaser_user_id', $companyDetails['default_purchaser_user_id'] ?? 0) === (int) $purchaserUser->id)>
-                                    {{ $purchaserUser->name }} ({{ $purchaserUser->email }})
-                                </option>
-                            @endforeach
-                        </select>
-                        <p class="mt-1 text-xs font-semibold text-slate-500">Used as fallback account for purchaser ledger reports and company purchase ownership flows.</p>
-                        @error('default_purchaser_user_id')
-                            <p class="mt-1 text-xs font-bold text-rose-600">{{ $message }}</p>
-                        @enderror
+                            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-teal-600">Purchaser Settings &amp; Operations</p>
+                            <p class="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
+                                Configure daily price cutoff rules, grade selling price defaults, default purchaser account, daily submission verification, and operating expenses.
+                            </p>
                         </div>
 
+                        {{-- Purchaser Internal Subtabs --}}
+                        <div class="flex gap-1.5 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-100 p-1.5" role="tablist" aria-label="Purchaser settings sub-sections">
+                            <button type="button" data-purchaser-subtab="daily-prices" role="tab" aria-selected="true" class="purchaser-subtab shrink-0 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white shadow-xs">Daily Price Settings</button>
+                            <button type="button" data-purchaser-subtab="operations" role="tab" aria-selected="false" class="purchaser-subtab shrink-0 rounded-xl px-4 py-2 text-xs font-black text-slate-600 hover:text-slate-900 transition hover:bg-white/60">Purchaser Operations</button>
+                            <button type="button" data-purchaser-subtab="operating-expenses" role="tab" aria-selected="false" class="purchaser-subtab shrink-0 rounded-xl px-4 py-2 text-xs font-black text-slate-600 hover:text-slate-900 transition hover:bg-white/60">Operating Expense Settings</button>
+                        </div>
+
+                        {{-- Subpanel 1: Daily Price Settings --}}
+                        <div data-purchaser-subpanel="daily-prices" class="space-y-5">
+                            {{-- Daily Price Cutoff Time Setting --}}
+                            <div class="rounded-2xl border border-teal-200 bg-teal-50/60 p-4 sm:p-5 space-y-3">
+                                <div>
+                                    <label for="daily_price_cutoff_time" class="text-[11px] font-black uppercase tracking-[0.16em] text-teal-900">
+                                        Daily Price Update Cutoff Time
+                                    </label>
+                                    <p class="mt-1 text-xs font-semibold leading-5 text-slate-600">
+                                        Purchasers can update daily prices before this time. After the cutoff, only administrators can update prices.
+                                    </p>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-3">
+                                    <input
+                                        id="daily_price_cutoff_time"
+                                        type="time"
+                                        name="daily_price_cutoff_time"
+                                        value="{{ old('daily_price_cutoff_time', $companyDetails['daily_price_cutoff_time']) }}"
+                                        class="h-11 w-48 rounded-xl border border-teal-300 bg-white px-3 text-sm font-bold text-slate-900 focus:border-teal-600 focus:outline-none cursor-pointer"
+                                    >
+                                    <span class="inline-flex items-center gap-1.5 rounded-lg bg-teal-100/80 px-2.5 py-1 text-xs font-bold text-teal-800">
+                                        <svg class="h-3.5 w-3.5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                        </svg>
+                                        Asia/Kolkata (Default: 09:00 AM) · Current: {{ $companyDetails['daily_price_cutoff_time_label'] ?? '09:00 AM' }}
+                                    </span>
+                                </div>
+                                @error('daily_price_cutoff_time')
+                                    <p class="text-xs font-bold text-rose-600">{{ $message }}</p>
+                                @enderror
+                            </div>
+
+                            {{-- Grade Selling Price Default Percentages --}}
+                            <div class="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5 space-y-3">
+                                <div>
+                                    <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-800">
+                                        Grade Selling Price Default Percentages (Customer Group A)
+                                    </p>
+                                    <p class="mt-1 text-xs font-semibold text-slate-500">
+                                        Auto-calculated selling price percentage applied to Grade A prices when purchasers manage daily prices.
+                                    </p>
+                                </div>
+                                <div class="grid gap-4 sm:grid-cols-2">
+                                    <div>
+                                        <label for="grade_b_default_percentage" class="text-xs font-bold text-slate-700">
+                                            Grade B Default Percentage (%)
+                                        </label>
+                                        <div class="relative mt-1">
+                                            <input
+                                                id="grade_b_default_percentage"
+                                                type="number"
+                                                step="0.1"
+                                                min="1"
+                                                max="200"
+                                                name="grade_b_default_percentage"
+                                                value="{{ old('grade_b_default_percentage', $companyDetails['grade_b_default_percentage']) }}"
+                                                class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pr-8 text-sm font-bold text-slate-900 focus:border-teal-500 focus:outline-none"
+                                            >
+                                            <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-black text-slate-400">%</span>
+                                        </div>
+                                        <p class="mt-1 text-[11px] text-slate-400 font-semibold">Standard default: 90% of Grade A</p>
+                                        @error('grade_b_default_percentage')
+                                            <p class="mt-1 text-xs font-bold text-rose-600">{{ $message }}</p>
+                                        @enderror
+                                    </div>
+                                    <div>
+                                        <label for="grade_c_default_percentage" class="text-xs font-bold text-slate-700">
+                                            Grade C Default Percentage (%)
+                                        </label>
+                                        <div class="relative mt-1">
+                                            <input
+                                                id="grade_c_default_percentage"
+                                                type="number"
+                                                step="0.1"
+                                                min="1"
+                                                max="200"
+                                                name="grade_c_default_percentage"
+                                                value="{{ old('grade_c_default_percentage', $companyDetails['grade_c_default_percentage']) }}"
+                                                class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pr-8 text-sm font-bold text-slate-900 focus:border-teal-500 focus:outline-none"
+                                            >
+                                            <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-black text-slate-400">%</span>
+                                        </div>
+                                        <p class="mt-1 text-[11px] text-slate-400 font-semibold">Standard default: 80% of Grade A</p>
+                                        @error('grade_c_default_percentage')
+                                            <p class="mt-1 text-xs font-bold text-rose-600">{{ $message }}</p>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div>
+
+                            {{-- Allow Historical Invoice Repricing --}}
+                            <div class="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+                                <label class="flex cursor-pointer items-start gap-3">
+                                    <input type="hidden" name="allow_historical_invoice_repricing" value="0">
+                                    <input type="checkbox" name="allow_historical_invoice_repricing" value="1" {{ old('allow_historical_invoice_repricing', $companyDetails['allow_historical_invoice_repricing']) ? 'checked' : '' }} class="mt-1 h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500">
+                                    <span>
+                                        <span class="block text-sm font-black text-slate-900">Allow historical invoice repricing</span>
+                                        <span class="mt-1 block text-xs font-semibold leading-5 text-slate-600">When enabled, unlocked invoices from past business dates can be repriced. Finalized invoices stay frozen.</span>
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+
+                        {{-- Subpanel 2: Purchaser Operations --}}
+                        <div data-purchaser-subpanel="operations" class="space-y-5 hidden">
+                            {{-- Default Purchaser Account --}}
+                            <div class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 space-y-2">
+                                <label for="default_purchaser_user_id" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-700">Default Purchaser Account</label>
+                                <select id="default_purchaser_user_id" name="default_purchaser_user_id" class="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+                                    <option value="">Select default purchaser</option>
+                                    @foreach($purchaserUsers as $purchaserUser)
+                                        <option value="{{ $purchaserUser->id }}" @selected((int) old('default_purchaser_user_id', $companyDetails['default_purchaser_user_id'] ?? 0) === (int) $purchaserUser->id)>
+                                            {{ $purchaserUser->name }} ({{ $purchaserUser->email }})
+                                        </option>
+                                    @endforeach
+                                </select>
+                                <p class="text-xs font-semibold text-slate-500">Used as fallback account for purchaser ledger reports and company purchase ownership flows.</p>
+                                @error('default_purchaser_user_id')
+                                    <p class="text-xs font-bold text-rose-600">{{ $message }}</p>
+                                @enderror
+                            </div>
+
+                            {{-- Purchaser Business Day Verification --}}
+                            <div class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 space-y-4 shadow-xs">
+                                <div>
+                                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-teal-600">Purchaser Business Day Verification</p>
+                                    <p class="mt-1 text-xs font-semibold text-slate-500">Configure global purchaser business day verification and daily submission settings across purchasing operations.</p>
+                                </div>
+                                <div class="grid gap-4 sm:grid-cols-2">
+                                    <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-4">
+                                        <label class="flex cursor-pointer items-start gap-3">
+                                            <input type="hidden" name="purchaser_business_day_verification_enabled" value="0">
+                                            <input
+                                                type="checkbox"
+                                                name="purchaser_business_day_verification_enabled"
+                                                value="1"
+                                                {{ old('purchaser_business_day_verification_enabled', $purchaserBusinessDayGlobalSettings['verification_enabled']) ? 'checked' : '' }}
+                                                class="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                            >
+                                            <span>
+                                                <span class="block text-sm font-black text-slate-900">Verification Enabled</span>
+                                                <span class="mt-1 block text-xs font-semibold leading-5 text-slate-500">Enable purchaser daily business day verification and coverage tracking across all warehouses.</span>
+                                            </span>
+                                        </label>
+                                    </div>
+                                    <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-4">
+                                        <label class="flex cursor-pointer items-start gap-3">
+                                            <input type="hidden" name="purchaser_business_day_require_daily_submission" value="0">
+                                            <input
+                                                type="checkbox"
+                                                name="purchaser_business_day_require_daily_submission"
+                                                value="1"
+                                                {{ old('purchaser_business_day_require_daily_submission', $purchaserBusinessDayGlobalSettings['require_daily_submission']) ? 'checked' : '' }}
+                                                class="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                            >
+                                            <span>
+                                                <span class="block text-sm font-black text-slate-900">Require Daily Submission</span>
+                                                <span class="mt-1 block text-xs font-semibold leading-5 text-slate-500">Require purchasers to verify and freeze daily receipts &amp; bills before cutoff.</span>
+                                            </span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {{-- Purchaser User Preferences Link Card --}}
+                            <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <div>
+                                    <p class="text-sm font-black text-slate-900">Individual Purchaser User Preferences</p>
+                                    <p class="mt-0.5 text-xs font-semibold text-slate-500">Category assignments and vendor visibility rules are configured per purchaser user account.</p>
+                                </div>
+                                <a href="{{ route('purchaser.settings') }}" class="inline-flex h-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-black text-slate-700 transition hover:bg-slate-50 shadow-2xs">
+                                    Open Purchaser Preferences &rarr;
+                                </a>
+                            </div>
+                        </div>
+
+                        {{-- Subpanel 3: Operating Expenses --}}
+                        <div data-purchaser-subpanel="operating-expenses" class="hidden">
+                            @include('admin.company-settings.partials.operating_expenses')
+                        </div>
+                    </section>
+
+                    {{-- General Operations Panel --}}
+                    <section data-settings-panel="operations" role="tabpanel" class="settings-panel hidden max-w-3xl space-y-4">
                         <div>
                         <label for="default_direct_sale_shop_id" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Default Direct Sale Shop</label>
                         <select id="default_direct_sale_shop_id" name="default_direct_sale_shop_id" class="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
@@ -148,74 +331,6 @@
                             @enderror
                         </div>
 
-                        <div class="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 space-y-3">
-                            <div>
-                                <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-800">
-                                    Grade Selling Price Default Percentages (Customer Group A)
-                                </p>
-                                <p class="mt-1 text-xs font-semibold text-slate-500">
-                                    Auto-calculated selling price percentage applied to Grade A prices when purchasers manage daily prices.
-                                </p>
-                            </div>
-                            <div class="grid gap-4 sm:grid-cols-2">
-                                <div>
-                                    <label for="grade_b_default_percentage" class="text-xs font-bold text-slate-700">
-                                        Grade B Default Percentage (%)
-                                    </label>
-                                    <div class="relative mt-1">
-                                        <input
-                                            id="grade_b_default_percentage"
-                                            type="number"
-                                            step="0.1"
-                                            min="1"
-                                            max="200"
-                                            name="grade_b_default_percentage"
-                                            value="{{ old('grade_b_default_percentage', $companyDetails['grade_b_default_percentage']) }}"
-                                            class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pr-8 text-sm font-bold text-slate-900 focus:border-teal-500 focus:outline-none"
-                                        >
-                                        <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-black text-slate-400">%</span>
-                                    </div>
-                                    <p class="mt-1 text-[11px] text-slate-400 font-semibold">Standard default: 90% of Grade A</p>
-                                    @error('grade_b_default_percentage')
-                                        <p class="mt-1 text-xs font-bold text-rose-600">{{ $message }}</p>
-                                    @enderror
-                                </div>
-                                <div>
-                                    <label for="grade_c_default_percentage" class="text-xs font-bold text-slate-700">
-                                        Grade C Default Percentage (%)
-                                    </label>
-                                    <div class="relative mt-1">
-                                        <input
-                                            id="grade_c_default_percentage"
-                                            type="number"
-                                            step="0.1"
-                                            min="1"
-                                            max="200"
-                                            name="grade_c_default_percentage"
-                                            value="{{ old('grade_c_default_percentage', $companyDetails['grade_c_default_percentage']) }}"
-                                            class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pr-8 text-sm font-bold text-slate-900 focus:border-teal-500 focus:outline-none"
-                                        >
-                                        <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-black text-slate-400">%</span>
-                                    </div>
-                                    <p class="mt-1 text-[11px] text-slate-400 font-semibold">Standard default: 80% of Grade A</p>
-                                    @error('grade_c_default_percentage')
-                                        <p class="mt-1 text-xs font-bold text-rose-600">{{ $message }}</p>
-                                    @enderror
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
-                        <label class="flex cursor-pointer items-start gap-3">
-                            <input type="hidden" name="allow_historical_invoice_repricing" value="0">
-                            <input type="checkbox" name="allow_historical_invoice_repricing" value="1" {{ old('allow_historical_invoice_repricing', $companyDetails['allow_historical_invoice_repricing']) ? 'checked' : '' }} class="mt-1 h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500">
-                            <span>
-                                <span class="block text-sm font-black text-slate-900">Allow historical invoice repricing</span>
-                                <span class="mt-1 block text-xs font-semibold leading-5 text-slate-600">When enabled, unlocked invoices from past business dates can be repriced. Finalized invoices stay frozen.</span>
-                            </span>
-                        </label>
-                        </div>
-
                         <div class="rounded-2xl border border-purple-200 bg-purple-50/70 p-4 sm:p-5">
                             <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                 <label class="flex cursor-pointer items-start gap-3 flex-1">
@@ -238,55 +353,6 @@
                                 <span class="inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-black {{ $companyDetails['enable_multi_grade_ordering'] ? 'bg-purple-100 text-purple-800 border border-purple-300' : 'bg-slate-100 text-slate-600 border border-slate-200' }}">
                                     {{ $companyDetails['enable_multi_grade_ordering'] ? 'Active (ON)' : 'Disabled (OFF)' }}
                                 </span>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section data-settings-panel="purchaser-business-day" role="tabpanel" class="settings-panel hidden max-w-4xl space-y-6">
-                        <div>
-                            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-teal-600">Purchaser Business Day Verification</p>
-                            <p class="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
-                                Configure global purchaser business day verification and daily submission settings across purchasing operations.
-                            </p>
-                        </div>
-
-                        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-5">
-                            <div class="grid gap-5 sm:grid-cols-2">
-                                <!-- Global Verification Enabled -->
-                                <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-4">
-                                    <label class="flex cursor-pointer items-start gap-3">
-                                        <input type="hidden" name="purchaser_business_day_verification_enabled" value="0">
-                                        <input
-                                            type="checkbox"
-                                            name="purchaser_business_day_verification_enabled"
-                                            value="1"
-                                            {{ old('purchaser_business_day_verification_enabled', $purchaserBusinessDayGlobalSettings['verification_enabled']) ? 'checked' : '' }}
-                                            class="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-                                        >
-                                        <span>
-                                            <span class="block text-sm font-black text-slate-900">Verification Enabled</span>
-                                            <span class="mt-1 block text-xs font-semibold leading-5 text-slate-500">Enable purchaser daily business day verification and coverage tracking across all warehouses.</span>
-                                        </span>
-                                    </label>
-                                </div>
-
-                                <!-- Global Require Daily Submission -->
-                                <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-4">
-                                    <label class="flex cursor-pointer items-start gap-3">
-                                        <input type="hidden" name="purchaser_business_day_require_daily_submission" value="0">
-                                        <input
-                                            type="checkbox"
-                                            name="purchaser_business_day_require_daily_submission"
-                                            value="1"
-                                            {{ old('purchaser_business_day_require_daily_submission', $purchaserBusinessDayGlobalSettings['require_daily_submission']) ? 'checked' : '' }}
-                                            class="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-                                        >
-                                        <span>
-                                            <span class="block text-sm font-black text-slate-900">Require Daily Submission</span>
-                                            <span class="mt-1 block text-xs font-semibold leading-5 text-slate-500">Require purchasers to verify and freeze daily receipts &amp; bills before cutoff.</span>
-                                        </span>
-                                    </label>
-                                </div>
                             </div>
                         </div>
                     </section>
@@ -545,17 +611,27 @@
                     </div>
                 </section>
 
-                @include('admin.company-settings.partials.operating_expenses')
             </div>
         </section>
     </div>
 
     <script>
         const activeTabInput = document.getElementById('settings-active-tab');
+        const activeSubtabInput = document.getElementById('settings-active-subtab');
         const urlParams = new URLSearchParams(window.location.search);
-        const initialTab = urlParams.get('tab') || window.location.hash.replace('#', '') || (activeTabInput ? activeTabInput.value : 'company');
+        let initialTab = urlParams.get('tab') || window.location.hash.replace('#', '') || (activeTabInput ? activeTabInput.value : 'company');
+        let initialSubtab = urlParams.get('subtab') || (activeSubtabInput ? activeSubtabInput.value : 'daily-prices');
 
-        function activateTab(selectedTab) {
+        function activateTab(selectedTab, selectedSubtab) {
+            // Backward compatibility aliases
+            if (selectedTab === 'operating-expenses') {
+                selectedTab = 'purchaser';
+                selectedSubtab = 'operating-expenses';
+            } else if (selectedTab === 'purchaser-business-day') {
+                selectedTab = 'purchaser';
+                selectedSubtab = 'operations';
+            }
+
             document.querySelectorAll('.settings-tab').forEach((item) => {
                 const isSelected = item.dataset.settingsTab === selectedTab;
                 item.setAttribute('aria-selected', String(isSelected));
@@ -568,9 +644,11 @@
                 panel.classList.toggle('hidden', panel.dataset.settingsPanel !== selectedTab);
             });
 
-            const saveBar = document.getElementById('company-settings-save-bar');
-            if (saveBar) {
-                saveBar.classList.toggle('hidden', selectedTab === 'operating-expenses' || selectedTab === 'history');
+            if (selectedTab === 'purchaser') {
+                const subtabToActivate = selectedSubtab || (activeSubtabInput && activeSubtabInput.value ? activeSubtabInput.value : 'daily-prices');
+                activatePurchaserSubtab(subtabToActivate);
+            } else {
+                updateSaveBarVisibility(selectedTab, null);
             }
 
             if (activeTabInput) {
@@ -578,14 +656,46 @@
             }
         }
 
+        function activatePurchaserSubtab(selectedSubtab) {
+            document.querySelectorAll('.purchaser-subtab').forEach((item) => {
+                const isSelected = item.dataset.purchaserSubtab === selectedSubtab;
+                item.setAttribute('aria-selected', String(isSelected));
+                item.className = isSelected
+                    ? 'purchaser-subtab shrink-0 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white shadow-xs'
+                    : 'purchaser-subtab shrink-0 rounded-xl px-4 py-2 text-xs font-black text-slate-600 hover:text-slate-900 transition hover:bg-white/60';
+            });
+
+            document.querySelectorAll('[data-purchaser-subpanel]').forEach((panel) => {
+                panel.classList.toggle('hidden', panel.dataset.purchaserSubpanel !== selectedSubtab);
+            });
+
+            if (activeSubtabInput) {
+                activeSubtabInput.value = selectedSubtab;
+            }
+
+            updateSaveBarVisibility('purchaser', selectedSubtab);
+        }
+
+        function updateSaveBarVisibility(tab, subtab) {
+            const saveBar = document.getElementById('company-settings-save-bar');
+            if (saveBar) {
+                const isOperatingExpenses = (tab === 'purchaser' && subtab === 'operating-expenses') || tab === 'operating-expenses';
+                saveBar.classList.toggle('hidden', isOperatingExpenses || tab === 'history');
+            }
+        }
+
         document.querySelectorAll('.settings-tab').forEach((tab) => {
             tab.addEventListener('click', () => {
-                activateTab(tab.dataset.settingsTab);
+                activateTab(tab.dataset.settingsTab, null);
             });
         });
 
-        if (initialTab && initialTab !== 'company') {
-            activateTab(initialTab);
-        }
+        document.querySelectorAll('.purchaser-subtab').forEach((subtab) => {
+            subtab.addEventListener('click', () => {
+                activatePurchaserSubtab(subtab.dataset.purchaserSubtab);
+            });
+        });
+
+        activateTab(initialTab, initialSubtab);
     </script>
 </x-layouts.admin>

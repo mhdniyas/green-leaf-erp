@@ -21,6 +21,7 @@ use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
+use App\Models\User;
 use App\Models\Warehouse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -31,6 +32,10 @@ use Illuminate\Validation\ValidationException;
 class PurchaserBusinessDayService
 {
     private const CUTOFF_SETTING_KEY = 'business_day_cutoff_time';
+
+    public const DAILY_PRICE_CUTOFF_SETTING_KEY = 'daily_price_cutoff_time';
+
+    public const DEFAULT_DAILY_PRICE_CUTOFF_TIME = '09:00:00';
 
     private const AUTO_APPROVE_SHOP_ORDERS_KEY = 'auto_approve_shop_orders';
 
@@ -1177,6 +1182,59 @@ class PurchaserBusinessDayService
         );
 
         $this->cachedCutoffTime = $normalizedTime;
+    }
+
+    public function dailyPriceCutoffTime(): string
+    {
+        $value = BusinessSetting::query()
+            ->where('key', self::DAILY_PRICE_CUTOFF_SETTING_KEY)
+            ->value('value');
+
+        return $value ? (strlen((string) $value) === 5 ? "{$value}:00" : (string) $value) : self::DEFAULT_DAILY_PRICE_CUTOFF_TIME;
+    }
+
+    public function dailyPriceCutoffInputValue(): string
+    {
+        return substr($this->dailyPriceCutoffTime(), 0, 5);
+    }
+
+    public function dailyPriceCutoffLabel(): string
+    {
+        return Carbon::createFromFormat('H:i:s', $this->dailyPriceCutoffTime())->format('h:i A');
+    }
+
+    public function dailyPriceCutoffStartsAt(?Carbon $moment = null): Carbon
+    {
+        $timezone = (string) config('app.timezone', 'Asia/Kolkata');
+        $moment = ($moment ?? now())->copy()->setTimezone($timezone);
+        $parts = array_pad(array_map('intval', explode(':', $this->dailyPriceCutoffTime())), 3, 0);
+
+        return $moment->copy()->startOfDay()->setTime($parts[0], $parts[1], $parts[2]);
+    }
+
+    public function isDailyPriceCutoffPassed(?Carbon $moment = null): bool
+    {
+        $timezone = (string) config('app.timezone', 'Asia/Kolkata');
+        $moment = ($moment ?? now())->copy()->setTimezone($timezone);
+
+        return $moment->gte($this->dailyPriceCutoffStartsAt($moment));
+    }
+
+    public function canUserUpdateDailyPrices(?User $user, ?Carbon $moment = null): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        if ($user->hasRole('admin') || (request() && request()->hasSession() && request()->session()->has('admin_impersonator_id'))) {
+            return true;
+        }
+
+        if (! $user->hasRole('purchaser') && ! $user->hasRole('purchase')) {
+            return false;
+        }
+
+        return ! $this->isDailyPriceCutoffPassed($moment);
     }
 
     public function autoApproveShopOrders(): bool

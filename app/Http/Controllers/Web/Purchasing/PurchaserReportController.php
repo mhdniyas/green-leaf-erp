@@ -46,6 +46,32 @@ class PurchaserReportController extends Controller
         ));
     }
 
+    public function specialPrices(Request $request): View
+    {
+        $this->authorizePurchaserAccess($request);
+
+        $filters = $this->specialPricesFilters($request);
+        $report = $this->reports->specialPricesReport($filters);
+
+        return view('purchasing.purchaser.reports.special-prices', [
+            'report' => $report,
+            'filters' => $filters,
+            'selectedRange' => $request->string('range')->toString() ?: ($request->filled('date') ? 'custom' : 'today'),
+            'shops' => Shop::query()->orderBy('name')->get(['id', 'name', 'code']),
+            'hasCategorySettings' => ($filters['category_ids'] ?? null) !== null,
+        ]);
+    }
+
+    public function specialPricesCsv(Request $request): StreamedResponse
+    {
+        $this->authorizePurchaserAccess($request);
+
+        $filters = $this->specialPricesFilters($request);
+        $rows = $this->specialPricesExportRows($this->reports->specialPricesExport($filters));
+
+        return $this->csv($rows, $this->filename('purchaser-special-prices', $filters, 'csv'));
+    }
+
     public function salesSummaryCsv(Request $request): StreamedResponse
     {
         $filters = $this->filters($request);
@@ -253,6 +279,107 @@ class PurchaserReportController extends Controller
         }
 
         return $rows;
+    }
+
+    /**
+     * @return array{date_from:string,date_to:string,shop_id:?int,status:string,search:string,page:int,per_page:int,sort:string,direction:string,operational_date:string,category_ids:?array<int, int>}
+     */
+    private function specialPricesFilters(Request $request): array
+    {
+        $validated = $request->validate([
+            'range' => ['nullable', Rule::in(['today', 'yesterday', 'week', 'month', 'custom'])],
+            'date' => ['nullable', 'date_format:Y-m-d'],
+            'date_from' => ['nullable', 'date_format:Y-m-d'],
+            'date_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:date_from'],
+            'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
+            'status' => ['nullable', Rule::in(['all', 'applied', 'not_applied', 'approved', 'draft', 'expired'])],
+            'search' => ['nullable', 'string', 'max:120'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'sort' => ['nullable', 'string', Rule::in(['product', 'name', 'sku', 'shop', 'date', 'price', 'special_price', 'status', 'updated_at'])],
+            'direction' => ['nullable', 'string', Rule::in(['asc', 'desc', 'ASC', 'DESC'])],
+        ]);
+
+        $today = $this->businessDay->operationalDate();
+        $range = (string) ($validated['range'] ?? ($request->filled('date') ? 'custom' : 'today'));
+
+        if ($request->filled('date') && ! $request->filled('date_from')) {
+            $dateParsed = Carbon::createFromFormat('Y-m-d', (string) $validated['date']);
+            $dateFrom = $dateParsed;
+            $dateTo = $dateParsed;
+        } else {
+            [$dateFrom, $dateTo] = $this->dates($range, $validated);
+        }
+
+        if ($dateFrom->diffInDays($dateTo) > 366) {
+            abort(422, 'The report period may not exceed 366 days.');
+        }
+
+        return [
+            'date_from' => $dateFrom->toDateString(),
+            'date_to' => $dateTo->toDateString(),
+            'shop_id' => isset($validated['shop_id']) ? (int) $validated['shop_id'] : null,
+            'status' => (string) ($validated['status'] ?? 'all'),
+            'search' => trim((string) ($validated['search'] ?? '')),
+            'page' => (int) ($validated['page'] ?? 1),
+            'per_page' => (int) ($validated['per_page'] ?? 25),
+            'sort' => (string) ($validated['sort'] ?? 'product'),
+            'direction' => strtolower((string) ($validated['direction'] ?? 'asc')),
+            'operational_date' => $today->toDateString(),
+            'category_ids' => $request->user()?->hasAssignedCategoryFilter()
+                ? $request->user()->assignedCategoryIds()
+                : null,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $report
+     * @return array<int, array<int, mixed>>
+     */
+    private function specialPricesExportRows(array $report): array
+    {
+        $rows = [
+            ['Special Price Report'],
+            ['Date Range', ($report['items'][0]['business_date'] ?? 'N/A')],
+            ['Total Records', count($report['items'])],
+            [],
+            ['Product', 'SKU', 'Category', 'Unit', 'Shop', 'Shop Code', 'Price Group', 'Grade', 'Normal Price', 'Special Price', 'Difference', 'Date', 'Status', 'Updated By', 'Updated At', 'Reason'],
+        ];
+
+        foreach ($report['items'] as $item) {
+            $rows[] = [
+                $item['product_name'],
+                $item['product_sku'],
+                $item['category_name'],
+                $item['price_unit'],
+                $item['shop_name'],
+                $item['shop_code'],
+                $item['price_group'],
+                $item['grade_label'],
+                $item['normal_price'] !== null ? number_format((float) $item['normal_price'], 2, '.', '') : 'N/A',
+                number_format((float) $item['special_price'], 2, '.', ''),
+                $item['difference'] !== null ? number_format((float) $item['difference'], 2, '.', '') : 'N/A',
+                $item['business_date'],
+                $item['status_label'],
+                $item['updater_name'] ?? 'N/A',
+                $item['updated_at_formatted'] ?? 'N/A',
+                $item['reason'] ?? '',
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function authorizePurchaserAccess(Request $request): void
+    {
+        abort_unless(
+            $request->user()?->hasRole('purchaser')
+            || $request->user()?->hasRole('purchase')
+            || $request->user()?->hasRole('admin')
+            || $request->user()?->can('purchaser.reports.sales.view'),
+            403,
+            'Unauthorized access.'
+        );
     }
 
     /**

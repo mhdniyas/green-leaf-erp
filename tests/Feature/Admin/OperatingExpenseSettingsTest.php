@@ -103,7 +103,8 @@ class OperatingExpenseSettingsTest extends TestCase
             ]);
 
         $response->assertRedirect(route('admin.company-settings.edit', [
-            'tab' => 'operating-expenses',
+            'tab' => 'purchaser',
+            'subtab' => 'operating-expenses',
             'category_id' => ProcurementExpenseCategory::where('key', 'equipment_rental')->value('id'),
         ]));
 

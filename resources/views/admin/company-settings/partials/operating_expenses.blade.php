@@ -1,5 +1,9 @@
 {{-- Operating Expense Settings Tab Panel --}}
-<section data-settings-panel="operating-expenses" role="tabpanel" class="settings-panel hidden space-y-8">
+<section data-purchaser-subpanel="operating-expenses" data-settings-panel="operating-expenses" role="tabpanel" class="space-y-8">
+    <div class="border-b border-slate-100 pb-3">
+        <h2 class="text-base font-black text-slate-900">Operating Expense Settings</h2>
+        <p class="text-xs font-semibold text-slate-500">Configure operating expense categories and location routes for purchasing operations.</p>
+    </div>
     {{-- Error Banner for Operating Expense Settings --}}
     @if ($errors->any())
         <div class="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-800">
@@ -89,7 +93,7 @@
                                 @endif
                             </td>
                             <td class="px-4 py-3.5 text-center">
-                                <a href="{{ route('admin.company-settings.edit', ['tab' => 'operating-expenses', 'category_id' => $category->id]) }}"
+                                <a href="{{ route('admin.company-settings.edit', ['tab' => 'purchaser', 'subtab' => 'operating-expenses', 'category_id' => $category->id]) }}"
                                    class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-black transition {{ ($selectedExpenseCategory?->id === $category->id) ? 'bg-teal-100 text-teal-800' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
                                     {{ $category->sub_categories_count }}
                                     <span class="text-[10px] text-slate-400 font-semibold">locs</span>
@@ -114,7 +118,7 @@
                             </td>
                             <td class="px-4 py-3.5 text-right">
                                 <div class="inline-flex items-center gap-1.5">
-                                    <a href="{{ route('admin.company-settings.edit', ['tab' => 'operating-expenses', 'category_id' => $category->id]) }}"
+                                    <a href="{{ route('admin.company-settings.edit', ['tab' => 'purchaser', 'subtab' => 'operating-expenses', 'category_id' => $category->id]) }}"
                                        class="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 transition hover:bg-slate-50 {{ ($selectedExpenseCategory?->id === $category->id) ? 'border-teal-500 text-teal-700 bg-teal-50/50' : '' }}">
                                         Locations
                                     </a>
@@ -174,7 +178,7 @@
                                 onchange="window.location.href = this.value"
                                 class="h-9 rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-800 focus:border-teal-500 focus:bg-white focus:outline-none">
                             @foreach ($operatingExpenseCategories as $catOption)
-                                <option value="{{ route('admin.company-settings.edit', ['tab' => 'operating-expenses', 'category_id' => $catOption->id]) }}"
+                                <option value="{{ route('admin.company-settings.edit', ['tab' => 'purchaser', 'subtab' => 'operating-expenses', 'category_id' => $catOption->id]) }}"
                                         {{ $selectedExpenseCategory->id === $catOption->id ? 'selected' : '' }}>
                                     {{ $catOption->name }} ({{ $catOption->sub_categories_count }})
                                 </option>

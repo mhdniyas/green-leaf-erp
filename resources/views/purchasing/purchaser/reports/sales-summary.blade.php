@@ -15,6 +15,7 @@
                 <a href="{{ route('purchaser.reports.sales-summary.excel', request()->query()) }}" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200">Excel</a>
                 <a href="{{ route('purchaser.reports.sales-summary.pdf', request()->query()) }}" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200">PDF</a>
                 <a href="{{ route('purchaser.reports.item-summary', request()->query()) }}" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200">Item Summary</a>
+                <a href="{{ route('purchaser.reports.special-prices', request()->query()) }}" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200">Special Prices</a>
             </div>
         </header>
 

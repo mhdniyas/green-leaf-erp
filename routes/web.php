@@ -680,6 +680,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/reports/item-summary/pdf', [PurchaserReportController::class, 'itemSummaryPdf'])
         ->middleware('can:purchaser.reports.items.view')
         ->name('purchaser.reports.item-summary.pdf');
+    Route::get('/purchaser/reports/special-prices', [PurchaserReportController::class, 'specialPrices'])
+        ->name('purchaser.reports.special-prices');
+    Route::get('/purchaser/reports/special-prices/csv', [PurchaserReportController::class, 'specialPricesCsv'])
+        ->name('purchaser.reports.special-prices.csv');
     Route::get('/purchaser/settings', [PurchaserDashboardController::class, 'settings'])->name('purchaser.settings');
     Route::post('/purchaser/settings', [PurchaserDashboardController::class, 'updateSettings'])->name('purchaser.settings.update');
     Route::post('/purchaser/carts', [PurchaserDashboardController::class, 'storeCart'])->name('purchaser.carts.store');

@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Reports;
 
+use App\Models\DailyPriceApproval;
 use App\Models\Product;
+use App\Models\ShopDailyProductPrice;
+use App\Models\ShopInvoice;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -107,6 +111,333 @@ class PurchaserReportService
                 ->map(fn (object $row): array => $this->itemRow($row))
                 ->all(),
         ];
+    }
+
+    /**
+     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int,sort:string,direction:string,operational_date:string,category_ids?:?array<int, int>}  $filters
+     * @return array<string, mixed>
+     */
+    public function specialPricesReport(array $filters): array
+    {
+        $query = $this->specialPricesBaseQuery($filters);
+        $summary = $this->specialPricesSummary($filters);
+
+        $paginator = $query->paginate($filters['per_page'], ['shop_daily_product_prices.*'], 'page', $filters['page']);
+        $rows = $this->transformSpecialPriceRows(collect($paginator->items()), $filters['operational_date']);
+
+        return [
+            'summary' => $summary,
+            'items' => $rows,
+            'paginator' => $paginator,
+            'pagination' => $this->pagination($paginator),
+        ];
+    }
+
+    /**
+     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,sort:string,direction:string,operational_date:string,category_ids?:?array<int, int>}  $filters
+     * @return array<string, mixed>
+     */
+    public function specialPricesExport(array $filters): array
+    {
+        $query = $this->specialPricesBaseQuery($filters);
+        $summary = $this->specialPricesSummary($filters);
+        $rows = $this->transformSpecialPriceRows($query->get(), $filters['operational_date']);
+
+        return [
+            'summary' => $summary,
+            'items' => $rows,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     */
+    private function specialPricesBaseQuery(array $filters): EloquentBuilder
+    {
+        $appliedSubquery = function ($exists): void {
+            $exists->selectRaw('1')
+                ->from('shop_invoices as si')
+                ->join('shop_invoice_items as sii', 'sii.shop_invoice_id', '=', 'si.id')
+                ->whereColumn('si.shop_id', 'shop_daily_product_prices.shop_id')
+                ->whereColumn('si.business_date', 'shop_daily_product_prices.business_date')
+                ->whereColumn('sii.product_id', 'shop_daily_product_prices.product_id')
+                ->where(function ($gradeQuery): void {
+                    $gradeQuery->where('sii.product_grade', 'A')
+                        ->orWhereNull('sii.product_grade');
+                })
+                ->whereRaw('ABS(sii.unit_price - shop_daily_product_prices.selling_price) < 0.005');
+        };
+
+        $query = ShopDailyProductPrice::query()
+            ->with([
+                'product.category',
+                'shop.priceGroup',
+                'createdBy',
+                'approvedBy',
+            ])
+            ->whereDate('shop_daily_product_prices.business_date', '>=', $filters['date_from'])
+            ->whereDate('shop_daily_product_prices.business_date', '<=', $filters['date_to'])
+            ->when($filters['shop_id'] !== null, fn (EloquentBuilder $q) => $q->where('shop_daily_product_prices.shop_id', $filters['shop_id']))
+            ->when(! empty($filters['category_ids']), function (EloquentBuilder $q) use ($filters): void {
+                $q->whereHas('product', fn (EloquentBuilder $pq) => $pq->whereIn('category_id', $filters['category_ids']));
+            })
+            ->when($filters['search'] !== '', function (EloquentBuilder $q) use ($filters): void {
+                $search = '%'.$filters['search'].'%';
+                $q->where(function (EloquentBuilder $sub) use ($search): void {
+                    $sub->whereHas('product', fn (EloquentBuilder $pq) => $pq->where('name', 'like', $search)->orWhere('sku', 'like', $search))
+                        ->orWhereHas('shop', fn (EloquentBuilder $sq) => $sq->where('name', 'like', $search)->orWhere('code', 'like', $search));
+                });
+            });
+
+        $operationalDate = $filters['operational_date'] ?? today()->toDateString();
+        $status = $filters['status'] ?? 'all';
+
+        match ($status) {
+            'draft' => $query->where('shop_daily_product_prices.status', 'draft'),
+            'approved' => $query->where('shop_daily_product_prices.status', 'approved'),
+            'applied' => $query->where('shop_daily_product_prices.status', 'approved')->whereExists($appliedSubquery),
+            'not_applied' => $query->where('shop_daily_product_prices.status', 'approved')->whereNotExists($appliedSubquery),
+            'expired' => $query->where('shop_daily_product_prices.status', 'approved')
+                ->where('shop_daily_product_prices.business_date', '<', $operationalDate)
+                ->whereNotExists($appliedSubquery),
+            default => null,
+        };
+
+        $sort = $filters['sort'] ?? 'product';
+        $direction = strtolower($filters['direction'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
+
+        return $this->sortSpecialPricesQuery($query, $sort, $direction);
+    }
+
+    private function sortSpecialPricesQuery(EloquentBuilder $query, string $sort, string $direction): EloquentBuilder
+    {
+        return match ($sort) {
+            'product', 'name' => $query
+                ->join('products as sort_p', 'sort_p.id', '=', 'shop_daily_product_prices.product_id')
+                ->join('shops as sort_s', 'sort_s.id', '=', 'shop_daily_product_prices.shop_id')
+                ->orderBy('sort_p.name', $direction)
+                ->orderBy('sort_s.name', 'asc')
+                ->orderByDesc('shop_daily_product_prices.business_date')
+                ->select('shop_daily_product_prices.*'),
+            'sku' => $query
+                ->join('products as sort_p', 'sort_p.id', '=', 'shop_daily_product_prices.product_id')
+                ->orderBy('sort_p.sku', $direction)
+                ->orderByDesc('shop_daily_product_prices.business_date')
+                ->select('shop_daily_product_prices.*'),
+            'shop' => $query
+                ->join('shops as sort_s', 'sort_s.id', '=', 'shop_daily_product_prices.shop_id')
+                ->join('products as sort_p', 'sort_p.id', '=', 'shop_daily_product_prices.product_id')
+                ->orderBy('sort_s.name', $direction)
+                ->orderBy('sort_p.name', 'asc')
+                ->orderByDesc('shop_daily_product_prices.business_date')
+                ->select('shop_daily_product_prices.*'),
+            'date' => $query
+                ->orderBy('shop_daily_product_prices.business_date', $direction)
+                ->orderBy('shop_daily_product_prices.product_id', 'asc'),
+            'price', 'special_price' => $query
+                ->orderBy('shop_daily_product_prices.selling_price', $direction),
+            'status' => $query
+                ->orderBy('shop_daily_product_prices.status', $direction)
+                ->orderByDesc('shop_daily_product_prices.business_date'),
+            'updated_at' => $query
+                ->orderBy('shop_daily_product_prices.updated_at', $direction),
+            default => $query
+                ->join('products as sort_p', 'sort_p.id', '=', 'shop_daily_product_prices.product_id')
+                ->join('shops as sort_s', 'sort_s.id', '=', 'shop_daily_product_prices.shop_id')
+                ->orderByDesc('shop_daily_product_prices.business_date')
+                ->orderBy('sort_p.name', 'asc')
+                ->orderBy('sort_s.name', 'asc')
+                ->select('shop_daily_product_prices.*'),
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return array<string, int>
+     */
+    private function specialPricesSummary(array $filters): array
+    {
+        $base = ShopDailyProductPrice::query()
+            ->whereDate('business_date', '>=', $filters['date_from'])
+            ->whereDate('business_date', '<=', $filters['date_to'])
+            ->when($filters['shop_id'] !== null, fn (EloquentBuilder $q) => $q->where('shop_id', $filters['shop_id']))
+            ->when(! empty($filters['category_ids']), function (EloquentBuilder $q) use ($filters): void {
+                $q->whereHas('product', fn (EloquentBuilder $pq) => $pq->whereIn('category_id', $filters['category_ids']));
+            })
+            ->when($filters['search'] !== '', function (EloquentBuilder $q) use ($filters): void {
+                $search = '%'.$filters['search'].'%';
+                $q->where(function (EloquentBuilder $sub) use ($search): void {
+                    $sub->whereHas('product', fn (EloquentBuilder $pq) => $pq->where('name', 'like', $search)->orWhere('sku', 'like', $search))
+                        ->orWhereHas('shop', fn (EloquentBuilder $sq) => $sq->where('name', 'like', $search)->orWhere('code', 'like', $search));
+                });
+            });
+
+        $appliedSubquery = function ($exists): void {
+            $exists->selectRaw('1')
+                ->from('shop_invoices as si')
+                ->join('shop_invoice_items as sii', 'sii.shop_invoice_id', '=', 'si.id')
+                ->whereColumn('si.shop_id', 'shop_daily_product_prices.shop_id')
+                ->whereColumn('si.business_date', 'shop_daily_product_prices.business_date')
+                ->whereColumn('sii.product_id', 'shop_daily_product_prices.product_id')
+                ->where(function ($gradeQuery): void {
+                    $gradeQuery->where('sii.product_grade', 'A')
+                        ->orWhereNull('sii.product_grade');
+                })
+                ->whereRaw('ABS(sii.unit_price - shop_daily_product_prices.selling_price) < 0.005');
+        };
+
+        $totalRecords = (clone $base)->count();
+        $distinctShops = (clone $base)->distinct('shop_id')->count('shop_id');
+        $distinctProducts = (clone $base)->distinct('product_id')->count('product_id');
+        $appliedCount = (clone $base)->where('status', 'approved')->whereExists($appliedSubquery)->count();
+        $draftCount = (clone $base)->where('status', 'draft')->count();
+        $approvedCount = (clone $base)->where('status', 'approved')->count();
+        $notAppliedCount = $approvedCount - $appliedCount;
+
+        return [
+            'total_records' => $totalRecords,
+            'distinct_shops' => $distinctShops,
+            'distinct_products' => $distinctProducts,
+            'applied_count' => $appliedCount,
+            'not_applied_count' => $notAppliedCount,
+            'draft_count' => $draftCount,
+            'approved_count' => $approvedCount,
+        ];
+    }
+
+    /**
+     * @param  Collection<int, ShopDailyProductPrice>  $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function transformSpecialPriceRows(Collection $items, string $operationalDate): array
+    {
+        if ($items->isEmpty()) {
+            return [];
+        }
+
+        $productIds = $items->pluck('product_id')->unique()->values();
+        $dates = $items->pluck('business_date')->map(fn ($d) => $d->format('Y-m-d'))->unique()->values();
+        $shopIds = $items->pluck('shop_id')->unique()->values();
+
+        $minDate = $dates->min();
+        $maxDate = $dates->max();
+
+        $approvals = DailyPriceApproval::query()
+            ->whereIn('product_id', $productIds)
+            ->whereDate('business_date', '>=', $minDate)
+            ->whereDate('business_date', '<=', $maxDate)
+            ->where('grade', 'A')
+            ->get()
+            ->keyBy(fn (DailyPriceApproval $a): string => $a->product_id.'|'.$a->business_date->format('Y-m-d'));
+
+        $invoices = ShopInvoice::query()
+            ->with(['items' => function ($iq) use ($productIds): void {
+                $iq->whereIn('product_id', $productIds)
+                    ->where(function ($gq): void {
+                        $gq->where('product_grade', 'A')
+                            ->orWhereNull('product_grade');
+                    });
+            }])
+            ->whereIn('shop_id', $shopIds)
+            ->whereDate('business_date', '>=', $minDate)
+            ->whereDate('business_date', '<=', $maxDate)
+            ->get()
+            ->keyBy(fn (ShopInvoice $inv): string => $inv->shop_id.'|'.$inv->business_date->format('Y-m-d'));
+
+        return $items->map(function (ShopDailyProductPrice $row) use ($approvals, $invoices, $operationalDate): array {
+            $dateString = $row->business_date->toDateString();
+            $approval = $approvals->get($row->product_id.'|'.$dateString);
+
+            $group = $row->shop?->priceGroup;
+            $groupName = strtoupper((string) ($group?->name ?? ''));
+            $priceColumn = match ($groupName) {
+                'A' => 'price_a',
+                'B' => 'price_b',
+                'C' => 'price_c',
+                default => null,
+            };
+
+            $normalPrice = null;
+            if ($approval && $priceColumn && $approval->status === 'approved' && (float) $approval->{$priceColumn} > 0) {
+                $normalPrice = round((float) $approval->{$priceColumn}, 2);
+            }
+
+            $specialPrice = round((float) $row->selling_price, 2);
+            $difference = $normalPrice !== null ? round($specialPrice - $normalPrice, 2) : null;
+
+            $invoice = $invoices->get($row->shop_id.'|'.$dateString);
+            $invoiceItem = $invoice?->items->firstWhere('product_id', $row->product_id);
+
+            $isApplied = false;
+            $isMismatch = false;
+            if ($row->status === 'approved' && $invoiceItem) {
+                if (abs((float) $invoiceItem->unit_price - $specialPrice) < 0.005) {
+                    $isApplied = true;
+                } else {
+                    $isMismatch = true;
+                }
+            }
+
+            if ($row->status === 'draft') {
+                $statusKey = 'draft';
+                $statusLabel = 'Draft';
+            } elseif ($isApplied) {
+                $statusKey = 'applied';
+                $statusLabel = 'Applied to Invoice';
+            } elseif ($isMismatch) {
+                $statusKey = 'not_applied';
+                $statusLabel = 'Not Applied (Mismatch)';
+            } elseif ($dateString < $operationalDate) {
+                $statusKey = 'expired';
+                $statusLabel = 'Expired (Unused)';
+            } else {
+                $statusKey = 'configured';
+                $statusLabel = 'Configured (Pending Bill)';
+            }
+
+            $updater = $row->approvedBy ?? $row->createdBy;
+            $updaterName = $updater?->name;
+            $updatedAt = $row->updated_at ?? $row->approved_at ?? $row->created_at;
+
+            return [
+                'id' => $row->id,
+                'business_date' => $dateString,
+                'business_date_formatted' => $row->business_date->format('d M Y'),
+                'product_id' => $row->product_id,
+                'product_name' => $row->product?->name ?? 'Unknown Product',
+                'product_sku' => $row->product?->sku ?? '—',
+                'category_name' => $row->product?->category?->name ?? 'Uncategorized',
+                'price_unit' => (string) ($row->price_unit ?: $row->product?->unit ?: 'kg'),
+                'shop_id' => $row->shop_id,
+                'shop_name' => $row->shop?->name ?? 'Unknown Shop',
+                'shop_code' => $row->shop?->code ?? '—',
+                'price_group' => $groupName !== '' ? $groupName : 'N/A',
+                'grade' => 'A',
+                'grade_label' => 'Grade A',
+                'normal_price' => $normalPrice,
+                'normal_price_formatted' => $normalPrice !== null ? '₹'.number_format($normalPrice, 2) : '—',
+                'special_price' => $specialPrice,
+                'special_price_formatted' => '₹'.number_format($specialPrice, 2),
+                'difference' => $difference,
+                'difference_formatted' => $difference !== null
+                    ? ($difference < 0 ? '-₹'.number_format(abs($difference), 2) : '+₹'.number_format($difference, 2))
+                    : '—',
+                'raw_status' => $row->status,
+                'status_key' => $statusKey,
+                'status_label' => $statusLabel,
+                'is_applied' => $isApplied,
+                'invoice_id' => $invoice?->id,
+                'invoice_number' => $invoice?->invoice_number,
+                'invoice_item_price' => $invoiceItem ? round((float) $invoiceItem->unit_price, 2) : null,
+                'updater_name' => $updaterName,
+                'updated_at' => $updatedAt,
+                'updated_at_formatted' => $updatedAt?->format('d M Y, h:i A'),
+                'approved_by_name' => $row->approvedBy?->name,
+                'approved_at' => $row->approved_at,
+                'approved_at_formatted' => $row->approved_at?->format('d M Y, h:i A'),
+                'reason' => $row->reason,
+            ];
+        })->all();
     }
 
     /**

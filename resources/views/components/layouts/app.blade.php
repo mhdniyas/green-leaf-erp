@@ -568,6 +568,9 @@
                                     Item Summary
                                 </x-nav-item>
                             @endcan
+                            <x-nav-item href="{{ route('purchaser.reports.special-prices') }}" :active="request()->routeIs('purchaser.reports.special-prices*')" :sub="true">
+                                Special Price Report
+                            </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.settings') }}" :active="request()->routeIs('purchaser.settings')" :sub="true">
                                 Settings
                             </x-nav-item>

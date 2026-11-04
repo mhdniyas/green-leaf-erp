@@ -193,4 +193,110 @@ class CompanySettingsTest extends TestCase
         $this->assertEquals('88.5', BusinessSetting::where('key', 'grade_b_default_percentage')->value('value'));
         $this->assertEquals('75', BusinessSetting::where('key', 'grade_c_default_percentage')->value('value'));
     }
+
+    public function test_company_settings_renders_purchaser_section_and_subtabs(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.company-settings.edit', ['tab' => 'purchaser', 'subtab' => 'daily-prices']));
+
+        $response->assertOk()
+            ->assertSee('Purchaser')
+            ->assertSee('Daily Price Settings')
+            ->assertSee('Purchaser Operations')
+            ->assertSee('Operating Expense Settings')
+            ->assertSee('Daily Price Update Cutoff')
+            ->assertSee('Purchasers can update daily prices before this time. After the cutoff, only administrators can update prices.')
+            ->assertSee('09:00');
+    }
+
+    public function test_daily_price_cutoff_service_defaults_and_helpers(): void
+    {
+        $service = app(PurchaserBusinessDayService::class);
+
+        $this->assertEquals('09:00:00', $service->dailyPriceCutoffTime());
+        $this->assertEquals('09:00', $service->dailyPriceCutoffInputValue());
+        $this->assertEquals('09:00 AM', $service->dailyPriceCutoffLabel());
+    }
+
+    public function test_admin_can_update_daily_price_cutoff_time_and_redirects_to_subtab(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->patch(route('admin.company-settings.update'), [
+                'active_tab' => 'purchaser',
+                'active_subtab' => 'daily-prices',
+                'daily_price_cutoff_time' => '08:30',
+            ]);
+
+        $response->assertRedirect(route('admin.company-settings.edit', [
+            'tab' => 'purchaser',
+            'subtab' => 'daily-prices',
+        ]))->assertSessionHas('success');
+
+        $this->assertEquals('08:30:00', BusinessSetting::where('key', 'daily_price_cutoff_time')->value('value'));
+
+        $service = app(PurchaserBusinessDayService::class);
+        $this->assertEquals('08:30:00', $service->dailyPriceCutoffTime());
+        $this->assertEquals('08:30', $service->dailyPriceCutoffInputValue());
+        $this->assertEquals('08:30 AM', $service->dailyPriceCutoffLabel());
+    }
+
+    public function test_daily_price_cutoff_time_validation_rejects_invalid_time(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->from(route('admin.company-settings.edit', ['tab' => 'purchaser', 'subtab' => 'daily-prices']))
+            ->patch(route('admin.company-settings.update'), [
+                'active_tab' => 'purchaser',
+                'active_subtab' => 'daily-prices',
+                'daily_price_cutoff_time' => '25:00',
+            ]);
+
+        $response->assertRedirect(route('admin.company-settings.edit', [
+            'tab' => 'purchaser',
+            'subtab' => 'daily-prices',
+        ]))->assertSessionHasErrors(['daily_price_cutoff_time']);
+
+        $this->assertNull(BusinessSetting::where('key', 'daily_price_cutoff_time')->first());
+    }
+
+    public function test_saving_one_subsection_does_not_reset_unrelated_settings(): void
+    {
+        $purchaserUser = User::factory()->create();
+        $purchaserUser->assignRole('purchaser');
+
+        BusinessSetting::updateOrCreate(['key' => 'company_name'], ['value' => 'Original Leaf Enterprise']);
+        BusinessSetting::updateOrCreate(['key' => 'default_purchaser_user_id'], ['value' => (string) $purchaserUser->id]);
+        BusinessSetting::updateOrCreate(['key' => 'grade_b_default_percentage'], ['value' => '90.00']);
+
+        $response = $this->actingAs($this->admin)
+            ->patch(route('admin.company-settings.update'), [
+                'active_tab' => 'purchaser',
+                'active_subtab' => 'daily-prices',
+                'daily_price_cutoff_time' => '10:15',
+            ]);
+
+        $response->assertSessionHasNoErrors()
+            ->assertSessionHas('success');
+
+        $this->assertEquals('Original Leaf Enterprise', BusinessSetting::where('key', 'company_name')->value('value'));
+        $this->assertEquals((string) $purchaserUser->id, BusinessSetting::where('key', 'default_purchaser_user_id')->value('value'));
+        $this->assertEquals('90.00', BusinessSetting::where('key', 'grade_b_default_percentage')->value('value'));
+        $this->assertEquals('10:15:00', BusinessSetting::where('key', 'daily_price_cutoff_time')->value('value'));
+    }
+
+    public function test_legacy_tabs_are_aliased_to_purchaser_subtabs(): void
+    {
+        $response1 = $this->actingAs($this->admin)
+            ->get(route('admin.company-settings.edit', ['tab' => 'operating-expenses']));
+
+        $response1->assertOk()
+            ->assertViewHas('activeTab', 'purchaser')
+            ->assertViewHas('activeSubtab', 'operating-expenses');
+
+        $response2 = $this->actingAs($this->admin)
+            ->get(route('admin.company-settings.edit', ['tab' => 'purchaser-business-day']));
+
+        $response2->assertOk()
+            ->assertViewHas('activeTab', 'purchaser')
+            ->assertViewHas('activeSubtab', 'operations');
+    }
 }

@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Warehouse\WarehouseSalesAccessService;
+use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -24,6 +25,7 @@ class CompanySettingsController extends Controller
         'company_address',
         'company_phone',
         'company_email',
+        'daily_price_cutoff_time',
         'allow_historical_invoice_repricing',
         'default_purchaser_user_id',
         'default_direct_sale_shop_id',
@@ -38,25 +40,43 @@ class CompanySettingsController extends Controller
         'enable_multi_grade_ordering',
         'grade_b_default_percentage',
         'grade_c_default_percentage',
+        'selling_price_default_percentage',
     ];
 
     public function __construct(
         private readonly WarehouseSalesAccessService $warehouseSalesAccessService,
     ) {}
 
-    public function edit(Request $request): View
+    public function edit(Request $request): View|RedirectResponse
     {
         $this->authorizeAdmin($request);
+
+        if ($request->input('tab') === 'selling-price') {
+            return redirect()->route('admin.selling-price.index');
+        }
 
         $settings = BusinessSetting::query()
             ->whereIn('key', self::SETTING_KEYS)
             ->pluck('value', 'key');
+
+        $rawCutoff = (string) ($settings->get('daily_price_cutoff_time') ?: PurchaserBusinessDayService::DEFAULT_DAILY_PRICE_CUTOFF_TIME);
+        $normalizedCutoff = strlen($rawCutoff) === 5 ? "{$rawCutoff}:00" : $rawCutoff;
+        try {
+            $parsedCutoff = Carbon::createFromFormat('H:i:s', $normalizedCutoff);
+            $dailyCutoffInput = $parsedCutoff->format('H:i');
+            $dailyCutoffLabel = $parsedCutoff->format('g:i A');
+        } catch (\Throwable) {
+            $dailyCutoffInput = '09:00';
+            $dailyCutoffLabel = '9:00 AM';
+        }
 
         $companyDetails = [
             'company_name' => $settings->get('company_name') ?: 'Green Leaf',
             'company_address' => $settings->get('company_address'),
             'company_phone' => $settings->get('company_phone'),
             'company_email' => $settings->get('company_email'),
+            'daily_price_cutoff_time' => $dailyCutoffInput,
+            'daily_price_cutoff_time_label' => $dailyCutoffLabel,
             'allow_historical_invoice_repricing' => filter_var($settings->get('allow_historical_invoice_repricing') ?? false, FILTER_VALIDATE_BOOLEAN),
             'default_purchaser_user_id' => ($settings->get('default_purchaser_user_id') !== null && $settings->get('default_purchaser_user_id') !== '')
                 ? (int) $settings->get('default_purchaser_user_id')
@@ -73,6 +93,13 @@ class CompanySettingsController extends Controller
             'enable_multi_grade_ordering' => filter_var($settings->get('enable_multi_grade_ordering') ?? false, FILTER_VALIDATE_BOOLEAN),
             'grade_b_default_percentage' => (float) ($settings->get('grade_b_default_percentage') ?: 90),
             'grade_c_default_percentage' => (float) ($settings->get('grade_c_default_percentage') ?: 80),
+            'selling_price_default_percentage' => (function () use ($settings): float {
+                $rawPercentage = $settings->get('selling_price_default_percentage');
+
+                return ($rawPercentage !== null && is_numeric($rawPercentage) && (float) $rawPercentage >= 0)
+                    ? (float) $rawPercentage
+                    : 25.0;
+            })(),
         ];
 
         $purchaserBusinessDayGlobalSettings = [
@@ -137,6 +164,24 @@ class CompanySettingsController extends Controller
                 ->get()
             : collect();
 
+        $tab = (string) $request->input('tab', '');
+        $subtab = (string) $request->input('subtab', '');
+
+        if ($tab === 'operating-expenses') {
+            $activeTab = 'purchaser';
+            $activeSubtab = 'operating-expenses';
+        } elseif ($tab === 'purchaser-business-day') {
+            $activeTab = 'purchaser';
+            $activeSubtab = 'operations';
+        } else {
+            $activeTab = in_array($tab, ['company', 'purchaser', 'operations', 'warehouse-sales', 'auto-load', 'history'], true)
+                ? $tab
+                : 'company';
+            $activeSubtab = in_array($subtab, ['daily-prices', 'operations', 'operating-expenses'], true)
+                ? $subtab
+                : 'daily-prices';
+        }
+
         return view('admin.company-settings.edit', compact(
             'companyDetails',
             'purchaserBusinessDayGlobalSettings',
@@ -151,7 +196,9 @@ class CompanySettingsController extends Controller
             'businessDayWarehouseSettings',
             'operatingExpenseCategories',
             'selectedExpenseCategory',
-            'selectedExpenseLocations'
+            'selectedExpenseLocations',
+            'activeTab',
+            'activeSubtab',
         ));
     }
 
@@ -160,12 +207,13 @@ class CompanySettingsController extends Controller
         $this->authorizeAdmin($request);
 
         $validated = $request->validate([
-            'company_name' => ['required', 'string', 'max:120'],
+            'company_name' => ['sometimes', 'required', 'string', 'max:120'],
             'company_address' => ['nullable', 'string', 'max:500'],
             'company_phone' => ['nullable', 'string', 'max:50'],
             'company_email' => ['nullable', 'email', 'max:120'],
+            'daily_price_cutoff_time' => ['nullable', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/'],
             'allow_historical_invoice_repricing' => ['nullable', 'boolean'],
-            'default_purchaser_user_id' => ['required', 'integer', 'exists:users,id', function (string $attribute, mixed $value, \Closure $fail): void {
+            'default_purchaser_user_id' => ['sometimes', 'required', 'integer', 'exists:users,id', function (string $attribute, mixed $value, \Closure $fail): void {
                 if (! User::query()->whereKey($value)->whereHas('roles', fn ($query) => $query->where('name', 'purchaser'))->exists()) {
                     $fail('The Company Default Purchaser must have the purchaser role.');
                 }
@@ -182,7 +230,9 @@ class CompanySettingsController extends Controller
             'enable_multi_grade_ordering' => ['nullable', 'boolean'],
             'grade_b_default_percentage' => ['nullable', 'numeric', 'min:1', 'max:200'],
             'grade_c_default_percentage' => ['nullable', 'numeric', 'min:1', 'max:200'],
-            'active_tab' => ['nullable', 'string', 'in:company,operations,purchaser-business-day,warehouse-sales,auto-load,history'],
+            'selling_price_default_percentage' => ['nullable', 'numeric', 'min:0', 'max:500'],
+            'active_tab' => ['nullable', 'string', 'in:company,purchaser,operations,purchaser-business-day,warehouse-sales,auto-load,operating-expenses,history,selling-price'],
+            'active_subtab' => ['nullable', 'string', 'in:daily-prices,operations,operating-expenses'],
             'warehouse_sales_enabled' => ['nullable', 'boolean'],
             'warehouse_sales_allowed_user_ids' => ['nullable', 'array'],
             'warehouse_sales_allowed_user_ids.*' => ['integer', 'exists:users,id'],
@@ -192,10 +242,30 @@ class CompanySettingsController extends Controller
         ]);
 
         foreach (self::SETTING_KEYS as $key) {
+            if (! $request->has($key)) {
+                continue;
+            }
+
             $value = filled($validated[$key] ?? null) ? $validated[$key] : null;
 
             if ($key === 'enable_multi_grade_ordering') {
                 $value = $request->boolean('enable_multi_grade_ordering') ? '1' : '0';
+            } elseif (in_array($key, [
+                'allow_historical_invoice_repricing',
+                'auto_load_all_enabled',
+                'auto_load_all_next_business_day',
+                'auto_load_all_delay_seconds',
+                'auto_load_all_allow_manual',
+                'purchaser_business_day_verification_enabled',
+                'purchaser_business_day_require_daily_submission',
+            ], true)) {
+                if ($key === 'auto_load_all_delay_seconds') {
+                    $value = (int) ($validated['auto_load_all_delay_seconds'] ?? 3);
+                } else {
+                    $value = $request->boolean($key) ? '1' : '0';
+                }
+            } elseif ($key === 'daily_price_cutoff_time' && $value !== null) {
+                $value = strlen((string) $value) === 5 ? "{$value}:00" : (string) $value;
             }
 
             BusinessSetting::query()->updateOrCreate(
@@ -205,55 +275,82 @@ class CompanySettingsController extends Controller
         }
 
         // Save Warehouse Sales settings
-        $enabled = (bool) ($validated['warehouse_sales_enabled'] ?? false);
-        $allowedUserIds = array_values(array_map('intval', $validated['warehouse_sales_allowed_user_ids'] ?? []));
-        $userWarehousesRaw = $validated['warehouse_sales_user_warehouses'] ?? [];
-        $userWarehouses = [];
+        if ($request->has('warehouse_sales_enabled') || $request->has('warehouse_sales_allowed_user_ids')) {
+            $enabled = (bool) ($validated['warehouse_sales_enabled'] ?? false);
+            $allowedUserIds = array_values(array_map('intval', $validated['warehouse_sales_allowed_user_ids'] ?? []));
+            $userWarehousesRaw = $validated['warehouse_sales_user_warehouses'] ?? [];
+            $userWarehouses = [];
 
-        foreach ($allowedUserIds as $uId) {
-            if (isset($userWarehousesRaw[$uId]) && is_array($userWarehousesRaw[$uId])) {
-                $userWarehouses[$uId] = array_values(array_map('intval', $userWarehousesRaw[$uId]));
-            } else {
-                $userWarehouses[$uId] = [];
+            foreach ($allowedUserIds as $uId) {
+                if (isset($userWarehousesRaw[$uId]) && is_array($userWarehousesRaw[$uId])) {
+                    $userWarehouses[$uId] = array_values(array_map('intval', $userWarehousesRaw[$uId]));
+                } else {
+                    $userWarehouses[$uId] = [];
+                }
             }
-        }
 
-        $this->warehouseSalesAccessService->updateSettings([
-            'enabled' => $enabled,
-            'allowed_user_ids' => $allowedUserIds,
-            'user_warehouses' => $userWarehouses,
-        ]);
-
-        // Save Purchaser Business Day settings
-        $businessDayService = app(PurchaserBusinessDayService::class);
-        $pbdSettingsRaw = $request->input('business_day_warehouse_settings', $request->input('purchaser_business_day_warehouse_settings', []));
-        $activeWarehouses = Warehouse::query()->active()->get();
-
-        $isGlobalEnabled = filter_var($request->input('purchaser_business_day_verification_enabled', true), FILTER_VALIDATE_BOOLEAN);
-        $isGlobalRequireSubmission = filter_var($request->input('purchaser_business_day_require_daily_submission', true), FILTER_VALIDATE_BOOLEAN);
-
-        foreach ($activeWarehouses as $wh) {
-            $whId = (int) $wh->id;
-            $whSettings = is_array($pbdSettingsRaw) && isset($pbdSettingsRaw[$whId]) && is_array($pbdSettingsRaw[$whId])
-                ? $pbdSettingsRaw[$whId]
-                : [];
-
-            $businessDayService->updateWarehouseSettings($whId, [
-                'enabled' => isset($whSettings['enabled']) ? ! empty($whSettings['enabled']) : $isGlobalEnabled,
-                'require_daily_submission' => isset($whSettings['require_daily_submission']) ? ! empty($whSettings['require_daily_submission']) : $isGlobalRequireSubmission,
-                'purchasers_can_close' => isset($whSettings['purchasers_can_close']) ? ! empty($whSettings['purchasers_can_close']) : true,
-                'purchasers_can_reopen' => isset($whSettings['purchasers_can_reopen']) ? ! empty($whSettings['purchasers_can_reopen']) : false,
-                'reopen_requires_reason' => true,
-                'allow_close_with_pending' => isset($whSettings['allow_close_with_pending']) ? ! empty($whSettings['allow_close_with_pending']) : true,
-                'require_digital_verification' => isset($whSettings['require_digital_verification']) ? ! empty($whSettings['require_digital_verification']) : false,
-                'admin_override_reopen' => isset($whSettings['admin_override_reopen']) ? ! empty($whSettings['admin_override_reopen']) : false,
+            $this->warehouseSalesAccessService->updateSettings([
+                'enabled' => $enabled,
+                'allowed_user_ids' => $allowedUserIds,
+                'user_warehouses' => $userWarehouses,
             ]);
         }
 
+        // Save Purchaser Business Day settings
+        if ($request->has('business_day_warehouse_settings') || $request->has('purchaser_business_day_warehouse_settings')) {
+            $businessDayService = app(PurchaserBusinessDayService::class);
+            $pbdSettingsRaw = $request->input('business_day_warehouse_settings', $request->input('purchaser_business_day_warehouse_settings', []));
+            $activeWarehouses = Warehouse::query()->active()->get();
+
+            $isGlobalEnabled = filter_var($request->input('purchaser_business_day_verification_enabled', true), FILTER_VALIDATE_BOOLEAN);
+            $isGlobalRequireSubmission = filter_var($request->input('purchaser_business_day_require_daily_submission', true), FILTER_VALIDATE_BOOLEAN);
+
+            foreach ($activeWarehouses as $wh) {
+                $whId = (int) $wh->id;
+                $whSettings = is_array($pbdSettingsRaw) && isset($pbdSettingsRaw[$whId]) && is_array($pbdSettingsRaw[$whId])
+                    ? $pbdSettingsRaw[$whId]
+                    : [];
+
+                $businessDayService->updateWarehouseSettings($whId, [
+                    'enabled' => isset($whSettings['enabled']) ? ! empty($whSettings['enabled']) : $isGlobalEnabled,
+                    'require_daily_submission' => isset($whSettings['require_daily_submission']) ? ! empty($whSettings['require_daily_submission']) : $isGlobalRequireSubmission,
+                    'purchasers_can_close' => isset($whSettings['purchasers_can_close']) ? ! empty($whSettings['purchasers_can_close']) : true,
+                    'purchasers_can_reopen' => isset($whSettings['purchasers_can_reopen']) ? ! empty($whSettings['purchasers_can_reopen']) : false,
+                    'reopen_requires_reason' => true,
+                    'allow_close_with_pending' => isset($whSettings['allow_close_with_pending']) ? ! empty($whSettings['allow_close_with_pending']) : true,
+                    'require_digital_verification' => isset($whSettings['require_digital_verification']) ? ! empty($whSettings['require_digital_verification']) : false,
+                    'admin_override_reopen' => isset($whSettings['admin_override_reopen']) ? ! empty($whSettings['admin_override_reopen']) : false,
+                ]);
+            }
+        }
+
         $activeTab = $request->input('active_tab');
+        $activeSubtab = $request->input('active_subtab');
+
+        if ($activeTab === 'selling-price') {
+            return redirect()
+                ->route('admin.selling-price.index')
+                ->with('success', 'Selling price settings updated successfully.');
+        }
+
+        if ($activeTab === 'operating-expenses') {
+            $activeTab = 'purchaser';
+            $activeSubtab = 'operating-expenses';
+        } elseif ($activeTab === 'purchaser-business-day') {
+            $activeTab = 'purchaser';
+            $activeSubtab = 'operations';
+        }
+
+        $redirectParams = [];
+        if ($activeTab) {
+            $redirectParams['tab'] = $activeTab;
+        }
+        if ($activeSubtab && $activeTab === 'purchaser') {
+            $redirectParams['subtab'] = $activeSubtab;
+        }
 
         return redirect()
-            ->route('admin.company-settings.edit', $activeTab ? ['tab' => $activeTab] : [])
+            ->route('admin.company-settings.edit', $redirectParams)
             ->with('success', 'Company settings updated successfully.');
     }
 

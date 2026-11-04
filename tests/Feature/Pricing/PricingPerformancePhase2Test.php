@@ -11,6 +11,7 @@ use App\Models\ShopPriceGroup;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -33,6 +34,8 @@ final class PricingPerformancePhase2Test extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        Carbon::setTestNow('2026-10-21 08:30:00');
 
         $this->seed(RolePermissionSeeder::class);
 
@@ -61,6 +64,12 @@ final class PricingPerformancePhase2Test extends TestCase
             ['code' => 'C'],
             ['name' => 'Customer Price Group C', 'description' => 'Grade C default tier', 'is_active' => true]
         );
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     public function test_purchaser_daily_prices_bounded_loading_does_not_load_unbounded_history(): void

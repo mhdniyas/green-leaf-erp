@@ -29,6 +29,7 @@ use App\Models\PurchaserCartItem;
 use App\Models\PurchaserCorrectionRequest;
 use App\Models\PurchaserCredit;
 use App\Models\PurchaserSharePreset;
+use App\Models\Shop;
 use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
@@ -51,6 +52,7 @@ use App\Services\Purchasing\PurchaserReadCacheService;
 use App\Services\Purchasing\PurchaserWarehouseBalanceService;
 use App\Services\Purchasing\ShopPurchaserDailyVerificationService;
 use App\Services\Purchasing\VendorPriceService;
+use App\Services\Requisition\MultiGradeOrderGate;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Support\PerformanceProbe;
 use Illuminate\Http\JsonResponse;
@@ -6536,6 +6538,23 @@ class PurchaserDashboardController extends Controller
             ];
         });
 
+        $isAdmin = (bool) ($user?->hasRole('admin') || ($request->hasSession() && $request->session()->has('admin_impersonator_id')));
+        $canUpdatePrices = $this->businessDayService->canUserUpdateDailyPrices($user);
+        $isDailyPriceCutoffPassed = $this->businessDayService->isDailyPriceCutoffPassed();
+        $dailyPriceCutoffLabel = $this->businessDayService->dailyPriceCutoffLabel();
+
+        $multiGradeGate = app(MultiGradeOrderGate::class);
+        $hasMultiGradeEnabled = $multiGradeGate->isFeatureEnabled() || (! $multiGradeGate->isFeatureExplicitlyDisabled() && Shop::query()->get()->contains(function (Shop $shop) use ($multiGradeGate): bool {
+            $grades = $multiGradeGate->allowedGradesForShop($shop);
+
+            return in_array('B', $grades, true) || in_array('C', $grades, true);
+        }));
+
+        $showGradeTabs = $hasMultiGradeEnabled || $request->has('grade');
+        $activeGrade = in_array(strtoupper((string) $request->input('grade', 'A')), ['A', 'B', 'C'], true)
+            ? strtoupper((string) $request->input('grade', 'A'))
+            : 'A';
+
         return view('purchasing.purchaser.daily-prices', [
             'products' => $productsWithPrices,
             'categories' => $categories,
@@ -6546,6 +6565,13 @@ class PurchaserDashboardController extends Controller
             'cutoffLabel' => $this->businessDayService->cutoffLabel(),
             'globalPercentageB' => $this->gradeSellingPriceService->globalPercentage('B'),
             'globalPercentageC' => $this->gradeSellingPriceService->globalPercentage('C'),
+            'canUpdatePrices' => $canUpdatePrices,
+            'isDailyPriceCutoffPassed' => $isDailyPriceCutoffPassed,
+            'dailyPriceCutoffLabel' => $dailyPriceCutoffLabel,
+            'isAdmin' => $isAdmin,
+            'activeGrade' => $activeGrade,
+            'hasMultiGradeEnabled' => $hasMultiGradeEnabled,
+            'showGradeTabs' => $showGradeTabs,
         ]);
     }
 
@@ -6592,7 +6618,7 @@ class PurchaserDashboardController extends Controller
 
     public function updateDailyPrices(Request $request): RedirectResponse|JsonResponse
     {
-        $this->authorizeDailyPriceAccess();
+        $this->authorizeDailyPriceUpdateAccess($request);
 
         $validated = $request->validate([
             'date' => ['nullable', 'date'],
@@ -6962,6 +6988,27 @@ class PurchaserDashboardController extends Controller
             auth()->user()?->hasRole('admin'),
             403
         );
+    }
+
+    private function authorizeDailyPriceUpdateAccess(Request $request): void
+    {
+        $this->authorizeDailyPriceAccess();
+
+        $user = $request->user() ?? auth()->user();
+
+        if (! $this->businessDayService->canUserUpdateDailyPrices($user)) {
+            $cutoffLabel = $this->businessDayService->dailyPriceCutoffLabel();
+            $message = "Daily price updates are locked after {$cutoffLabel}. Only administrators can change prices.";
+
+            if ($request->expectsJson() || $request->wantsJson() || $request->ajax()) {
+                abort(response()->json([
+                    'success' => false,
+                    'message' => $message,
+                ], 403));
+            }
+
+            abort(403, $message);
+        }
     }
 
     private function updateActivePricesForGroup(Product $product, ?ShopPriceGroup $group, float $priceGradeA, int $userId): void
