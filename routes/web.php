@@ -35,8 +35,12 @@ use App\Http\Controllers\Web\Admin\GreenLeafMonthlyReportExportController;
 use App\Http\Controllers\Web\Admin\Integrations\ZohoBooksIntegrationController;
 use App\Http\Controllers\Web\Admin\MonthlyClosingSummaryController;
 use App\Http\Controllers\Web\Admin\OperatingExpenseSettingsController;
+use App\Http\Controllers\Web\Admin\ProductSellingPriceMatrixController;
 use App\Http\Controllers\Web\Admin\PurchaseProductFilterController;
 use App\Http\Controllers\Web\Admin\PurchaserMonthlySummaryController;
+use App\Http\Controllers\Web\Admin\SellingPriceCategoryController;
+use App\Http\Controllers\Web\Admin\SellingPriceManagementController;
+use App\Http\Controllers\Web\Admin\ShopSellingPriceController;
 use App\Http\Controllers\Web\Admin\StaffManagementController;
 use App\Http\Controllers\Web\Admin\StaffSyncFlagController;
 use App\Http\Controllers\Web\Admin\UserAccessController;
@@ -780,6 +784,41 @@ Route::middleware('auth')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
         Route::get('company-settings', [CompanySettingsController::class, 'edit'])->name('company-settings.edit');
         Route::patch('company-settings', [CompanySettingsController::class, 'update'])->name('company-settings.update');
+
+        Route::prefix('selling-price')->name('selling-price.')->group(function () {
+            Route::get('/', [SellingPriceManagementController::class, 'index'])->name('index');
+            Route::patch('/general', [SellingPriceManagementController::class, 'updateGeneral'])->name('update-general');
+
+            Route::prefix('categories')->name('categories.')->group(function () {
+                Route::get('/', [SellingPriceCategoryController::class, 'index'])->name('index');
+                Route::post('/', [SellingPriceCategoryController::class, 'store'])->name('store');
+                Route::patch('/{category}', [SellingPriceCategoryController::class, 'update'])->name('update');
+                Route::patch('/{category}/toggle-status', [SellingPriceCategoryController::class, 'toggleStatus'])->name('toggle-status');
+                Route::delete('/{category}', [SellingPriceCategoryController::class, 'destroy'])->name('destroy');
+
+                Route::get('/{category}/products', [SellingPriceCategoryController::class, 'assignedProducts'])->name('products');
+                Route::get('/{category}/search-products', [SellingPriceCategoryController::class, 'searchProducts'])->name('search-products');
+                Route::post('/{category}/assign-products', [SellingPriceCategoryController::class, 'assignProducts'])->name('assign-products');
+                Route::post('/{category}/remove-product', [SellingPriceCategoryController::class, 'removeProduct'])->name('remove-product');
+            });
+
+            Route::prefix('matrix')->name('matrix.')->group(function () {
+                Route::get('/', [ProductSellingPriceMatrixController::class, 'index'])->name('index');
+                Route::patch('/products/{product}', [ProductSellingPriceMatrixController::class, 'updateProductRule'])->name('update-product');
+                Route::post('/products/{product}/reset', [ProductSellingPriceMatrixController::class, 'resetProductRule'])->name('reset-product');
+                Route::post('/bulk-category', [ProductSellingPriceMatrixController::class, 'bulkAssignCategory'])->name('bulk-category');
+                Route::post('/bulk-percentage', [ProductSellingPriceMatrixController::class, 'bulkSetPercentage'])->name('bulk-percentage');
+                Route::post('/bulk-reset', [ProductSellingPriceMatrixController::class, 'bulkReset'])->name('bulk-reset');
+            });
+
+            Route::prefix('shop-pricing')->name('shop-pricing.')->group(function () {
+                Route::get('/', [ShopSellingPriceController::class, 'index'])->name('index');
+                Route::post('/shops/{shop}/products/{product}', [ShopSellingPriceController::class, 'updateOverride'])->name('update-override');
+                Route::delete('/shops/{shop}/products/{product}', [ShopSellingPriceController::class, 'resetOverride'])->name('reset-override');
+                Route::post('/bulk-apply', [ShopSellingPriceController::class, 'bulkApply'])->name('bulk-apply');
+                Route::post('/bulk-reset', [ShopSellingPriceController::class, 'bulkReset'])->name('bulk-reset');
+            });
+        });
 
         Route::prefix('company-settings')->name('company-settings.')->group(function () {
             Route::post('operating-expense-categories', [OperatingExpenseSettingsController::class, 'storeCategory'])

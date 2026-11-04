@@ -28,6 +28,7 @@ class Product extends Model implements AuditableContract
 
     protected $fillable = [
         'category_id',
+        'selling_price_category_id',
         'default_warehouse_id',
         'public_uuid',
         'name',
@@ -73,6 +74,21 @@ class Product extends Model implements AuditableContract
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
+    }
+
+    public function sellingPriceCategory(): BelongsTo
+    {
+        return $this->belongsTo(SellingPriceCategory::class, 'selling_price_category_id');
+    }
+
+    public function sellingPriceConfig(): HasOne
+    {
+        return $this->hasOne(ProductSellingPrice::class, 'product_id');
+    }
+
+    public function shopSellingPrices(): HasMany
+    {
+        return $this->hasMany(ShopProductSellingPrice::class, 'product_id');
     }
 
     public function defaultWarehouse(): BelongsTo

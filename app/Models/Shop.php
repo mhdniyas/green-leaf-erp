@@ -190,6 +190,11 @@ class Shop extends Model
         return $this->hasMany(ShopDailyProductPrice::class);
     }
 
+    public function shopSellingPrices(): HasMany
+    {
+        return $this->hasMany(ShopProductSellingPrice::class, 'shop_id');
+    }
+
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);

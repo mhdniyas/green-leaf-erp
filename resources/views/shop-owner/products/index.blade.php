@@ -11,6 +11,15 @@
         'price_asc' => 'Low to High',
     ];
     $currentSortLabel = $sortLabels[$sort ?? 'code_asc'] ?? 'Code wise';
+    $formatPrice = static function ($val): string {
+        if ($val === null || $val === '') {
+            return '';
+        }
+        $num = (float) $val;
+        return (fmod($num, 1.0) == 0.0)
+            ? number_format($num, 0)
+            : rtrim(rtrim(number_format($num, 2), '0'), '.');
+    };
 @endphp
 
 @section('content')
@@ -163,7 +172,7 @@
             @else
                 <div class="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
                     @foreach ($products as $p)
-                        <div class="rounded-2xl border border-slate-200/90 bg-white p-2.5 shadow-2xs hover:shadow-xs transition flex flex-col justify-between relative group">
+                        <div class="rounded-2xl border border-slate-200/90 bg-white p-2 min-[380px]:p-2.5 shadow-2xs hover:shadow-xs transition flex flex-col justify-between relative group">
                             <div>
                                 <!-- Image Box -->
                                 <div class="aspect-square w-full rounded-xl bg-gradient-to-b from-slate-50 to-emerald-50/20 overflow-hidden flex items-center justify-center relative border border-slate-100 p-1.5">
@@ -198,8 +207,8 @@
                                 <div class="grid grid-cols-2 gap-1 pt-1 border-t border-slate-50 text-[9px] sm:text-[10px] items-start">
                                     <div class="min-w-0">
                                         @if ($isPublished || $p['selling_price'] > 0)
-                                            <span class="text-xs sm:text-sm font-black text-emerald-700 block truncate">
-                                                ₹{{ number_format($p['selling_price'], 2) }}
+                                            <span class="text-[11px] min-[380px]:text-xs sm:text-sm font-black text-emerald-700 block leading-tight tracking-tight whitespace-nowrap">
+                                                ₹{{ $formatPrice($p['selling_price']) }}
                                             </span>
                                         @else
                                             <span class="text-[10px] font-extrabold text-amber-600 block leading-tight">
@@ -212,8 +221,8 @@
                                     </div>
                                     <div class="text-right min-w-0">
                                         @if (!empty($p['minimum_mrp']) && $p['minimum_mrp'] > 0)
-                                            <span class="text-xs sm:text-sm font-black text-slate-900 block truncate">
-                                                ₹{{ number_format($p['minimum_mrp'], 2) }}
+                                            <span class="text-[11px] min-[380px]:text-xs sm:text-sm font-black text-slate-900 block leading-tight tracking-tight whitespace-nowrap">
+                                                ₹{{ $formatPrice($p['minimum_mrp']) }}
                                             </span>
                                         @else
                                             <span class="text-xs sm:text-sm font-bold text-slate-400 block">

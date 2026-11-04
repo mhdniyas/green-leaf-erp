@@ -49,6 +49,7 @@ use App\Services\Finance\CompanyPayableService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Finance\ShopLoanService;
 use App\Services\Pricing\PriceBoardService;
+use App\Services\Pricing\SellingPriceResolverService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\ShopVendorReportService;
 use App\Services\Requisition\MultiGradeOrderGate;
@@ -72,6 +73,7 @@ class ShopOwnerController extends Controller
 {
     public function __construct(
         private readonly PriceBoardService $priceBoardService,
+        private readonly SellingPriceResolverService $sellingPriceResolverService,
         private readonly OwnedShopAccountingService $ownedShopAccountingService,
         private readonly ShopLoanService $shopLoanService,
         private readonly CompanyPayableService $companyPayableService,
@@ -121,7 +123,12 @@ class ShopOwnerController extends Controller
 
         $productQuery = Product::query()
             ->active()
-            ->with(['category']);
+            ->with([
+                'category',
+                'sellingPriceCategory',
+                'sellingPriceConfig',
+                'shopSellingPrices' => fn ($query) => $query->where('shop_id', $activeShop->id),
+            ]);
 
         if ($sort === 'price_desc') {
             $productQuery->orderBy('base_price', 'desc')->orderBy('name', 'asc');
@@ -161,8 +168,16 @@ class ShopOwnerController extends Controller
             ->groupBy('product_id')
             ->map(fn ($rows) => $rows->first());
 
+        $rawSellingPercentage = BusinessSetting::query()
+            ->where('key', 'selling_price_default_percentage')
+            ->value('value');
+        $sellingPricePercentage = ($rawSellingPercentage !== null && is_numeric($rawSellingPercentage) && (float) $rawSellingPercentage >= 0)
+            ? (float) $rawSellingPercentage
+            : 25.0;
+        $resolver = $this->sellingPriceResolverService;
+
         $products->setCollection(
-            $products->getCollection()->map(function (Product $product) use ($currentApprovals, $previousApprovals, $groupName, $activeShop, $targetBusinessDate): array {
+            $products->getCollection()->map(function (Product $product) use ($currentApprovals, $previousApprovals, $groupName, $activeShop, $targetBusinessDate, $resolver, $sellingPricePercentage): array {
                 $currentApproval = $currentApprovals->get($product->id);
                 $previousApproval = $previousApprovals->get($product->id);
 
@@ -196,7 +211,9 @@ class ShopOwnerController extends Controller
 
                 // Pick the max price among all valid shop & approval price sources
                 $sellingPrice = $candidatePrices !== [] ? max($candidatePrices) : 0.0;
-                $minimumMrp = $sellingPrice > 0.0 ? round($sellingPrice * 1.25, 2) : null;
+                $supplyPriceForResolver = $sellingPrice > 0.0 ? $sellingPrice : null;
+                $resolution = $resolver->resolve($product, $supplyPriceForResolver, $activeShop, $sellingPricePercentage);
+                $minimumMrp = $resolution['retail_price'];
 
                 $priceDate = null;
                 if ($currentApproval && (float) ($currentApproval->$priceKey ?? 0) > 0 && $currentApproval->business_date) {
