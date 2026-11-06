@@ -13,7 +13,6 @@ use App\Models\ProductUnit;
 use App\Models\Shop;
 use App\Models\ShopAccountingPeriodClosure;
 use App\Models\ShopCreditNote;
-use App\Models\ShopCreditNoteItem;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
 use App\Models\User;
@@ -30,7 +29,13 @@ class ShopCreditNoteService
         private readonly ?InvoiceCashbookProjectionService $invoiceCashbookProjectionService = null,
         private readonly ?OwnedShopAccountingService $ownedShopAccountingService = null,
         private readonly ?StockLedgerService $stockLedgerService = null,
+        private readonly ?ShopCreditNoteEligibilityService $eligibilityService = null,
     ) {}
+
+    private function getEligibilityService(): ShopCreditNoteEligibilityService
+    {
+        return $this->eligibilityService ?? app(ShopCreditNoteEligibilityService::class);
+    }
 
     private function cashbookProjectionService(): InvoiceCashbookProjectionService
     {
@@ -560,73 +565,7 @@ class ShopCreditNoteService
         ShopInvoiceItem $invoiceItem,
         ?int $excludeCreditNoteId = null,
     ): array {
-        $adjustments = ShopCreditNoteItem::query()
-            ->where('shop_invoice_item_id', $invoiceItem->id)
-            ->when($excludeCreditNoteId, fn ($q) => $q->where('shop_credit_note_id', '!=', $excludeCreditNoteId))
-            ->with('creditNote')
-            ->get();
-
-        $categories = [
-            'approved' => ['quantity_credited' => 0.0, 'quantity_debited' => 0.0, 'net_quantity' => 0.0, 'amount_credited' => 0.0, 'amount_debited' => 0.0, 'net_amount' => 0.0],
-            'draft' => ['quantity_credited' => 0.0, 'quantity_debited' => 0.0, 'net_quantity' => 0.0, 'amount_credited' => 0.0, 'amount_debited' => 0.0, 'net_amount' => 0.0],
-            'voided' => ['quantity_credited' => 0.0, 'quantity_debited' => 0.0, 'net_quantity' => 0.0, 'amount_credited' => 0.0, 'amount_debited' => 0.0, 'net_amount' => 0.0],
-        ];
-
-        foreach ($adjustments as $adj) {
-            $statusKey = match ($adj->creditNote?->status) {
-                ShopCreditNoteStatus::Approved => 'approved',
-                ShopCreditNoteStatus::Voided => 'voided',
-                default => 'draft',
-            };
-
-            $qty = (float) $adj->adjusted_quantity;
-            $amt = (float) $adj->line_credit_amount;
-
-            if ($adj->direction === ShopCreditNoteDirection::Credit) {
-                $categories[$statusKey]['quantity_credited'] += $qty;
-                $categories[$statusKey]['amount_credited'] += $amt;
-                $categories[$statusKey]['net_quantity'] += $qty;
-                $categories[$statusKey]['net_amount'] += $amt;
-            } else {
-                $categories[$statusKey]['quantity_debited'] += $qty;
-                $categories[$statusKey]['amount_debited'] += $amt;
-                $categories[$statusKey]['net_quantity'] -= $qty;
-                $categories[$statusKey]['net_amount'] -= $amt;
-            }
-        }
-
-        foreach ($categories as $k => $vals) {
-            foreach ($vals as $field => $val) {
-                $categories[$k][$field] = round($val, 4);
-            }
-        }
-
-        $activeNetQtyCredited = round($categories['approved']['net_quantity'] + $categories['draft']['net_quantity'], 4);
-        $activeNetAmtCredited = round($categories['approved']['net_amount'] + $categories['draft']['net_amount'], 2);
-
-        $originalQty = (float) ($invoiceItem->delivered_qty ?? $invoiceItem->approved_qty ?? 0);
-        $originalPrice = (float) $invoiceItem->unit_price;
-        $originalTotal = round((float) ($invoiceItem->final_line_total ?? $invoiceItem->line_subtotal ?? ($originalQty * $originalPrice)), 2);
-
-        $effectiveQty = round(max(0.0, $originalQty - $activeNetQtyCredited), 4);
-        $effectiveTotal = round($originalTotal - $activeNetAmtCredited, 2);
-
-        $remainingCreditableQty = round(max(0.0, $originalQty - $activeNetQtyCredited), 4);
-        $remainingCreditableAmt = round(max(0.0, $originalTotal - $activeNetAmtCredited), 2);
-
-        return [
-            'approved' => $categories['approved'],
-            'draft' => $categories['draft'],
-            'voided' => $categories['voided'],
-            'active' => [
-                'net_quantity_credited' => $activeNetQtyCredited,
-                'net_amount_credited' => $activeNetAmtCredited,
-                'effective_quantity' => $effectiveQty,
-                'effective_line_total' => $effectiveTotal,
-                'remaining_creditable_quantity' => $remainingCreditableQty,
-                'remaining_creditable_amount' => $remainingCreditableAmt,
-            ],
-        ];
+        return $this->getEligibilityService()->calculateItemAdjustments($invoiceItem, $excludeCreditNoteId);
     }
 
     /**
