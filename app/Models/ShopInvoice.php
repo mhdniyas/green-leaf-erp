@@ -118,6 +118,17 @@ class ShopInvoice extends Model
             ->where('status', ShopCreditNoteStatus::Approved->value);
     }
 
+    public function creditApplications(): HasMany
+    {
+        return $this->hasMany(ShopCreditApplication::class, 'shop_invoice_id');
+    }
+
+    public function activeCreditApplications(): HasMany
+    {
+        return $this->hasMany(ShopCreditApplication::class, 'shop_invoice_id')
+            ->whereNull('reversed_at');
+    }
+
     /**
      * Total approved credit adjustment amount (reducing shop payable).
      */

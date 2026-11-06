@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\Inventory\StockMovementType;
+use App\Enums\ShopInvoice\ShopCreditNoteAccountingMode;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
 use App\Enums\ShopInvoice\ShopCreditNoteReason;
@@ -30,6 +31,7 @@ class ShopCreditNote extends Model
         'shop_invoice_id',
         'credit_note_date',
         'direction',
+        'accounting_mode',
         'reason_type',
         'status',
         'inventory_action',
@@ -49,6 +51,7 @@ class ShopCreditNote extends Model
         return [
             'credit_note_date' => 'date',
             'direction' => ShopCreditNoteDirection::class,
+            'accounting_mode' => ShopCreditNoteAccountingMode::class,
             'reason_type' => ShopCreditNoteReason::class,
             'status' => ShopCreditNoteStatus::class,
             'inventory_action' => ShopCreditNoteInventoryAction::class,
@@ -88,6 +91,41 @@ class ShopCreditNote extends Model
     public function items(): HasMany
     {
         return $this->hasMany(ShopCreditNoteItem::class);
+    }
+
+    public function applications(): HasMany
+    {
+        return $this->hasMany(ShopCreditApplication::class, 'shop_credit_note_id');
+    }
+
+    public function activeApplications(): HasMany
+    {
+        return $this->hasMany(ShopCreditApplication::class, 'shop_credit_note_id')
+            ->whereNull('reversed_at');
+    }
+
+    public function appliedCreditTotal(): float
+    {
+        if ($this->relationLoaded('activeApplications')) {
+            return round((float) $this->activeApplications->sum('amount'), 2);
+        }
+
+        return round((float) $this->activeApplications()->sum('amount'), 2);
+    }
+
+    public function unappliedCreditTotal(): float
+    {
+        return round(max(0.00, (float) $this->total_credit_amount - $this->appliedCreditTotal()), 2);
+    }
+
+    public function isLegacyMode(): bool
+    {
+        return ($this->accounting_mode ?? ShopCreditNoteAccountingMode::LegacyInvoiceLinked) === ShopCreditNoteAccountingMode::LegacyInvoiceLinked;
+    }
+
+    public function isShopLevelMode(): bool
+    {
+        return $this->accounting_mode === ShopCreditNoteAccountingMode::ShopLevel;
     }
 
     public function ledgerTransaction(): HasOne

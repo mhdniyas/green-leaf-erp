@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
+use App\Enums\ShopInvoice\ShopCreditNoteAccountingMode;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
 use App\Enums\ShopInvoice\ShopCreditNoteReason;
@@ -28,6 +29,7 @@ class ShopCreditNoteFactory extends Factory
             'shop_invoice_id' => ShopInvoice::factory(),
             'credit_note_date' => today()->toDateString(),
             'direction' => ShopCreditNoteDirection::Credit,
+            'accounting_mode' => ShopCreditNoteAccountingMode::LegacyInvoiceLinked,
             'reason_type' => ShopCreditNoteReason::PriceCorrection,
             'status' => ShopCreditNoteStatus::Draft,
             'inventory_action' => ShopCreditNoteInventoryAction::None,
@@ -49,6 +51,14 @@ class ShopCreditNoteFactory extends Factory
             'status' => ShopCreditNoteStatus::Approved,
             'approved_by' => User::factory(),
             'approved_at' => now(),
+        ]);
+    }
+
+    public function shopLevel(): static
+    {
+        return $this->state(fn () => [
+            'accounting_mode' => ShopCreditNoteAccountingMode::ShopLevel,
+            'shop_invoice_id' => null,
         ]);
     }
 
