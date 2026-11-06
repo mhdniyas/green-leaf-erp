@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\ShopInvoice\ShopCreditNoteDirection;
+use App\Enums\ShopInvoice\ShopCreditNoteStatus;
+use App\Services\ShopInvoices\ShopFinalBill;
+use App\Services\ShopInvoices\ShopFinalBillService;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -67,6 +71,17 @@ class ShopInvoice extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::deleting(function (ShopInvoice $invoice): void {
+            if ($invoice->isFinalized() || $invoice->creditNotes()->exists()) {
+                throw new \RuntimeException(
+                    "Cannot delete invoice {$invoice->invoice_number}: Finalized invoices and invoices with associated credit notes cannot be deleted."
+                );
+            }
+        });
+    }
+
     public function getRouteKeyName(): string
     {
         return 'invoice_number';
@@ -92,6 +107,177 @@ class ShopInvoice extends Model
         return $this->hasMany(ShopInvoicePaymentRequest::class)->latest('id');
     }
 
+    public function creditNotes(): HasMany
+    {
+        return $this->hasMany(ShopCreditNote::class, 'shop_invoice_id');
+    }
+
+    public function approvedCreditNotes(): HasMany
+    {
+        return $this->hasMany(ShopCreditNote::class, 'shop_invoice_id')
+            ->where('status', ShopCreditNoteStatus::Approved->value);
+    }
+
+    /**
+     * Total approved credit adjustment amount (reducing shop payable).
+     */
+    public function approvedCreditTotal(): float
+    {
+        if ($this->relationLoaded('creditNotes')) {
+            return round((float) $this->creditNotes
+                ->filter(fn ($cn): bool => ($cn->status === ShopCreditNoteStatus::Approved || $cn->status === 'approved')
+                    && ($cn->direction === ShopCreditNoteDirection::Credit || $cn->direction === 'credit'))
+                ->sum('total_credit_amount'), 2);
+        }
+
+        return round((float) $this->creditNotes()
+            ->where('status', ShopCreditNoteStatus::Approved->value)
+            ->where('direction', ShopCreditNoteDirection::Credit->value)
+            ->sum('total_credit_amount'), 2);
+    }
+
+    /**
+     * Total approved debit adjustment amount (increasing shop payable).
+     */
+    public function approvedDebitTotal(): float
+    {
+        if ($this->relationLoaded('creditNotes')) {
+            return round((float) $this->creditNotes
+                ->filter(fn ($cn): bool => ($cn->status === ShopCreditNoteStatus::Approved || $cn->status === 'approved')
+                    && ($cn->direction === ShopCreditNoteDirection::Debit || $cn->direction === 'debit'))
+                ->sum('total_credit_amount'), 2);
+        }
+
+        return round((float) $this->creditNotes()
+            ->where('status', ShopCreditNoteStatus::Approved->value)
+            ->where('direction', ShopCreditNoteDirection::Debit->value)
+            ->sum('total_credit_amount'), 2);
+    }
+
+    /**
+     * Signed net adjustment from all approved credit/debit notes:
+     * Positive means net debit (increase in bill), negative means net credit (reduction in bill).
+     */
+    public function netApprovedAdjustment(): float
+    {
+        return round($this->approvedDebitTotal() - $this->approvedCreditTotal(), 2);
+    }
+
+    /**
+     * Effective final total after applying all approved credit notes and debit notes.
+     * Original finalized final_total remains unchanged in the database.
+     */
+    public function effectiveFinalTotal(): float
+    {
+        $baseTotal = round((float) $this->final_total, 2);
+
+        return round(max(0.00, $baseTotal - $this->approvedCreditTotal() + $this->approvedDebitTotal()), 2);
+    }
+
+    /**
+     * Effective balance amount due after applying approved adjustments and recorded payments.
+     */
+    public function effectiveBalanceAmount(): float
+    {
+        $effectiveTotal = $this->effectiveFinalTotal();
+        $paid = round((float) $this->paid_amount, 2);
+
+        return round(max(0.00, $effectiveTotal - $paid), 2);
+    }
+
+    /**
+     * Explicit liability / overpayment credit when payments exceed the effective final total.
+     */
+    public function overpaidAmount(): float
+    {
+        $effectiveTotal = $this->effectiveFinalTotal();
+        $paid = round((float) $this->paid_amount, 2);
+
+        return round(max(0.00, $paid - $effectiveTotal), 2);
+    }
+
+    public function isOverpaid(): bool
+    {
+        return $this->overpaidAmount() > 0.0001;
+    }
+
+    public function originalInvoiceTotal(): float
+    {
+        return round((float) $this->final_total, 2);
+    }
+
+    public function amountPaid(): float
+    {
+        return round((float) $this->paid_amount, 2);
+    }
+
+    public function netPayable(): float
+    {
+        return $this->effectiveFinalTotal();
+    }
+
+    public function remainingBalance(): float
+    {
+        return $this->effectiveBalanceAmount();
+    }
+
+    public function overpaymentCredit(): float
+    {
+        return $this->overpaidAmount();
+    }
+
+    /**
+     * Canonical, read-only final bill representation for this invoice.
+     */
+    public function finalBill(): ShopFinalBill
+    {
+        return app(ShopFinalBillService::class)->calculate($this);
+    }
+
+    /**
+     * Effective payment status based on credit-adjusted net payable and payments.
+     */
+    public function effectivePaymentStatus(): string
+    {
+        return $this->finalBill()->effectivePaymentStatus;
+    }
+
+    /**
+     * Complete financial reconciliation breakdown preserving separate original, adjusted, paid, and balance figures.
+     *
+     * @return array{
+     *     original_invoice_total: float,
+     *     approved_credit_total: float,
+     *     approved_debit_total: float,
+     *     net_payable: float,
+     *     amount_paid: float,
+     *     remaining_balance: float,
+     *     overpayment_credit: float,
+     *     has_adjustments: bool
+     * }
+     */
+    public function financialReconciliationSummary(): array
+    {
+        $orig = $this->originalInvoiceTotal();
+        $credit = $this->approvedCreditTotal();
+        $debit = $this->approvedDebitTotal();
+        $netPayable = $this->netPayable();
+        $paid = $this->amountPaid();
+        $balance = $this->remainingBalance();
+        $overpayment = $this->overpaymentCredit();
+
+        return [
+            'original_invoice_total' => $orig,
+            'approved_credit_total' => $credit,
+            'approved_debit_total' => $debit,
+            'net_payable' => $netPayable,
+            'amount_paid' => $paid,
+            'remaining_balance' => $balance,
+            'overpayment_credit' => $overpayment,
+            'has_adjustments' => ($credit > 0.0001 || $debit > 0.0001),
+        ];
+    }
+
     public function isFinalLocked(): bool
     {
         $hasZeroOrNegativeBalance = (float) $this->balance_amount <= 0.0001;
@@ -101,6 +287,46 @@ class ShopInvoice extends Model
             || in_array($this->delivery_status, ['received_full', 'approved_after_discrepancy'], true)
             || in_array($this->status, ['finalized', 'payment_pending'], true)
             || ($this->status === 'paid' && $hasZeroOrNegativeBalance && $hasBillableTotal);
+    }
+
+    public function isBillingProtected(): bool
+    {
+        if (! $this->exists) {
+            return false;
+        }
+
+        if ($this->finalized_at !== null) {
+            return true;
+        }
+
+        if (in_array((string) $this->status, ['delivery_review', 'payment_pending', 'finalized', 'paid', 'cancelled'], true)) {
+            return true;
+        }
+
+        if (in_array((string) $this->delivery_status, ['in_transit', 'awaiting_review', 'received_full', 'received_with_discrepancy', 'approved_after_discrepancy'], true)) {
+            return true;
+        }
+
+        if ((float) $this->paid_amount > 0.0001 || $this->payment_approved_at !== null) {
+            return true;
+        }
+
+        $order = $this->relationLoaded('order') ? $this->order : $this->order()->first();
+        if ($order && in_array((string) $order->delivery_status, ['in_transit', 'delivered', 'pending_approval', 'partially_delivered'], true)) {
+            return true;
+        }
+
+        if ($this->status === 'generated') {
+            if (! $order) {
+                return true;
+            }
+
+            if (! in_array((string) $order->delivery_status, ['not_started', 'loading', 'sorting', 'ready_for_dispatch', 'pending_delivery'], true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function isFinalized(): bool

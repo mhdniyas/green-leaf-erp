@@ -332,7 +332,9 @@
                             <tr>
                                 <th class="px-4 py-3">Invoice</th>
                                 <th class="px-4 py-3">Date</th>
-                                <th class="px-4 py-3 text-right">Bill</th>
+                                <th class="px-4 py-3 text-right">Original Bill</th>
+                                <th class="px-4 py-3 text-right">Adjustments</th>
+                                <th class="px-4 py-3 text-right">Final Bill</th>
                                 <th class="px-4 py-3 text-right">Due</th>
                                 <th class="px-4 py-3 text-center">Status</th>
                                 <th class="px-4 py-3 text-right">Actions</th>
@@ -340,21 +342,46 @@
                         </thead>
                         <tbody class="divide-y divide-slate-100 text-sm">
                             @forelse ($billingInvoices as $billingInvoice)
+                                @php
+                                    $effFinalTotal = $billingInvoice->effectiveFinalTotal();
+                                    $effDue = $billingInvoice->effectiveBalanceAmount();
+                                    $credAdj = $billingInvoice->approvedCreditTotal();
+                                    $debAdj = $billingInvoice->approvedDebitTotal();
+                                    $hasAdj = $credAdj > 0 || $debAdj > 0;
+                                @endphp
                                 <tr>
                                     <td class="px-4 py-3 text-xs font-black text-slate-950 sm:text-sm">{{ $billingInvoice->invoice_number }}</td>
                                     <td class="px-4 py-3 text-xs font-semibold text-slate-500 sm:text-sm">{{ $billingInvoice->business_date->format('d M Y') }}</td>
                                     <td class="px-4 py-3 text-right text-xs font-black text-slate-950 sm:text-sm">Rs. {{ number_format((float) $billingInvoice->final_total, 2) }}</td>
-                                    <td class="px-4 py-3 text-right text-xs font-black text-rose-700 sm:text-sm">Rs. {{ number_format((float) $billingInvoice->balance_amount, 2) }}</td>
+                                    <td class="px-4 py-3 text-right text-xs font-bold sm:text-sm">
+                                        @if ($hasAdj)
+                                            @if ($credAdj > 0)
+                                                <span class="text-emerald-700 block">-Rs. {{ number_format($credAdj, 2) }}</span>
+                                            @endif
+                                            @if ($debAdj > 0)
+                                                <span class="text-amber-700 block">+Rs. {{ number_format($debAdj, 2) }}</span>
+                                            @endif
+                                        @else
+                                            <span class="text-slate-400">—</span>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 text-right text-xs font-black text-slate-950 sm:text-sm">
+                                        Rs. {{ number_format($effFinalTotal, 2) }}
+                                        @if ($hasAdj)
+                                            <span class="block text-[9px] font-bold text-indigo-600">Adjusted</span>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 text-right text-xs font-black {{ $effDue > 0.0001 ? 'text-rose-700' : 'text-slate-500' }} sm:text-sm">Rs. {{ number_format($effDue, 2) }}</td>
                                     <td class="px-4 py-3 text-center">
-                                        @if ((float) $billingInvoice->balance_amount <= 0)
+                                        @if ($effDue <= 0.0001)
                                             <span class="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-black text-emerald-700">Settled</span>
                                         @else
                                             <span class="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 py-0.5 text-xs font-black text-rose-700">Due</span>
                                         @endif
                                     </td>
                                     <td class="px-4 py-3 text-right">
-                                        @if ((float) $billingInvoice->balance_amount > 0)
-                                            <a href="{{ route('admin.finance-v2.payments.create', ['date' => $billingInvoice->business_date?->toDateString() ?? $selectedDate->toDateString(), 'shop_id' => $billingInvoice->shop_id, 'requested_amount' => round((float) $billingInvoice->balance_amount, 2)]) }}"
+                                        @if ($effDue > 0.0001)
+                                            <a href="{{ route('admin.finance-v2.payments.create', ['date' => $billingInvoice->business_date?->toDateString() ?? $selectedDate->toDateString(), 'shop_id' => $billingInvoice->shop_id, 'requested_amount' => round($effDue, 2)]) }}"
                                                class="inline-flex h-8 items-center rounded-xl bg-cyan-600 px-3 text-xs font-black text-white transition hover:bg-cyan-500">
                                                 Finance payment
                                             </a>
@@ -365,7 +392,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="6" class="px-4 py-8 text-center font-bold text-slate-500">No delivery bills found.</td>
+                                    <td colspan="8" class="px-4 py-8 text-center font-bold text-slate-500">No delivery bills found.</td>
                                 </tr>
                             @endforelse
                         </tbody>

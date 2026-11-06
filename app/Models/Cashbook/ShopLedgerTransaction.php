@@ -7,6 +7,7 @@ namespace App\Models\Cashbook;
 use App\Enums\Cashbook\TransactionStatus;
 use App\Models\PurchaseInvoice;
 use App\Models\Shop;
+use App\Models\ShopCreditNote;
 use App\Models\ShopInvoice;
 use App\Models\ShopStaffPayment;
 use App\Models\User;
@@ -150,12 +151,20 @@ class ShopLedgerTransaction extends Model
         };
     }
 
+    public function creditNote(): BelongsTo
+    {
+        return $this->belongsTo(ShopCreditNote::class, 'reference_id');
+    }
+
     public function canBeEditedByShopOwner(): bool
     {
         if (
             $this->reference_type === 'App\Models\ShopInvoice' ||
             $this->reference_type === ShopInvoice::class ||
-            $this->reference_type === 'ShopInvoice'
+            $this->reference_type === 'ShopInvoice' ||
+            $this->reference_type === 'App\Models\ShopCreditNote' ||
+            $this->reference_type === ShopCreditNote::class ||
+            $this->reference_type === 'ShopCreditNote'
         ) {
             return false;
         }
@@ -176,7 +185,10 @@ class ShopLedgerTransaction extends Model
         if (
             $this->reference_type === 'App\Models\ShopInvoice' ||
             $this->reference_type === ShopInvoice::class ||
-            $this->reference_type === 'ShopInvoice'
+            $this->reference_type === 'ShopInvoice' ||
+            $this->reference_type === 'App\Models\ShopCreditNote' ||
+            $this->reference_type === ShopCreditNote::class ||
+            $this->reference_type === 'ShopCreditNote'
         ) {
             return true;
         }

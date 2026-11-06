@@ -22,9 +22,12 @@
         ])
 
         <section class="rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xs sm:p-3">
-            <div class="grid grid-cols-2 gap-1.5 rounded-xl bg-slate-100 p-1 text-xs font-black text-slate-600 sm:inline-grid sm:auto-cols-fr sm:grid-flow-col">
+            <div class="grid grid-cols-3 gap-1.5 rounded-xl bg-slate-100 p-1 text-xs font-black text-slate-600 sm:inline-grid sm:auto-cols-fr sm:grid-flow-col">
                 <a href="{{ route('shop-owner.finance.index', ['tab' => 'invoices']) }}" class="rounded-lg px-3.5 py-2 text-center transition {{ $activeTab === 'invoices' ? 'bg-white text-slate-950 shadow-xs' : 'hover:bg-white/70' }}">
                     Invoices
+                </a>
+                <a href="{{ route('shop-owner.finance.index', ['tab' => 'statement']) }}" class="rounded-lg px-3.5 py-2 text-center transition {{ $activeTab === 'statement' ? 'bg-white text-slate-950 shadow-xs' : 'hover:bg-white/70' }}">
+                    Statement
                 </a>
                 <a href="{{ route('shop-owner.payments.index') }}" class="rounded-lg px-3.5 py-2 text-center transition hover:bg-white/70">
                     Payments
@@ -46,7 +49,12 @@
                 'payableInvoices' => $payableInvoices,
                 'payableInvoiceTotal' => $payableInvoiceTotal,
                 'invoicePaymentRequests' => $invoicePaymentRequests,
+                'grossBilled' => $grossBilled,
+                'totalFinalBilled' => $totalFinalBilled,
+                'totalBilled' => $totalBilled,
                 'outstandingBalance' => $outstandingBalance,
+                'paidAmount' => $paidAmount,
+                'overpaymentCredit' => $overpaymentCredit,
                 'pendingPaymentAmount' => $pendingPaymentAmount,
                 'availableInvoicePaymentCredit' => $availableInvoicePaymentCredit,
                 'isOwnedAccountingShop' => $isOwnedAccountingShop,
@@ -57,6 +65,12 @@
                 'payableTotal' => $payableTotal ?? 0,
                 'payableReceivedTotal' => $payableReceivedTotal ?? 0,
                 'payableBalance' => $payableBalance ?? 0,
+            ])
+        @elseif ($activeTab === 'statement')
+            @include('shop-owner.finance.partials.statement-of-account-tab', [
+                'statement' => $statementData ?? [],
+                'filterStartDate' => $filterStartDate,
+                'filterEndDate' => $filterEndDate,
             ])
         @else
             <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs sm:p-4">

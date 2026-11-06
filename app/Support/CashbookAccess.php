@@ -255,12 +255,16 @@ class CashbookAccess
             return true;
         }
 
-        if ($user->can(self::Access)) {
-            return true;
+        try {
+            if ($user->hasPermissionTo(self::Access)) {
+                return true;
+            }
+        } catch (\Throwable) {
+            // Permission does not exist in DB
         }
 
         foreach (self::allNewPermissions() as $permission) {
-            if ($user->can($permission)) {
+            if ($permission !== self::Access && $user->can($permission)) {
                 return true;
             }
         }

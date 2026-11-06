@@ -85,6 +85,7 @@ class AppServiceProvider extends ServiceProvider
             return null;
         });
 
+        Gate::define('cashbook.access', fn (User $user): bool => CashbookAccess::canAccessCashbook($user));
         Gate::define('cashbook.admin.access', fn (User $user): bool => CashbookAccess::canAccessCashbook($user) || $user->hasRole('shop'));
 
         RateLimiter::for('login', function ($request) {

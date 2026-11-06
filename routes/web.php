@@ -13,6 +13,7 @@ use App\Http\Controllers\Web\Admin\AdminOverviewController;
 use App\Http\Controllers\Web\Admin\AdminProductPurchaserAllotmentController;
 use App\Http\Controllers\Web\Admin\AdminPurchaserBusinessDayController;
 use App\Http\Controllers\Web\Admin\AdminShopPurchasingVerificationController;
+use App\Http\Controllers\Web\Admin\AdminShopReportsController;
 use App\Http\Controllers\Web\Admin\Cashbook\AdminTrayAssetController;
 use App\Http\Controllers\Web\Admin\CashbookCategoryController;
 use App\Http\Controllers\Web\Admin\CashbookController;
@@ -289,6 +290,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/payments', [ShopOwnerController::class, 'paymentsIndex'])->name('payments.index');
         Route::post('/payments/pay-expense', [ShopOwnerController::class, 'payExpense'])->name('payments.pay-expense');
         Route::get('/finance', [ShopOwnerController::class, 'financeIndex'])->name('finance.index');
+        Route::get('/finance/statement', [ShopOwnerController::class, 'statementOfAccount'])->name('finance.statement');
         Route::get('/finance/{invoice}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
         Route::get('/finance/{invoice}/pdf', [ShopOwnerController::class, 'financePdf'])->name('finance.pdf');
         Route::get('/cashbook', [ShopOwnerController::class, 'cashbookShow'])->name('cashbook.show');
@@ -1226,6 +1228,15 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/export/excel', [CashbookController::class, 'exportReportsExcel'])->name('reports.export.excel')->middleware('can:cashbook.reports.view');
             Route::get('reports/export/pdf', [CashbookController::class, 'exportReportsPdf'])->name('reports.export.pdf')->middleware('can:cashbook.reports.view');
             Route::get('reports/expense-audit', [CashbookController::class, 'expenseAuditReport'])->name('reports.expense-audit')->middleware('can:cashbook.reports.view');
+
+            // ── Shops Reports ────────────────────────────────────────────────
+            Route::prefix('reports/shops')->name('reports.shops.')->middleware('can:cashbook.reports.view')->group(function () {
+                Route::get('invoices', [AdminShopReportsController::class, 'invoices'])->name('invoices');
+                Route::get('credit-notes', [AdminShopReportsController::class, 'creditNotes'])->name('credit-notes');
+                Route::post('credit-notes/select', [AdminShopReportsController::class, 'selectInvoiceForCreditNote'])->name('credit-notes.select');
+                Route::get('credit-notes/create', [AdminShopReportsController::class, 'createCreditNote'])->name('credit-notes.create');
+                Route::post('credit-notes', [AdminShopReportsController::class, 'storeCreditNote'])->name('credit-notes.store');
+            });
 
             // ── Green Leaf Monthly Reports ────────────────────────────────────
             Route::prefix('reports/monthly')->name('monthly-report.')->middleware('can:cashbook.reports.view')->group(function () {

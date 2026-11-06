@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Enums\Cashbook\TransactionStatus;
 use App\Enums\Inventory\ProductGrade;
+use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\ShopOwner\StoreShopInvoicePaymentRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopOwnerAccountingEntryRequest;
@@ -28,6 +29,7 @@ use App\Models\Shop;
 use App\Models\ShopAccountingEntry;
 use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopCredit;
+use App\Models\ShopCreditNote;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
@@ -53,6 +55,8 @@ use App\Services\Pricing\SellingPriceResolverService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\ShopVendorReportService;
 use App\Services\Requisition\MultiGradeOrderGate;
+use App\Services\ShopInvoices\ShopFinalBill;
+use App\Services\ShopInvoices\ShopFinalBillService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Services\ShopOrders\DeliveryPriceReadinessService;
 use App\Services\ShopOrders\DeliveryVerificationEligibility;
@@ -360,16 +364,15 @@ class ShopOwnerController extends Controller
         $activeShop = $this->currentShop($request);
         [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
 
-        $pendingBillTillToday = (float) ShopInvoice::query()
+        $pendingInvoicesTillToday = ShopInvoice::query()
             ->where('shop_id', $activeShop->id)
             ->whereDate('business_date', '<=', today())
-            ->sum('balance_amount');
+            ->with(['creditNotes'])
+            ->get();
+        $pendingBillsTillToday = app(ShopFinalBillService::class)->calculateMany($pendingInvoicesTillToday);
 
-        $pendingBillCountTillToday = ShopInvoice::query()
-            ->where('shop_id', $activeShop->id)
-            ->whereDate('business_date', '<=', today())
-            ->where('balance_amount', '>', 0)
-            ->count();
+        $pendingBillTillToday = round((float) $pendingBillsTillToday->sum('remainingBalance'), 2);
+        $pendingBillCountTillToday = $pendingBillsTillToday->filter(fn (ShopFinalBill $b): bool => $b->remainingBalance > 0.0001)->count();
 
         return view('shop-owner.deliveries.index', [
             'deliveries' => $this->shopOrdersQuery($activeShop)
@@ -633,11 +636,7 @@ class ShopOwnerController extends Controller
     {
         $tab = (string) $request->input('tab', 'invoices');
 
-        if ($tab === 'payments') {
-            return view('shop-owner.payments.index', $this->financeViewData($request, 'payments'));
-        }
-
-        return view('shop-owner.finance.index', $this->financeViewData($request, 'invoices'));
+        return view('shop-owner.finance.index', $this->financeViewData($request, $tab));
     }
 
     public function paymentsIndex(Request $request): View
@@ -850,28 +849,44 @@ class ShopOwnerController extends Controller
             ->where('shop_id', $activeShop->id)
             ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
             ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate));
-        $invoiceTotals = (clone $invoiceQuery)
-            ->selectRaw('COALESCE(SUM(final_total), 0) as total_billed')
-            ->selectRaw('COALESCE(SUM(balance_amount), 0) as outstanding_balance')
-            ->selectRaw('COALESCE(SUM(paid_amount), 0) as paid_amount')
-            ->selectRaw('COALESCE(SUM(shortage_total), 0) as shortage_value')
-            ->first();
+
+        // Canonical Final Bill aggregation across all invoices in scope
+        $allInvoicesInRange = (clone $invoiceQuery)
+            ->with(['creditNotes'])
+            ->get();
+        $finalBillsInRange = app(ShopFinalBillService::class)->calculateMany($allInvoicesInRange);
+
+        $grossBilled = round($finalBillsInRange->sum('originalInvoiceTotal'), 2);
+        $totalFinalBilled = round($finalBillsInRange->sum('finalNetPayable'), 2);
+        $totalPaidAmount = round($finalBillsInRange->sum('amountPaid'), 2);
+        $totalOutstandingBalance = round($finalBillsInRange->sum('remainingBalance'), 2);
+        $totalOverpaymentCredit = round($finalBillsInRange->sum('overpaymentCredit'), 2);
+        $totalCreditAdjustments = round($finalBillsInRange->sum('finalizedCreditTotal'), 2);
+        $totalDebitAdjustments = round($finalBillsInRange->sum('finalizedDebitTotal'), 2);
+        $shortageValue = (float) ((clone $invoiceQuery)->sum('shortage_total') ?? 0);
+
         $invoices = (clone $invoiceQuery)
-            ->with(['order', 'items', 'paymentRequests' => fn ($query) => $query->latest('id')])
+            ->with(['order', 'items', 'creditNotes', 'paymentRequests' => fn ($query) => $query->latest('id')])
             ->latest('business_date')
             ->latest('id')
             ->paginate(12, ['*'], 'invoices_page')
             ->withQueryString();
+
+        // Pending/payable invoices: strictly those with an effective balance remaining
+        $payableInvoiceIds = $allInvoicesInRange
+            ->filter(fn (ShopInvoice $inv): bool => $inv->effectiveBalanceAmount() > 0.0001)
+            ->pluck('id')
+            ->all();
+
         $payableInvoices = (clone $invoiceQuery)
-            ->where('balance_amount', '>', 0)
-            ->with(['order', 'items'])
+            ->whereIn('id', $payableInvoiceIds)
+            ->with(['order', 'items', 'creditNotes'])
             ->oldest('business_date')
             ->oldest('id')
             ->paginate(8, ['*'], 'payable_invoices_page')
             ->withQueryString();
-        $payableInvoiceTotal = (float) (clone $invoiceQuery)
-            ->where('balance_amount', '>', 0)
-            ->sum('balance_amount');
+
+        $payableInvoiceTotal = round($finalBillsInRange->whereIn('invoiceId', $payableInvoiceIds)->sum('remainingBalance'), 2);
         $invoicePaymentRequests = ShopInvoicePaymentRequest::query()
             ->where('shop_id', $activeShop->id)
             ->when($filterStartDate, fn ($query) => $query->whereDate('created_at', '>=', $filterStartDate))
@@ -1149,16 +1164,16 @@ class ShopOwnerController extends Controller
             $monthlyTotalOut = round((float) $monthlyPayableRows->sum('amount'), 2);
             $monthlyBalanceToPay = max(0, round($monthlyTotalOut - $monthlyPaidAmount, 2));
         } else {
-            $monthlyInvoiceTotals = ShopInvoice::query()
+            $monthlyInvoices = ShopInvoice::query()
                 ->where('shop_id', $activeShop->id)
                 ->whereDate('business_date', '>=', $currentMonthStart)
                 ->whereDate('business_date', '<=', $currentMonthEnd)
-                ->selectRaw('COALESCE(SUM(paid_amount), 0) as paid_amount')
-                ->selectRaw('COALESCE(SUM(balance_amount), 0) as balance_to_pay')
-                ->first();
+                ->with(['creditNotes'])
+                ->get();
 
-            $monthlyPaidAmount = (float) ($monthlyInvoiceTotals->paid_amount ?? 0);
-            $monthlyBalanceToPay = (float) ($monthlyInvoiceTotals->balance_to_pay ?? 0);
+            $monthlyBills = app(ShopFinalBillService::class)->calculateMany($monthlyInvoices);
+            $monthlyPaidAmount = round($monthlyBills->sum('amountPaid'), 2);
+            $monthlyBalanceToPay = round($monthlyBills->sum('remainingBalance'), 2);
         }
 
         return [
@@ -1168,12 +1183,17 @@ class ShopOwnerController extends Controller
             'invoicePaymentRequests' => $invoicePaymentRequests,
             'activeTab' => $tab,
             'isOwnedAccountingShop' => $isOwnedAccountingShop,
-            'totalBilled' => (float) ($invoiceTotals?->total_billed ?? 0),
-            'outstandingBalance' => (float) ($invoiceTotals?->outstanding_balance ?? 0),
-            'paidAmount' => (float) ($invoiceTotals?->paid_amount ?? 0),
+            'grossBilled' => $grossBilled,
+            'totalBilled' => $totalFinalBilled,
+            'totalFinalBilled' => $totalFinalBilled,
+            'totalCreditAdjustments' => $totalCreditAdjustments,
+            'totalDebitAdjustments' => $totalDebitAdjustments,
+            'outstandingBalance' => $totalOutstandingBalance,
+            'paidAmount' => $totalPaidAmount,
+            'overpaymentCredit' => $totalOverpaymentCredit,
             'monthlyPaidAmount' => $monthlyPaidAmount,
             'monthlyBalanceToPay' => $monthlyBalanceToPay,
-            'shortageValue' => (float) ($invoiceTotals?->shortage_value ?? 0),
+            'shortageValue' => $shortageValue,
             'pendingPaymentAmount' => $pendingInvoicePaymentAmount,
             'availableInvoicePaymentCredit' => $availableInvoicePaymentCredit,
             'latestBalanceDate' => $latestBalanceDate,
@@ -1190,6 +1210,7 @@ class ShopOwnerController extends Controller
             'companyPayableLines' => $companyPayableLines,
             'companyPayableTotals' => $companyPayableTotals,
             'selectedDays' => $selectedDays,
+            'statementData' => $this->statementOfAccountData($request, $activeShop),
         ];
     }
 
@@ -2629,7 +2650,7 @@ class ShopOwnerController extends Controller
             'totals' => [
                 'bill_total' => $billTotal,
                 'bill_paid' => $billPaid,
-                'bill_due' => round((float) $invoices->sum('balance_amount'), 2),
+                'bill_due' => round((float) app(ShopFinalBillService::class)->calculateMany($invoices->loadMissing('creditNotes'))->sum('remainingBalance'), 2),
                 'shop_cash_in' => $shopCashIn,
                 'shop_cash_out' => $shopCashOut,
                 'cashbook_income' => $cashbookIncome,
@@ -2682,16 +2703,25 @@ class ShopOwnerController extends Controller
                 ->with('success', 'Payment request submitted for admin approval.');
         }
 
-        $invoice = ShopInvoice::query()
-            ->where('shop_id', $shop->id)
-            ->when(
-                filled($validated['invoice_id'] ?? null),
-                fn ($query) => $query->whereKey((int) $validated['invoice_id']),
-                fn ($query) => $query->where('balance_amount', '>', 0)
-                    ->oldest('business_date')
-                    ->oldest('id'),
-            )
-            ->firstOrFail();
+        if (filled($validated['invoice_id'] ?? null)) {
+            $invoice = ShopInvoice::query()
+                ->where('shop_id', $shop->id)
+                ->whereKey((int) $validated['invoice_id'])
+                ->firstOrFail();
+        } else {
+            $invoice = ShopInvoice::query()
+                ->where('shop_id', $shop->id)
+                ->where('balance_amount', '>', 0)
+                ->with(['creditNotes'])
+                ->oldest('business_date')
+                ->oldest('id')
+                ->get()
+                ->first(fn (ShopInvoice $inv): bool => $inv->effectiveBalanceAmount() > 0.0001);
+
+            if (! $invoice) {
+                abort(404, 'No pending payable invoice found.');
+            }
+        }
 
         try {
             $this->shopInvoiceService->requestPayment(
@@ -2727,16 +2757,17 @@ class ShopOwnerController extends Controller
         $deliveredOrders = $recentOrders->where('is_delivered', true);
         $allInvoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
+            ->with(['creditNotes'])
             ->get();
         $todayInvoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
             ->whereDate('business_date', $businessDate->toDateString())
-            ->with(['order', 'items.product'])
+            ->with(['order', 'items.product', 'creditNotes'])
             ->latest('id')
             ->get();
         $recentInvoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
-            ->with(['order', 'items.product'])
+            ->with(['order', 'items.product', 'creditNotes'])
             ->latest('business_date')
             ->latest('id')
             ->limit(8)
@@ -2765,6 +2796,7 @@ class ShopOwnerController extends Controller
                 'pending_approval_count' => $recentOrders->whereIn('state', ['submitted', 'update_requested'])->count(),
                 'pending_delivery_count' => $pendingDeliveries->count(),
                 'delivered_orders_count' => $deliveredOrders->count(),
+                'gross_billed' => (float) $billingSummary['gross_billed'],
                 'outstanding_balance' => (float) $billingSummary['total_balance'],
                 'today_bill_total' => (float) $todayBillingSummary['total_billed'],
                 'today_bill_count' => $todayInvoices->count(),
@@ -2776,6 +2808,7 @@ class ShopOwnerController extends Controller
                 'pending_bill_approval_amount' => $isOwnedAccountingShop
                     ? $pendingBillApprovalSummary['amount']
                     : $billingSummary['total_balance'],
+                'overpayment_credit' => (float) $billingSummary['overpayment_credit'],
             ],
             'todayOrder' => $this->todayOrder($shop),
             'tomorrowOrder' => $this->tomorrowOrder($shop),
@@ -2784,9 +2817,15 @@ class ShopOwnerController extends Controller
             'recentInvoices' => $recentInvoices,
             'todayInvoices' => $todayInvoices,
             'financeSummary' => [
+                'gross_billed' => (float) $billingSummary['gross_billed'],
+                'total_billed' => (float) $billingSummary['total_billed'],
+                'total_final_billed' => (float) $billingSummary['total_final_billed'],
+                'total_credits' => (float) $billingSummary['total_credits'],
+                'total_debits' => (float) $billingSummary['total_debits'],
                 'paid_amount' => (float) $billingSummary['total_paid'],
                 'shortage_value' => (float) $allInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->shortage_total),
                 'outstanding_balance' => (float) $billingSummary['total_balance'],
+                'overpayment_credit' => (float) $billingSummary['overpayment_credit'],
                 'today_bill_total' => (float) $todayBillingSummary['total_billed'],
                 'today_approved_bill_debit' => (float) $receiptSummary['approved_delivery_bill'],
                 'today_closing_balance' => (float) ($receiptSummary['entered_closing'] ?? $receiptSummary['expected_closing']),
@@ -3052,16 +3091,333 @@ class ShopOwnerController extends Controller
 
     /**
      * @param  Collection<int, ShopInvoice>  $invoices
-     * @return array{total_billed:float,total_paid:float,total_balance:float,open_bills:int}
+     * @return array{
+     *     gross_billed: float,
+     *     total_billed: float,
+     *     total_final_billed: float,
+     *     total_paid: float,
+     *     total_balance: float,
+     *     total_credits: float,
+     *     total_debits: float,
+     *     overpayment_credit: float,
+     *     open_bills: int
+     * }
      */
-    private function billingSummary(Collection $invoices): array
+    public function billingSummary(Collection $invoices): array
     {
+        if ($invoices instanceof \Illuminate\Database\Eloquent\Collection) {
+            $invoices->loadMissing('creditNotes');
+        } else {
+            $invoices->each(fn ($inv) => method_exists($inv, 'loadMissing') ? $inv->loadMissing('creditNotes') : null);
+        }
+
+        $bills = app(ShopFinalBillService::class)->calculateMany($invoices);
+
+        $grossBilled = round((float) $bills->sum('originalInvoiceTotal'), 2);
+        $totalFinalBilled = round((float) $bills->sum('finalNetPayable'), 2);
+        $totalPaid = round((float) $bills->sum('amountPaid'), 2);
+        $totalBalance = round((float) $bills->sum('remainingBalance'), 2);
+        $totalCredits = round((float) $bills->sum('finalizedCreditTotal'), 2);
+        $totalDebits = round((float) $bills->sum('finalizedDebitTotal'), 2);
+        $overpaymentCredit = round((float) $bills->sum('overpaymentCredit'), 2);
+        $openBills = $bills->filter(fn (ShopFinalBill $b): bool => $b->remainingBalance > 0.0001)->count();
+
         return [
-            'total_billed' => round((float) $invoices->sum('final_total'), 2),
-            'total_paid' => round((float) $invoices->sum('paid_amount'), 2),
-            'total_balance' => round((float) $invoices->sum('balance_amount'), 2),
-            'open_bills' => $invoices->filter(fn (ShopInvoice $invoice): bool => (float) $invoice->balance_amount > 0)->count(),
+            'gross_billed' => $grossBilled,
+            'total_billed' => $totalFinalBilled,
+            'total_final_billed' => $totalFinalBilled,
+            'total_paid' => $totalPaid,
+            'total_balance' => $totalBalance,
+            'total_credits' => $totalCredits,
+            'total_debits' => $totalDebits,
+            'overpayment_credit' => $overpaymentCredit,
+            'open_bills' => $openBills,
         ];
+    }
+
+    /**
+     * Calculate effective pending balance for a shop using canonical final bill logic.
+     */
+    public function pendingBalance(Shop|Request $target): float
+    {
+        $shop = $target instanceof Shop ? $target : $this->currentShop($target);
+
+        $invoices = ShopInvoice::query()
+            ->where('shop_id', $shop->id)
+            ->with(['creditNotes'])
+            ->get();
+
+        $bills = app(ShopFinalBillService::class)->calculateMany($invoices);
+
+        return round((float) $bills->sum('remainingBalance'), 2);
+    }
+
+    /**
+     * Get detailed breakdown of pending balances and adjustment totals for a shop.
+     *
+     * @return array<string, float|int>
+     */
+    public function pendingBalanceDetails(Shop|Request $target): array
+    {
+        $shop = $target instanceof Shop ? $target : $this->currentShop($target);
+
+        $invoices = ShopInvoice::query()
+            ->where('shop_id', $shop->id)
+            ->with(['creditNotes'])
+            ->get();
+
+        $bills = app(ShopFinalBillService::class)->calculateMany($invoices);
+
+        return [
+            'gross_billed' => round((float) $bills->sum('originalInvoiceTotal'), 2),
+            'final_billed' => round((float) $bills->sum('finalNetPayable'), 2),
+            'paid_amount' => round((float) $bills->sum('amountPaid'), 2),
+            'outstanding_balance' => round((float) $bills->sum('remainingBalance'), 2),
+            'overpayment_credit' => round((float) $bills->sum('overpaymentCredit'), 2),
+            'credit_adjustments' => round((float) $bills->sum('finalizedCreditTotal'), 2),
+            'debit_adjustments' => round((float) $bills->sum('finalizedDebitTotal'), 2),
+            'settled_invoices_count' => $bills->filter(fn (ShopFinalBill $b): bool => $b->remainingBalance <= 0.0001)->count(),
+            'unsettled_invoices_count' => $bills->filter(fn (ShopFinalBill $b): bool => $b->remainingBalance > 0.0001)->count(),
+        ];
+    }
+
+    /**
+     * Chronological Statement of Account data containing invoices, credit/debit adjustments, and payments.
+     *
+     * @return array<string, mixed>
+     */
+    public function statementOfAccountData(Request $request, ?Shop $shop = null): array
+    {
+        $activeShop = $shop ?? $this->currentShop($request);
+
+        [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
+
+        // 1. Calculate opening balance strictly before filterStartDate
+        $openingBalance = 0.0;
+        if ($filterStartDate) {
+            $priorStartDateStr = $filterStartDate->toDateString();
+
+            $priorInvoiced = (float) ShopInvoice::query()
+                ->where('shop_id', $activeShop->id)
+                ->whereDate('business_date', '<', $priorStartDateStr)
+                ->sum('final_total');
+
+            $priorCreditNotes = (float) ShopCreditNote::query()
+                ->where('shop_id', $activeShop->id)
+                ->where('status', 'approved')
+                ->where('direction', ShopCreditNoteDirection::Credit->value)
+                ->whereDate('credit_note_date', '<', $priorStartDateStr)
+                ->sum('total_credit_amount');
+
+            $priorDebitNotes = (float) ShopCreditNote::query()
+                ->where('shop_id', $activeShop->id)
+                ->where('status', 'approved')
+                ->where('direction', ShopCreditNoteDirection::Debit->value)
+                ->whereDate('credit_note_date', '<', $priorStartDateStr)
+                ->sum('total_credit_amount');
+
+            $priorRequestPayments = (float) ShopInvoicePaymentRequest::query()
+                ->where('shop_id', $activeShop->id)
+                ->where('status', 'approved')
+                ->whereDate('payment_date', '<', $priorStartDateStr)
+                ->sum('approved_amount');
+
+            $priorDirectPayments = 0.0;
+            $priorInvoicesWithPayments = ShopInvoice::query()
+                ->where('shop_id', $activeShop->id)
+                ->whereDate('business_date', '<', $priorStartDateStr)
+                ->where('paid_amount', '>', 0)
+                ->with(['paymentRequests' => fn ($q) => $q->where('status', 'approved')->whereDate('payment_date', '<', $priorStartDateStr)])
+                ->get();
+
+            foreach ($priorInvoicesWithPayments as $pInv) {
+                $covered = (float) $pInv->paymentRequests->sum('approved_amount');
+                if ((float) $pInv->paid_amount > $covered) {
+                    $priorDirectPayments += ((float) $pInv->paid_amount - $covered);
+                }
+            }
+
+            $priorPayments = round($priorRequestPayments + $priorDirectPayments, 2);
+
+            $openingBalance = round($priorInvoiced - $priorCreditNotes + $priorDebitNotes - $priorPayments, 2);
+        }
+
+        // 2. Fetch Period Invoices
+        $invoices = ShopInvoice::query()
+            ->where('shop_id', $activeShop->id)
+            ->when($filterStartDate, fn ($q) => $q->whereDate('business_date', '>=', $filterStartDate->toDateString()))
+            ->when($filterEndDate, fn ($q) => $q->whereDate('business_date', '<=', $filterEndDate->toDateString()))
+            ->with(['creditNotes', 'items.product', 'paymentRequests'])
+            ->orderBy('business_date')
+            ->orderBy('id')
+            ->get();
+
+        // 3. Fetch Period Credit & Debit Notes
+        $creditNotes = ShopCreditNote::query()
+            ->where('shop_id', $activeShop->id)
+            ->where('status', 'approved')
+            ->when($filterStartDate, fn ($q) => $q->whereDate('credit_note_date', '>=', $filterStartDate->toDateString()))
+            ->when($filterEndDate, fn ($q) => $q->whereDate('credit_note_date', '<=', $filterEndDate->toDateString()))
+            ->with(['invoice'])
+            ->orderBy('credit_note_date')
+            ->orderBy('id')
+            ->get();
+
+        // 4. Fetch Period Payments
+        $paymentRequests = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $activeShop->id)
+            ->where('status', 'approved')
+            ->when($filterStartDate, fn ($q) => $q->whereDate('payment_date', '>=', $filterStartDate->toDateString()))
+            ->when($filterEndDate, fn ($q) => $q->whereDate('payment_date', '<=', $filterEndDate->toDateString()))
+            ->with(['invoice'])
+            ->orderBy('payment_date')
+            ->orderBy('id')
+            ->get();
+
+        // 5. Assemble and sort chronological ledger rows
+        $rawEntries = collect();
+
+        foreach ($invoices as $inv) {
+            $rawEntries->push([
+                'timestamp' => Carbon::parse($inv->business_date)->startOfDay()->timestamp,
+                'id' => $inv->id,
+                'order_tiebreaker' => 1,
+                'date' => Carbon::parse($inv->business_date)->toDateString(),
+                'type' => 'invoice',
+                'type_label' => 'Invoice',
+                'reference' => $inv->invoice_number,
+                'description' => 'Delivery Invoice Charges',
+                'debit' => round((float) $inv->final_total, 2),
+                'credit' => 0.00,
+                'url' => route('shop-owner.finance.show', $inv),
+            ]);
+        }
+
+        foreach ($creditNotes as $cn) {
+            $isCredit = $cn->direction === ShopCreditNoteDirection::Credit;
+            $amount = round((float) ($cn->total_credit_amount ?? 0), 2);
+            $reasonLabel = $cn->reason_type?->label() ?? 'Correction';
+            $invRef = $cn->invoice?->invoice_number ? " (Invoice: {$cn->invoice->invoice_number})" : '';
+
+            $rawEntries->push([
+                'timestamp' => Carbon::parse($cn->credit_note_date)->midDay()->timestamp,
+                'id' => $cn->id,
+                'order_tiebreaker' => 2,
+                'date' => Carbon::parse($cn->credit_note_date)->toDateString(),
+                'type' => $isCredit ? 'credit_note' : 'debit_note',
+                'type_label' => $isCredit ? 'Credit Note' : 'Debit Note',
+                'reference' => $cn->credit_note_number,
+                'description' => ($isCredit ? 'Credit Note' : 'Debit Note')." - {$reasonLabel}{$invRef}",
+                'debit' => $isCredit ? 0.00 : $amount,
+                'credit' => $isCredit ? $amount : 0.00,
+                'url' => $cn->invoice ? route('shop-owner.finance.show', $cn->invoice) : null,
+            ]);
+        }
+
+        $recordedPaymentRequestIds = [];
+        foreach ($paymentRequests as $pr) {
+            $amount = round((float) ($pr->approved_amount > 0 ? $pr->approved_amount : $pr->requested_amount), 2);
+            $methodLabel = $pr->payment_method ? ' via '.strtoupper(str_replace('_', ' ', $pr->payment_method)) : '';
+            $recordedPaymentRequestIds[] = $pr->id;
+
+            $rawEntries->push([
+                'timestamp' => Carbon::parse($pr->payment_date ?? $pr->created_at)->endOfDay()->timestamp,
+                'id' => $pr->id,
+                'order_tiebreaker' => 3,
+                'date' => Carbon::parse($pr->payment_date ?? $pr->created_at)->toDateString(),
+                'type' => 'payment',
+                'type_label' => 'Payment',
+                'reference' => $pr->payment_reference ?: "PAY-{$pr->id}",
+                'description' => "Payment Received{$methodLabel}",
+                'debit' => 0.00,
+                'credit' => $amount,
+                'url' => $pr->invoice ? route('shop-owner.finance.show', $pr->invoice) : null,
+            ]);
+        }
+
+        // Account for any direct payments recorded on invoice without payment request
+        foreach ($invoices as $inv) {
+            $coveredPaid = (float) $inv->paymentRequests
+                ->whereIn('id', $recordedPaymentRequestIds)
+                ->sum(fn ($pr) => (float) ($pr->approved_amount > 0 ? $pr->approved_amount : $pr->requested_amount));
+
+            $uncoveredPaid = round((float) $inv->paid_amount - $coveredPaid, 2);
+            if ($uncoveredPaid > 0.0001) {
+                $rawEntries->push([
+                    'timestamp' => Carbon::parse($inv->business_date)->endOfDay()->timestamp,
+                    'id' => $inv->id,
+                    'order_tiebreaker' => 4,
+                    'date' => Carbon::parse($inv->business_date)->toDateString(),
+                    'type' => 'payment',
+                    'type_label' => 'Payment',
+                    'reference' => "RCP-{$inv->invoice_number}",
+                    'description' => "Invoice Payment Received ({$inv->invoice_number})",
+                    'debit' => 0.00,
+                    'credit' => $uncoveredPaid,
+                    'url' => route('shop-owner.finance.show', $inv),
+                ]);
+            }
+        }
+
+        // Sort chronologically: date ASC, then tiebreaker, then ID
+        $sortedEntries = $rawEntries->sortBy([
+            ['date', 'asc'],
+            ['order_tiebreaker', 'asc'],
+            ['id', 'asc'],
+        ])->values();
+
+        // 6. Compute cumulative running balances
+        $runningBalance = $openingBalance;
+        $totalDebits = 0.0;
+        $totalCredits = 0.0;
+        $totalInvoiced = 0.0;
+        $totalAdjustments = 0.0;
+        $totalPayments = 0.0;
+
+        $computedEntries = $sortedEntries->map(function ($entry) use (&$runningBalance, &$totalDebits, &$totalCredits, &$totalInvoiced, &$totalAdjustments, &$totalPayments) {
+            $debit = (float) $entry['debit'];
+            $credit = (float) $entry['credit'];
+
+            $runningBalance = round($runningBalance + $debit - $credit, 2);
+
+            $totalDebits = round($totalDebits + $debit, 2);
+            $totalCredits = round($totalCredits + $credit, 2);
+
+            if ($entry['type'] === 'invoice') {
+                $totalInvoiced = round($totalInvoiced + $debit, 2);
+            } elseif ($entry['type'] === 'credit_note') {
+                $totalAdjustments = round($totalAdjustments - $credit, 2);
+            } elseif ($entry['type'] === 'debit_note') {
+                $totalAdjustments = round($totalAdjustments + $debit, 2);
+            } elseif ($entry['type'] === 'payment') {
+                $totalPayments = round($totalPayments + $credit, 2);
+            }
+
+            $entry['balance'] = $runningBalance;
+
+            return $entry;
+        });
+
+        $closingBalance = $runningBalance;
+
+        return [
+            'shop' => $activeShop,
+            'startDate' => $filterStartDate,
+            'endDate' => $filterEndDate,
+            'openingBalance' => $openingBalance,
+            'closingBalance' => $closingBalance,
+            'totalDebits' => $totalDebits,
+            'totalCredits' => $totalCredits,
+            'totalInvoiced' => $totalInvoiced,
+            'totalAdjustments' => $totalAdjustments,
+            'totalPayments' => $totalPayments,
+            'entries' => $computedEntries,
+        ];
+    }
+
+    public function statementOfAccount(Request $request): View
+    {
+        return $this->financeIndex($request->merge(['tab' => 'statement']));
     }
 
     /**

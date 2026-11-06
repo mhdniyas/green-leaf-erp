@@ -1,11 +1,13 @@
 @php
     /** @var \App\Models\ShopInvoice|null $invoice */
     $invoice = $invoice ?? null;
+    $bill = $invoice?->finalBill();
     $context = $context ?? 'finance';
     $latestRequest = $invoice?->paymentRequests->first();
     $hasPendingRequest = $latestRequest && $latestRequest->status === 'pending';
-    $fullDue = $invoice ? number_format((float) $invoice->balance_amount, 2, '.', '') : '0.00';
-    $halfDue = $invoice ? number_format(round((float) $invoice->balance_amount / 2, 2), 2, '.', '') : '0.00';
+    $effectiveBalance = $bill ? $bill->remainingBalance : (float) ($invoice?->balance_amount ?? 0);
+    $fullDue = number_format(max(0, $effectiveBalance), 2, '.', '');
+    $halfDue = number_format(max(0, round($effectiveBalance / 2, 2)), 2, '.', '');
     $ownedPaymentAccess = $invoice?->shop?->isOwnedAccountingEnabled() ?? false;
 @endphp
 
@@ -20,11 +22,11 @@
             <div class="grid grid-cols-2 gap-3 lg:min-w-[260px]">
                 <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-3">
                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Paid Now</p>
-                    <p class="mt-1 text-sm font-black text-emerald-700">Rs. {{ number_format((float) $invoice->paid_amount, 2) }}</p>
+                    <p class="mt-1 text-sm font-black text-emerald-700">Rs. {{ number_format($bill ? $bill->amountPaid : (float) $invoice->paid_amount, 2) }}</p>
                 </div>
                 <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-3">
                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Balance Due</p>
-                    <p class="mt-1 text-sm font-black text-rose-700">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</p>
+                    <p class="mt-1 text-sm font-black text-rose-700">Rs. {{ number_format($effectiveBalance, 2) }}</p>
                 </div>
             </div>
         @endif
@@ -35,7 +37,7 @@
             <p class="text-sm font-black text-amber-900">Invoice not generated yet.</p>
             <p class="mt-2 text-sm text-amber-800">Finish delivery review first. Payment approval options will appear after the shop invoice is ready.</p>
         </div>
-    @elseif ((float) $invoice->balance_amount <= 0)
+    @elseif ($effectiveBalance <= 0.0001)
         <div class="mt-5 rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-4">
             <p class="text-sm font-black text-emerald-800">This invoice is already fully settled.</p>
         </div>

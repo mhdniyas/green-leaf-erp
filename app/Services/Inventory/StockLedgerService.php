@@ -9,11 +9,16 @@ use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
+use App\Enums\ShopInvoice\ShopCreditNoteReason;
 use App\Models\Product;
+use App\Models\ShopCreditNote;
+use App\Models\ShopCreditNoteItem;
+use App\Models\ShopInvoiceItem;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\WastageEntry;
+use App\Services\Purchasing\PurchaserReadCacheService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -564,6 +569,295 @@ class StockLedgerService
 
             return $totalReversed;
         });
+    }
+
+    /**
+     * Restore physically returned stock for a credit note item into warehouse inventory.
+     * Restores stock to the exact physical pools/batches and grades deducted during loadout.
+     *
+     * @throws ValidationException
+     */
+    public function restoreStockForCreditNoteItem(
+        ShopCreditNoteItem $creditItem,
+        ShopCreditNote $creditNote,
+        int $userId,
+    ): float {
+        $quantityToReturn = round((float) $creditItem->adjusted_quantity, 3);
+        if ($quantityToReturn <= 0.0) {
+            return 0.0;
+        }
+
+        $invoiceItem = $creditItem->invoiceItem;
+        if (! $invoiceItem instanceof ShopInvoiceItem) {
+            throw ValidationException::withMessages([
+                'items' => "Invoice item for credit note item #{$creditItem->id} not found.",
+            ]);
+        }
+
+        // Check idempotency: has stock already been restored for this specific credit note item?
+        $noteMarker = "Credit Note Return — SCN: {$creditNote->credit_note_number}; NoteItem: {$creditItem->id};";
+        $existingReturn = StockMovement::query()
+            ->where('type', StockMovementType::SaleReversal->value)
+            ->where('notes', 'like', "{$noteMarker}%")
+            ->sum('quantity');
+
+        if ((float) $existingReturn >= ($quantityToReturn - 0.001)) {
+            // Already restored for this exact credit note item
+            return (float) $existingReturn;
+        }
+
+        $orderItem = $invoiceItem->orderItem;
+        if (! $orderItem && $creditNote->invoice && $creditNote->invoice->order) {
+            $order = $creditNote->invoice->order;
+            $orderItem = $order->items()
+                ->where('product_id', $invoiceItem->product_id)
+                ->where('product_grade', $invoiceItem->product_grade)
+                ->first();
+        }
+
+        if (! $orderItem) {
+            throw ValidationException::withMessages([
+                'inventory_action' => "Cannot verify physical receipt for product '{$creditItem->product_name}': Original warehouse loadout record not found.",
+            ]);
+        }
+
+        // Lock existing movements for this shop order item to guarantee concurrency safety
+        $outMovements = StockMovement::query()
+            ->where('shop_order_item_id', $orderItem->id)
+            ->where('type', StockMovementType::Out->value)
+            ->orderByDesc('id')
+            ->lockForUpdate()
+            ->get();
+
+        if ($outMovements->isEmpty()) {
+            throw ValidationException::withMessages([
+                'inventory_action' => "Cannot restore stock for product '{$creditItem->product_name}': No loadout stock deduction was recorded for this order item.",
+            ]);
+        }
+
+        $totalDeducted = round((float) $outMovements->sum('quantity'), 3);
+
+        // Calculate all previously reversed quantities across this order item (including delivery shortages and prior credit notes)
+        $previousReversals = StockMovement::query()
+            ->where('shop_order_item_id', $orderItem->id)
+            ->where('type', StockMovementType::SaleReversal->value)
+            ->lockForUpdate()
+            ->get();
+
+        $totalAlreadyReversed = round((float) $previousReversals->sum('quantity'), 3);
+        $maxRestorable = round(max(0.0, $totalDeducted - $totalAlreadyReversed), 3);
+
+        if ($quantityToReturn > ($maxRestorable + 0.001)) {
+            throw ValidationException::withMessages([
+                'adjusted_quantity' => "Return quantity ({$quantityToReturn} kg) exceeds remaining physically delivered quantity ({$maxRestorable} kg). Deducted on loadout: {$totalDeducted} kg, already reversed/short: {$totalAlreadyReversed} kg.",
+            ]);
+        }
+
+        // Map already reversed quantities by batch_id and grade
+        $reversedByBatchAndGrade = [];
+        foreach ($previousReversals as $rev) {
+            $revGrade = ProductGrade::tryResolve($rev->grade)?->value ?? (string) ($rev->grade ?? 'A');
+            $key = ((int) $rev->batch_id).'|'.$revGrade;
+            $reversedByBatchAndGrade[$key] = ($reversedByBatchAndGrade[$key] ?? 0.0) + (float) $rev->quantity;
+        }
+
+        $remainingToRestore = $quantityToReturn;
+        $totalRestored = 0.0;
+
+        foreach ($outMovements as $source) {
+            if ($remainingToRestore <= 0.0001) {
+                break;
+            }
+
+            $sourceGrade = ProductGrade::tryResolve($source->grade)?->value ?? (string) ($source->grade ?? 'A');
+            $key = ((int) $source->batch_id).'|'.$sourceGrade;
+            $alreadyReversedForSource = (float) ($reversedByBatchAndGrade[$key] ?? 0.0);
+            $netAvailableOnSource = max(0.0, (float) $source->quantity - $alreadyReversedForSource);
+
+            if ($netAvailableOnSource <= 0.0001) {
+                continue;
+            }
+
+            $restoredAmount = min($remainingToRestore, $netAvailableOnSource);
+
+            StockMovement::create([
+                'batch_id' => $source->batch_id,
+                'product_id' => $source->product_id,
+                'warehouse_id' => $source->warehouse_id,
+                'shop_order_item_id' => $orderItem->id,
+                'created_by' => $userId,
+                'grade' => $sourceGrade,
+                'type' => StockMovementType::SaleReversal,
+                'quantity' => $restoredAmount,
+                'cost_per_unit' => (float) $source->cost_per_unit,
+                'notes' => "Credit Note Return — SCN: {$creditNote->credit_note_number}; NoteItem: {$creditItem->id}; InvoiceItem: {$invoiceItem->id}",
+            ]);
+
+            $reversedByBatchAndGrade[$key] = $alreadyReversedForSource + $restoredAmount;
+            $remainingToRestore = round($remainingToRestore - $restoredAmount, 3);
+            $totalRestored = round($totalRestored + $restoredAmount, 3);
+        }
+
+        if ($remainingToRestore > 0.001) {
+            throw ValidationException::withMessages([
+                'inventory_action' => "Could not match full return quantity ({$quantityToReturn} kg) to original physical loadout batches. Unrestored: {$remainingToRestore} kg.",
+            ]);
+        }
+
+        return $totalRestored;
+    }
+
+    /**
+     * Record physical damage/wastage write-off for a credit note item.
+     * Attributes physical damage to the original loadout batch without creating
+     * a duplicate stock movement deduction (since stock was already deducted on loadout).
+     *
+     * @throws ValidationException
+     */
+    public function recordCreditNoteDamageItem(
+        ShopCreditNoteItem $creditItem,
+        ShopCreditNote $creditNote,
+        int $userId,
+        ?WastageReason $wastageReason = null,
+    ): float {
+        $quantityToDamage = round((float) $creditItem->adjusted_quantity, 3);
+        if ($quantityToDamage <= 0.0) {
+            return 0.0;
+        }
+
+        $invoiceItem = $creditItem->invoiceItem;
+        if (! $invoiceItem instanceof ShopInvoiceItem) {
+            throw ValidationException::withMessages([
+                'items' => "Invoice item for credit note item #{$creditItem->id} not found.",
+            ]);
+        }
+
+        // Check idempotency: has damage already been recorded for this specific credit note item?
+        $noteMarker = "Credit Note Damage — SCN: {$creditNote->credit_note_number}; NoteItem: {$creditItem->id};";
+        $existingWastage = WastageEntry::query()
+            ->where('notes', 'like', "{$noteMarker}%")
+            ->sum('quantity');
+
+        if ((float) $existingWastage >= ($quantityToDamage - 0.001)) {
+            return (float) $existingWastage;
+        }
+
+        $orderItem = $invoiceItem->orderItem;
+        if (! $orderItem && $creditNote->invoice && $creditNote->invoice->order) {
+            $order = $creditNote->invoice->order;
+            $orderItem = $order->items()
+                ->where('product_id', $invoiceItem->product_id)
+                ->where('product_grade', $invoiceItem->product_grade)
+                ->first();
+        }
+
+        if (! $orderItem) {
+            throw ValidationException::withMessages([
+                'inventory_action' => "Cannot verify physical loadout for product '{$creditItem->product_name}': Original warehouse loadout record not found.",
+            ]);
+        }
+
+        // Lock existing Out movements for this shop order item to guarantee concurrency safety
+        $outMovements = StockMovement::query()
+            ->where('shop_order_item_id', $orderItem->id)
+            ->where('type', StockMovementType::Out->value)
+            ->orderByDesc('id')
+            ->lockForUpdate()
+            ->get();
+
+        if ($outMovements->isEmpty()) {
+            throw ValidationException::withMessages([
+                'inventory_action' => "Cannot record damage for product '{$creditItem->product_name}': No loadout stock deduction was recorded for this order item.",
+            ]);
+        }
+
+        $totalDeducted = round((float) $outMovements->sum('quantity'), 3);
+
+        // Calculate all previously reversed quantities across this order item
+        $previousReversals = StockMovement::query()
+            ->where('shop_order_item_id', $orderItem->id)
+            ->where('type', StockMovementType::SaleReversal->value)
+            ->lockForUpdate()
+            ->sum('quantity');
+
+        // Calculate previously recorded wastage entries for this order item across credit notes
+        $orderNumber = $orderItem->order?->order_number ?? '';
+        $previousDamages = WastageEntry::query()
+            ->where('product_id', $creditItem->product_id)
+            ->where('notes', 'like', "%Order: {$orderNumber}%")
+            ->where('notes', 'not like', "{$noteMarker}%")
+            ->sum('quantity');
+
+        $maxDamagable = round(max(0.0, $totalDeducted - (float) $previousReversals - (float) $previousDamages), 3);
+
+        if ($quantityToDamage > ($maxDamagable + 0.001)) {
+            throw ValidationException::withMessages([
+                'adjusted_quantity' => "Damage quantity ({$quantityToDamage} kg) exceeds remaining delivered quantity ({$maxDamagable} kg). Deducted on loadout: {$totalDeducted} kg, already reversed/damaged: ".round((float) $previousReversals + (float) $previousDamages, 3).' kg.',
+            ]);
+        }
+
+        $resolvedReason = $wastageReason ?? $this->resolveWastageReasonForCreditItem($creditItem, $creditNote);
+
+        $order = $orderItem->order;
+        $invoice = $creditNote->invoice;
+        $shop = $creditNote->shop;
+
+        $remainingToDamage = $quantityToDamage;
+        $totalDamaged = 0.0;
+
+        foreach ($outMovements as $source) {
+            if ($remainingToDamage <= 0.0001) {
+                break;
+            }
+
+            $sourceGrade = ProductGrade::tryResolve($source->grade)?->value ?? (string) ($source->grade ?? 'A');
+            $damageAmount = min($remainingToDamage, (float) $source->quantity);
+
+            WastageEntry::create([
+                'product_id' => $creditItem->product_id,
+                'batch_id' => $source->batch_id,
+                'recorded_by' => $userId,
+                'grade' => $sourceGrade,
+                'quantity' => $damageAmount,
+                'cost_per_kg' => (float) $source->cost_per_unit,
+                'reason' => $resolvedReason,
+                'wastage_date' => $creditNote->credit_note_date?->toDateString() ?? today()->toDateString(),
+                'notes' => "{$noteMarker} Invoice: {$invoice?->invoice_number}; Order: {$order?->order_number}; Shop: {$shop?->name}; Reason: {$resolvedReason->label()}; ".($creditItem->notes ?? ''),
+            ]);
+
+            $remainingToDamage = round($remainingToDamage - $damageAmount, 3);
+            $totalDamaged = round($totalDamaged + $damageAmount, 3);
+        }
+
+        if (class_exists(PurchaserReadCacheService::class)) {
+            app(PurchaserReadCacheService::class)->invalidate(['orders', 'products']);
+        }
+
+        return $totalDamaged;
+    }
+
+    /**
+     * Resolve the appropriate WastageReason for a damaged credit note item.
+     */
+    private function resolveWastageReasonForCreditItem(
+        ShopCreditNoteItem $creditItem,
+        ShopCreditNote $creditNote
+    ): WastageReason {
+        if (! empty($creditItem->notes)) {
+            if (preg_match('/(?:damage_reason|Damage Reason):\s*([a-z_]+)/i', $creditItem->notes, $matches)) {
+                $candidate = WastageReason::tryFrom(strtolower(trim($matches[1])));
+                if ($candidate) {
+                    return $candidate;
+                }
+            }
+        }
+
+        return match ($creditNote->reason_type) {
+            ShopCreditNoteReason::DamageWastage => WastageReason::TransitDamage,
+            ShopCreditNoteReason::QualityIssue => WastageReason::Rotten,
+            ShopCreditNoteReason::Shortage => WastageReason::Shrinkage,
+            default => WastageReason::TransitDamage,
+        };
     }
 
     /**

@@ -129,9 +129,12 @@
     $isExpensesActive = request()->routeIs('admin.cashbook.monthly-report.expense-report*')
         || request()->routeIs('admin.cashbook.monthly-report.other-expenses*');
 
+    $isShopsReportActive = request()->routeIs('admin.cashbook.reports.shops.*');
+
     $isMonthlyReportsActive = $isMonthlyFinancialsActive
         || $isSalesSectionActive
         || $isExpensesActive
+        || $isShopsReportActive
         || request()->routeIs('admin.cashbook.monthly-report.*');
 
     $isPurchaseReportActive = request()->routeIs('admin.cashbook.finance.purchase')
@@ -241,6 +244,23 @@
                         'label' => 'Other Expense',
                         'href' => route('admin.cashbook.monthly-report.other-expenses'),
                         'active' => request()->routeIs('admin.cashbook.monthly-report.other-expenses'),
+                    ],
+                ],
+            ],
+            [
+                'label' => '4. Shops',
+                'href' => route('admin.cashbook.reports.shops.invoices'),
+                'active' => $isShopsReportActive,
+                'children' => [
+                    [
+                        'label' => 'Invoices',
+                        'href' => route('admin.cashbook.reports.shops.invoices'),
+                        'active' => request()->routeIs('admin.cashbook.reports.shops.invoices'),
+                    ],
+                    [
+                        'label' => 'Credit Notes',
+                        'href' => route('admin.cashbook.reports.shops.credit-notes'),
+                        'active' => request()->routeIs('admin.cashbook.reports.shops.credit-notes'),
                     ],
                 ],
             ],

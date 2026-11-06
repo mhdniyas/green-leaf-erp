@@ -25,6 +25,13 @@
         </div>
     </div>
 
+    @if (($financeSummary['overpayment_credit'] ?? 0) > 0.0001)
+        <div class="mt-2.5 flex items-center justify-between rounded-xl border border-cyan-200 bg-cyan-50/80 px-3 py-1.5 text-xs font-bold text-cyan-900">
+            <span class="text-[10px] uppercase tracking-wider text-cyan-800">Available Overpayment Credit</span>
+            <span class="font-mono font-black text-cyan-950">Rs. {{ number_format((float) $financeSummary['overpayment_credit'], 2) }}</span>
+        </div>
+    @endif
+
     @if ($recentInvoices->isNotEmpty())
         {{-- Single-row list --}}
         <div class="mt-3 overflow-x-auto rounded-xl border border-slate-200">
@@ -46,7 +53,10 @@
                                 </a>
                             </td>
                             <td class="px-3 py-1.5 font-semibold text-slate-500">{{ $invoice->business_date?->format('d M Y') }}</td>
-                            <td class="px-3 py-1.5 text-right font-black text-slate-950">Rs. {{ number_format((float) ($isOwnedAccountingShop ? $invoice->final_total : $invoice->balance_amount), 2) }}</td>
+                            @php
+                                $bill = $invoice->finalBill();
+                            @endphp
+                            <td class="px-3 py-1.5 text-right font-black text-slate-950">Rs. {{ number_format((float) ($isOwnedAccountingShop ? $bill->finalNetPayable : $bill->remainingBalance), 2) }}</td>
                             <td class="px-3 py-1.5 text-right">
                                 <a href="{{ route('shop-owner.finance.show', $invoice) }}" class="inline-flex items-center text-xs font-bold text-emerald-700 hover:text-emerald-900">
                                     Open &rarr;

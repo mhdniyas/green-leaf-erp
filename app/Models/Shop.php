@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\Inventory\ProductGrade;
+use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
@@ -233,6 +234,33 @@ class Shop extends Model
     public function invoices(): HasMany
     {
         return $this->hasMany(ShopInvoice::class);
+    }
+
+    public function creditNotes(): HasMany
+    {
+        return $this->hasMany(ShopCreditNote::class);
+    }
+
+    /**
+     * Total effective pending balance across all shop invoices, taking into account approved credit and debit notes.
+     */
+    public function totalEffectivePendingBalance(): float
+    {
+        return round((float) $this->invoices()
+            ->with(['creditNotes' => fn ($q) => $q->where('status', ShopCreditNoteStatus::Approved->value)])
+            ->get()
+            ->sum(fn (ShopInvoice $invoice): float => $invoice->effectiveBalanceAmount()), 2);
+    }
+
+    /**
+     * Total overpayment / credit liability across invoices where payments exceed effective totals.
+     */
+    public function totalOverpaidAmount(): float
+    {
+        return round((float) $this->invoices()
+            ->with(['creditNotes' => fn ($q) => $q->where('status', ShopCreditNoteStatus::Approved->value)])
+            ->get()
+            ->sum(fn (ShopInvoice $invoice): float => $invoice->overpaidAmount()), 2);
     }
 
     public function accountingCategories(): HasMany

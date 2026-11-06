@@ -9,6 +9,7 @@ use App\Enums\Cashbook\LedgerDirection;
 use App\Enums\Cashbook\TransactionStatus;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\ShopCreditNote;
 use App\Models\ShopInvoice;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -119,6 +120,102 @@ class InvoiceCashbookProjectionService
             $this->balanceCalculator->recalculate((int) $invoice->shop_id, $businessDate);
             if ($previousBusinessDate !== null && $previousBusinessDate !== $businessDate) {
                 $this->balanceCalculator->recalculate((int) $invoice->shop_id, $previousBusinessDate);
+            }
+
+            return $transaction->fresh('entryType');
+        });
+    }
+
+    public function syncCreditNote(ShopCreditNote $creditNote, ?int $userId = null): ?ShopLedgerTransaction
+    {
+        $purchaseBillType = LedgerEntryType::query()
+            ->where('code', 'purchase_bill')
+            ->where('active', true)
+            ->first();
+
+        if (! $purchaseBillType instanceof LedgerEntryType) {
+            return null;
+        }
+
+        $creditNote->refresh();
+        $isApproved = $creditNote->isApproved();
+        $amount = round((float) $creditNote->total_credit_amount, 2);
+        $shouldVoid = ! $isApproved || $amount <= 0.0 || $creditNote->isVoided();
+
+        $businessDate = $creditNote->credit_note_date?->toDateString()
+            ?? $creditNote->invoice?->business_date?->toDateString()
+            ?? today()->toDateString();
+
+        try {
+            $setting = $this->ruleResolver->resolve((int) $creditNote->shop_id, (int) $purchaseBillType->id, $businessDate);
+        } catch (RuntimeException) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($creditNote, $purchaseBillType, $businessDate, $amount, $shouldVoid, $userId, $setting): ?ShopLedgerTransaction {
+            $transaction = ShopLedgerTransaction::query()
+                ->where('shop_id', $creditNote->shop_id)
+                ->where('entry_type_id', $purchaseBillType->id)
+                ->where(function ($q): void {
+                    $q->where('reference_type', ShopCreditNote::class)
+                        ->orWhere('reference_type', 'App\\Models\\ShopCreditNote');
+                })
+                ->where('reference_id', $creditNote->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $transaction instanceof ShopLedgerTransaction) {
+                if ($shouldVoid) {
+                    return null;
+                }
+
+                $transaction = new ShopLedgerTransaction([
+                    'shop_id' => $creditNote->shop_id,
+                    'entry_type_id' => $purchaseBillType->id,
+                    'reference_type' => ShopCreditNote::class,
+                    'reference_id' => $creditNote->id,
+                    'entered_by' => $userId,
+                ]);
+            }
+
+            $previousBusinessDate = $transaction->exists
+                ? $transaction->business_date?->toDateString()
+                : null;
+
+            $fundingSource = FundingSource::Company;
+            // A credit note (credit) reverses/reduces expense -> Income; Debit note (debit) increases expense -> Expense.
+            $direction = $creditNote->isCredit() ? LedgerDirection::Income : LedgerDirection::Expense;
+            $effect = $this->effectResolver->resolve($direction, $fundingSource, $amount, $setting);
+
+            $transaction->fill([
+                'business_date' => $businessDate,
+                'amount' => $amount,
+                'direction' => $direction->value,
+                'funding_source' => $fundingSource->value,
+                'affects_sales' => false,
+                'affects_income' => false,
+                'affects_expense' => $creditNote->isDebit(),
+                'affects_pl' => $setting->include_in_pl,
+                'pl_delta' => $effect->plDelta,
+                'settlement_delta' => $effect->settlementDelta,
+                'settlement_direction' => $effect->settlementDirection->value,
+                'petty_delta' => $effect->pettyDelta,
+                'petty_direction' => $effect->pettyDirection->value,
+                'company_pending_delta' => $effect->companyPendingDelta,
+                'company_pending_direction' => $effect->companyPendingDirection->value,
+                'generated_by_rule' => false,
+                'status' => $shouldVoid ? TransactionStatus::Void->value : TransactionStatus::Approved->value,
+                'notes' => 'Auto from credit note '.$creditNote->credit_note_number,
+                'approved_by' => $shouldVoid ? null : ($userId ?? $creditNote->approved_by),
+                'voided_by' => $shouldVoid ? ($userId ?? $transaction->voided_by) : null,
+                'voided_at' => $shouldVoid ? ($transaction->voided_at ?? now()) : null,
+                'void_reason' => $shouldVoid ? 'Credit note voided, draft, or has zero amount.' : null,
+            ]);
+
+            $transaction->save();
+            $this->balanceCalculator->recalculate((int) $creditNote->shop_id, $businessDate);
+            if ($previousBusinessDate !== null && $previousBusinessDate !== $businessDate) {
+                $this->balanceCalculator->recalculate((int) $creditNote->shop_id, $previousBusinessDate);
             }
 
             return $transaction->fresh('entryType');

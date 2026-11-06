@@ -8,6 +8,7 @@ use App\Enums\Inventory\ProductGrade;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ShopInvoiceItem extends Model
 {
@@ -73,6 +74,11 @@ class ShopInvoiceItem extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function creditNoteItems(): HasMany
+    {
+        return $this->hasMany(ShopCreditNoteItem::class, 'shop_invoice_item_id');
     }
 
     public function productGrade(): ProductGrade

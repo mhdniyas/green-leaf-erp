@@ -58,7 +58,7 @@ class UpdateDailyBillPaymentRequest extends FormRequest
                 $currentPaidAmount = round((float) $invoice->paid_amount, 2);
                 $payableAmount = round(max(
                     0,
-                    (float) $invoice->subtotal - (float) $invoice->shortage_total + (float) $invoice->excess_total - $discountTotal
+                    $invoice->effectiveFinalTotal()
                 ), 2);
 
                 if ($submittedDiscountTotal !== $discountTotal) {

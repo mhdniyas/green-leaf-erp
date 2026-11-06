@@ -341,6 +341,23 @@ class ShopInvoiceController extends Controller
             abort(404);
         }
 
+        // Direct editing of original billing quantities and prices is blocked for generated invoices.
+        // All subsequent corrections must be managed through separate Credit Note records.
+        if ($invoice->exists && in_array((string) $invoice->status, ['generated', 'delivery_review', 'payment_pending', 'finalized', 'paid', 'cancelled'], true)) {
+            $errorMessage = 'Direct editing of original invoice items is disabled for generated invoices. All quantity, price, and line adjustments must be made through Credit Notes.';
+
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $errorMessage,
+                    'errors' => ['invoice' => [$errorMessage]],
+                ], 422);
+            }
+
+            return redirect()->route('purchasing.shop-invoices.show', $invoice)
+                ->withErrors(['invoice' => $errorMessage]);
+        }
+
         $validated = $request->validate([
             'final_qty' => ['required', 'numeric', 'min:0'],
             'final_price' => ['required', 'numeric', 'min:0.01'],

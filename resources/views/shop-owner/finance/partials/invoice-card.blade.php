@@ -14,12 +14,13 @@
     });
     $subtotal = (float) $invoice->subtotal > 0 && !$isFiltered ? (float) $invoice->subtotal : $computedSubtotal;
     $discountTotal = $isFiltered ? 0.0 : (float) $invoice->discount_total;
+    $bill = $invoice->finalBill();
     $finalTotal = $isFiltered
         ? (isset($filteredDisplayTotal) ? (float) $filteredDisplayTotal : $computedSubtotal)
-        : ((float) $invoice->final_total > 0 ? (float) $invoice->final_total : max(0, $subtotal - $discountTotal));
-    $originalBillTotal = (float) $invoice->final_total;
-    $paidAmount = (float) $invoice->paid_amount;
-    $balanceAmount = (float) $invoice->balance_amount;
+        : $bill->finalNetPayable;
+    $originalBillTotal = $bill->originalInvoiceTotal;
+    $paidAmount = $bill->amountPaid;
+    $balanceAmount = $bill->remainingBalance;
 @endphp
 
 <section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:rounded-2xl">
@@ -128,8 +129,26 @@
                     <span>- Rs. {{ number_format($discountTotal, 2) }}</span>
                 </div>
             @endif
+            @if (!$isFiltered && $bill->hasAdjustments)
+                <div class="flex items-center justify-between text-slate-500 text-[10px]">
+                    <span>Original Invoice Total</span>
+                    <span>Rs. {{ number_format($bill->originalInvoiceTotal, 2) }}</span>
+                </div>
+                @if ($bill->finalizedCreditTotal > 0)
+                    <div class="flex items-center justify-between text-emerald-700 font-bold text-[10px]">
+                        <span>Credit Adjustments</span>
+                        <span>- Rs. {{ number_format($bill->finalizedCreditTotal, 2) }}</span>
+                    </div>
+                @endif
+                @if ($bill->finalizedDebitTotal > 0)
+                    <div class="flex items-center justify-between text-amber-700 font-bold text-[10px]">
+                        <span>Debit Adjustments</span>
+                        <span>+ Rs. {{ number_format($bill->finalizedDebitTotal, 2) }}</span>
+                    </div>
+                @endif
+            @endif
             <div class="flex items-center justify-between font-black text-slate-950 text-xs sm:text-sm pt-1 border-t border-slate-200">
-                <span>{{ $isFiltered ? 'Filtered Total' : 'Net Invoice Total' }}</span>
+                <span>{{ $isFiltered ? 'Filtered Total' : ($bill->hasAdjustments ? 'Final Net Bill' : 'Net Invoice Total') }}</span>
                 <span>Rs. {{ number_format($finalTotal, 2) }}</span>
             </div>
             @if ($isFiltered && $originalBillTotal > 0)

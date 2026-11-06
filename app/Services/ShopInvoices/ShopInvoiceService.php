@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\ShopInvoices;
 
+use App\Enums\ShopInvoice\ShopCreditNoteDirection;
+use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Models\BusinessSetting;
 use App\Models\Product;
 use App\Models\ProductUnit;
@@ -37,7 +39,13 @@ class ShopInvoiceService
         private readonly OwnedShopAccountingService $ownedShopAccountingService,
         private readonly PurchaserBusinessDayService $businessDayService,
         private readonly InvoiceCashbookProjectionService $invoiceCashbookProjectionService,
+        private readonly ?ShopFinalBillService $finalBillService = null,
     ) {}
+
+    private function getFinalBillService(): ShopFinalBillService
+    {
+        return $this->finalBillService ?? app(ShopFinalBillService::class);
+    }
 
     /**
      * @return array{generated: int, skipped: array<int, array{order_number: string|null, shop_name: string|null, products: array<int, string>}>}
@@ -79,7 +87,7 @@ class ShopInvoiceService
     {
         $order->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
 
-        if ($order->invoice instanceof ShopInvoice && $order->invoice->isFinalLocked()) {
+        if ($order->invoice instanceof ShopInvoice && ($order->invoice->isFinalLocked() || $order->invoice->isBillingProtected())) {
             return $order->invoice->fresh('items');
         }
 
@@ -101,7 +109,7 @@ class ShopInvoiceService
                 'shop_order_id' => $order->id,
             ]);
 
-            if ($invoice->exists && $invoice->isFinalLocked()) {
+            if ($invoice->exists && ($invoice->isFinalLocked() || $invoice->isBillingProtected())) {
                 return $invoice->fresh('items');
             }
 
@@ -412,7 +420,7 @@ class ShopInvoiceService
         return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoicePaymentRequest {
             $invoice->refresh();
             $pendingInvoices = $this->pendingInvoicesForShop((int) $invoice->shop_id);
-            $totalShopDue = round($pendingInvoices->sum(fn (ShopInvoice $pendingInvoice): float => (float) $pendingInvoice->balance_amount), 2);
+            $totalShopDue = round($pendingInvoices->sum(fn (ShopInvoice $pendingInvoice): float => (float) $pendingInvoice->effectiveBalanceAmount()), 2);
 
             if ($totalShopDue <= 0.0) {
                 throw ValidationException::withMessages([
@@ -653,7 +661,8 @@ class ShopInvoiceService
                 break;
             }
 
-            $allocationAmount = round(min($remainingAmount, (float) $invoice->balance_amount), 2);
+            $effectiveBalance = $invoice->effectiveBalanceAmount();
+            $allocationAmount = round(min($remainingAmount, $effectiveBalance), 2);
 
             if ($allocationAmount <= 0.0) {
                 continue;
@@ -669,7 +678,7 @@ class ShopInvoiceService
         $appliedAmount = round(collect($invoices)->sum(fn (array $row): float => (float) $row['amount']), 2);
 
         return [
-            'total_due' => round($pendingInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->balance_amount), 2),
+            'total_due' => round($pendingInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->effectiveBalanceAmount()), 2),
             'applied_amount' => $appliedAmount,
             'credit_amount' => round(max(0, round($amount, 2) - $appliedAmount), 2),
             'invoices' => $invoices,
@@ -683,11 +692,19 @@ class ShopInvoiceService
     {
         return ShopInvoice::query()
             ->where('shop_id', $shopId)
-            ->where('balance_amount', '>', 0)
-            ->with(['order'])
+            ->where(function ($query): void {
+                $query->where('balance_amount', '>', 0)
+                    ->orWhereHas('creditNotes', function ($cnQuery): void {
+                        $cnQuery->where('status', ShopCreditNoteStatus::Approved->value)
+                            ->where('direction', ShopCreditNoteDirection::Debit->value);
+                    });
+            })
+            ->with(['order', 'creditNotes'])
             ->oldest('business_date')
             ->oldest('id')
-            ->get();
+            ->get()
+            ->filter(fn (ShopInvoice $invoice): bool => $invoice->effectiveBalanceAmount() > 0.0001)
+            ->values();
     }
 
     public function availableShopCredit(int $shopId): float
@@ -776,9 +793,9 @@ class ShopInvoiceService
         return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoice {
             $invoice->refresh();
 
-            if ($invoice->isFinalized()) {
+            if ($invoice->isFinalized() || $invoice->isBillingProtected()) {
                 throw ValidationException::withMessages([
-                    'discount_total' => 'This shop invoice is finalized. Reopen/correction flow is required before changing discounts.',
+                    'discount_total' => 'This shop invoice is finalized or billing-protected. Direct discount editing is disabled; use Credit Notes for billing adjustments.',
                 ]);
             }
 
@@ -824,6 +841,12 @@ class ShopInvoiceService
         int $userId,
         ?string $note = null,
     ): ShopInvoice {
+        if ($invoice->exists && in_array((string) $invoice->status, ['generated', 'delivery_review', 'payment_pending', 'finalized', 'paid', 'cancelled'], true)) {
+            throw ValidationException::withMessages([
+                'invoice' => 'Direct editing of original invoice items is disabled for generated invoices. All quantity, price, and line adjustments must be made through Credit Notes.',
+            ]);
+        }
+
         return DB::transaction(function () use ($invoice, $invoiceItem, $finalQty, $finalPrice, $userId, $note): ShopInvoice {
             $invoice = ShopInvoice::query()
                 ->with(['items.product', 'order.items.product'])
@@ -918,9 +941,9 @@ class ShopInvoiceService
     {
         $invoice->loadMissing(['shop.priceGroup', 'items.product', 'order.items.product']);
 
-        if ($invoice->isFinalLocked()) {
+        if ($invoice->isFinalLocked() || $invoice->isBillingProtected()) {
             throw ValidationException::withMessages([
-                'invoice' => 'This shop invoice is finalized. Create a price adjustment instead of repricing the original invoice.',
+                'invoice' => 'This shop invoice is finalized or billing-protected. Create a price adjustment or credit note instead of repricing the original invoice.',
             ]);
         }
 
@@ -1046,7 +1069,7 @@ class ShopInvoiceService
             ->with(['shop.priceGroup', 'items.product', 'order'])
             ->whereDate('business_date', $businessDate)
             ->get()
-            ->reject(fn (ShopInvoice $invoice): bool => $invoice->isFinalLocked())
+            ->reject(fn (ShopInvoice $invoice): bool => $invoice->isFinalLocked() || $invoice->isBillingProtected())
             ->each(function (ShopInvoice $invoice) use ($userId, $reason, &$summary): void {
                 $missingProducts = $this->missingDailyPriceProductNamesForInvoice($invoice);
 
@@ -1109,18 +1132,29 @@ class ShopInvoiceService
                 break;
             }
 
-            $allocationAmount = round(min($remainingAmount, (float) $invoice->balance_amount), 2);
+            $lockedInvoice = ShopInvoice::query()
+                ->whereKey($invoice->id)
+                ->lockForUpdate()
+                ->with(['creditNotes', 'order', 'items'])
+                ->first();
+
+            if (! $lockedInvoice) {
+                continue;
+            }
+
+            $effectiveBalance = $lockedInvoice->effectiveBalanceAmount();
+            $allocationAmount = round(min($remainingAmount, $effectiveBalance), 2);
 
             if ($allocationAmount <= 0.0) {
                 continue;
             }
 
-            $this->applyInvoicePaymentWithoutJournal($invoice, $allocationAmount, $userId, $adminNote);
+            $this->applyInvoicePaymentWithoutJournal($lockedInvoice, $allocationAmount, $userId, $adminNote);
 
             ShopInvoicePaymentAllocation::query()->create([
                 'payment_request_id' => $paymentRequest->id,
-                'shop_invoice_id' => $invoice->id,
-                'shop_id' => $invoice->shop_id,
+                'shop_invoice_id' => $lockedInvoice->id,
+                'shop_id' => $lockedInvoice->shop_id,
                 'amount' => $allocationAmount,
                 'created_by' => $userId,
             ]);
@@ -1187,7 +1221,10 @@ class ShopInvoiceService
     private function applyInvoicePaymentWithoutJournal(ShopInvoice $invoice, float $amount, int $userId, ?string $adminNote = null): ShopInvoice
     {
         $invoice->refresh();
-        $appliedAmount = round(min($amount, (float) $invoice->balance_amount), 2);
+        $invoice->loadMissing(['creditNotes', 'items', 'order']);
+
+        $effectiveBalance = $invoice->effectiveBalanceAmount();
+        $appliedAmount = round(min($amount, $effectiveBalance), 2);
 
         if ($appliedAmount <= 0.0) {
             return $invoice;
@@ -1206,7 +1243,7 @@ class ShopInvoiceService
             'payment_approved_at' => now(),
         ]);
 
-        $invoice = $this->recalculate($invoice->fresh('items'));
+        $invoice = $this->recalculate($invoice->fresh(['items', 'creditNotes']));
 
         if ($invoice->order) {
             $invoice->order->update([
@@ -1225,7 +1262,7 @@ class ShopInvoiceService
      */
     public function recalculate(ShopInvoice $invoice): ShopInvoice
     {
-        $invoice->loadMissing('items');
+        $invoice->loadMissing(['items', 'creditNotes']);
 
         // Store subtotal exactly as listed line amounts (1 + 2 + 3 ...).
         $subtotal = round((float) $invoice->items->sum('final_line_total'), 2);
@@ -1234,20 +1271,25 @@ class ShopInvoiceService
         $discountTotal = round((float) $invoice->discount_total, 2);
         $finalTotal = round(max(0.00, $subtotal - $discountTotal), 2);
         $paidAmount = round((float) $invoice->paid_amount, 2);
-        $balanceAmount = round(max(0.00, $finalTotal - $paidAmount), 2);
 
-        $paymentStatus = match (true) {
-            $finalTotal <= 0.00 && $balanceAmount <= 0.00 => 'paid',
-            $paidAmount <= 0.00 => 'unpaid',
-            $balanceAmount > 0.00 => 'partially_paid',
-            default => 'paid',
+        $invoice->final_total = $finalTotal;
+
+        // Canonical Final Bill determines effective remaining balance and status
+        $finalBill = $this->getFinalBillService()->calculate($invoice);
+        $effectiveBalance = $finalBill->remainingBalance;
+
+        $paymentStatus = match ($finalBill->effectivePaymentStatus) {
+            'paid', 'overpaid' => 'paid',
+            'partially_paid' => 'partially_paid',
+            default => 'unpaid',
         };
 
         $status = match (true) {
-            in_array($invoice->delivery_status, ['awaiting_review', 'received_with_discrepancy'], true) => 'delivery_review',
             $paymentStatus === 'paid' => 'paid',
+            $invoice->finalized_at !== null => 'finalized',
+            in_array($invoice->delivery_status, ['awaiting_review', 'received_with_discrepancy'], true) => 'delivery_review',
             in_array($invoice->delivery_status, ['received_full', 'approved_after_discrepancy'], true) => 'payment_pending',
-            default => 'generated',
+            default => $invoice->status ?: 'generated',
         };
 
         $invoice->update([
@@ -1255,12 +1297,12 @@ class ShopInvoiceService
             'shortage_total' => $shortageTotal,
             'excess_total' => $excessTotal,
             'final_total' => $finalTotal,
-            'balance_amount' => $balanceAmount,
+            'balance_amount' => $effectiveBalance,
             'payment_status' => $paymentStatus,
             'status' => $status,
         ]);
 
-        $invoice = $invoice->fresh('items');
+        $invoice = $invoice->fresh(['items', 'creditNotes']);
 
         if ($invoice->isFinalized()) {
             $this->invoiceCashbookProjectionService->syncInvoice($invoice);
@@ -1307,51 +1349,9 @@ class ShopInvoiceService
 
     public function reopenFinalizedInvoice(ShopInvoice $invoice, int $userId): ShopInvoice
     {
-        return DB::transaction(function () use ($invoice, $userId): ShopInvoice {
-            $invoice = ShopInvoice::query()
-                ->with('items')
-                ->lockForUpdate()
-                ->findOrFail($invoice->id);
-
-            if (! $invoice->isFinalized()) {
-                throw ValidationException::withMessages([
-                    'invoice' => 'This invoice is not finalized and does not need to be reopened.',
-                ]);
-            }
-
-            if (
-                (float) $invoice->paid_amount > 0.0
-                || $invoice->payment_approved_at !== null
-                || in_array((string) $invoice->payment_status, ['partially_paid', 'paid'], true)
-            ) {
-                throw ValidationException::withMessages([
-                    'invoice' => 'Cannot reopen an invoice that already has payment activity.',
-                ]);
-            }
-
-            $before = [
-                'status' => $invoice->status,
-                'finalized_at' => $invoice->finalized_at?->toDateTimeString(),
-                'finalized_by' => $invoice->finalized_by,
-            ];
-
-            $invoice->forceFill([
-                'status' => 'approved',
-                'finalized_by' => null,
-                'finalized_at' => null,
-            ])->save();
-
-            $invoice = $invoice->fresh('items');
-
-            $this->recordInvoiceActivity($invoice, 'invoice_reopened_for_edit', $userId, $before, [
-                'status' => $invoice->status,
-                'finalized_at' => null,
-            ], 'Invoice reopened for editing by admin.', 'reopen');
-
-            $this->invoiceCashbookProjectionService->syncInvoice($invoice, $userId);
-
-            return $invoice;
-        });
+        throw ValidationException::withMessages([
+            'invoice' => 'Reopening finalized invoices is disabled. All post-generation quantity, price, and financial corrections must be made through Credit Notes.',
+        ]);
     }
 
     private function assertInvoiceFinalizedForMoneyMutation(ShopInvoice $invoice): void
@@ -1492,7 +1492,7 @@ class ShopInvoiceService
     /**
      * @param  Collection<int, ShopOrderItem>|null  $orderItems
      */
-    private function priceQuantityFor(?Product $product, float $baseQuantity, string $priceUnit, ?Collection $orderItems = null): float
+    public function priceQuantityFor(?Product $product, float $baseQuantity, string $priceUnit, ?Collection $orderItems = null): float
     {
         if (! $product) {
             throw ValidationException::withMessages([

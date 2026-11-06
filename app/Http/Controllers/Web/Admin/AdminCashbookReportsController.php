@@ -49,6 +49,8 @@ use App\Services\Purchasing\GoodsReceivedService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
 use App\Services\Purchasing\WarehouseReceiptStateResolver;
 use App\Services\Reports\ShopProfitIntelligenceService;
+use App\Services\ShopInvoices\ShopFinalBill;
+use App\Services\ShopInvoices\ShopFinalBillService;
 use App\Support\CashbookAccess;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
@@ -403,10 +405,11 @@ class AdminCashbookReportsController extends Controller
         array $filterProductIds
     ): Builder {
         $itemsEager = $filterProductIds === []
-            ? ['shop', 'order', 'items.product']
+            ? ['shop', 'order', 'items.product', 'creditNotes']
             : [
                 'shop',
                 'order',
+                'creditNotes',
                 'items' => fn ($query) => $query->whereIn('product_id', $filterProductIds)->with('product'),
             ];
 
@@ -440,7 +443,18 @@ class AdminCashbookReportsController extends Controller
      */
     private function annotateGlBillsInvoices(Collection $invoices, array $filterProductIds): void
     {
+        $finalBills = app(ShopFinalBillService::class)->calculateMany($invoices);
+
         foreach ($invoices as $invoice) {
+            /** @var ShopFinalBill $bill */
+            $bill = $finalBills->get((int) $invoice->id) ?? app(ShopFinalBillService::class)->calculate($invoice);
+
+            $invoice->final_bill = $bill;
+            $invoice->effective_final_total = $bill->finalNetPayable;
+            $invoice->effective_balance_amount = $bill->remainingBalance;
+            $invoice->finalized_credit_total = $bill->finalizedCreditTotal;
+            $invoice->finalized_debit_total = $bill->finalizedDebitTotal;
+            $invoice->effective_payment_status = $bill->effectivePaymentStatus;
             $invoice->filtered_display_total = $filterProductIds === []
                 ? null
                 : $invoice->items->sum(fn ($item): float => $this->glBillsItemTotal($item));
@@ -458,58 +472,117 @@ class AdminCashbookReportsController extends Controller
     /**
      * @param  Collection<int, ShopInvoice>  $invoices
      * @param  array<int, int>  $filterProductIds
-     * @return array{total_billed: float, total_paid: float, total_balance: float, count: int}
+     * @return array{
+     *     original_invoice_total: float,
+     *     finalized_credit_total: float,
+     *     finalized_debit_total: float,
+     *     total_billed: float,
+     *     total_final_billed: float,
+     *     final_net_billed: float,
+     *     total_paid: float,
+     *     total_balance: float,
+     *     outstanding_balance: float,
+     *     overpayment_credit: float,
+     *     count: int
+     * }
      */
     private function glBillsTotals(Collection $invoices, array $filterProductIds): array
     {
+        if ($invoices->isEmpty()) {
+            return $this->emptyGlBillsTotals();
+        }
+
+        $finalBills = app(ShopFinalBillService::class)->calculateMany($invoices);
+
+        $originalTotal = round((float) $invoices->sum(fn (ShopInvoice $invoice): float => $filterProductIds === []
+            ? (float) $invoice->final_total
+            : (float) ($invoice->filtered_display_total ?? $invoice->items->sum(fn ($item): float => $this->glBillsItemTotal($item)))), 2);
+
+        $finalizedCreditTotal = round((float) $finalBills->sum('finalizedCreditTotal'), 2);
+        $finalizedDebitTotal = round((float) $finalBills->sum('finalizedDebitTotal'), 2);
+        $finalNetBilled = round((float) $finalBills->sum('finalNetPayable'), 2);
+        $totalPaid = round((float) $finalBills->sum('amountPaid'), 2);
+        $totalBalance = round((float) $finalBills->sum('remainingBalance'), 2);
+        $overpaymentCredit = round((float) $finalBills->sum('overpaymentCredit'), 2);
+
+        $effectiveTotalBilled = $filterProductIds === [] ? $finalNetBilled : $originalTotal;
+
         return [
-            'total_billed' => round((float) $invoices->sum(fn (ShopInvoice $invoice): float => $filterProductIds === [] ? (float) $invoice->final_total : (float) $invoice->filtered_display_total), 2),
-            'total_paid' => round((float) $invoices->sum('paid_amount'), 2),
-            'total_balance' => round((float) $invoices->sum('balance_amount'), 2),
+            'original_invoice_total' => $originalTotal,
+            'finalized_credit_total' => $finalizedCreditTotal,
+            'finalized_debit_total' => $finalizedDebitTotal,
+            'total_billed' => $effectiveTotalBilled,
+            'total_final_billed' => $finalNetBilled,
+            'final_net_billed' => $finalNetBilled,
+            'total_paid' => $totalPaid,
+            'total_balance' => $totalBalance,
+            'outstanding_balance' => $totalBalance,
+            'overpayment_credit' => $overpaymentCredit,
             'count' => $invoices->count(),
         ];
     }
 
     /**
-     * @return array{total_billed: float, total_paid: float, total_balance: float, count: int}
+     * @return array{
+     *     original_invoice_total: float,
+     *     finalized_credit_total: float,
+     *     finalized_debit_total: float,
+     *     total_billed: float,
+     *     total_final_billed: float,
+     *     final_net_billed: float,
+     *     total_paid: float,
+     *     total_balance: float,
+     *     outstanding_balance: float,
+     *     overpayment_credit: float,
+     *     count: int
+     * }
      */
     private function emptyGlBillsTotals(): array
     {
         return [
+            'original_invoice_total' => 0.00,
+            'finalized_credit_total' => 0.00,
+            'finalized_debit_total' => 0.00,
             'total_billed' => 0.00,
+            'total_final_billed' => 0.00,
+            'final_net_billed' => 0.00,
             'total_paid' => 0.00,
             'total_balance' => 0.00,
+            'outstanding_balance' => 0.00,
+            'overpayment_credit' => 0.00,
             'count' => 0,
         ];
     }
 
     /**
      * @param  array<int, int>  $filterProductIds
-     * @return array{total_billed: float, total_paid: float, total_balance: float, count: int}
+     * @return array{
+     *     original_invoice_total: float,
+     *     finalized_credit_total: float,
+     *     finalized_debit_total: float,
+     *     total_billed: float,
+     *     total_final_billed: float,
+     *     final_net_billed: float,
+     *     total_paid: float,
+     *     total_balance: float,
+     *     outstanding_balance: float,
+     *     overpayment_credit: float,
+     *     count: int
+     * }
      */
     private function glBillsTotalsFromQuery(Builder $query, array $filterProductIds): array
     {
-        if ($filterProductIds === []) {
-            return [
-                'total_billed' => round((float) (clone $query)->reorder()->sum('final_total'), 2),
-                'total_paid' => round((float) (clone $query)->reorder()->sum('paid_amount'), 2),
-                'total_balance' => round((float) (clone $query)->reorder()->sum('balance_amount'), 2),
-                'count' => (int) (clone $query)->reorder()->count(),
-            ];
+        $invoices = (clone $query)->reorder()->get();
+
+        if ($invoices->isEmpty()) {
+            return $this->emptyGlBillsTotals();
         }
 
-        $totalBilled = (clone $query)
-            ->reorder()
-            ->join('shop_invoice_items', 'shop_invoice_items.shop_invoice_id', '=', 'shop_invoices.id')
-            ->whereIn('shop_invoice_items.product_id', $filterProductIds)
-            ->sum(DB::raw('COALESCE(shop_invoice_items.final_line_total, COALESCE(shop_invoice_items.delivered_price_quantity, shop_invoice_items.price_quantity, shop_invoice_items.delivered_qty, 0) * COALESCE(shop_invoice_items.unit_price, 0))'));
+        if ($filterProductIds !== []) {
+            $this->annotateGlBillsInvoices($invoices, $filterProductIds);
+        }
 
-        return [
-            'total_billed' => round((float) $totalBilled, 2),
-            'total_paid' => round((float) (clone $query)->reorder()->sum('paid_amount'), 2),
-            'total_balance' => round((float) (clone $query)->reorder()->sum('balance_amount'), 2),
-            'count' => (int) (clone $query)->reorder()->count(),
-        ];
+        return $this->glBillsTotals($invoices, $filterProductIds);
     }
 
     /**
@@ -524,12 +597,16 @@ class AdminCashbookReportsController extends Controller
             ['Period', $report['startDate'].' to '.$report['endDate']],
             ['Product Filter', $report['selectedProductFilter']?->name ?: 'All Products'],
             [],
+            ['Original Invoice Total', $report['totals']['original_invoice_total'] ?? $report['totals']['total_billed']],
+            ['Finalized Credits', $report['totals']['finalized_credit_total'] ?? 0.00],
+            ['Finalized Debits', $report['totals']['finalized_debit_total'] ?? 0.00],
             ['Total Billed', $report['totals']['total_billed']],
+            ['Final Net Billed', $report['totals']['final_net_billed'] ?? $report['totals']['total_billed']],
             ['Paid Amount', $report['totals']['total_paid']],
             ['Balance Due', $report['totals']['total_balance']],
             ['Invoice Count', $report['totals']['count']],
             [],
-            ['Date', 'Invoice Number', 'Shop', 'Product Filter Total', 'Invoice Total', 'Paid Amount', 'Balance Due', 'Status'],
+            ['Date', 'Invoice Number', 'Shop', 'Product Filter Total', 'Original Total', 'Credit Adjustments', 'Debit Adjustments', 'Final Net Bill', 'Paid Amount', 'Balance Due', 'Status'],
         ];
 
         foreach ($report['invoices'] as $invoice) {
@@ -539,9 +616,12 @@ class AdminCashbookReportsController extends Controller
                 $invoice->shop?->name ?: 'Shop #'.$invoice->shop_id,
                 $invoice->filtered_display_total === null ? '' : round((float) $invoice->filtered_display_total, 2),
                 round((float) $invoice->final_total, 2),
+                round((float) ($invoice->finalized_credit_total ?? 0), 2),
+                round((float) ($invoice->finalized_debit_total ?? 0), 2),
+                round((float) ($invoice->effective_final_total ?? $invoice->final_total), 2),
                 round((float) $invoice->paid_amount, 2),
-                round((float) $invoice->balance_amount, 2),
-                $invoice->status ?: $invoice->payment_status,
+                round((float) ($invoice->effective_balance_amount ?? $invoice->balance_amount), 2),
+                $invoice->effective_payment_status ?? ($invoice->status ?: $invoice->payment_status),
             ];
         }
 

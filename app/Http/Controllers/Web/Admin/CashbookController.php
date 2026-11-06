@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web\Admin;
 
 use App\Enums\Cashbook\TransactionStatus;
+use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Exports\PurchaserExpenseReportExport;
 use App\Exports\PurchaserReportArrayExport;
 use App\Exports\ShopSalesReportExport;
@@ -133,6 +134,7 @@ use App\Services\Purchasing\PurchaseReportingService;
 use App\Services\Purchasing\PurchaserExpenseReportService;
 use App\Services\Purchasing\PurchaserVendorSummaryService;
 use App\Services\Purchasing\ShopVendorPurchaseReportService;
+use App\Services\ShopInvoices\ShopFinalBillService;
 use App\Support\CashbookAccess;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
@@ -323,16 +325,24 @@ final class CashbookController extends Controller
             ->with('entryType')
             ->get();
 
-        $glBillsPerShop = ShopInvoice::query()
+        $glInvoices = ShopInvoice::query()
             ->whereIn('shop_id', $shopIds)
             ->where('status', '!=', 'cancelled')
             ->where('final_total', '>', 0)
             ->whereDate('business_date', '>=', $filters['start_date'])
             ->whereDate('business_date', '<=', $filters['end_date'])
-            ->selectRaw('shop_id, COUNT(*) as bill_count, SUM(final_total) as total_gl')
-            ->groupBy('shop_id')
-            ->get()
-            ->keyBy('shop_id');
+            ->with(['creditNotes' => fn ($q) => $q->where('status', ShopCreditNoteStatus::Approved->value)])
+            ->get();
+
+        $glBillsPerShop = $glInvoices->groupBy('shop_id')->map(function ($invoices) {
+            $bills = app(ShopFinalBillService::class)->calculateMany($invoices);
+
+            return (object) [
+                'shop_id' => $invoices->first()?->shop_id,
+                'bill_count' => $invoices->count(),
+                'total_gl' => round((float) $bills->sum('finalNetPayable'), 2),
+            ];
+        });
 
         $shopRows = [];
         $grandSales = 0.0;
@@ -583,11 +593,12 @@ final class CashbookController extends Controller
         $cashBankReceived = (float) $paymentCard['approved_amount'];
         $floatingPayments = (float) $paymentCard['floating_amount'];
         $pendingPayable = (float) $paymentCard['after_balance'];
-        $glBillPending = (float) ShopInvoice::query()
+        $pendingInvoices = ShopInvoice::query()
             ->where('shop_id', $shopId)
             ->where('status', '!=', 'cancelled')
-            ->where('balance_amount', '>', 0)
-            ->sum('balance_amount');
+            ->with(['creditNotes' => fn ($q) => $q->where('status', ShopCreditNoteStatus::Approved->value)])
+            ->get();
+        $glBillPending = round((float) app(ShopFinalBillService::class)->calculateMany($pendingInvoices)->sum('remainingBalance'), 2);
         $ledgerSettled = (float) ShopPaymentLedgerAllocation::query()
             ->whereHas('paymentRequest', fn (Builder $query): Builder => $query->where('shop_id', $shopId))
             ->whereBetween('created_at', [$periodStart.' 00:00:00', $periodEnd.' 23:59:59'])
@@ -4317,16 +4328,17 @@ final class CashbookController extends Controller
             ->groupBy('b_date')
             ->pluck('total_expense', 'b_date');
 
-        // 3. GL Bills per date for this specific shop
+        // 3. GL Bills per date for this specific shop (canonical Final Bill)
         $glBillsPerDate = ShopInvoice::query()
             ->where('shop_id', (int) $resolvedShop->id)
             ->where('status', '!=', 'cancelled')
             ->where('final_total', '>', 0)
             ->whereDate('business_date', '>=', $finalStart)
             ->whereDate('business_date', '<=', $finalEnd)
-            ->selectRaw('DATE(business_date) as b_date, SUM(final_total) as total_gl')
-            ->groupBy('b_date')
-            ->pluck('total_gl', 'b_date');
+            ->with(['creditNotes' => fn ($q) => $q->where('status', ShopCreditNoteStatus::Approved->value)])
+            ->get()
+            ->groupBy(fn (ShopInvoice $inv): string => $inv->business_date?->format('Y-m-d') ?? Carbon::parse($inv->created_at)->format('Y-m-d'))
+            ->map(fn ($group): float => (float) app(ShopFinalBillService::class)->calculateMany($group)->sum('finalNetPayable'));
 
         $allDates = collect()
             ->merge($salesPerDate->keys())
@@ -4580,10 +4592,12 @@ final class CashbookController extends Controller
 
             $invoice = ShopInvoice::query()
                 ->where('shop_id', $shop->id)
-                ->where('balance_amount', '>', 0)
+                ->where('status', '!=', 'cancelled')
+                ->with(['creditNotes' => fn ($q) => $q->where('status', ShopCreditNoteStatus::Approved->value)])
                 ->oldest('business_date')
                 ->oldest('id')
-                ->first();
+                ->get()
+                ->first(fn (ShopInvoice $inv): bool => $inv->effectiveBalanceAmount() > 0.0001);
             $amount = round((float) $validated['amount'], 2);
             $payment = ShopInvoicePaymentRequest::query()->create([
                 'shop_invoice_id' => $invoice?->id,
@@ -11955,9 +11969,10 @@ final class CashbookController extends Controller
             ->where('status', '!=', 'cancelled')
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
-            ->selectRaw('shop_id, COALESCE(SUM(final_total), 0) as invoice_total')
+            ->with(['creditNotes' => fn ($q) => $q->where('status', ShopCreditNoteStatus::Approved->value)])
+            ->get()
             ->groupBy('shop_id')
-            ->pluck('invoice_total', 'shop_id');
+            ->map(fn ($group): float => (float) app(ShopFinalBillService::class)->calculateMany($group)->sum('finalNetPayable'));
         $periodTotals = ShopLedgerTransaction::query()
             ->whereBetween('business_date', [$startDate, $endDate])
             ->selectRaw("
@@ -13901,28 +13916,42 @@ final class CashbookController extends Controller
             $validated['end_date'] ?? null
         );
 
-        $rows = ShopInvoice::query()
-            ->with(['shop.client'])
+        $invoices = ShopInvoice::query()
+            ->with([
+                'shop.client',
+                'creditNotes' => fn ($q) => $q->where('status', ShopCreditNoteStatus::Approved->value),
+            ])
             ->where('final_total', '>', 0)
             ->where('status', '!=', 'cancelled')
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
             ->orderByDesc('business_date')
             ->orderByDesc('id')
-            ->get()
-            ->map(function (ShopInvoice $invoice): array {
+            ->get();
+
+        $bills = app(ShopFinalBillService::class)->calculateMany($invoices);
+
+        $rows = $invoices
+            ->map(function (ShopInvoice $invoice) use ($bills): array {
                 $shop = $invoice->shop;
                 $isDirect = $shop?->client_id === null;
+                $bill = $bills->get($invoice->id);
 
                 return [
                     'id' => $invoice->id,
                     'invoice_number' => $invoice->invoice_number,
                     'business_date' => $invoice->business_date?->toDateString(),
-                    'final_total' => round((float) $invoice->final_total, 2),
-                    'paid_amount' => round((float) $invoice->paid_amount, 2),
-                    'balance_amount' => round((float) $invoice->balance_amount, 2),
+                    'original_final_total' => round((float) $invoice->final_total, 2),
+                    'final_total' => $bill?->finalNetPayable ?? round((float) $invoice->final_total, 2),
+                    'effective_final_total' => $bill?->finalNetPayable ?? round((float) $invoice->final_total, 2),
+                    'paid_amount' => $bill?->amountPaid ?? round((float) $invoice->paid_amount, 2),
+                    'balance_amount' => $bill?->remainingBalance ?? round((float) $invoice->balance_amount, 2),
+                    'effective_balance_amount' => $bill?->remainingBalance ?? round((float) $invoice->balance_amount, 2),
+                    'finalized_credit_total' => $bill?->finalizedCreditTotal ?? 0.0,
+                    'finalized_debit_total' => $bill?->finalizedDebitTotal ?? 0.0,
+                    'overpayment_credit' => $bill?->overpaymentCredit ?? 0.0,
                     'status' => $invoice->status,
-                    'payment_status' => $invoice->payment_status,
+                    'payment_status' => $bill?->effectivePaymentStatus ?? $invoice->payment_status,
                     'scope' => $isDirect ? 'direct' : 'client',
                     'shop' => [
                         'id' => $shop?->id,
@@ -13949,9 +13978,13 @@ final class CashbookController extends Controller
             'rows' => $rows,
             'totals' => [
                 'count' => $rows->count(),
+                'total_original_billed' => round((float) $rows->sum('original_final_total'), 2),
                 'total_billed' => round((float) $rows->sum('final_total'), 2),
                 'total_paid' => round((float) $rows->sum('paid_amount'), 2),
                 'total_balance' => round((float) $rows->sum('balance_amount'), 2),
+                'total_credits' => round((float) $rows->sum('finalized_credit_total'), 2),
+                'total_debits' => round((float) $rows->sum('finalized_debit_total'), 2),
+                'total_overpayment' => round((float) $rows->sum('overpayment_credit'), 2),
             ],
         ]);
     }
@@ -14543,17 +14576,24 @@ final class CashbookController extends Controller
             ->groupBy('shop_id')
             ->pluck('total_expense', 'shop_id');
 
-        // 3. GL Bills per shop with counts
-        $glBillsPerShop = ShopInvoice::query()
+        // 3. GL Bills per shop with counts (canonical Final Bill)
+        $glInvoices = ShopInvoice::query()
             ->whereIn('shop_id', $shopIds)
             ->where('status', '!=', 'cancelled')
             ->where('final_total', '>', 0)
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
-            ->selectRaw('shop_id, COUNT(*) as bill_count, SUM(final_total) as total_gl')
+            ->with(['creditNotes' => fn ($q) => $q->where('status', ShopCreditNoteStatus::Approved->value)])
+            ->get();
+
+        $glBillsPerShop = $glInvoices
             ->groupBy('shop_id')
-            ->get()
-            ->keyBy('shop_id');
+            ->map(function ($group) {
+                return (object) [
+                    'bill_count' => $group->count(),
+                    'total_gl' => (float) app(ShopFinalBillService::class)->calculateMany($group)->sum('finalNetPayable'),
+                ];
+            });
 
         $rows = [];
 

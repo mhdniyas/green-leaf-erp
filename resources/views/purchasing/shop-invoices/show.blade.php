@@ -12,9 +12,11 @@
         $showAdminDeliveryOverride = ($canOverride ?? false) && ! $isDeliveryReviewPending;
         $canReviewDelivery = ($canEdit ?? false) && ($isDeliveryReviewPending || $showAdminDeliveryOverride);
         $isFinalized = $isFinalized ?? $invoice->isFinalized();
-        $canEditBill = ! $isFinalized;
-        $canEditPrices = $canEditBill && (auth()->user()?->hasRole('admin') || auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('purchaser'));
-        $canEditDiscount = $canManageInvoiceMoney && ! $isFinalized && ! $isDeliveryReviewPending;
+        $isProtectedInvoice = $invoice->exists && in_array((string) $invoice->status, ['generated', 'delivery_review', 'payment_pending', 'finalized', 'paid', 'cancelled'], true);
+        $canEditBill = ! $isProtectedInvoice && ! $isFinalized;
+        $canEditPrices = false;
+        $canEditDiscount = $canManageInvoiceMoney && ! $isFinalized && ! $isDeliveryReviewPending && ! $isProtectedInvoice;
+        $canCreateCreditNote = auth()->user()?->hasRole('admin') && (string) $invoice->status !== 'cancelled';
         $formatUnit = fn (?string $unit): string => \App\Models\ProductUnit::normalizeUnit($unit) === 'piece'
             ? 'PCE'
             : strtoupper(str_replace('_', ' ', \App\Models\ProductUnit::normalizeUnit($unit)));
@@ -80,6 +82,38 @@
             </div>
         @endif
 
+        @if ($isProtectedInvoice)
+            <div class="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-xs sm:p-5">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex items-start gap-3">
+                        <div class="rounded-lg bg-amber-100 p-2 text-amber-800 shrink-0">
+                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="text-sm font-black text-amber-950">Original Billing Protected</h4>
+                            <p class="mt-0.5 text-xs font-semibold text-amber-800">
+                                Original Billing Protected — All quantity, price, damage, or return corrections must be made through Credit Notes.
+                            </p>
+                        </div>
+                    </div>
+                    @if ($canCreateCreditNote)
+                        <form method="POST" action="{{ route('admin.cashbook.reports.shops.credit-notes.select') }}" class="inline-block shrink-0">
+                            @csrf
+                            <input type="hidden" name="invoice_ref" value="{{ \Illuminate\Support\Facades\Crypt::encryptString((string) $invoice->id) }}">
+                            <button type="submit" class="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-emerald-400 bg-emerald-600 px-4 text-xs font-black text-white hover:bg-emerald-700 transition shadow-xs cursor-pointer">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                                </svg>
+                                <span>Add Credit Note</span>
+                            </button>
+                        </form>
+                    @endif
+                </div>
+            </div>
+        @endif
+
         <div class="space-y-4">
             @include('purchasing.shop-invoices.partials.invoice-card', [
                 'invoice' => $invoice,
@@ -110,15 +144,17 @@
                         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
                         Download PDF
                     </a>
-                    @if ($isFinalized && auth()->user()?->hasRole('admin'))
-                        <form method="POST" action="{{ route('purchasing.shop-invoices.reopen-for-edit', $invoice) }}" class="inline">
+                    @if ($canCreateCreditNote)
+                        <form method="POST" action="{{ route('admin.cashbook.reports.shops.credit-notes.select') }}" class="inline">
                             @csrf
-                            <button type="submit" onclick="return confirm('Reopen this finalized invoice for editing? The cashbook entry will be updated.')" class="inline-flex h-11 items-center justify-center rounded-lg border border-amber-300 bg-amber-50 px-4 text-sm font-black text-amber-800 hover:bg-amber-100">
-                                Reopen for Editing
+                            <input type="hidden" name="invoice_ref" value="{{ \Illuminate\Support\Facades\Crypt::encryptString((string) $invoice->id) }}">
+                            <button type="submit" class="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 text-sm font-black text-emerald-800 hover:bg-emerald-100 transition shadow-2xs cursor-pointer">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                                Add Credit Note
                             </button>
                         </form>
-
-                    @elseif (($canFinalize ?? false) && $reviewAction)
+                    @endif
+                    @if (($canFinalize ?? false) && $reviewAction)
                         <button type="button" class="inline-flex h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-black text-white hover:bg-slate-800 sm:w-auto" data-open-finalize>
                             Finalize Invoice
                         </button>

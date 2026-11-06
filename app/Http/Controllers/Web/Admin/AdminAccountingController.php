@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Admin;
 
+use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Exports\CashFlowDayJournalExport;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Admin\ApplyShopInvoiceDiscountRequest;
@@ -45,6 +46,7 @@ use App\Services\Finance\CompanySummaryReportService;
 use App\Services\Finance\JournalService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Finance\ShopLoanService;
+use App\Services\ShopInvoices\ShopFinalBillService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Support\AccountingAccess;
 use Illuminate\Http\RedirectResponse;
@@ -449,8 +451,19 @@ class AdminAccountingController extends Controller
         $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
 
         $shops = $this->ownedShopAccountingService->eligibleShops();
-        $shops->load(['client', 'users:id,shop_id', 'latestAccountingEntry.submittedBy:id,name', 'latestClosingAccountingEntry']);
-        $shops->loadSum('invoices as pending_balance_amount', 'balance_amount');
+        $shops->load([
+            'client',
+            'users:id,shop_id',
+            'latestAccountingEntry.submittedBy:id,name',
+            'latestClosingAccountingEntry',
+            'invoices.creditNotes' => fn ($query) => $query->where('status', ShopCreditNoteStatus::Approved->value),
+        ]);
+
+        foreach ($shops as $shop) {
+            $shop->pending_balance_amount = round((float) $shop->invoices->sum(fn (ShopInvoice $inv): float => $inv->effectiveBalanceAmount()), 2);
+            $shop->total_overpaid_amount = round((float) $shop->invoices->sum(fn (ShopInvoice $inv): float => $inv->overpaidAmount()), 2);
+        }
+
         $shops->loadCount([
             'accountingEntries as pending_updates_count' => fn ($query) => $query->where('status', 'submitted'),
             'accountingEntries as recheck_updates_count' => fn ($query) => $query->where('status', 'recheck_required'),
@@ -489,7 +502,11 @@ class AdminAccountingController extends Controller
             ->whereIn('shop_id', $shopIds)
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
-            ->with(['shop', 'order'])
+            ->with([
+                'shop',
+                'order',
+                'creditNotes' => fn ($query) => $query->where('status', ShopCreditNoteStatus::Approved->value),
+            ])
             ->latest('business_date')
             ->latest('id')
             ->get();
@@ -516,11 +533,18 @@ class AdminAccountingController extends Controller
             'salary_advance' => ShopCashMovementCategory::ADVANCE_LOAN_FOR_SALARY,
         ];
 
+        $periodFinalBills = app(ShopFinalBillService::class)->calculateMany($periodInvoices);
+
         $summary = [
             'shop_count' => $shops->count(),
             'invoice_count' => $periodInvoices->count(),
-            'invoice_collected' => round((float) $periodInvoices->sum('paid_amount'), 2),
-            'invoice_pending' => round((float) $periodInvoices->sum('balance_amount'), 2),
+            'invoice_original_billed' => round((float) $periodFinalBills->sum('originalInvoiceTotal'), 2),
+            'invoice_final_billed' => round((float) $periodFinalBills->sum('finalNetPayable'), 2),
+            'invoice_collected' => round((float) $periodFinalBills->sum('amountPaid'), 2),
+            'invoice_pending' => round((float) $periodFinalBills->sum('remainingBalance'), 2),
+            'credit_adjustments' => round((float) $periodFinalBills->sum('finalizedCreditTotal'), 2),
+            'debit_adjustments' => round((float) $periodFinalBills->sum('finalizedDebitTotal'), 2),
+            'overpayment_credit' => round((float) $periodFinalBills->sum('overpaymentCredit'), 2),
             'expense_total' => round((float) $periodEntries
                 ->flatMap(fn (ShopAccountingEntry $entry): Collection => $entry->lines)
                 ->where('type', 'expense')
@@ -575,6 +599,8 @@ class AdminAccountingController extends Controller
                     $balanceEntries = $shopEntries;
                 }
 
+                $shopBills = app(ShopFinalBillService::class)->calculateMany($shopInvoices);
+
                 $loanPrimary = $shopCredits
                     ->where('type', 'in')
                     ->filter(fn (ShopCredit $credit): bool => ($credit->cashMovementCategory?->name ?? ShopCashMovementCategory::LOAN) === $loanCategoryLabels['primary'])
@@ -588,8 +614,13 @@ class AdminAccountingController extends Controller
                 return [
                     'shop' => $shopLookup->get($activity['shop_id']),
                     'date' => Carbon::parse($activity['date']),
-                    'invoice_collected' => round((float) $shopInvoices->sum('paid_amount'), 2),
-                    'invoice_pending' => round((float) $shopInvoices->sum('balance_amount'), 2),
+                    'invoice_collected' => round((float) $shopBills->sum('amountPaid'), 2),
+                    'invoice_pending' => round((float) $shopBills->sum('remainingBalance'), 2),
+                    'invoice_original_billed' => round((float) $shopBills->sum('originalInvoiceTotal'), 2),
+                    'invoice_final_billed' => round((float) $shopBills->sum('finalNetPayable'), 2),
+                    'credit_adjustments' => round((float) $shopBills->sum('finalizedCreditTotal'), 2),
+                    'debit_adjustments' => round((float) $shopBills->sum('finalizedDebitTotal'), 2),
+                    'overpayment_credit' => round((float) $shopBills->sum('overpaymentCredit'), 2),
                     'expense_total' => round((float) $shopEntries
                         ->flatMap(fn (ShopAccountingEntry $entry): Collection => $entry->lines)
                         ->where('type', 'expense')
@@ -976,7 +1007,7 @@ class AdminAccountingController extends Controller
         $loanBalance = $this->shopLoanService->approvedBalance($shop);
         $billingInvoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
-            ->with(['order', 'paymentRequests' => fn ($query) => $query->latest('id')])
+            ->with(['order', 'creditNotes' => fn ($query) => $query->where('status', ShopCreditNoteStatus::Approved->value), 'paymentRequests' => fn ($query) => $query->latest('id')])
             ->latest('business_date')
             ->latest('id')
             ->paginate(12, ['*'], 'bills_page');
@@ -1037,7 +1068,8 @@ class AdminAccountingController extends Controller
             ->where('shop_id', $shop->id)
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
-            ->get(['id', 'shop_id', 'business_date', 'final_total', 'paid_amount', 'balance_amount']);
+            ->with(['creditNotes' => fn ($query) => $query->where('status', ShopCreditNoteStatus::Approved->value)])
+            ->get();
         $periodEntries = ShopAccountingEntry::query()
             ->where('shop_id', $shop->id)
             ->whereIn('status', ['submitted', 'recheck_required', 'approved', 'finalized'])
@@ -1419,7 +1451,7 @@ class AdminAccountingController extends Controller
             ->route('admin.finance-v2.payments.create', [
                 'date' => $invoice->business_date?->toDateString() ?? today()->toDateString(),
                 'shop_id' => $invoice->shop_id,
-                'requested_amount' => max(0, round((float) $invoice->balance_amount, 2)),
+                'requested_amount' => max(0, round((float) $invoice->effectiveBalanceAmount(), 2)),
             ])
             ->with('warning', 'Payment approvals are handled from Finance V2 Payments.');
     }
@@ -2075,6 +2107,15 @@ class AdminAccountingController extends Controller
             fn (ShopCredit $credit): float => $credit->type === 'in' ? (float) $credit->amount : (float) $credit->amount * -1
         ), 2);
 
+        $finalBills = app(ShopFinalBillService::class)->calculateMany($invoices);
+        $originalInvoiceTotal = round((float) $finalBills->sum('originalInvoiceTotal'), 2);
+        $finalBillTotal = round((float) $finalBills->sum('finalNetPayable'), 2);
+        $finalizedCreditTotal = round((float) $finalBills->sum('finalizedCreditTotal'), 2);
+        $finalizedDebitTotal = round((float) $finalBills->sum('finalizedDebitTotal'), 2);
+        $totalPaid = round((float) $finalBills->sum('amountPaid'), 2);
+        $outstandingBalance = round((float) $finalBills->sum('remainingBalance'), 2);
+        $overpaymentCredit = round((float) $finalBills->sum('overpaymentCredit'), 2);
+
         $dailySummaries = collect($invoices->map(fn (ShopInvoice $invoice): ?string => $invoice->business_date?->toDateString())->all())
             ->merge($entries->map(fn (ShopAccountingEntry $entry): ?string => $entry->business_date?->toDateString()))
             ->merge($credits->map(fn (ShopCredit $credit): ?string => $credit->business_date?->toDateString()))
@@ -2096,7 +2137,15 @@ class AdminAccountingController extends Controller
                     fn (ShopStaffPayment $payment): bool => $payment->paid_on?->toDateString() === $date
                 );
 
-                $paidAmount = round((float) $dayInvoices->sum('paid_amount'), 2);
+                $dayBills = app(ShopFinalBillService::class)->calculateMany($dayInvoices);
+                $dayOriginalBilled = round((float) $dayBills->sum('originalInvoiceTotal'), 2);
+                $dayFinalBilled = round((float) $dayBills->sum('finalNetPayable'), 2);
+                $dayCreditsAdj = round((float) $dayBills->sum('finalizedCreditTotal'), 2);
+                $dayDebitsAdj = round((float) $dayBills->sum('finalizedDebitTotal'), 2);
+                $dayPaid = round((float) $dayBills->sum('amountPaid'), 2);
+                $dayBalance = round((float) $dayBills->sum('remainingBalance'), 2);
+                $dayOverpayment = round((float) $dayBills->sum('overpaymentCredit'), 2);
+
                 $creditAmount = round((float) $dayCredits->sum(fn (ShopCredit $credit): float => $credit->signedAccountingAmount()), 2);
                 $incomeAmount = round((float) $dayEntries->sum(
                     fn (ShopAccountingEntry $entry): float => (float) $entry->lines->where('type', 'income')->sum('amount')
@@ -2126,9 +2175,15 @@ class AdminAccountingController extends Controller
 
                 return [
                     'date' => $date,
-                    'billed' => round((float) $dayInvoices->sum('final_total'), 2),
-                    'paid' => $paidAmount,
-                    'balance' => round((float) $dayInvoices->sum('balance_amount'), 2),
+                    'original_billed' => $dayOriginalBilled,
+                    'billed' => $dayFinalBilled,
+                    'final_billed' => $dayFinalBilled,
+                    'credit_adjustments' => $dayCreditsAdj,
+                    'debit_adjustments' => $dayDebitsAdj,
+                    'paid' => $dayPaid,
+                    'balance' => $dayBalance,
+                    'outstanding_balance' => $dayBalance,
+                    'overpayment_credit' => $dayOverpayment,
                     'credit' => $creditAmount,
                     'income' => $incomeAmount,
                     'expense' => $expenseAmount,
@@ -2166,9 +2221,15 @@ class AdminAccountingController extends Controller
 
         return [
             'cards' => [
-                'total_billed' => round((float) $invoices->sum('final_total'), 2),
-                'total_paid' => round((float) $invoices->sum('paid_amount'), 2),
-                'total_balance' => round((float) $invoices->sum('balance_amount'), 2),
+                'original_invoice_total' => $originalInvoiceTotal,
+                'final_bill_total' => $finalBillTotal,
+                'approved_credit_adjustments' => $finalizedCreditTotal,
+                'approved_debit_adjustments' => $finalizedDebitTotal,
+                'total_billed' => $finalBillTotal,
+                'total_paid' => $totalPaid,
+                'total_balance' => $outstandingBalance,
+                'outstanding_balance' => $outstandingBalance,
+                'overpayment_credit' => $overpaymentCredit,
                 'credit' => $creditAmount,
                 'income' => $incomeAmount,
                 'expense' => $expenseAmount,

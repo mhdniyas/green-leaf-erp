@@ -1,5 +1,6 @@
 @php
-    $tone = match ($invoice->payment_status ?? 'unpaid') {
+    $status = method_exists($invoice, 'effectivePaymentStatus') ? $invoice->effectivePaymentStatus() : ($invoice->payment_status ?? 'unpaid');
+    $tone = match ($status) {
         'paid' => 'success',
         'partially_paid' => 'warning',
         'unpaid' => 'danger',
@@ -7,4 +8,4 @@
     };
 @endphp
 
-@include('shop-owner.components.status-badge', ['label' => str($invoice->payment_status ?? 'unpaid')->replace('_', ' ')->title(), 'tone' => $tone])
+@include('shop-owner.components.status-badge', ['label' => str($status)->replace('_', ' ')->title(), 'tone' => $tone])

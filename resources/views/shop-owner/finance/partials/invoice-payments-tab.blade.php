@@ -1,8 +1,9 @@
 @php
     /** @var \Illuminate\Contracts\Pagination\LengthAwarePaginator<int, \App\Models\ShopInvoice> $payableInvoices */
     /** @var \Illuminate\Contracts\Pagination\LengthAwarePaginator<int, \App\Models\ShopInvoicePaymentRequest> $invoicePaymentRequests */
-    $totalDue = round((float) ($payableInvoiceTotal ?? $payableInvoices->sum(fn (\App\Models\ShopInvoice $invoice): float => (float) $invoice->balance_amount)), 2);
+    $totalDue = round((float) ($payableInvoiceTotal ?? $payableInvoices->sum(fn (\App\Models\ShopInvoice $invoice): float => $invoice->effectiveBalanceAmount())), 2);
     $availableInvoicePaymentCredit = round((float) ($availableInvoicePaymentCredit ?? 0), 2);
+    $overpaymentCredit = round((float) ($overpaymentCredit ?? 0), 2);
     $netDue = round(max(0, $totalDue - $availableInvoicePaymentCredit), 2);
     $isOwnedAccountingShop = $isOwnedAccountingShop ?? false;
     $latestClosingBalance = round((float) ($latestClosingBalance ?? 0), 2);
@@ -32,17 +33,29 @@
                     <div class="min-w-0">
                         <span class="inline-block rounded-full bg-emerald-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-800">Green Leaf</span>
                         <h2 class="mt-1 text-base font-black text-slate-950 sm:text-lg">Delivery Bills (Invoices)</h2>
-                        <p class="mt-0.5 text-xs font-semibold text-emerald-900">Track and pay your Green Leaf stock invoices.</p>
+                        <p class="mt-0.5 text-xs font-semibold text-emerald-900">Track and pay your Green Leaf stock invoices with finalized adjustments.</p>
                     </div>
-                    <div class="grid grid-cols-2 gap-2 sm:min-w-[420px]">
+                    <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:min-w-[460px]">
+                        @if (($grossBilled ?? 0) > 0 && round((float) $grossBilled, 2) !== round((float) ($totalFinalBilled ?? $totalBilled ?? 0), 2))
+                            <div class="rounded-xl border border-slate-200/80 bg-white p-2.5">
+                                <p class="text-[9px] font-black uppercase tracking-wider text-slate-500">Original Gross</p>
+                                <p class="mt-0.5 text-xs font-semibold text-slate-700">Rs. {{ number_format((float) $grossBilled, 2) }}</p>
+                            </div>
+                        @endif
                         <div class="rounded-xl border border-emerald-200/80 bg-white p-2.5">
-                            <p class="text-[9px] font-black uppercase tracking-wider text-emerald-700">Total Billed</p>
-                            <p class="mt-0.5 text-xs font-black text-slate-950">Rs. {{ number_format($totalDue, 2) }}</p>
+                            <p class="text-[9px] font-black uppercase tracking-wider text-emerald-700">Total Final Bill</p>
+                            <p class="mt-0.5 text-xs font-black text-slate-950">Rs. {{ number_format((float) ($totalFinalBilled ?? $totalBilled ?? $totalDue), 2) }}</p>
                         </div>
                         <div class="rounded-xl border border-emerald-200/80 bg-white p-2.5">
-                            <p class="text-[9px] font-black uppercase tracking-wider text-emerald-700">Net Payable</p>
+                            <p class="text-[9px] font-black uppercase tracking-wider text-emerald-700">Net Balance Due</p>
                             <p class="mt-0.5 text-sm font-black {{ $netDue > 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format($netDue, 2) }}</p>
                         </div>
+                        @if ($overpaymentCredit > 0)
+                            <div class="rounded-xl border border-cyan-200 bg-cyan-50/80 p-2.5">
+                                <p class="text-[9px] font-black uppercase tracking-wider text-cyan-800">Overpayment Credit</p>
+                                <p class="mt-0.5 text-xs font-black text-cyan-900">Rs. {{ number_format($overpaymentCredit, 2) }}</p>
+                            </div>
+                        @endif
                     </div>
                 </div>
             </div>
@@ -52,7 +65,7 @@
                     <div class="flex items-center justify-between">
                         <div>
                             <h3 class="text-sm font-black text-slate-950">Pending Bills</h3>
-                            <p class="text-xs text-slate-500">Invoices awaiting settlement.</p>
+                            <p class="text-xs text-slate-500">Invoices awaiting settlement after approved credit adjustments.</p>
                         </div>
                         @if ($availableInvoicePaymentCredit > 0)
                             <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-black text-emerald-700">Credit: Rs. {{ number_format($availableInvoicePaymentCredit, 2) }}</span>
@@ -64,41 +77,54 @@
                             <p class="text-xs font-black text-emerald-800">All delivery bills are cleared.</p>
                         </div>
                     @else
-                        <div class="mt-3 hidden sm:block">
-                            <table class="w-full text-left text-xs">
+                        <div class="mt-3 hidden sm:block overflow-x-auto">
+                            <table class="w-full text-left text-xs min-w-[620px]">
                                 <thead>
                                     <tr class="border-b border-slate-200 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                        <th class="py-2 pr-3">Date</th>
-                                        <th class="py-2 pr-3">Invoice</th>
-                                        <th class="py-2 pr-3 text-right">Billed</th>
-                                        <th class="py-2 pr-3 text-right">Balance</th>
-                                        <th class="py-2 pr-3">Status</th>
+                                        <th class="py-2 pr-2">Date</th>
+                                        <th class="py-2 pr-2">Invoice</th>
+                                        <th class="py-2 pr-2 text-right">Original</th>
+                                        <th class="py-2 pr-2 text-right">Credit</th>
+                                        <th class="py-2 pr-2 text-right">Debit</th>
+                                        <th class="py-2 pr-2 text-right">Final Bill</th>
+                                        <th class="py-2 pr-2 text-right">Paid</th>
+                                        <th class="py-2 pr-2 text-right">Balance</th>
+                                        <th class="py-2 pr-2 text-center">Status</th>
                                         <th class="py-2 text-right">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
                                     @foreach ($payableInvoices as $invoice)
                                         @php
-                                            $invBalance = (float) $invoice->balance_amount;
-                                            $invPaid = (float) $invoice->paid_amount;
-                                            $isFullPaid = $invBalance <= 0;
-                                            $isPartPaid = ! $isFullPaid && $invPaid > 0;
+                                            $bill = $invoice->finalBill();
                                         @endphp
                                         <tr class="hover:bg-slate-50/70">
-                                            <td class="py-2.5 pr-3 font-semibold text-slate-700">{{ $invoice->business_date?->format('d M Y') }}</td>
-                                            <td class="py-2.5 pr-3 font-mono font-bold text-slate-900">{{ $invoice->invoice_number }}</td>
-                                            <td class="py-2.5 pr-3 text-right font-semibold text-slate-700">Rs. {{ number_format((float) $invoice->final_total, 2) }}</td>
-                                            <td class="py-2.5 pr-3 text-right font-black text-rose-700">Rs. {{ number_format($invBalance, 2) }}</td>
-                                            <td class="py-2.5 pr-3">
-                                                @if ($isFullPaid)
+                                            <td class="py-2.5 pr-2 font-semibold text-slate-700 whitespace-nowrap">{{ $invoice->business_date?->format('d M Y') }}</td>
+                                            <td class="py-2.5 pr-2 font-mono font-bold text-slate-900 whitespace-nowrap">{{ $invoice->invoice_number }}</td>
+                                            <td class="py-2.5 pr-2 text-right font-medium text-slate-600 whitespace-nowrap">Rs. {{ number_format($bill->originalInvoiceTotal, 2) }}</td>
+                                            <td class="py-2.5 pr-2 text-right whitespace-nowrap {{ $bill->finalizedCreditTotal > 0 ? 'font-bold text-emerald-700' : 'text-slate-400' }}">
+                                                {{ $bill->finalizedCreditTotal > 0 ? '-Rs. ' . number_format($bill->finalizedCreditTotal, 2) : '—' }}
+                                            </td>
+                                            <td class="py-2.5 pr-2 text-right whitespace-nowrap {{ $bill->finalizedDebitTotal > 0 ? 'font-bold text-amber-700' : 'text-slate-400' }}">
+                                                {{ $bill->finalizedDebitTotal > 0 ? '+Rs. ' . number_format($bill->finalizedDebitTotal, 2) : '—' }}
+                                            </td>
+                                            <td class="py-2.5 pr-2 text-right font-black text-slate-950 whitespace-nowrap">Rs. {{ number_format($bill->finalNetPayable, 2) }}</td>
+                                            <td class="py-2.5 pr-2 text-right font-semibold text-slate-700 whitespace-nowrap">Rs. {{ number_format($bill->amountPaid, 2) }}</td>
+                                            <td class="py-2.5 pr-2 text-right font-black whitespace-nowrap {{ $bill->remainingBalance > 0 ? 'text-rose-700' : 'text-emerald-700' }}">
+                                                Rs. {{ number_format($bill->remainingBalance, 2) }}
+                                            </td>
+                                            <td class="py-2.5 pr-2 text-center whitespace-nowrap">
+                                                @if ($bill->isOverpaid())
+                                                    <span class="rounded-full bg-cyan-100 px-2 py-0.5 text-[9px] font-black uppercase text-cyan-800">Overpaid</span>
+                                                @elseif ($bill->isFullyPaid())
                                                     <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-800">Paid</span>
-                                                @elseif ($isPartPaid)
+                                                @elseif ($bill->isPartiallyPaid())
                                                     <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase text-amber-800">Partial</span>
                                                 @else
                                                     <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-700">Unpaid</span>
                                                 @endif
                                             </td>
-                                            <td class="py-2.5 text-right">
+                                            <td class="py-2.5 text-right whitespace-nowrap">
                                                 <a href="{{ route('shop-owner.finance.show', $invoice) }}" class="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50">View</a>
                                             </td>
                                         </tr>
@@ -111,27 +137,46 @@
                         <div class="mt-3 space-y-2.5 block sm:hidden">
                             @foreach ($payableInvoices as $invoice)
                                 @php
-                                    $invBalance = (float) $invoice->balance_amount;
-                                    $invPaid = (float) $invoice->paid_amount;
-                                    $isFullPaid = $invBalance <= 0;
-                                    $isPartPaid = ! $isFullPaid && $invPaid > 0;
+                                    $bill = $invoice->finalBill();
                                 @endphp
                                 <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs">
                                     <div class="flex items-center justify-between">
                                         <span class="font-mono text-xs font-black text-slate-900">{{ $invoice->invoice_number }}</span>
-                                        @if ($isFullPaid)
+                                        @if ($bill->isOverpaid())
+                                            <span class="rounded-full bg-cyan-100 px-2 py-0.5 text-[9px] font-black uppercase text-cyan-800">Overpaid</span>
+                                        @elseif ($bill->isFullyPaid())
                                             <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-800">Paid</span>
-                                        @elseif ($isPartPaid)
+                                        @elseif ($bill->isPartiallyPaid())
                                             <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase text-amber-800">Partial</span>
                                         @else
                                             <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-700">Unpaid</span>
                                         @endif
                                     </div>
-                                    <div class="mt-2 flex items-center justify-between text-xs pt-2 border-t border-slate-100">
+                                    <div class="mt-2 grid grid-cols-2 gap-1.5 text-xs pt-2 border-t border-slate-100">
                                         <div class="text-slate-500 font-semibold">{{ $invoice->business_date?->format('d M Y') }}</div>
                                         <div class="text-right">
-                                            <span class="text-[10px] uppercase text-slate-400 font-bold block">Balance Due</span>
-                                            <span class="font-black text-rose-700">Rs. {{ number_format($invBalance, 2) }}</span>
+                                            <span class="text-[9px] uppercase text-slate-400 font-bold block">Original</span>
+                                            <span class="font-medium text-slate-600">Rs. {{ number_format($bill->originalInvoiceTotal, 2) }}</span>
+                                        </div>
+                                        @if ($bill->hasAdjustments)
+                                            <div>
+                                                <span class="text-[9px] uppercase text-slate-400 font-bold block">Adjustments</span>
+                                                <span class="font-bold {{ $bill->netAdjustment < 0 ? 'text-emerald-700' : 'text-amber-700' }}">
+                                                    {{ $bill->netAdjustment < 0 ? '-Rs. ' . number_format(abs($bill->netAdjustment), 2) : '+Rs. ' . number_format($bill->netAdjustment, 2) }}
+                                                </span>
+                                            </div>
+                                            <div class="text-right">
+                                                <span class="text-[9px] uppercase text-slate-400 font-bold block">Final Bill</span>
+                                                <span class="font-black text-slate-950">Rs. {{ number_format($bill->finalNetPayable, 2) }}</span>
+                                            </div>
+                                        @endif
+                                        <div>
+                                            <span class="text-[9px] uppercase text-slate-400 font-bold block">Paid</span>
+                                            <span class="font-semibold text-slate-700">Rs. {{ number_format($bill->amountPaid, 2) }}</span>
+                                        </div>
+                                        <div class="text-right">
+                                            <span class="text-[9px] uppercase text-slate-400 font-bold block">Balance Due</span>
+                                            <span class="font-black {{ $bill->remainingBalance > 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format($bill->remainingBalance, 2) }}</span>
                                         </div>
                                     </div>
                                     <div class="mt-2.5 pt-2 border-t border-slate-100 flex justify-end">
@@ -167,7 +212,7 @@
                                 <select name="invoice_id" class="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
                                     @foreach ($payableInvoices as $invoice)
                                         <option value="{{ $invoice->id }}">
-                                            {{ $invoice->invoice_number }} (Due: Rs. {{ number_format((float) $invoice->balance_amount, 2) }})
+                                            {{ $invoice->invoice_number }} (Due: Rs. {{ number_format($invoice->effectiveBalanceAmount(), 2) }})
                                         </option>
                                     @endforeach
                                 </select>

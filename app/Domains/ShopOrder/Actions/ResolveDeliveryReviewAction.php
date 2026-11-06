@@ -8,6 +8,11 @@ use App\DTOs\Inventory\WastageEntryData;
 use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
+use App\Enums\ShopInvoice\ShopCreditNoteDirection;
+use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
+use App\Enums\ShopInvoice\ShopCreditNoteReason;
+use App\Enums\ShopInvoice\ShopCreditNoteStatus;
+use App\Models\ShopCreditNote;
 use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\StockMovement;
@@ -18,6 +23,8 @@ use App\Notifications\ShopDeliveryReviewSubmittedNotification;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Inventory\WastageService;
+use App\Services\ShopInvoices\ShopCreditNoteService;
+use App\Services\ShopInvoices\ShopFinalBillService;
 use App\Services\ShopInvoices\ShopInvoiceIntegrityValidator;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Support\Arr;
@@ -33,6 +40,7 @@ class ResolveDeliveryReviewAction
         private readonly ShopInvoiceIntegrityValidator $shopInvoiceIntegrityValidator,
         private readonly OwnedShopAccountingService $ownedShopAccountingService,
         private readonly WastageService $wastageService,
+        private readonly ShopCreditNoteService $shopCreditNoteService,
     ) {}
 
     /**
@@ -297,27 +305,121 @@ class ResolveDeliveryReviewAction
                 ]);
             }
 
+            $creditItems = [];
+            $debitItems = [];
+            $primaryShortageReason = ShopCreditNoteReason::Shortage;
+
             $lockedOrder->items
                 ->groupBy(fn ($item): string => $item->product_id.'|'.($item->product_grade ?? 'A'))
-                ->each(function ($items, string $groupKey) use ($invoiceItemsByProductAndGrade): void {
+                ->each(function (Collection $items, string $groupKey) use (
+                    $invoiceItemsByProductAndGrade,
+                    &$creditItems,
+                    &$debitItems,
+                    &$primaryShortageReason,
+                ): void {
                     $invoiceItem = $invoiceItemsByProductAndGrade->get($groupKey);
 
                     if (! $invoiceItem) {
                         return;
                     }
 
-                    $deliveredQty = round((float) $items->sum('delivered_qty'), 2);
                     $shortageQty = round((float) $items->sum('shortage_qty'), 2);
                     $excessQty = round((float) $items->sum('excess_qty'), 2);
 
-                    $invoiceItem->update($this->shopInvoiceService->calculateDeliveryAdjustmentForInvoiceItem(
-                        $invoiceItem,
-                        $deliveredQty,
-                        $shortageQty,
-                        $excessQty,
-                        $items instanceof Collection ? $items->values() : collect($items)->values(),
-                    ));
+                    $product = $invoiceItem->product;
+                    $priceUnit = (string) ($invoiceItem->price_unit ?: $product?->unit ?: $invoiceItem->unit);
+                    $unitPrice = (float) $invoiceItem->unit_price;
+
+                    if ($shortageQty > 0.0001) {
+                        $shortagePriceQty = $this->shopInvoiceService->priceQuantityFor($product, $shortageQty, $priceUnit, $items);
+                        $shortageAmount = round($shortagePriceQty * $unitPrice, 2);
+
+                        $firstDiscrepancyItem = $items->firstWhere('shortage_qty', '>', 0);
+                        $discType = (string) ($firstDiscrepancyItem?->delivery_discrepancy_type ?? '');
+                        $invAction = (string) ($firstDiscrepancyItem?->delivery_inventory_action ?? '');
+
+                        if (in_array($discType, ['wastage', 'wastage_damage', 'transit_damage', 'rotten', 'expired'], true)) {
+                            $primaryShortageReason = ShopCreditNoteReason::DamageWastage;
+                        } elseif ($invAction === 'return_to_warehouse' && $primaryShortageReason === ShopCreditNoteReason::Shortage) {
+                            $primaryShortageReason = ShopCreditNoteReason::ReturnToWarehouse;
+                        }
+
+                        $creditItems[] = [
+                            'shop_invoice_item_id' => $invoiceItem->id,
+                            'product_id' => $invoiceItem->product_id,
+                            'product_grade' => $invoiceItem->product_grade ?? 'A',
+                            'adjusted_quantity' => $shortageQty,
+                            'adjusted_unit_price' => $unitPrice,
+                            'line_credit_amount' => $shortageAmount,
+                            'direction' => ShopCreditNoteDirection::Credit,
+                            'inventory_action' => ShopCreditNoteInventoryAction::None,
+                            'notes' => "Delivery shortage: {$shortageQty} {$invoiceItem->unit}",
+                        ];
+                    }
+
+                    if ($excessQty > 0.0001) {
+                        $excessPriceQty = $this->shopInvoiceService->priceQuantityFor($product, $excessQty, $priceUnit, $items);
+                        $excessAmount = round($excessPriceQty * $unitPrice, 2);
+
+                        $debitItems[] = [
+                            'shop_invoice_item_id' => $invoiceItem->id,
+                            'product_id' => $invoiceItem->product_id,
+                            'product_grade' => $invoiceItem->product_grade ?? 'A',
+                            'adjusted_quantity' => $excessQty,
+                            'adjusted_unit_price' => $unitPrice,
+                            'line_credit_amount' => $excessAmount,
+                            'direction' => ShopCreditNoteDirection::Debit,
+                            'inventory_action' => ShopCreditNoteInventoryAction::None,
+                            'notes' => "Delivery excess: {$excessQty} {$invoiceItem->unit}",
+                        ];
+                    }
                 });
+
+            $noteDate = $invoice->business_date?->toDateString() ?? today()->toDateString();
+
+            if (! empty($creditItems)) {
+                $existingCreditNote = ShopCreditNote::query()
+                    ->where('shop_invoice_id', $invoice->id)
+                    ->where('direction', ShopCreditNoteDirection::Credit->value)
+                    ->where('notes', 'like', "%Delivery review shortage - Order: {$lockedOrder->order_number}%")
+                    ->first();
+
+                if (! $existingCreditNote) {
+                    $creditDraft = $this->shopCreditNoteService->createDraft($invoice, [
+                        'credit_note_date' => $noteDate,
+                        'direction' => ShopCreditNoteDirection::Credit,
+                        'reason_type' => $primaryShortageReason,
+                        'inventory_action' => ShopCreditNoteInventoryAction::None,
+                        'from_delivery_review' => true,
+                        'notes' => "Delivery review shortage - Order: {$lockedOrder->order_number}".($reviewNote ? " - Note: {$reviewNote}" : ''),
+                        'items' => $creditItems,
+                    ], $userId);
+
+                    $this->shopCreditNoteService->approve($creditDraft, $userId, 'Approved via Delivery Review', true);
+                }
+            }
+
+            if (! empty($debitItems)) {
+                $existingDebitNote = ShopCreditNote::query()
+                    ->where('shop_invoice_id', $invoice->id)
+                    ->where('direction', ShopCreditNoteDirection::Debit->value)
+                    ->where('notes', 'like', "%Delivery review excess - Order: {$lockedOrder->order_number}%")
+                    ->first();
+
+                if (! $existingDebitNote) {
+                    $debitDraft = $this->shopCreditNoteService->createDraft($invoice, [
+                        'credit_note_date' => $noteDate,
+                        'direction' => ShopCreditNoteDirection::Debit,
+                        'reason_type' => ShopCreditNoteReason::ExcessDelivered,
+                        'inventory_action' => ShopCreditNoteInventoryAction::None,
+                        'from_delivery_review' => true,
+                        'notes' => "Delivery review excess - Order: {$lockedOrder->order_number}".($reviewNote ? " - Note: {$reviewNote}" : ''),
+                        'items' => $debitItems,
+                    ], $userId);
+
+                    $this->shopCreditNoteService->approve($debitDraft, $userId, 'Approved via Delivery Review', true);
+                }
+            }
 
             $summaryLines = [];
             foreach ($productChanges as $change) {
@@ -359,7 +461,7 @@ class ResolveDeliveryReviewAction
                 'delivery_confirmed_at' => $invoice->delivery_confirmed_at ?? now(),
             ]);
 
-            $invoice = $this->shopInvoiceService->recalculate($invoice->fresh('items'));
+            $invoice = $this->shopInvoiceService->recalculate($invoice->fresh(['items', 'creditNotes']));
 
             $actor = User::query()->find($userId);
             $actorRole = $actor?->roles->pluck('name')->first() ?? ($actor?->is_admin ? 'admin' : 'user');
@@ -408,6 +510,8 @@ class ResolveDeliveryReviewAction
                 $isAdminOnBehalf ? 'Finalized by Admin on behalf of Shop' : 'Admin finalized delivery review.'
             );
 
+            $finalBill = app(ShopFinalBillService::class)->calculate($invoice);
+
             $lockedOrder->update([
                 'delivery_status' => $hasShortage ? 'partially_delivered' : 'delivered',
                 'delivery_review_status' => 'approved',
@@ -418,11 +522,11 @@ class ResolveDeliveryReviewAction
                 'admin_reviewed_by' => $userId,
                 'admin_reviewed_at' => now(),
                 'admin_review_note' => $reviewNote,
-                'total_shortage_value' => $invoice->shortage_total,
-                'total_excess_value' => $invoice->excess_total,
-                'balance_amount' => $invoice->balance_amount,
+                'total_shortage_value' => $finalBill->finalizedCreditTotal,
+                'total_excess_value' => $finalBill->finalizedDebitTotal,
+                'balance_amount' => $finalBill->remainingBalance,
                 'payment_status' => $invoice->payment_status,
-                'cash_discrepancy' => round((float) $invoice->final_total - (float) $lockedOrder->cash_collected, 2),
+                'cash_discrepancy' => round((float) $finalBill->finalNetPayable - (float) $lockedOrder->cash_collected, 2),
             ]);
 
             $invoice->loadMissing('shop');
@@ -536,6 +640,12 @@ class ResolveDeliveryReviewAction
             ) {
                 throw ValidationException::withMessages([
                     'invoice' => 'Approval cannot be reverted after payment activity has started.',
+                ]);
+            }
+
+            if ($invoice->creditNotes()->where('status', ShopCreditNoteStatus::Approved->value)->exists()) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'Delivery approval cannot be reverted because credit/debit adjustments have already been finalized. Adjustments must be managed through Credit Notes.',
                 ]);
             }
 

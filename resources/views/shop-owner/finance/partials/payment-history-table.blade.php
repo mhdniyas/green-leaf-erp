@@ -3,8 +3,9 @@
     <div class="space-y-2 md:hidden">
         @foreach ($invoices as $invoice)
             @php
-                $finalTotal = (float) $invoice->final_total;
-                $balanceAmt = (float) $invoice->balance_amount;
+                $bill = $invoice->finalBill();
+                $finalTotal = $bill->finalNetPayable;
+                $balanceAmt = $bill->remainingBalance;
             @endphp
             <article class="rounded-xl border border-slate-200 bg-white p-2.5 shadow-xs transition hover:border-slate-300">
                 <div class="flex items-center justify-between gap-2">
@@ -16,7 +17,7 @@
                         </div>
                         <div class="mt-1 flex items-center gap-2 text-[11px]">
                             @include('shop-owner.finance.partials.payment-status-badge', ['invoice' => $invoice])
-                            @if ($balanceAmt > 0)
+                            @if ($balanceAmt > 0.0001)
                                 <span class="font-bold text-red-600">Bal: Rs. {{ number_format($balanceAmt, 2) }}</span>
                             @else
                                 <span class="font-bold text-emerald-700">Paid</span>
@@ -27,8 +28,13 @@
                     {{-- Invoice Total & Actions --}}
                     <div class="flex items-center gap-2 text-right">
                         <div>
-                            <span class="block text-[9px] font-bold uppercase tracking-wider text-slate-400">Total</span>
+                            <span class="block text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                                {{ $bill->hasAdjustments ? 'Final Bill' : 'Total' }}
+                            </span>
                             <span class="text-xs font-black text-slate-950">Rs. {{ number_format($finalTotal, 2) }}</span>
+                            @if ($bill->hasAdjustments)
+                                <span class="block text-[8px] text-slate-400 line-through">Orig: Rs. {{ number_format($bill->originalInvoiceTotal, 2) }}</span>
+                            @endif
                         </div>
                         <div class="flex items-center gap-1">
                             <a href="{{ route('shop-owner.finance.pdf', $invoice) }}" target="_blank"
@@ -62,15 +68,28 @@
             <tbody class="divide-y divide-slate-100 text-xs text-slate-700">
                 @foreach ($invoices as $invoice)
                     @php
-                        $finalTotal = (float) $invoice->final_total;
-                        $balanceAmt = (float) $invoice->balance_amount;
+                        $bill = $invoice->finalBill();
+                        $finalTotal = $bill->finalNetPayable;
+                        $balanceAmt = $bill->remainingBalance;
                     @endphp
                     <tr class="hover:bg-slate-50/50 transition-colors">
                         <td class="py-2.5 pr-3 font-bold text-slate-900">{{ $invoice->business_date->format('d M Y') }}</td>
-                        <td class="py-2.5 pr-3 font-mono text-xs font-bold text-slate-600">{{ $invoice->invoice_number }}</td>
+                        <td class="py-2.5 pr-3 font-mono text-xs font-bold text-slate-600">
+                            <div>{{ $invoice->invoice_number }}</div>
+                            @if ($bill->hasAdjustments)
+                                <div class="text-[9px] font-bold {{ $bill->netAdjustment < 0 ? 'text-emerald-600' : 'text-amber-600' }}">
+                                    Adj: {{ $bill->netAdjustment < 0 ? '-Rs. ' . number_format(abs($bill->netAdjustment), 2) : '+Rs. ' . number_format($bill->netAdjustment, 2) }}
+                                </div>
+                            @endif
+                        </td>
                         <td class="py-2.5 pr-3">@include('shop-owner.finance.partials.payment-status-badge', ['invoice' => $invoice])</td>
-                        <td class="py-2.5 pr-3 text-right font-black text-slate-950">Rs. {{ number_format($finalTotal, 2) }}</td>
-                        <td class="py-2.5 pr-3 text-right font-bold {{ $balanceAmt > 0 ? 'text-red-600' : 'text-emerald-700' }}">
+                        <td class="py-2.5 pr-3 text-right">
+                            <span class="font-black text-slate-950">Rs. {{ number_format($finalTotal, 2) }}</span>
+                            @if ($bill->hasAdjustments)
+                                <div class="text-[9px] text-slate-400 line-through">Orig: Rs. {{ number_format($bill->originalInvoiceTotal, 2) }}</div>
+                            @endif
+                        </td>
+                        <td class="py-2.5 pr-3 text-right font-bold {{ $balanceAmt > 0.0001 ? 'text-red-600' : 'text-emerald-700' }}">
                             Rs. {{ number_format($balanceAmt, 2) }}
                         </td>
                         <td class="py-2.5 text-right">

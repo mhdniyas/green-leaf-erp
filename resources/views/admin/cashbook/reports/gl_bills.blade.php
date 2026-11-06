@@ -203,43 +203,86 @@
             </form>
         </div>
 
-        <!-- 3 Summary Metric Cards (1 Row on All Devices) -->
-        <div class="grid grid-cols-3 gap-1.5 sm:gap-3">
-            <div class="rounded-2xl border border-slate-100 bg-white p-2.5 sm:p-4 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
+        <!-- 6 Summary Metric Cards (Responsive Grid) -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 sm:gap-3">
+            <div class="rounded-2xl border border-slate-100 bg-white p-2.5 sm:p-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
                 <div class="flex items-center justify-between gap-1">
-                    <span class="text-[8px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400 truncate">Total Billed</span>
-                    <div class="flex h-5 w-5 sm:h-7 sm:w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600 shrink-0">
-                        <i data-lucide="receipt" class="w-3 h-3 sm:w-4 sm:h-4"></i>
+                    <span class="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-slate-400 truncate">Original Total</span>
+                    <div class="flex h-5 w-5 sm:h-6 sm:w-6 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shrink-0">
+                        <i data-lucide="receipt" class="w-3 h-3 sm:w-3.5 sm:h-3.5"></i>
                     </div>
                 </div>
-                <p class="mt-1 sm:mt-2 text-xs sm:text-xl font-black text-slate-900 truncate">₹{{ number_format($totals['total_billed'], 2) }}</p>
-                <span class="mt-0.5 block text-[8px] sm:text-[10px] font-bold text-slate-400 truncate">{{ $totals['count'] }} invoices</span>
+                <p class="mt-1 text-xs sm:text-base font-black text-slate-900 truncate">₹{{ number_format($totals['original_invoice_total'] ?? $totals['total_billed'], 2) }}</p>
+                <span class="mt-0.5 block text-[8px] sm:text-[9px] font-bold text-slate-400 truncate">{{ $totals['count'] }} invoices</span>
             </div>
 
-            <div class="rounded-2xl border border-slate-100 bg-white p-2.5 sm:p-4 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
+            <div class="rounded-2xl border border-slate-100 bg-white p-2.5 sm:p-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
                 <div class="flex items-center justify-between gap-1">
-                    <span class="text-[8px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400 truncate">Paid Amount</span>
-                    <div class="flex h-5 w-5 sm:h-7 sm:w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 shrink-0">
-                        <i data-lucide="check-circle-2" class="w-3 h-3 sm:w-4 sm:h-4"></i>
+                    <span class="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-emerald-600 truncate">Credits</span>
+                    <div class="flex h-5 w-5 sm:h-6 sm:w-6 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 shrink-0">
+                        <i data-lucide="arrow-down-left" class="w-3 h-3 sm:w-3.5 sm:h-3.5"></i>
                     </div>
                 </div>
-                <p class="mt-1 sm:mt-2 text-xs sm:text-xl font-black text-emerald-700 truncate">₹{{ number_format($totals['total_paid'], 2) }}</p>
-                <span class="mt-0.5 block text-[8px] sm:text-[10px] font-bold text-emerald-600 truncate">Settled</span>
+                <p class="mt-1 text-xs sm:text-base font-black text-emerald-700 truncate">-₹{{ number_format($totals['finalized_credit_total'] ?? 0, 2) }}</p>
+                <span class="mt-0.5 block text-[8px] sm:text-[9px] font-bold text-emerald-600 truncate">Approved</span>
             </div>
 
-            <div class="rounded-2xl border border-slate-100 bg-white p-2.5 sm:p-4 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
+            <div class="rounded-2xl border border-slate-100 bg-white p-2.5 sm:p-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
                 <div class="flex items-center justify-between gap-1">
-                    <span class="text-[8px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400 truncate">Balance Due</span>
-                    <div class="flex h-5 w-5 sm:h-7 sm:w-7 items-center justify-center rounded-lg bg-rose-50 text-rose-600 shrink-0">
-                        <i data-lucide="alert-circle" class="w-3 h-3 sm:w-4 sm:h-4"></i>
+                    <span class="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-amber-600 truncate">Debits</span>
+                    <div class="flex h-5 w-5 sm:h-6 sm:w-6 items-center justify-center rounded-lg bg-amber-50 text-amber-600 shrink-0">
+                        <i data-lucide="arrow-up-right" class="w-3 h-3 sm:w-3.5 sm:h-3.5"></i>
                     </div>
                 </div>
-                <p class="mt-1 sm:mt-2 text-xs sm:text-xl font-black text-rose-700 truncate">₹{{ number_format($totals['total_balance'], 2) }}</p>
-                <span class="mt-0.5 block text-[8px] sm:text-[10px] font-bold text-rose-600 truncate">Payable</span>
+                <p class="mt-1 text-xs sm:text-base font-black text-amber-700 truncate">+₹{{ number_format($totals['finalized_debit_total'] ?? 0, 2) }}</p>
+                <span class="mt-0.5 block text-[8px] sm:text-[9px] font-bold text-amber-600 truncate">Adjustments</span>
+            </div>
+
+            <div class="rounded-2xl border border-slate-100 bg-white p-2.5 sm:p-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
+                <div class="flex items-center justify-between gap-1">
+                    <span class="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-slate-400 truncate">Final Net Billed</span>
+                    <div class="flex h-5 w-5 sm:h-6 sm:w-6 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 shrink-0">
+                        <i data-lucide="file-check-2" class="w-3 h-3 sm:w-3.5 sm:h-3.5"></i>
+                    </div>
+                </div>
+                <p class="mt-1 text-xs sm:text-base font-black text-indigo-900 truncate">₹{{ number_format($totals['total_billed'], 2) }}</p>
+                <span class="mt-0.5 block text-[8px] sm:text-[9px] font-bold text-indigo-600 truncate">Payable Baseline</span>
+            </div>
+
+            <div class="rounded-2xl border border-slate-100 bg-white p-2.5 sm:p-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
+                <div class="flex items-center justify-between gap-1">
+                    <span class="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-slate-400 truncate">Paid Amount</span>
+                    <div class="flex h-5 w-5 sm:h-6 sm:w-6 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 shrink-0">
+                        <i data-lucide="check-circle-2" class="w-3 h-3 sm:w-3.5 sm:h-3.5"></i>
+                    </div>
+                </div>
+                <p class="mt-1 text-xs sm:text-base font-black text-emerald-700 truncate">₹{{ number_format($totals['total_paid'], 2) }}</p>
+                <span class="mt-0.5 block text-[8px] sm:text-[9px] font-bold text-emerald-600 truncate">Settled</span>
+            </div>
+
+            <div class="rounded-2xl border border-slate-100 bg-white p-2.5 sm:p-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
+                <div class="flex items-center justify-between gap-1">
+                    <span class="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-slate-400 truncate">Balance Due</span>
+                    <div class="flex h-5 w-5 sm:h-6 sm:w-6 items-center justify-center rounded-lg bg-rose-50 text-rose-600 shrink-0">
+                        <i data-lucide="alert-circle" class="w-3 h-3 sm:w-3.5 sm:h-3.5"></i>
+                    </div>
+                </div>
+                <p class="mt-1 text-xs sm:text-base font-black text-rose-700 truncate">₹{{ number_format($totals['total_balance'], 2) }}</p>
+                <span class="mt-0.5 block text-[8px] sm:text-[9px] font-bold text-rose-600 truncate">Outstanding</span>
             </div>
         </div>
 
-        <!-- GL Bills Data Table Card (Clean 3-Column List: Date & Ref, Shop Outlet, Bill Total) -->
+        @if (($totals['overpayment_credit'] ?? 0) > 0)
+            <div class="rounded-2xl border border-indigo-100 bg-indigo-50/50 px-4 py-2 flex items-center justify-between text-xs text-indigo-900 font-semibold">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="info" class="w-4 h-4 text-indigo-600"></i>
+                    <span>Overpayment Credit Available:</span>
+                </div>
+                <span class="font-black text-indigo-700">₹{{ number_format($totals['overpayment_credit'], 2) }}</span>
+            </div>
+        @endif
+
+        <!-- GL Bills Data Table Card -->
         <div class="rounded-[28px] border border-slate-100 bg-white p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.04)] space-y-4">
             <div class="flex items-center justify-between px-1">
                 <div>
@@ -259,7 +302,12 @@
                         <tr class="border-b border-slate-100 text-[9px] font-black uppercase tracking-wider text-slate-400">
                             <th class="py-2.5 px-3">Date &amp; Ref</th>
                             <th class="py-2.5 px-3">Shop Outlet</th>
-                            <th class="py-2.5 px-3 text-right">Bill Total</th>
+                            <th class="py-2.5 px-3 text-right">Original Total</th>
+                            <th class="py-2.5 px-3 text-right">Adjustments</th>
+                            <th class="py-2.5 px-3 text-right">Final Net Bill</th>
+                            <th class="py-2.5 px-3 text-right">Paid</th>
+                            <th class="py-2.5 px-3 text-right">Balance Due</th>
+                            <th class="py-2.5 px-3 text-center">Status</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 font-semibold text-slate-800">
@@ -275,16 +323,56 @@
                                 </td>
                                 <td class="py-3 px-3 text-right">
                                     @if ($inv->filtered_display_total !== null)
-                                        <span class="font-black text-slate-900 block text-xs sm:text-sm">₹{{ number_format($inv->filtered_display_total, 2) }}</span>
+                                        <span class="font-black text-slate-900 block text-xs">₹{{ number_format($inv->filtered_display_total, 2) }}</span>
                                         <span class="text-[9px] font-bold text-slate-400 block">of ₹{{ number_format((float) $inv->final_total, 2) }}</span>
                                     @else
-                                        <span class="font-black text-slate-900 block text-xs sm:text-sm">₹{{ number_format((float) $inv->final_total, 2) }}</span>
+                                        <span class="font-black text-slate-900 block text-xs">₹{{ number_format((float) $inv->final_total, 2) }}</span>
                                     @endif
+                                </td>
+                                <td class="py-3 px-3 text-right">
+                                    @if (($inv->finalized_credit_total ?? 0) > 0 || ($inv->finalized_debit_total ?? 0) > 0)
+                                        @if (($inv->finalized_credit_total ?? 0) > 0)
+                                            <span class="text-[10px] font-bold text-emerald-700 block">-₹{{ number_format((float) $inv->finalized_credit_total, 2) }}</span>
+                                        @endif
+                                        @if (($inv->finalized_debit_total ?? 0) > 0)
+                                            <span class="text-[10px] font-bold text-amber-700 block">+₹{{ number_format((float) $inv->finalized_debit_total, 2) }}</span>
+                                        @endif
+                                    @else
+                                        <span class="text-[10px] font-bold text-slate-400">—</span>
+                                    @endif
+                                </td>
+                                <td class="py-3 px-3 text-right">
+                                    <span class="font-black text-slate-900 block text-xs sm:text-sm">₹{{ number_format((float) ($inv->effective_final_total ?? $inv->final_total), 2) }}</span>
+                                    @if (($inv->final_bill?->hasAdjustments) ?? false)
+                                        <span class="text-[9px] font-bold text-indigo-600 block">Adjusted</span>
+                                    @endif
+                                </td>
+                                <td class="py-3 px-3 text-right">
+                                    <span class="font-black text-emerald-700 block text-xs">₹{{ number_format((float) $inv->paid_amount, 2) }}</span>
+                                </td>
+                                <td class="py-3 px-3 text-right">
+                                    <span class="font-black {{ ($inv->effective_balance_amount ?? $inv->balance_amount) > 0 ? 'text-rose-700' : 'text-slate-600' }} block text-xs">
+                                        ₹{{ number_format((float) ($inv->effective_balance_amount ?? $inv->balance_amount), 2) }}
+                                    </span>
+                                </td>
+                                <td class="py-3 px-3 text-center">
+                                    @php
+                                        $effStatus = $inv->effective_payment_status ?? ($inv->balance_amount <= 0.0001 ? 'paid' : ($inv->paid_amount > 0 ? 'partially_paid' : 'unpaid'));
+                                    @endphp
+                                    <span class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider
+                                        {{ match($effStatus) {
+                                            'paid' => 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+                                            'partially_paid' => 'bg-amber-50 text-amber-700 border border-amber-200',
+                                            'overpaid' => 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+                                            default => 'bg-rose-50 text-rose-700 border border-rose-200',
+                                        } }}">
+                                        {{ str_replace('_', ' ', $effStatus) }}
+                                    </span>
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="3" class="py-8 text-center text-xs font-bold text-slate-400">
+                                <td colspan="8" class="py-8 text-center text-xs font-bold text-slate-400">
                                     @if ($selectedProductFilter)
                                         No GL invoices matching product filter "{{ $selectedProductFilter->name }}" found for {{ $selectedShop?->name ?? 'all outlets' }} in the selected period.
                                     @else

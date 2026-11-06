@@ -56,11 +56,7 @@ class ApproveShopInvoicePaymentRequest extends FormRequest
                 }
 
                 $currentPaidAmount = round((float) $invoice->paid_amount, 2);
-                $grossPayable = round(max(
-                    0,
-                    (float) $invoice->subtotal - (float) $invoice->shortage_total + (float) $invoice->excess_total
-                ), 2);
-                $payableAmount = round(max(0, $grossPayable - $discountTotal), 2);
+                $payableAmount = round(max(0, $invoice->effectiveFinalTotal()), 2);
 
                 if ($submittedDiscountTotal !== $discountTotal) {
                     $validator->errors()->add('discount_total', 'Use the discount action before approving payment.');

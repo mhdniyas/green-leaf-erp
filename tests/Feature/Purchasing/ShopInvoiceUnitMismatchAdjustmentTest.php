@@ -73,7 +73,7 @@ class ShopInvoiceUnitMismatchAdjustmentTest extends TestCase
             'shop_order_id' => $order->id,
             'invoice_number' => 'SINV-20261016-TEST',
             'business_date' => '2026-10-16',
-            'status' => 'generated',
+            'status' => 'draft',
             'delivery_status' => 'pending',
             'payment_status' => 'unpaid',
             'subtotal' => 630.00,
