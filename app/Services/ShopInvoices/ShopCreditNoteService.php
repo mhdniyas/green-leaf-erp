@@ -15,6 +15,7 @@ use App\Models\ProductUnit;
 use App\Models\Shop;
 use App\Models\ShopAccountingPeriodClosure;
 use App\Models\ShopCreditNote;
+use App\Models\ShopCreditNoteItem;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
 use App\Models\User;
@@ -631,6 +632,33 @@ class ShopCreditNoteService
     }
 
     /**
+     * Generate concurrency-safe unique final credit note number for the given shop.
+     */
+    public function generateUniqueFinalCreditNoteNumber(Shop $shop, ?CarbonInterface $date = null): string
+    {
+        $dateStr = ($date ?? today())->format('Ymd');
+        $shopCode = strtoupper((string) ($shop->code ?: sprintf('SHP%04d', $shop->id)));
+        $base = sprintf('SCN-%s-%s', $dateStr, $shopCode);
+
+        $count = ShopCreditNote::query()
+            ->where('shop_id', $shop->id)
+            ->where('credit_note_number', 'like', "{$base}%")
+            ->where('credit_note_number', 'not like', 'DRAFT-%')
+            ->lockForUpdate()
+            ->count();
+
+        $sequence = $count + 1;
+        $candidate = sprintf('%s-%02d', $base, $sequence);
+
+        while (ShopCreditNote::query()->where('credit_note_number', $candidate)->exists()) {
+            $sequence++;
+            $candidate = sprintf('%s-%02d', $base, $sequence);
+        }
+
+        return $candidate;
+    }
+
+    /**
      * Create a multi-source Shop Credit Note draft.
      *
      * @param  array{
@@ -994,6 +1022,204 @@ class ShopCreditNoteService
             ])->save();
 
             return $lockedCreditNote->fresh(['items.product', 'items.invoiceItem', 'items.sourceInvoice', 'shop']);
+        });
+    }
+
+    /**
+     * Check if a user is authorized to finalize shop-level credit notes.
+     */
+    public function isAuthorizedToFinalize(?User $user): bool
+    {
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        return (method_exists($user, 'isMainAdmin') && $user->isMainAdmin())
+            || $user->hasRole('admin')
+            || $user->hasRole('super_admin')
+            || $user->hasRole('accounts')
+            || $user->can('accounting.invoice.approve')
+            || $user->can('accounting.entry.create');
+    }
+
+    /**
+     * Safely finalize a shop-level credit note draft.
+     *
+     * @throws ValidationException
+     */
+    public function finalizeShopLevelCreditNote(
+        ShopCreditNote $creditNote,
+        User|int $actor,
+        ?string $finalizationNote = null,
+    ): ShopCreditNote {
+        $actorUser = $actor instanceof User ? $actor : User::find($actor);
+
+        if (! $this->isAuthorizedToFinalize($actorUser)) {
+            throw ValidationException::withMessages([
+                'approved_by' => 'User is not authorized to finalize shop credit notes.',
+            ]);
+        }
+
+        if (! $creditNote->isShopLevelMode()) {
+            throw ValidationException::withMessages([
+                'accounting_mode' => 'Only shop-level credit notes can be finalized using this method.',
+            ]);
+        }
+
+        if ($creditNote->isApproved()) {
+            throw ValidationException::withMessages([
+                'status' => 'Credit note is already finalized.',
+            ]);
+        }
+
+        if ($creditNote->isVoided()) {
+            throw ValidationException::withMessages([
+                'status' => 'Voided credit notes cannot be finalized.',
+            ]);
+        }
+
+        if (! $creditNote->isDraft()) {
+            throw ValidationException::withMessages([
+                'status' => "Cannot finalize credit note with status '{$creditNote->status->value}'.",
+            ]);
+        }
+
+        $creditNoteDate = $creditNote->credit_note_date?->toDateString() ?? today()->toDateString();
+        $periodClosed = ShopAccountingPeriodClosure::query()
+            ->where('shop_id', $creditNote->shop_id)
+            ->whereDate('period_start', '<=', $creditNoteDate)
+            ->whereDate('period_end', '>=', $creditNoteDate)
+            ->exists();
+
+        if ($periodClosed) {
+            throw ValidationException::withMessages([
+                'credit_note_date' => 'Cannot finalize credit note in a closed accounting period.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($creditNote, $actorUser, $finalizationNote): ShopCreditNote {
+            /** @var ShopCreditNote $lockedCreditNote */
+            $lockedCreditNote = ShopCreditNote::query()
+                ->with(['items.invoiceItem', 'shop'])
+                ->whereKey($creditNote->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($lockedCreditNote->isApproved()) {
+                throw ValidationException::withMessages([
+                    'status' => 'Credit note is already finalized.',
+                ]);
+            }
+
+            if (! $lockedCreditNote->isDraft()) {
+                throw ValidationException::withMessages([
+                    'status' => "Cannot finalize credit note with status '{$lockedCreditNote->status->value}'.",
+                ]);
+            }
+
+            $creditNoteDate = $lockedCreditNote->credit_note_date?->toDateString() ?? today()->toDateString();
+            $periodClosed = ShopAccountingPeriodClosure::query()
+                ->where('shop_id', $lockedCreditNote->shop_id)
+                ->whereDate('period_start', '<=', $creditNoteDate)
+                ->whereDate('period_end', '>=', $creditNoteDate)
+                ->exists();
+
+            if ($periodClosed) {
+                throw ValidationException::withMessages([
+                    'credit_note_date' => 'Cannot finalize credit note in a closed accounting period.',
+                ]);
+            }
+
+            $productItems = $lockedCreditNote->items->filter(
+                fn (ShopCreditNoteItem $item): bool => $item->line_type === ShopCreditNoteLineType::ProductAdjustment
+                    || ($item->line_type === null && $item->shop_invoice_item_id !== null)
+            );
+
+            $discountItems = $lockedCreditNote->items->filter(
+                fn (ShopCreditNoteItem $item): bool => $item->line_type === ShopCreditNoteLineType::CommercialDiscount
+            );
+
+            $eligibilityResult = null;
+            if ($productItems->isNotEmpty()) {
+                $payloadLines = [];
+                foreach ($productItems as $item) {
+                    $payloadLines[] = [
+                        'source_shop_invoice_id' => $item->source_shop_invoice_id ?? $item->invoiceItem?->shop_invoice_id,
+                        'shop_invoice_item_id' => $item->shop_invoice_item_id,
+                        'product_id' => $item->product_id,
+                        'product_grade' => $item->product_grade,
+                        'unit' => $item->unit,
+                        'credit_quantity' => (float) $item->adjusted_quantity,
+                        'credit_rate' => (float) ($item->credit_rate ?? $item->adjusted_unit_price),
+                        'credit_amount' => (float) $item->line_credit_amount,
+                        'reason_type' => $item->reason_type,
+                        'received_grade' => $item->received_grade,
+                        'inventory_action' => $item->inventory_action,
+                        'direction' => $item->direction,
+                        'notes' => $item->notes,
+                    ];
+                }
+
+                $eligibilityResult = $this->getEligibilityService()->validateAndLockSourceLines(
+                    $lockedCreditNote->shop,
+                    $payloadLines,
+                    excludeCreditNoteId: $lockedCreditNote->id,
+                );
+            }
+
+            $productCreditTotal = $eligibilityResult ? $eligibilityResult->totalCreditAmount : 0.00;
+            $discountCreditTotal = round((float) $discountItems->sum('line_credit_amount'), 2);
+            $finalCreditTotal = round($productCreditTotal + $discountCreditTotal, 2);
+
+            if ($finalCreditTotal <= 0.0001) {
+                throw ValidationException::withMessages([
+                    'total_credit_amount' => 'Final credit amount must be greater than zero.',
+                ]);
+            }
+
+            $draftNumber = $lockedCreditNote->credit_note_number;
+            $finalNumber = str_starts_with($draftNumber, 'DRAFT-')
+                ? $this->generateUniqueFinalCreditNoteNumber($lockedCreditNote->shop, $lockedCreditNote->credit_note_date)
+                : $draftNumber;
+
+            $auditNote = "Finalized from {$draftNumber}";
+            if (filled($finalizationNote)) {
+                $auditNote .= '. '.trim($finalizationNote);
+            }
+
+            $noteText = filled($lockedCreditNote->notes)
+                ? trim((string) $lockedCreditNote->notes)."\n".$auditNote
+                : $auditNote;
+
+            $lockedCreditNote->forceFill([
+                'credit_note_number' => $finalNumber,
+                'status' => ShopCreditNoteStatus::Approved,
+                'approved_by' => $actorUser->id,
+                'approved_at' => now(),
+                'subtotal' => $finalCreditTotal,
+                'total_credit_amount' => $finalCreditTotal,
+                'discount_amount' => $discountCreditTotal,
+                'notes' => $noteText,
+                'lock_version' => $lockedCreditNote->lock_version + 1,
+            ])->save();
+
+            // Note: NO inventory/stock movements are created in this phase.
+            // Warehouse receipt verification is deferred to a future phase.
+
+            // Post single financial credit to cashbook
+            $this->cashbookProjectionService()->syncCreditNote($lockedCreditNote, $actorUser->id);
+
+            // Sync owned shop accounting closing balances if applicable
+            if ($lockedCreditNote->shop instanceof Shop && $lockedCreditNote->shop->isOwnedAccountingEnabled()) {
+                $businessDate = Carbon::parse($lockedCreditNote->credit_note_date?->toDateString() ?? today()->toDateString());
+                $this->ownedAccountingService()->syncStoredClosingBalancesFromDate(
+                    $lockedCreditNote->shop,
+                    $businessDate,
+                    $actorUser->id,
+                );
+            }
+
+            return $lockedCreditNote->fresh(['items.product', 'items.invoiceItem', 'items.sourceInvoice', 'shop', 'ledgerTransaction']);
         });
     }
 
