@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Services\ShopInvoices;
 
 use App\Enums\Inventory\ProductGrade;
+use App\Enums\ShopInvoice\ShopCreditNoteAccountingMode;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
+use App\Enums\ShopInvoice\ShopCreditNoteLineType;
 use App\Enums\ShopInvoice\ShopCreditNoteReason;
 use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Models\ProductUnit;
@@ -19,6 +21,7 @@ use App\Models\User;
 use App\Services\Cashbook\InvoiceCashbookProjectionService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Inventory\StockLedgerService;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -97,6 +100,12 @@ class ShopCreditNoteService
         if (! $creditNote->isDraft()) {
             throw ValidationException::withMessages([
                 'status' => "Cannot approve credit note with status '{$creditNote->status->value}'.",
+            ]);
+        }
+
+        if ($creditNote->isShopLevelMode()) {
+            throw ValidationException::withMessages([
+                'accounting_mode' => 'Shop-level credit notes cannot be approved via legacy single-invoice approval. Financial finalization is not yet activated.',
             ]);
         }
 
@@ -593,5 +602,540 @@ class ShopCreditNoteService
         }
 
         return $candidate;
+    }
+
+    /**
+     * Generate concurrency-safe unique draft credit note number for the given shop.
+     */
+    public function generateUniqueDraftNumber(Shop $shop, ?CarbonInterface $date = null): string
+    {
+        $dateStr = ($date ?? today())->format('Ymd');
+        $shopCode = strtoupper((string) ($shop->code ?: sprintf('SHP%04d', $shop->id)));
+        $base = sprintf('DRAFT-SCN-%s-%s', $dateStr, $shopCode);
+
+        $count = ShopCreditNote::query()
+            ->where('shop_id', $shop->id)
+            ->where('credit_note_number', 'like', "{$base}%")
+            ->lockForUpdate()
+            ->count();
+
+        $sequence = $count + 1;
+        $candidate = sprintf('%s-%02d', $base, $sequence);
+
+        while (ShopCreditNote::query()->where('credit_note_number', $candidate)->exists()) {
+            $sequence++;
+            $candidate = sprintf('%s-%02d', $base, $sequence);
+        }
+
+        return $candidate;
+    }
+
+    /**
+     * Create a multi-source Shop Credit Note draft.
+     *
+     * @param  array{
+     *     credit_note_date?: string|null,
+     *     reason_type?: string|ShopCreditNoteReason|null,
+     *     inventory_action?: string|ShopCreditNoteInventoryAction|null,
+     *     notes?: string|null,
+     *     items?: array<int, array<string, mixed>>,
+     *     discounts?: array<int, array<string, mixed>>,
+     * }  $payload
+     *
+     * @throws ValidationException
+     */
+    public function createShopLevelDraft(
+        Shop|int $shop,
+        array $payload,
+        User|int $creator,
+    ): ShopCreditNote {
+        $shopInstance = $shop instanceof Shop ? $shop : Shop::findOrFail($shop);
+        $creatorUser = $creator instanceof User ? $creator : User::findOrFail($creator);
+
+        if ($creatorUser->hasRole('purchase') && ! ($payload['from_delivery_review'] ?? false)) {
+            throw ValidationException::withMessages([
+                'creator' => 'Purchasers cannot arbitrarily create credit notes outside of delivery review.',
+            ]);
+        }
+
+        $date = isset($payload['credit_note_date']) && filled($payload['credit_note_date'])
+            ? Carbon::parse((string) $payload['credit_note_date'])->toDateString()
+            : today()->toDateString();
+
+        $periodClosed = ShopAccountingPeriodClosure::query()
+            ->where('shop_id', $shopInstance->id)
+            ->whereDate('period_start', '<=', $date)
+            ->whereDate('period_end', '>=', $date)
+            ->exists();
+
+        if ($periodClosed) {
+            throw ValidationException::withMessages([
+                'credit_note_date' => 'Cannot create credit note in a closed accounting period.',
+            ]);
+        }
+
+        $parsed = $this->parseDraftLinesPayload($payload);
+        $productAdjustmentLines = $parsed['product_lines'];
+        $commercialDiscountLines = $parsed['discount_lines'];
+
+        $headerReason = match (true) {
+            isset($payload['reason_type']) && $payload['reason_type'] instanceof ShopCreditNoteReason => $payload['reason_type'],
+            isset($payload['reason_type']) && is_string($payload['reason_type']) => ShopCreditNoteReason::tryFrom($payload['reason_type']) ?? ShopCreditNoteReason::Other,
+            default => ! empty($productAdjustmentLines) ? ShopCreditNoteReason::PriceCorrection : ShopCreditNoteReason::CommercialDiscount,
+        };
+
+        $headerInventoryAction = match (true) {
+            isset($payload['inventory_action']) && $payload['inventory_action'] instanceof ShopCreditNoteInventoryAction => $payload['inventory_action'],
+            isset($payload['inventory_action']) && is_string($payload['inventory_action']) => ShopCreditNoteInventoryAction::tryFrom($payload['inventory_action']) ?? ShopCreditNoteInventoryAction::None,
+            default => ShopCreditNoteInventoryAction::None,
+        };
+
+        return DB::transaction(function () use (
+            $shopInstance,
+            $creatorUser,
+            $date,
+            $payload,
+            $productAdjustmentLines,
+            $commercialDiscountLines,
+            $headerReason,
+            $headerInventoryAction,
+        ): ShopCreditNote {
+            $eligibilityResult = null;
+            if (! empty($productAdjustmentLines)) {
+                $eligibilityResult = $this->getEligibilityService()->validateAndLockSourceLines(
+                    $shopInstance,
+                    $productAdjustmentLines,
+                );
+            }
+
+            $productCreditTotal = $eligibilityResult ? $eligibilityResult->totalCreditAmount : 0.00;
+            $discountCreditTotal = round(array_sum(array_column($commercialDiscountLines, 'line_credit_amount')), 2);
+            $totalDraftCredit = round($productCreditTotal + $discountCreditTotal, 2);
+
+            $discountReason = ! empty($commercialDiscountLines)
+                ? implode('; ', array_filter(array_column($commercialDiscountLines, 'notes')))
+                : null;
+
+            $draftNumber = $this->generateUniqueDraftNumber($shopInstance, Carbon::parse($date));
+
+            /** @var ShopCreditNote $creditNote */
+            $creditNote = ShopCreditNote::query()->create([
+                'credit_note_number' => $draftNumber,
+                'shop_id' => $shopInstance->id,
+                'shop_invoice_id' => null,
+                'credit_note_date' => $date,
+                'direction' => ShopCreditNoteDirection::Credit,
+                'accounting_mode' => ShopCreditNoteAccountingMode::ShopLevel,
+                'reason_type' => $headerReason,
+                'status' => ShopCreditNoteStatus::Draft,
+                'inventory_action' => $headerInventoryAction,
+                'discount_amount' => $discountCreditTotal,
+                'discount_reason' => $discountReason,
+                'subtotal' => $totalDraftCredit,
+                'total_credit_amount' => $totalDraftCredit,
+                'lock_version' => 1,
+                'notes' => $payload['notes'] ?? null,
+                'created_by' => $creatorUser->id,
+            ]);
+
+            if ($eligibilityResult) {
+                foreach ($eligibilityResult->validatedLines as $line) {
+                    $creditNote->items()->create([
+                        'line_type' => ShopCreditNoteLineType::ProductAdjustment,
+                        'reason_type' => $line->reasonType ?? $headerReason,
+                        'source_shop_invoice_id' => $line->sourceShopInvoiceId,
+                        'shop_invoice_item_id' => $line->shopInvoiceItemId,
+                        'product_id' => $line->productId,
+                        'product_grade' => $line->productGrade,
+                        'received_grade' => $line->receivedGrade,
+                        'product_name' => $line->productName,
+                        'unit' => $line->unit,
+                        'price_unit' => $line->priceUnit,
+                        'original_quantity' => $line->originalQuantity,
+                        'original_unit_price' => $line->originalUnitPrice,
+                        'original_line_total' => $line->originalLineTotal,
+                        'adjusted_quantity' => $line->creditQuantity,
+                        'adjusted_unit_price' => $line->creditRate,
+                        'credit_rate' => $line->creditRate,
+                        'line_credit_amount' => $line->creditAmount,
+                        'direction' => $line->direction,
+                        'inventory_action' => $line->inventoryAction,
+                        'receipt_status' => 'not_applicable',
+                        'notes' => $line->notes,
+                    ]);
+                }
+            }
+
+            foreach ($commercialDiscountLines as $disc) {
+                $creditNote->items()->create([
+                    'line_type' => ShopCreditNoteLineType::CommercialDiscount,
+                    'reason_type' => $disc['reason_type'] ?? ShopCreditNoteReason::CommercialDiscount,
+                    'source_shop_invoice_id' => $disc['source_shop_invoice_id'] ?? null,
+                    'shop_invoice_item_id' => null,
+                    'product_id' => null,
+                    'product_grade' => 'A',
+                    'received_grade' => null,
+                    'product_name' => $disc['notes'] ?: 'Commercial Discount',
+                    'unit' => null,
+                    'price_unit' => null,
+                    'original_quantity' => 0.0000,
+                    'original_unit_price' => 0.00,
+                    'original_line_total' => 0.00,
+                    'adjusted_quantity' => 0.0000,
+                    'adjusted_unit_price' => 0.00,
+                    'credit_rate' => 0.00,
+                    'line_credit_amount' => $disc['line_credit_amount'],
+                    'direction' => ShopCreditNoteDirection::Credit,
+                    'inventory_action' => ShopCreditNoteInventoryAction::None,
+                    'receipt_status' => 'not_applicable',
+                    'notes' => $disc['notes'] ?? null,
+                ]);
+            }
+
+            return $creditNote->fresh(['items.product', 'items.invoiceItem', 'items.sourceInvoice', 'shop']);
+        });
+    }
+
+    /**
+     * Update an existing Shop Credit Note draft.
+     *
+     * @param  array{
+     *     credit_note_date?: string|null,
+     *     reason_type?: string|ShopCreditNoteReason|null,
+     *     inventory_action?: string|ShopCreditNoteInventoryAction|null,
+     *     notes?: string|null,
+     *     items?: array<int, array<string, mixed>>,
+     *     discounts?: array<int, array<string, mixed>>,
+     *     expected_lock_version?: int|null,
+     *     expected_updated_at?: string|null,
+     * }  $payload
+     *
+     * @throws ValidationException
+     */
+    public function updateShopLevelDraft(
+        ShopCreditNote $creditNote,
+        array $payload,
+        User|int $actor,
+    ): ShopCreditNote {
+        if (! $creditNote->isDraft()) {
+            throw ValidationException::withMessages([
+                'status' => 'Only draft credit notes can be edited.',
+            ]);
+        }
+
+        if (! $creditNote->isShopLevelMode()) {
+            throw ValidationException::withMessages([
+                'accounting_mode' => 'Legacy single-invoice credit notes cannot be edited with the shop-level draft engine.',
+            ]);
+        }
+
+        if (isset($payload['expected_lock_version']) && (int) $creditNote->lock_version !== (int) $payload['expected_lock_version']) {
+            throw ValidationException::withMessages([
+                'concurrency' => 'This draft has been modified by another user. Please reload the draft and review recent changes before saving.',
+            ]);
+        }
+
+        if (isset($payload['expected_updated_at'])) {
+            $expectedTime = Carbon::parse((string) $payload['expected_updated_at'])->toISOString();
+            $actualTime = $creditNote->updated_at?->toISOString();
+            if ($actualTime !== $expectedTime) {
+                throw ValidationException::withMessages([
+                    'concurrency' => 'This draft has been modified by another user. Please reload the draft and review recent changes before saving.',
+                ]);
+            }
+        }
+
+        $date = isset($payload['credit_note_date']) && filled($payload['credit_note_date'])
+            ? Carbon::parse((string) $payload['credit_note_date'])->toDateString()
+            : ($creditNote->credit_note_date?->toDateString() ?? today()->toDateString());
+
+        $periodClosed = ShopAccountingPeriodClosure::query()
+            ->where('shop_id', $creditNote->shop_id)
+            ->whereDate('period_start', '<=', $date)
+            ->whereDate('period_end', '>=', $date)
+            ->exists();
+
+        if ($periodClosed) {
+            throw ValidationException::withMessages([
+                'credit_note_date' => 'Cannot update credit note to a closed accounting period.',
+            ]);
+        }
+
+        $parsed = $this->parseDraftLinesPayload($payload);
+        $productAdjustmentLines = $parsed['product_lines'];
+        $commercialDiscountLines = $parsed['discount_lines'];
+
+        $headerReason = match (true) {
+            isset($payload['reason_type']) && $payload['reason_type'] instanceof ShopCreditNoteReason => $payload['reason_type'],
+            isset($payload['reason_type']) && is_string($payload['reason_type']) => ShopCreditNoteReason::tryFrom($payload['reason_type']) ?? $creditNote->reason_type,
+            default => $creditNote->reason_type,
+        };
+
+        $headerInventoryAction = match (true) {
+            isset($payload['inventory_action']) && $payload['inventory_action'] instanceof ShopCreditNoteInventoryAction => $payload['inventory_action'],
+            isset($payload['inventory_action']) && is_string($payload['inventory_action']) => ShopCreditNoteInventoryAction::tryFrom($payload['inventory_action']) ?? $creditNote->inventory_action,
+            default => $creditNote->inventory_action,
+        };
+
+        return DB::transaction(function () use (
+            $creditNote,
+            $date,
+            $payload,
+            $productAdjustmentLines,
+            $commercialDiscountLines,
+            $headerReason,
+            $headerInventoryAction,
+        ): ShopCreditNote {
+            /** @var ShopCreditNote $lockedCreditNote */
+            $lockedCreditNote = ShopCreditNote::query()
+                ->whereKey($creditNote->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (! $lockedCreditNote->isDraft()) {
+                throw ValidationException::withMessages([
+                    'status' => 'Only draft credit notes can be edited.',
+                ]);
+            }
+
+            if (isset($payload['expected_lock_version']) && (int) $lockedCreditNote->lock_version !== (int) $payload['expected_lock_version']) {
+                throw ValidationException::withMessages([
+                    'concurrency' => 'This draft has been modified by another user. Please reload the draft and review recent changes before saving.',
+                ]);
+            }
+
+            $shop = $lockedCreditNote->shop;
+
+            $eligibilityResult = null;
+            if (! empty($productAdjustmentLines)) {
+                // Pass excludeCreditNoteId: $lockedCreditNote->id so the draft's OWN items are not double counted!
+                $eligibilityResult = $this->getEligibilityService()->validateAndLockSourceLines(
+                    $shop,
+                    $productAdjustmentLines,
+                    excludeCreditNoteId: $lockedCreditNote->id,
+                );
+            }
+
+            $productCreditTotal = $eligibilityResult ? $eligibilityResult->totalCreditAmount : 0.00;
+            $discountCreditTotal = round(array_sum(array_column($commercialDiscountLines, 'line_credit_amount')), 2);
+            $totalDraftCredit = round($productCreditTotal + $discountCreditTotal, 2);
+
+            $discountReason = ! empty($commercialDiscountLines)
+                ? implode('; ', array_filter(array_column($commercialDiscountLines, 'notes')))
+                : null;
+
+            // Delete previous items to replace with updated lines
+            $lockedCreditNote->items()->delete();
+
+            if ($eligibilityResult) {
+                foreach ($eligibilityResult->validatedLines as $line) {
+                    $lockedCreditNote->items()->create([
+                        'line_type' => ShopCreditNoteLineType::ProductAdjustment,
+                        'reason_type' => $line->reasonType ?? $headerReason,
+                        'source_shop_invoice_id' => $line->sourceShopInvoiceId,
+                        'shop_invoice_item_id' => $line->shopInvoiceItemId,
+                        'product_id' => $line->productId,
+                        'product_grade' => $line->productGrade,
+                        'received_grade' => $line->receivedGrade,
+                        'product_name' => $line->productName,
+                        'unit' => $line->unit,
+                        'price_unit' => $line->priceUnit,
+                        'original_quantity' => $line->originalQuantity,
+                        'original_unit_price' => $line->originalUnitPrice,
+                        'original_line_total' => $line->originalLineTotal,
+                        'adjusted_quantity' => $line->creditQuantity,
+                        'adjusted_unit_price' => $line->creditRate,
+                        'credit_rate' => $line->creditRate,
+                        'line_credit_amount' => $line->creditAmount,
+                        'direction' => $line->direction,
+                        'inventory_action' => $line->inventoryAction,
+                        'receipt_status' => 'not_applicable',
+                        'notes' => $line->notes,
+                    ]);
+                }
+            }
+
+            foreach ($commercialDiscountLines as $disc) {
+                $lockedCreditNote->items()->create([
+                    'line_type' => ShopCreditNoteLineType::CommercialDiscount,
+                    'reason_type' => $disc['reason_type'] ?? ShopCreditNoteReason::CommercialDiscount,
+                    'source_shop_invoice_id' => $disc['source_shop_invoice_id'] ?? null,
+                    'shop_invoice_item_id' => null,
+                    'product_id' => null,
+                    'product_grade' => 'A',
+                    'received_grade' => null,
+                    'product_name' => $disc['notes'] ?: 'Commercial Discount',
+                    'unit' => null,
+                    'price_unit' => null,
+                    'original_quantity' => 0.0000,
+                    'original_unit_price' => 0.00,
+                    'original_line_total' => 0.00,
+                    'adjusted_quantity' => 0.0000,
+                    'adjusted_unit_price' => 0.00,
+                    'credit_rate' => 0.00,
+                    'line_credit_amount' => $disc['line_credit_amount'],
+                    'direction' => ShopCreditNoteDirection::Credit,
+                    'inventory_action' => ShopCreditNoteInventoryAction::None,
+                    'receipt_status' => 'not_applicable',
+                    'notes' => $disc['notes'] ?? null,
+                ]);
+            }
+
+            $lockedCreditNote->forceFill([
+                'credit_note_date' => $date,
+                'reason_type' => $headerReason,
+                'inventory_action' => $headerInventoryAction,
+                'discount_amount' => $discountCreditTotal,
+                'discount_reason' => $discountReason,
+                'subtotal' => $totalDraftCredit,
+                'total_credit_amount' => $totalDraftCredit,
+                'notes' => array_key_exists('notes', $payload) ? $payload['notes'] : $lockedCreditNote->notes,
+                'lock_version' => $lockedCreditNote->lock_version + 1,
+            ])->save();
+
+            return $lockedCreditNote->fresh(['items.product', 'items.invoiceItem', 'items.sourceInvoice', 'shop']);
+        });
+    }
+
+    /**
+     * Parse and categorize lines into product adjustment lines and commercial discount lines.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{product_lines: array<int, array<string, mixed>>, discount_lines: array<int, array<string, mixed>>}
+     *
+     * @throws ValidationException
+     */
+    private function parseDraftLinesPayload(array $payload): array
+    {
+        $items = $payload['items'] ?? [];
+        $discounts = $payload['discounts'] ?? [];
+
+        if (! is_array($items)) {
+            throw ValidationException::withMessages(['items' => 'Items payload must be an array.']);
+        }
+        if (! is_array($discounts)) {
+            throw ValidationException::withMessages(['discounts' => 'Discounts payload must be an array.']);
+        }
+
+        $productLines = [];
+        $discountLines = [];
+
+        foreach ($items as $index => $line) {
+            if (! is_array($line)) {
+                throw ValidationException::withMessages(["items.{$index}" => 'Line adjustment must be an array.']);
+            }
+
+            $lineType = match (true) {
+                isset($line['line_type']) && $line['line_type'] instanceof ShopCreditNoteLineType => $line['line_type']->value,
+                isset($line['line_type']) && is_string($line['line_type']) => $line['line_type'],
+                default => null,
+            };
+
+            $isDiscount = ($lineType === ShopCreditNoteLineType::CommercialDiscount->value)
+                || ($lineType === 'commercial_discount')
+                || (empty($line['shop_invoice_item_id']) && (isset($line['discount_amount']) || isset($line['amount'])));
+
+            if ($isDiscount) {
+                $amt = (float) ($line['discount_amount'] ?? $line['amount'] ?? $line['line_credit_amount'] ?? $line['credit_amount'] ?? 0.0);
+                if ($amt <= 0.0001) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.discount_amount" => 'Commercial discount amount must be greater than zero.',
+                    ]);
+                }
+                $discountLines[] = [
+                    'source_shop_invoice_id' => $line['source_shop_invoice_id'] ?? null,
+                    'line_credit_amount' => round($amt, 2),
+                    'notes' => $line['notes'] ?? ($line['description'] ?? 'Commercial Discount'),
+                    'reason_type' => isset($line['reason_type'])
+                        ? (is_string($line['reason_type']) ? ShopCreditNoteReason::tryFrom($line['reason_type']) ?? ShopCreditNoteReason::CommercialDiscount : $line['reason_type'])
+                        : ShopCreditNoteReason::CommercialDiscount,
+                ];
+            } else {
+                if (empty($line['shop_invoice_item_id'])) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.shop_invoice_item_id" => 'Source invoice item ID is required for product adjustments.',
+                    ]);
+                }
+
+                $qty = (float) ($line['credit_quantity'] ?? $line['adjusted_quantity'] ?? 0.0);
+                $rate = (float) ($line['credit_rate'] ?? $line['adjusted_unit_price'] ?? 0.0);
+
+                if ($qty < 0.0) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.credit_quantity" => 'Credit quantity cannot be negative.',
+                    ]);
+                }
+                if ($rate < 0.0) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.credit_rate" => 'Credit rate cannot be negative.',
+                    ]);
+                }
+
+                $amt = array_key_exists('credit_amount', $line) && $line['credit_amount'] !== null
+                    ? (float) $line['credit_amount']
+                    : (array_key_exists('line_credit_amount', $line) && $line['line_credit_amount'] !== null
+                        ? (float) $line['line_credit_amount']
+                        : round($qty * $rate, 2));
+
+                if ($amt < 0.0) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.credit_amount" => 'Credit amount cannot be negative.',
+                    ]);
+                }
+
+                if ($qty <= 0.0001 && $amt <= 0.0001) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}" => "Line adjustment for item #{$line['shop_invoice_item_id']} must have either credit quantity or credit amount greater than zero.",
+                    ]);
+                }
+
+                $productLines[] = [
+                    'source_shop_invoice_id' => $line['source_shop_invoice_id'] ?? null,
+                    'shop_invoice_item_id' => (int) $line['shop_invoice_item_id'],
+                    'product_id' => isset($line['product_id']) ? (int) $line['product_id'] : null,
+                    'product_grade' => $line['product_grade'] ?? null,
+                    'unit' => $line['unit'] ?? null,
+                    'credit_quantity' => round($qty, 4),
+                    'credit_rate' => round($rate, 2),
+                    'credit_amount' => round($amt, 2),
+                    'reason_type' => $line['reason_type'] ?? null,
+                    'received_grade' => $line['received_grade'] ?? null,
+                    'inventory_action' => $line['inventory_action'] ?? null,
+                    'direction' => $line['direction'] ?? ShopCreditNoteDirection::Credit,
+                    'notes' => $line['notes'] ?? null,
+                ];
+            }
+        }
+
+        foreach ($discounts as $dIndex => $disc) {
+            if (! is_array($disc)) {
+                throw ValidationException::withMessages(["discounts.{$dIndex}" => 'Discount line must be an array.']);
+            }
+            $amt = (float) ($disc['amount'] ?? $disc['discount_amount'] ?? 0.0);
+            if ($amt <= 0.0001) {
+                throw ValidationException::withMessages([
+                    "discounts.{$dIndex}.amount" => 'Commercial discount amount must be greater than zero.',
+                ]);
+            }
+            $discountLines[] = [
+                'source_shop_invoice_id' => $disc['source_shop_invoice_id'] ?? null,
+                'line_credit_amount' => round($amt, 2),
+                'notes' => $disc['notes'] ?? 'Commercial Discount',
+                'reason_type' => isset($disc['reason_type'])
+                    ? (is_string($disc['reason_type']) ? ShopCreditNoteReason::tryFrom($disc['reason_type']) ?? ShopCreditNoteReason::CommercialDiscount : $disc['reason_type'])
+                    : ShopCreditNoteReason::CommercialDiscount,
+            ];
+        }
+
+        if (empty($productLines) && empty($discountLines)) {
+            throw ValidationException::withMessages([
+                'items' => 'At least one product adjustment or commercial discount line must be provided.',
+            ]);
+        }
+
+        return [
+            'product_lines' => $productLines,
+            'discount_lines' => $discountLines,
+        ];
     }
 }

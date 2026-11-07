@@ -9,6 +9,7 @@ use App\DTOs\ShopInvoice\ValidatedSourceLineItem;
 use App\Enums\Inventory\ProductGrade;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
+use App\Enums\ShopInvoice\ShopCreditNoteReason;
 use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Models\ProductUnit;
 use App\Models\Shop;
@@ -251,6 +252,12 @@ class ShopCreditNoteEligibilityService
                 $totalDebits += $creditAmount;
             }
 
+            $lineReasonType = match (true) {
+                isset($line['reason_type']) && $line['reason_type'] instanceof ShopCreditNoteReason => $line['reason_type'],
+                isset($line['reason_type']) && is_string($line['reason_type']) => ShopCreditNoteReason::tryFrom($line['reason_type']),
+                default => null,
+            };
+
             $validatedLines[] = new ValidatedSourceLineItem(
                 sourceShopInvoiceId: $invoice->id,
                 shopInvoiceItemId: $item->id,
@@ -271,6 +278,7 @@ class ShopCreditNoteEligibilityService
                 inventoryAction: $inventoryAction,
                 notes: $line['notes'] ?? null,
                 receivedGrade: $line['received_grade'] ?? null,
+                reasonType: $lineReasonType,
                 invoice: $invoice,
                 invoiceItem: $item,
             );
@@ -316,11 +324,13 @@ class ShopCreditNoteEligibilityService
         $categories = [
             'approved' => ['quantity_credited' => 0.0, 'quantity_debited' => 0.0, 'net_quantity' => 0.0, 'amount_credited' => 0.0, 'amount_debited' => 0.0, 'net_amount' => 0.0],
             'draft' => ['quantity_credited' => 0.0, 'quantity_debited' => 0.0, 'net_quantity' => 0.0, 'amount_credited' => 0.0, 'amount_debited' => 0.0, 'net_amount' => 0.0],
+            'provisional_draft' => ['quantity_credited' => 0.0, 'quantity_debited' => 0.0, 'net_quantity' => 0.0, 'amount_credited' => 0.0, 'amount_debited' => 0.0, 'net_amount' => 0.0],
             'voided' => ['quantity_credited' => 0.0, 'quantity_debited' => 0.0, 'net_quantity' => 0.0, 'amount_credited' => 0.0, 'amount_debited' => 0.0, 'net_amount' => 0.0],
         ];
 
         foreach ($adjustments as $adj) {
-            $statusKey = match ($adj->creditNote?->status) {
+            $creditNote = $adj->creditNote;
+            $statusKey = match ($creditNote?->status) {
                 ShopCreditNoteStatus::Approved => 'approved',
                 ShopCreditNoteStatus::Voided => 'voided',
                 default => 'draft',
@@ -328,6 +338,24 @@ class ShopCreditNoteEligibilityService
 
             $qty = (float) $adj->adjusted_quantity;
             $amt = (float) $adj->line_credit_amount;
+
+            // Provisional check: shop-level drafts are provisional and do NOT consume active persistent eligible quantities.
+            // Only legacy invoice-linked drafts or approved credit notes consume active eligible quantities.
+            if ($statusKey === 'draft' && $creditNote?->isShopLevelMode()) {
+                if ($adj->direction === ShopCreditNoteDirection::Credit) {
+                    $categories['provisional_draft']['quantity_credited'] += $qty;
+                    $categories['provisional_draft']['amount_credited'] += $amt;
+                    $categories['provisional_draft']['net_quantity'] += $qty;
+                    $categories['provisional_draft']['net_amount'] += $amt;
+                } else {
+                    $categories['provisional_draft']['quantity_debited'] += $qty;
+                    $categories['provisional_draft']['amount_debited'] += $amt;
+                    $categories['provisional_draft']['net_quantity'] -= $qty;
+                    $categories['provisional_draft']['net_amount'] -= $amt;
+                }
+
+                continue;
+            }
 
             if ($adj->direction === ShopCreditNoteDirection::Credit) {
                 $categories[$statusKey]['quantity_credited'] += $qty;
@@ -361,6 +389,7 @@ class ShopCreditNoteEligibilityService
         return [
             'approved' => $categories['approved'],
             'draft' => $categories['draft'],
+            'provisional_draft' => $categories['provisional_draft'],
             'voided' => $categories['voided'],
             'active' => [
                 'net_quantity_credited' => $activeNetQtyCredited,

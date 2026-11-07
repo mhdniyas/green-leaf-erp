@@ -7,6 +7,8 @@ namespace App\Models;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
+use App\Enums\ShopInvoice\ShopCreditNoteLineType;
+use App\Enums\ShopInvoice\ShopCreditNoteReason;
 use Database\Factories\ShopCreditNoteItemFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -20,9 +22,13 @@ class ShopCreditNoteItem extends Model
 
     protected $fillable = [
         'shop_credit_note_id',
+        'line_type',
+        'reason_type',
         'shop_invoice_item_id',
+        'source_shop_invoice_id',
         'product_id',
         'product_grade',
+        'received_grade',
         'product_name',
         'unit',
         'price_unit',
@@ -30,21 +36,29 @@ class ShopCreditNoteItem extends Model
         'original_unit_price',
         'original_line_total',
         'adjusted_quantity',
+        'received_quantity',
         'adjusted_unit_price',
+        'credit_rate',
         'line_credit_amount',
         'direction',
         'inventory_action',
+        'receipt_status',
         'notes',
+        'physical_receipt_notes',
     ];
 
     protected function casts(): array
     {
         return [
+            'line_type' => ShopCreditNoteLineType::class,
+            'reason_type' => ShopCreditNoteReason::class,
             'original_quantity' => 'decimal:4',
             'original_unit_price' => 'decimal:2',
             'original_line_total' => 'decimal:2',
             'adjusted_quantity' => 'decimal:4',
+            'received_quantity' => 'decimal:4',
             'adjusted_unit_price' => 'decimal:2',
+            'credit_rate' => 'decimal:2',
             'line_credit_amount' => 'decimal:2',
             'direction' => ShopCreditNoteDirection::class,
             'inventory_action' => ShopCreditNoteInventoryAction::class,
@@ -70,6 +84,21 @@ class ShopCreditNoteItem extends Model
     public function invoiceItem(): BelongsTo
     {
         return $this->belongsTo(ShopInvoiceItem::class, 'shop_invoice_item_id');
+    }
+
+    public function sourceInvoice(): BelongsTo
+    {
+        return $this->belongsTo(ShopInvoice::class, 'source_shop_invoice_id');
+    }
+
+    public function isCommercialDiscount(): bool
+    {
+        return $this->line_type === ShopCreditNoteLineType::CommercialDiscount;
+    }
+
+    public function isProductAdjustment(): bool
+    {
+        return ($this->line_type ?? ShopCreditNoteLineType::ProductAdjustment) === ShopCreditNoteLineType::ProductAdjustment;
     }
 
     public function product(): BelongsTo

@@ -7,6 +7,7 @@ namespace App\DTOs\ShopInvoice;
 use App\DTOs\BaseDTO;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
+use App\Enums\ShopInvoice\ShopCreditNoteReason;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
 
@@ -32,6 +33,7 @@ class ValidatedSourceLineItem extends BaseDTO
         public ShopCreditNoteInventoryAction $inventoryAction,
         public ?string $notes = null,
         public ?string $receivedGrade = null,
+        public ?ShopCreditNoteReason $reasonType = null,
         public ?ShopInvoice $invoice = null,
         public ?ShopInvoiceItem $invoiceItem = null,
     ) {}
@@ -46,6 +48,7 @@ class ValidatedSourceLineItem extends BaseDTO
             'source_shop_invoice_id' => $this->sourceShopInvoiceId,
             'product_id' => $this->productId,
             'product_grade' => $this->productGrade,
+            'received_grade' => $this->receivedGrade,
             'product_name' => $this->productName,
             'unit' => $this->unit,
             'price_unit' => $this->priceUnit,
@@ -58,6 +61,7 @@ class ValidatedSourceLineItem extends BaseDTO
             'line_credit_amount' => $this->creditAmount,
             'direction' => $this->direction,
             'inventory_action' => $this->inventoryAction,
+            'reason_type' => $this->reasonType,
             'notes' => $this->notes,
         ];
     }
