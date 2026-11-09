@@ -23,6 +23,8 @@
         appliedCredit: {{ (float) $appliedCreditTotal }},
         outstandingInvoicesUrl: '{{ route('admin.cashbook.reports.shops.credit-notes.outstanding-invoices', $creditNote) }}',
         applyCreditUrl: '{{ route('admin.cashbook.reports.shops.credit-notes.apply', $creditNote) }}',
+        cancelUrl: '{{ route('admin.cashbook.reports.shops.credit-notes.cancel', $creditNote) }}',
+        reverseAppUrlBase: '{{ url('admin/cashbook/reports/shops/credit-notes/' . $creditNote->credit_note_number . '/applications') }}',
     })">
 
     <!-- Top Breadcrumbs & Actions -->
@@ -57,12 +59,22 @@
                 <span>{{ $creditNote->status->value }}</span>
             </span>
 
-            @if ($creditNote->isApproved() && $unappliedCreditTotal > 0)
-                <button type="button" @click="openApplicationModal()"
-                    class="inline-flex h-9 items-center gap-1.5 rounded-xl border border-indigo-300 bg-indigo-600 px-3.5 text-xs font-bold text-white hover:bg-indigo-700 transition shadow-xs">
-                    <i data-lucide="split" class="w-3.5 h-3.5 text-white"></i>
-                    <span>Apply Credit to Invoices</span>
-                </button>
+            @if ($creditNote->isApproved())
+                @if ($canCancelCreditNote)
+                    <button type="button" @click="openCancelModal()"
+                        class="inline-flex h-9 items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-3.5 text-xs font-bold text-rose-700 hover:bg-rose-100 hover:text-rose-900 transition shadow-2xs">
+                        <i data-lucide="ban" class="w-3.5 h-3.5 text-rose-600"></i>
+                        <span>Cancel Credit Note</span>
+                    </button>
+                @endif
+
+                @if ($unappliedCreditTotal > 0)
+                    <button type="button" @click="openApplicationModal()"
+                        class="inline-flex h-9 items-center gap-1.5 rounded-xl border border-indigo-300 bg-indigo-600 px-3.5 text-xs font-bold text-white hover:bg-indigo-700 transition shadow-xs">
+                        <i data-lucide="split" class="w-3.5 h-3.5 text-white"></i>
+                        <span>Apply Credit to Invoices</span>
+                    </button>
+                @endif
             @endif
         </div>
     </div>
@@ -79,6 +91,38 @@
         <div class="rounded-2xl border border-rose-200 bg-rose-50/80 p-4 shadow-xs flex items-center gap-3">
             <i data-lucide="alert-circle" class="w-5 h-5 text-rose-600 shrink-0"></i>
             <span class="text-xs font-bold text-rose-800">{{ session('error') }}</span>
+        </div>
+    @endif
+
+    <!-- Cancelled / Voided Alert Banner -->
+    @if ($creditNote->isVoided())
+        <div class="rounded-2xl border border-rose-200 bg-rose-50/90 p-4 shadow-xs space-y-1">
+            <div class="flex items-center gap-2 text-rose-900 font-bold text-xs">
+                <i data-lucide="x-circle" class="w-4 h-4 text-rose-600 shrink-0"></i>
+                <span>Credit Note Cancelled / Voided</span>
+            </div>
+            <p class="text-xs text-rose-700">
+                This Credit Note was cancelled on <strong class="font-mono">{{ optional($creditNote->voided_at)->format('d M Y, H:i') }}</strong>
+                @if ($creditNote->voidedBy)
+                    by <strong>{{ $creditNote->voidedBy->name }}</strong>
+                @endif
+                @if ($creditNote->void_reason)
+                    &bull; Reason: <em class="italic">"{{ $creditNote->void_reason }}"</em>
+                @endif
+            </p>
+        </div>
+    @endif
+
+    <!-- Warehouse Reconciliation Warning Banner -->
+    @if ($hasUnreconciledPhysicalReturns)
+        <div class="rounded-2xl border border-amber-300 bg-amber-50/90 p-4 shadow-xs space-y-1">
+            <div class="flex items-center gap-2 text-amber-950 font-bold text-xs">
+                <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-600 shrink-0"></i>
+                <span>Warehouse Reconciliation Required</span>
+            </div>
+            <p class="text-xs text-amber-800">
+                This Credit Note contains active physical return receipts verified at the warehouse. Warehouse staff must reverse the stock receipts in the warehouse module before office cancellation can be performed.
+            </p>
         </div>
     @endif
 
@@ -285,6 +329,7 @@
                             <th class="py-2.5 px-3">Applied By</th>
                             <th class="py-2.5 px-3">Status</th>
                             <th class="py-2.5 px-3">Notes</th>
+                            <th class="py-2.5 px-3 text-right">Actions</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 bg-white">
@@ -305,9 +350,22 @@
                                 </td>
                                 <td class="py-2.5 px-3">
                                     @if ($app->isReversed())
-                                        <span class="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-bold text-rose-800 uppercase">
-                                            Reversed
-                                        </span>
+                                        <div class="space-y-0.5">
+                                            <span class="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-bold text-rose-800 uppercase">
+                                                Reversed
+                                            </span>
+                                            <div class="text-[10px] text-slate-500 font-mono">
+                                                {{ optional($app->reversed_at)->format('d M Y, H:i') }}
+                                                @if ($app->reversedByUser)
+                                                    by {{ $app->reversedByUser->name }}
+                                                @endif
+                                            </div>
+                                            @if ($app->reversal_reason)
+                                                <div class="text-[10px] text-rose-700 italic max-w-xs truncate" title="{{ $app->reversal_reason }}">
+                                                    "{{ $app->reversal_reason }}"
+                                                </div>
+                                            @endif
+                                        </div>
                                     @else
                                         <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-800 uppercase">
                                             Active
@@ -316,6 +374,20 @@
                                 </td>
                                 <td class="py-2.5 px-3 text-slate-500 italic">
                                     {{ $app->notes ?: '—' }}
+                                </td>
+                                <td class="py-2.5 px-3 text-right whitespace-nowrap">
+                                    @if ($app->isActive() && $creditNote->isApproved() && $canReverseApp)
+                                        <button type="button"
+                                            @click="openReverseModal({{ $app->id }}, '{{ $app->invoice?->invoice_number ?? "INV-{$app->shop_invoice_id}" }}', {{ (float) $app->amount }})"
+                                            class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 hover:text-rose-900 transition shadow-2xs">
+                                            <i data-lucide="rotate-ccw" class="w-3 h-3 text-rose-600"></i>
+                                            <span>Reverse</span>
+                                        </button>
+                                    @elseif ($app->isReversed())
+                                        <span class="text-[10px] text-slate-400 font-semibold italic">Reversed</span>
+                                    @else
+                                        <span class="text-[10px] text-slate-400 font-semibold">—</span>
+                                    @endif
                                 </td>
                             </tr>
                         @endforeach
@@ -456,6 +528,170 @@
             </div>
         </div>
     </div>
+
+    <!-- 7. CREDIT NOTE CANCELLATION MODAL (ALPINE.JS) -->
+    <div x-show="showCancelModal" x-cloak
+        class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div @click.away="closeCancelModal()"
+            class="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-5 border border-slate-200">
+
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div class="flex items-center gap-2">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-rose-50 text-rose-600 font-bold">
+                        <i data-lucide="alert-octagon" class="w-4 h-4 text-rose-600"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-black text-slate-900">Cancel Shop Credit Note</h3>
+                        <p class="text-xs text-slate-500">Void credit note and reverse all financial credit</p>
+                    </div>
+                </div>
+                <button type="button" @click="closeCancelModal()"
+                    class="h-8 w-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center font-bold">✕</button>
+            </div>
+
+            <!-- Financial Summary -->
+            <div class="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2 text-xs">
+                <div class="flex justify-between">
+                    <span class="text-slate-500">Credit Note:</span>
+                    <span class="font-mono font-bold text-slate-900" x-text="creditNoteNumber"></span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-500">Shop:</span>
+                    <span class="font-bold text-slate-800" x-text="shopName"></span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-500">Financial Credit to Void:</span>
+                    <span class="font-mono font-black text-rose-700 text-sm">-₹{{ number_format((float) $creditNote->total_credit_amount, 2) }}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-500">Active Applications:</span>
+                    <span class="font-bold text-slate-800">{{ $activeApplicationsCount }} application(s) (₹{{ number_format((float) $appliedCreditTotal, 2) }})</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-500">Unapplied Balance:</span>
+                    <span class="font-mono font-bold text-emerald-700">₹{{ number_format((float) $unappliedCreditTotal, 2) }}</span>
+                </div>
+            </div>
+
+            @if ($hasUnreconciledPhysicalReturns)
+                <div class="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-1">
+                    <div class="font-bold flex items-center gap-1.5">
+                        <i data-lucide="shield-alert" class="w-4 h-4 text-amber-600 shrink-0"></i>
+                        <span>Warehouse Reconciliation Required</span>
+                    </div>
+                    <p>Cancellation is blocked because active physical return receipts exist for this credit note. Warehouse staff must reverse the stock receipts in the warehouse module first.</p>
+                </div>
+            @else
+                <div class="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-900 space-y-1">
+                    <div class="font-bold flex items-center gap-1.5">
+                        <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-600 shrink-0"></i>
+                        <span>Irreversible Financial Reversal</span>
+                    </div>
+                    <p>Cancelling will immediately void the single Cashbook financial credit, reverse all {{ $activeApplicationsCount }} active bill applications, and mark this Credit Note as VOIDED. Original invoices and payments will remain unchanged.</p>
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-700 mb-1">Mandatory Cancellation Reason <span class="text-rose-600">*</span></label>
+                    <textarea x-model="cancelReason" rows="2" placeholder="Explain why this Credit Note is being cancelled (e.g. issued in error, customer dispute resolved)..."
+                        class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 focus:border-rose-500"></textarea>
+                </div>
+            @endif
+
+            <div class="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+                <button type="button" @click="closeCancelModal()"
+                    class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                    Close
+                </button>
+                @if (! $hasUnreconciledPhysicalReturns)
+                    <button type="button" @click="executeCancel()" :disabled="!cancelReason.trim() || isCancelling"
+                        class="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-5 py-2 text-xs font-bold text-white hover:bg-rose-700 transition shadow-xs disabled:opacity-50">
+                        <template x-if="isCancelling">
+                            <span class="inline-flex items-center gap-1">
+                                <i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i>
+                                <span>Cancelling...</span>
+                            </span>
+                        </template>
+                        <template x-if="!isCancelling">
+                            <span class="inline-flex items-center gap-1">
+                                <i data-lucide="ban" class="w-3.5 h-3.5"></i>
+                                <span>Confirm Cancellation</span>
+                            </span>
+                        </template>
+                    </button>
+                @endif
+            </div>
+        </div>
+    </div>
+
+    <!-- 8. APPLICATION REVERSAL MODAL (ALPINE.JS) -->
+    <div x-show="showReverseAppModal" x-cloak
+        class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div @click.away="closeReverseModal()"
+            class="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-5 border border-slate-200">
+
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div class="flex items-center gap-2">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50 text-amber-600 font-bold">
+                        <i data-lucide="rotate-ccw" class="w-4 h-4 text-amber-600"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-black text-slate-900">Reverse Credit Application</h3>
+                        <p class="text-xs text-slate-500">Return allocation to Credit Note unapplied balance</p>
+                    </div>
+                </div>
+                <button type="button" @click="closeReverseModal()"
+                    class="h-8 w-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center font-bold">✕</button>
+            </div>
+
+            <!-- Allocation Summary -->
+            <div class="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2 text-xs">
+                <div class="flex justify-between">
+                    <span class="text-slate-500">Target Invoice:</span>
+                    <span class="font-mono font-bold text-slate-900" x-text="targetInvoiceNumber"></span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-500">Applied Credit to Reverse:</span>
+                    <span class="font-mono font-black text-rose-700 text-sm">₹<span x-text="Number(targetAppAmount).toFixed(2)"></span></span>
+                </div>
+            </div>
+
+            <div class="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 space-y-1">
+                <div class="font-bold flex items-center gap-1.5">
+                    <i data-lucide="info" class="w-4 h-4 text-amber-600 shrink-0"></i>
+                    <span>Allocation Reversal</span>
+                </div>
+                <p>Reversing will return ₹<span x-text="Number(targetAppAmount).toFixed(2)"></span> to the Credit Note's unapplied balance. The target invoice's outstanding balance will be restored accordingly. No Cashbook posting will occur.</p>
+            </div>
+
+            <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Mandatory Reversal Reason <span class="text-rose-600">*</span></label>
+                <textarea x-model="reverseReason" rows="2" placeholder="e.g. Allocated to wrong invoice, office reallocation required..."
+                    class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 focus:border-amber-500"></textarea>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+                <button type="button" @click="closeReverseModal()"
+                    class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                    Cancel
+                </button>
+                <button type="button" @click="executeReverseApp()" :disabled="!reverseReason.trim() || isReversing"
+                    class="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-5 py-2 text-xs font-bold text-white hover:bg-amber-700 transition shadow-xs disabled:opacity-50">
+                    <template x-if="isReversing">
+                        <span class="inline-flex items-center gap-1">
+                            <i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i>
+                            <span>Reversing...</span>
+                        </span>
+                    </template>
+                    <template x-if="!isReversing">
+                        <span class="inline-flex items-center gap-1">
+                            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                            <span>Confirm Reversal</span>
+                        </span>
+                    </template>
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -470,6 +706,8 @@
             appliedCredit: config.appliedCredit,
             outstandingInvoicesUrl: config.outstandingInvoicesUrl,
             applyCreditUrl: config.applyCreditUrl,
+            cancelUrl: config.cancelUrl,
+            reverseAppUrlBase: config.reverseAppUrlBase,
 
             showModal: false,
             isLoadingInvoices: false,
@@ -477,6 +715,115 @@
             allocations: {},
             applicationNotes: '',
             isSubmitting: false,
+
+            // Cancellation state
+            showCancelModal: false,
+            cancelReason: '',
+            isCancelling: false,
+
+            // Reversal state
+            showReverseAppModal: false,
+            targetAppId: null,
+            targetInvoiceNumber: '',
+            targetAppAmount: 0.0,
+            reverseReason: '',
+            isReversing: false,
+
+            openCancelModal() {
+                this.showCancelModal = true;
+                this.cancelReason = '';
+                this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            },
+
+            closeCancelModal() {
+                this.showCancelModal = false;
+            },
+
+            executeCancel() {
+                if (!this.cancelReason.trim() || this.isCancelling) return;
+
+                this.isCancelling = true;
+
+                fetch(this.cancelUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: JSON.stringify({
+                        reason: this.cancelReason.trim()
+                    })
+                })
+                .then(async res => {
+                    const data = await res.json();
+                    if (!res.ok) {
+                        alert(data.message || 'Validation error while cancelling credit note.');
+                        this.isCancelling = false;
+                        return;
+                    }
+
+                    if (data.redirect_url) {
+                        window.location.href = data.redirect_url;
+                    } else {
+                        window.location.reload();
+                    }
+                })
+                .catch(err => {
+                    console.error('Cancel error:', err);
+                    alert('An unexpected error occurred while cancelling credit note.');
+                    this.isCancelling = false;
+                });
+            },
+
+            openReverseModal(id, invoiceNumber, amount) {
+                this.targetAppId = id;
+                this.targetInvoiceNumber = invoiceNumber;
+                this.targetAppAmount = amount;
+                this.reverseReason = '';
+                this.showReverseAppModal = true;
+                this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            },
+
+            closeReverseModal() {
+                this.showReverseAppModal = false;
+            },
+
+            executeReverseApp() {
+                if (!this.reverseReason.trim() || !this.targetAppId || this.isReversing) return;
+
+                this.isReversing = true;
+                const url = `${this.reverseAppUrlBase}/${this.targetAppId}/reverse`;
+
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: JSON.stringify({
+                        reason: this.reverseReason.trim()
+                    })
+                })
+                .then(async res => {
+                    const data = await res.json();
+                    if (!res.ok) {
+                        alert(data.message || 'Validation error while reversing credit application.');
+                        this.isReversing = false;
+                        return;
+                    }
+
+                    window.location.reload();
+                })
+                .catch(err => {
+                    console.error('Reverse error:', err);
+                    alert('An unexpected error occurred while reversing credit application.');
+                    this.isReversing = false;
+                });
+            },
 
             openApplicationModal() {
                 this.showModal = true;

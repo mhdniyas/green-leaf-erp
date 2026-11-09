@@ -1249,11 +1249,13 @@ Route::middleware('auth')->group(function () {
                     Route::post('{creditNote}/finalize', [ShopCreditNoteDraftController::class, 'finalize'])->name('finalize');
                 });
 
-                // Finalized Credit Note Details & Bill Applications (Phase 3.2)
+                // Finalized Credit Note Details & Bill Applications (Phase 3.2 & 3.3)
                 Route::prefix('credit-notes')->name('credit-notes.')->group(function () {
                     Route::get('{creditNote}/details', [ShopCreditNoteDetailController::class, 'show'])->name('show');
                     Route::get('{creditNote}/outstanding-invoices', [ShopCreditNoteDetailController::class, 'outstandingInvoices'])->name('outstanding-invoices');
                     Route::post('{creditNote}/apply', [ShopCreditNoteDetailController::class, 'applyCredit'])->name('apply');
+                    Route::post('{creditNote}/cancel', [ShopCreditNoteDetailController::class, 'cancel'])->name('cancel');
+                    Route::post('{creditNote}/applications/{application}/reverse', [ShopCreditNoteDetailController::class, 'reverseApplication'])->name('applications.reverse');
                 });
             });
 

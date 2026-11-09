@@ -6,10 +6,12 @@ namespace App\Http\Controllers\Web\Admin\ShopCreditNotes;
 
 use App\Enums\ShopInvoice\ShopCreditNoteLineType;
 use App\Http\Controllers\Controller;
+use App\Models\ShopCreditApplication;
 use App\Models\ShopCreditNote;
 use App\Models\ShopInvoice;
 use App\Models\User;
 use App\Services\ShopInvoices\ShopCreditApplicationService;
+use App\Services\ShopInvoices\ShopCreditNoteService;
 use App\Services\ShopInvoices\ShopFinalBillService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +25,7 @@ class ShopCreditNoteDetailController extends Controller
     public function __construct(
         protected ShopCreditApplicationService $applicationService,
         protected ShopFinalBillService $finalBillService,
+        protected ShopCreditNoteService $creditNoteService,
     ) {}
 
     /**
@@ -42,11 +45,13 @@ class ShopCreditNoteDetailController extends Controller
             'shop',
             'creator',
             'approvedBy',
+            'voidedBy',
             'items.product',
             'items.sourceInvoice',
             'items.invoiceItem.invoice',
             'applications.invoice',
             'applications.appliedByUser',
+            'applications.reversedByUser',
             'receipts.warehouse',
             'receipts.receiver',
         ]);
@@ -62,6 +67,12 @@ class ShopCreditNoteDetailController extends Controller
         $appliedCreditTotal = $creditNote->appliedCreditTotal();
         $unappliedCreditTotal = $creditNote->unappliedCreditTotal();
 
+        $user = $request->user();
+        $canReverseApp = $user instanceof User && $this->applicationService->isAuthorizedToReverseApplication($user);
+        $canCancelCreditNote = $user instanceof User && $this->creditNoteService->isAuthorizedToCancelCreditNote($user);
+        $hasUnreconciledPhysicalReturns = $creditNote->hasUnreconciledPhysicalReturns();
+        $activeApplicationsCount = $creditNote->activeApplications()->count();
+
         return view('admin.cashbook.reports.shops.show_shop_credit_note', [
             'creditNote' => $creditNote,
             'productItems' => $productItems,
@@ -72,6 +83,10 @@ class ShopCreditNoteDetailController extends Controller
             'commercialDiscountTotal' => $commercialDiscountTotal,
             'appliedCreditTotal' => $appliedCreditTotal,
             'unappliedCreditTotal' => $unappliedCreditTotal,
+            'canReverseApp' => $canReverseApp,
+            'canCancelCreditNote' => $canCancelCreditNote,
+            'hasUnreconciledPhysicalReturns' => $hasUnreconciledPhysicalReturns,
+            'activeApplicationsCount' => $activeApplicationsCount,
         ]);
     }
 
@@ -207,6 +222,175 @@ class ShopCreditNoteDetailController extends Controller
         return redirect()
             ->route('admin.cashbook.reports.shops.credit-notes.show', $creditNote)
             ->with('success', "Successfully applied ₹{$totalAppliedInBatch} across {$applied->count()} invoice(s).");
+    }
+
+    /**
+     * Reverse an individual active credit application.
+     */
+    public function reverseApplication(
+        Request $request,
+        ShopCreditNote $creditNote,
+        ShopCreditApplication $application
+    ): JsonResponse|RedirectResponse {
+        $user = $this->ensureAuthorizedOfficeUser($request);
+
+        if (! $this->applicationService->isAuthorizedToReverseApplication($user)) {
+            abort(403, 'Unauthorized: You do not have permission to reverse credit applications.');
+        }
+
+        if (! $creditNote->isShopLevelMode()) {
+            $msg = 'Legacy single-invoice credit notes cannot use application reversal.';
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+
+            return redirect()->route('admin.cashbook.reports.shops.credit-notes.show', $creditNote)->with('error', $msg);
+        }
+
+        if ((int) $application->shop_credit_note_id !== (int) $creditNote->id) {
+            $msg = 'This credit application does not belong to the specified credit note.';
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+
+            return redirect()->route('admin.cashbook.reports.shops.credit-notes.show', $creditNote)->with('error', $msg);
+        }
+
+        if ($application->isReversed()) {
+            $msg = 'Credit application is already reversed.';
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+
+            return redirect()->route('admin.cashbook.reports.shops.credit-notes.show', $creditNote)->with('error', $msg);
+        }
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+
+        try {
+            $reversed = $this->applicationService->reverseCreditApplication(
+                application: $application,
+                actor: $user,
+                reason: $validated['reason'],
+            );
+        } catch (ValidationException $e) {
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->getMessage(),
+                    'errors' => $e->errors(),
+                ], 422);
+            }
+
+            throw $e;
+        }
+
+        $freshCreditNote = $creditNote->fresh(['applications']);
+        $formattedAmt = number_format((float) $reversed->amount, 2);
+        $msg = "Credit application of ₹{$formattedAmt} reversed successfully.";
+
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => $msg,
+                'application' => $reversed,
+                'applied_total' => $freshCreditNote->appliedCreditTotal(),
+                'unapplied_total' => $freshCreditNote->unappliedCreditTotal(),
+                'redirect_url' => route('admin.cashbook.reports.shops.credit-notes.show', $creditNote),
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.cashbook.reports.shops.credit-notes.show', $creditNote)
+            ->with('success', $msg);
+    }
+
+    /**
+     * Cancel/void a finalized shop-level credit note and reverse all financial effects.
+     */
+    public function cancel(Request $request, ShopCreditNote $creditNote): JsonResponse|RedirectResponse
+    {
+        $user = $this->ensureAuthorizedOfficeUser($request);
+
+        if (! $this->creditNoteService->isAuthorizedToCancelCreditNote($user)) {
+            abort(403, 'Unauthorized: You do not have permission to cancel credit notes.');
+        }
+
+        if (! $creditNote->isShopLevelMode()) {
+            $msg = 'Legacy single-invoice credit notes cannot be cancelled using the shop-level workflow.';
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+
+            return redirect()->route('admin.cashbook.reports.shops.credit-notes')->with('error', $msg);
+        }
+
+        if ($creditNote->isVoided()) {
+            $msg = "Credit note #{$creditNote->credit_note_number} is already cancelled/voided.";
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+
+            return redirect()->route('admin.cashbook.reports.shops.credit-notes.show', $creditNote)->with('error', $msg);
+        }
+
+        if (! $creditNote->isApproved()) {
+            $msg = "Credit note #{$creditNote->credit_note_number} cannot be cancelled because its status is '{$creditNote->status->value}'.";
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+
+            return redirect()->route('admin.cashbook.reports.shops.credit-notes.show', $creditNote)->with('error', $msg);
+        }
+
+        if ($creditNote->hasUnreconciledPhysicalReturns()) {
+            $msg = 'Cannot cancel credit note with active, unreconciled warehouse receipts. Physical receipts must be reversed by warehouse staff first.';
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+
+            return redirect()->route('admin.cashbook.reports.shops.credit-notes.show', $creditNote)->with('error', $msg);
+        }
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:1000'],
+        ]);
+
+        try {
+            $cancelled = $this->creditNoteService->cancelShopLevelCreditNote(
+                creditNote: $creditNote,
+                actor: $user,
+                reason: $validated['reason'],
+            );
+        } catch (ValidationException $e) {
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->getMessage(),
+                    'errors' => $e->errors(),
+                ], 422);
+            }
+
+            throw $e;
+        }
+
+        $msg = "Credit note #{$cancelled->credit_note_number} has been cancelled and its financial credit reversed.";
+
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => $msg,
+                'credit_note_id' => $cancelled->id,
+                'credit_note_number' => $cancelled->credit_note_number,
+                'redirect_url' => route('admin.cashbook.reports.shops.credit-notes.show', $cancelled),
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.cashbook.reports.shops.credit-notes.show', $cancelled)
+            ->with('success', $msg);
     }
 
     /**
