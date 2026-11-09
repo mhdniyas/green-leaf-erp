@@ -14,6 +14,7 @@ use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Models\ProductUnit;
 use App\Models\Shop;
 use App\Models\ShopAccountingPeriodClosure;
+use App\Models\ShopCreditApplication;
 use App\Models\ShopCreditNote;
 use App\Models\ShopCreditNoteItem;
 use App\Models\ShopInvoice;
@@ -24,6 +25,7 @@ use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Inventory\StockLedgerService;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -1221,6 +1223,55 @@ class ShopCreditNoteService
 
             return $lockedCreditNote->fresh(['items.product', 'items.invoiceItem', 'items.sourceInvoice', 'shop', 'ledgerTransaction']);
         });
+    }
+
+    /**
+     * Apply a finalized shop-level credit note to a specific outstanding shop invoice.
+     *
+     * @throws ValidationException
+     */
+    public function applyCredit(
+        ShopCreditNote|int $creditNote,
+        ShopInvoice|int $invoice,
+        float $amount,
+        User|int $actor,
+        ?string $notes = null,
+        ?CarbonInterface $appliedAt = null,
+        ?string $idempotencyKey = null,
+    ): ShopCreditApplication {
+        return app(ShopCreditApplicationService::class)->applyCredit(
+            $creditNote,
+            $invoice,
+            $amount,
+            $actor,
+            $notes,
+            $appliedAt,
+            $idempotencyKey,
+        );
+    }
+
+    /**
+     * Apply a finalized shop-level credit note across multiple named invoices.
+     *
+     * @param  array<int, array{invoice_id: int|ShopInvoice, amount: float, notes?: string|null}>  $allocations
+     * @return Collection<int, ShopCreditApplication>
+     *
+     * @throws ValidationException
+     */
+    public function applyCreditToMany(
+        ShopCreditNote|int $creditNote,
+        array $allocations,
+        User|int $actor,
+        ?CarbonInterface $appliedAt = null,
+        ?string $idempotencyKey = null,
+    ): Collection {
+        return app(ShopCreditApplicationService::class)->applyCreditToMany(
+            $creditNote,
+            $allocations,
+            $actor,
+            $appliedAt,
+            $idempotencyKey,
+        );
     }
 
     /**

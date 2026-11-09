@@ -2,6 +2,7 @@
 
 namespace App\Services\ShopInvoices;
 
+use App\Enums\ShopInvoice\ShopCreditNoteAccountingMode;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Models\ShopInvoice;
@@ -28,10 +29,14 @@ class ShopFinalBillService
     {
         $originalTotal = round((float) $invoice->final_total, 2);
 
-        $finalizedCreditTotal = $this->resolveAdjustmentTotal(
+        $legacyCreditTotal = $this->resolveAdjustmentTotal(
             $invoice,
             ShopCreditNoteDirection::Credit
         );
+
+        $appliedCreditTotal = $this->resolveAppliedCreditTotal($invoice);
+
+        $finalizedCreditTotal = round($legacyCreditTotal + $appliedCreditTotal, 2);
 
         $finalizedDebitTotal = $this->resolveAdjustmentTotal(
             $invoice,
@@ -66,6 +71,7 @@ class ShopFinalBillService
             overpaymentCredit: $overpaymentCredit,
             effectivePaymentStatus: $effectivePaymentStatus,
             hasAdjustments: $hasAdjustments,
+            appliedCreditTotal: $appliedCreditTotal,
         );
     }
 
@@ -92,13 +98,39 @@ class ShopFinalBillService
         if ($invoice->relationLoaded('creditNotes')) {
             return round((float) $invoice->creditNotes
                 ->filter(fn ($cn): bool => ($cn->status === ShopCreditNoteStatus::Approved || $cn->status === ShopCreditNoteStatus::Approved->value || $cn->status === 'approved')
-                    && ($cn->direction === $direction || $cn->direction === $direction->value))
+                    && ($cn->direction === $direction || $cn->direction === $direction->value)
+                    && ($cn->accounting_mode === null
+                        || $cn->accounting_mode === ShopCreditNoteAccountingMode::LegacyInvoiceLinked
+                        || $cn->accounting_mode === ShopCreditNoteAccountingMode::LegacyInvoiceLinked->value
+                        || $cn->accounting_mode === 'legacy_invoice_linked'))
                 ->sum('total_credit_amount'), 2);
         }
 
         return round((float) $invoice->creditNotes()
             ->where('status', ShopCreditNoteStatus::Approved->value)
             ->where('direction', $direction->value)
+            ->where(function ($q): void {
+                $q->whereNull('accounting_mode')
+                    ->orWhere('accounting_mode', ShopCreditNoteAccountingMode::LegacyInvoiceLinked->value);
+            })
             ->sum('total_credit_amount'), 2);
+    }
+
+    /**
+     * Resolve total active credit applied from shop-level credit notes.
+     */
+    private function resolveAppliedCreditTotal(ShopInvoice $invoice): float
+    {
+        if ($invoice->relationLoaded('activeCreditApplications')) {
+            return round((float) $invoice->activeCreditApplications->sum('amount'), 2);
+        }
+
+        if ($invoice->relationLoaded('creditApplications')) {
+            return round((float) $invoice->creditApplications
+                ->filter(fn ($app): bool => $app->reversed_at === null)
+                ->sum('amount'), 2);
+        }
+
+        return round((float) $invoice->activeCreditApplications()->sum('amount'), 2);
     }
 }
