@@ -623,6 +623,82 @@
                         </span>
                     </template>
                 </button>
+
+                <button type="button" @click="openFinalizeModal()" :disabled="!canSave || isSubmitting"
+                    class="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-indigo-700 transition shadow-xs disabled:opacity-50">
+                    <i data-lucide="check-check" class="w-4 h-4 text-white"></i>
+                    <span>Save & Finalize</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Finalization Confirmation Modal -->
+    <div x-show="showFinalizeModal" x-cloak
+        class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div @click.away="showFinalizeModal = false"
+            class="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-5 border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div class="flex items-center gap-2">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 font-bold">
+                        <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-black text-slate-900">Confirm Credit Note Finalization</h3>
+                        <p class="text-xs text-slate-500">Post official financial credit to shop account</p>
+                    </div>
+                </div>
+                <button type="button" @click="showFinalizeModal = false"
+                    class="h-8 w-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center font-bold">✕</button>
+            </div>
+
+            <!-- Summary in modal -->
+            <div class="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2 text-xs">
+                <div class="flex justify-between">
+                    <span class="text-slate-500">Total Financial Credit:</span>
+                    <span class="font-mono font-black text-emerald-700 text-base">-₹<span x-text="Number(grandTotal).toFixed(2)"></span></span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-500">Lines & Adjustments:</span>
+                    <span class="font-bold text-slate-800"><span x-text="lines.length + discounts.length"></span> line(s) across <span x-text="distinctInvoiceCount"></span> invoice(s)</span>
+                </div>
+            </div>
+
+            <!-- Explicit warning -->
+            <div class="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-1">
+                <div class="font-bold flex items-center gap-1.5 text-amber-950">
+                    <i data-lucide="shield-alert" class="w-4 h-4 text-amber-600 shrink-0"></i>
+                    <span>Irreversible Financial Posting</span>
+                </div>
+                <p>Finalizing will assign an official Credit Note number and immediately post a financial credit entry to the shop's cashbook ledger. Once finalized, the draft cannot be edited.</p>
+            </div>
+
+            <div>
+                <label class="block text-[11px] font-bold text-slate-600 mb-1">Finalization Remark (Optional)</label>
+                <input type="text" x-model="finalizationNote" placeholder="e.g. Approved by Office Accounting on audit"
+                    class="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-indigo-500">
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+                <button type="button" @click="showFinalizeModal = false"
+                    class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                    Cancel
+                </button>
+                <button type="button" @click="executeFinalize()" :disabled="isSubmitting"
+                    class="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white hover:bg-indigo-700 transition shadow-xs disabled:opacity-50">
+                    <template x-if="isSubmitting">
+                        <span class="inline-flex items-center gap-1">
+                            <i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i>
+                            <span>Posting Credit...</span>
+                        </span>
+                    </template>
+                    <template x-if="!isSubmitting">
+                        <span class="inline-flex items-center gap-1">
+                            <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                            <span>Confirm & Post Credit</span>
+                        </span>
+                    </template>
+                </button>
             </div>
         </div>
     </div>
@@ -656,6 +732,8 @@
             // Save state
             isSubmitting: false,
             concurrencyConflict: false,
+            showFinalizeModal: false,
+            finalizationNote: '',
 
             init() {
                 if (this.shopId && this.lines.length === 0) {
@@ -923,6 +1001,93 @@
                     const input = document.getElementById('payloadJsonInput');
                     input.value = JSON.stringify(payload);
                     document.getElementById('creditNoteFallbackForm').submit();
+                });
+            },
+
+            openFinalizeModal() {
+                if (!this.canSave) return;
+                this.showFinalizeModal = true;
+                this.$nextTick(() => {
+                    if (window.lucide) window.lucide.createIcons();
+                });
+            },
+
+            executeFinalize() {
+                if (!this.canSave || this.isSubmitting) return;
+
+                this.isSubmitting = true;
+                this.concurrencyConflict = false;
+
+                const payload = this.buildPayload();
+
+                // Step 1: Persist draft changes
+                fetch(this.saveUrl, {
+                    method: this.isEdit ? 'PUT' : 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: JSON.stringify(payload)
+                })
+                .then(async res => {
+                    const data = await res.json();
+                    if (res.status === 409) {
+                        this.concurrencyConflict = true;
+                        this.showFinalizeModal = false;
+                        this.isSubmitting = false;
+                        return null;
+                    }
+
+                    if (!res.ok) {
+                        const errorMsg = data.errors ? Object.values(data.errors).flat().join('\n') : (data.message || 'Validation error');
+                        alert(errorMsg);
+                        this.isSubmitting = false;
+                        return null;
+                    }
+
+                    const targetDraftId = this.isEdit ? this.draftId : (data.credit_note?.id || null);
+                    if (!targetDraftId) {
+                        alert('Could not determine draft ID to finalize.');
+                        this.isSubmitting = false;
+                        return null;
+                    }
+
+                    // Step 2: Post finalization request
+                    const finalizeUrl = `/admin/cashbook/reports/shops/credit-notes/drafts/${targetDraftId}/finalize`;
+                    return fetch(finalizeUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: JSON.stringify({
+                            notes: this.finalizationNote || ''
+                        })
+                    });
+                })
+                .then(async res => {
+                    if (!res) return;
+                    const finalizeData = await res.json();
+                    if (!res.ok) {
+                        alert(finalizeData.message || 'Failed to finalize credit note');
+                        this.isSubmitting = false;
+                        return;
+                    }
+
+                    if (finalizeData.redirect_url) {
+                        window.location.href = finalizeData.redirect_url;
+                    } else {
+                        window.location.href = '{{ route('admin.cashbook.reports.shops.credit-notes') }}';
+                    }
+                })
+                .catch(err => {
+                    console.error('Finalization error:', err);
+                    alert('An unexpected network error occurred during finalization.');
+                    this.isSubmitting = false;
                 });
             }
         };

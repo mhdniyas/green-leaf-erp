@@ -41,6 +41,7 @@ use App\Http\Controllers\Web\Admin\PurchaseProductFilterController;
 use App\Http\Controllers\Web\Admin\PurchaserMonthlySummaryController;
 use App\Http\Controllers\Web\Admin\SellingPriceCategoryController;
 use App\Http\Controllers\Web\Admin\SellingPriceManagementController;
+use App\Http\Controllers\Web\Admin\ShopCreditNotes\ShopCreditNoteDetailController;
 use App\Http\Controllers\Web\Admin\ShopCreditNotes\ShopCreditNoteDraftController;
 use App\Http\Controllers\Web\Admin\ShopSellingPriceController;
 use App\Http\Controllers\Web\Admin\StaffManagementController;
@@ -1245,6 +1246,14 @@ Route::middleware('auth')->group(function () {
                     Route::get('{creditNote}/edit', [ShopCreditNoteDraftController::class, 'edit'])->name('edit');
                     Route::match(['PUT', 'PATCH', 'POST'], '{creditNote}', [ShopCreditNoteDraftController::class, 'update'])->name('update');
                     Route::get('search-lines', [ShopCreditNoteDraftController::class, 'searchLines'])->name('search-lines');
+                    Route::post('{creditNote}/finalize', [ShopCreditNoteDraftController::class, 'finalize'])->name('finalize');
+                });
+
+                // Finalized Credit Note Details & Bill Applications (Phase 3.2)
+                Route::prefix('credit-notes')->name('credit-notes.')->group(function () {
+                    Route::get('{creditNote}/details', [ShopCreditNoteDetailController::class, 'show'])->name('show');
+                    Route::get('{creditNote}/outstanding-invoices', [ShopCreditNoteDetailController::class, 'outstandingInvoices'])->name('outstanding-invoices');
+                    Route::post('{creditNote}/apply', [ShopCreditNoteDetailController::class, 'applyCredit'])->name('apply');
                 });
             });
 

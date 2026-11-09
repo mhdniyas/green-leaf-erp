@@ -389,6 +389,19 @@ class ShopCreditApplicationService
                 ]);
             }
 
+            // Idempotency check: Token matching for batch applications
+            if ($idempotencyKey !== null) {
+                $existingBatch = ShopCreditApplication::query()
+                    ->where('shop_credit_note_id', $lockedCreditNote->id)
+                    ->where('notes', 'like', "%[idempotency:{$idempotencyKey}-%")
+                    ->whereNull('reversed_at')
+                    ->get();
+
+                if ($existingBatch->isNotEmpty()) {
+                    return $existingBatch;
+                }
+            }
+
             // Lock all target invoices in ascending order
             $lockedInvoices = ShopInvoice::query()
                 ->whereIn('id', $uniqueInvoiceIds)

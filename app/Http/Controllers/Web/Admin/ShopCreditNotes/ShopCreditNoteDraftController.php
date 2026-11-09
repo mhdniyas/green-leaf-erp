@@ -194,6 +194,75 @@ class ShopCreditNoteDraftController extends Controller
     }
 
     /**
+     * Finalize an existing shop-level Credit Note draft into an approved financial credit.
+     */
+    public function finalize(Request $request, ShopCreditNote $creditNote): JsonResponse|RedirectResponse
+    {
+        $user = $this->ensureAuthorizedOfficeUser($request);
+
+        if ($creditNote->isApproved()) {
+            $msg = "Credit note #{$creditNote->credit_note_number} is already finalized.";
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+
+            return redirect()->route('admin.cashbook.reports.shops.credit-notes.show', $creditNote)->with('error', $msg);
+        }
+
+        if (! $creditNote->isDraft()) {
+            $msg = "Credit note #{$creditNote->credit_note_number} cannot be finalized because its status is '{$creditNote->status->value}'.";
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+
+            return redirect()->route('admin.cashbook.reports.shops.credit-notes')->with('error', $msg);
+        }
+
+        if (! $creditNote->isShopLevelMode()) {
+            $msg = 'Legacy single-invoice credit notes cannot be finalized using the shop-level workflow.';
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+
+            return redirect()->route('admin.cashbook.reports.shops.credit-notes')->with('error', $msg);
+        }
+
+        $finalizationNote = $request->input('finalization_note');
+
+        try {
+            $finalized = $this->creditNoteService->finalizeShopLevelCreditNote(
+                creditNote: $creditNote,
+                actor: $user,
+                finalizationNote: is_string($finalizationNote) ? $finalizationNote : null,
+            );
+        } catch (ValidationException $e) {
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->getMessage(),
+                    'errors' => $e->errors(),
+                ], 422);
+            }
+
+            throw $e;
+        }
+
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'credit_note_id' => $finalized->id,
+                'credit_note_number' => $finalized->credit_note_number,
+                'redirect_url' => route('admin.cashbook.reports.shops.credit-notes.show', $finalized),
+                'message' => "Credit note {$finalized->credit_note_number} finalized successfully.",
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.cashbook.reports.shops.credit-notes.show', $finalized)
+            ->with('success', "Credit note {$finalized->credit_note_number} finalized successfully.");
+    }
+
+    /**
      * Dynamic AJAX search for historical invoice lines for a selected shop.
      */
     public function searchLines(Request $request): JsonResponse
