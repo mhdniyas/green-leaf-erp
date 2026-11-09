@@ -671,7 +671,7 @@
                     \App\Services\Warehouse\WarehouseSalesAccessService::userCanMakeSales(auth()->user())
                 )
                 @php
-                    $isSalesActive = request()->routeIs('sales.*') || request()->routeIs('warehouse.sales.*');
+                    $isSalesActive = request()->routeIs('sales.*') || request()->routeIs('warehouse.sales.*') || request()->routeIs('admin.cashbook.reports.shops.credit-notes*');
                 @endphp
                 <div class="sidebar-group space-y-1">
                     <button
@@ -698,6 +698,9 @@
                         @can('sales.invoice.view')
                         <x-nav-item href="{{ route('sales.invoices.index') }}" :active="request()->routeIs('sales.invoices.*')" :sub="true">
                             Sales Invoices
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('admin.cashbook.reports.shops.credit-notes') }}" :active="request()->routeIs('admin.cashbook.reports.shops.credit-notes*')" :sub="true">
+                            Shop Credit Notes
                         </x-nav-item>
                         @endcan
                         @if(auth()->user()->hasRole('admin') || \App\Services\Warehouse\WarehouseSalesAccessService::userCanMakeSales(auth()->user()))

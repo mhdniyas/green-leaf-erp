@@ -260,7 +260,7 @@
                     [
                         'label' => 'Credit Notes',
                         'href' => route('admin.cashbook.reports.shops.credit-notes'),
-                        'active' => request()->routeIs('admin.cashbook.reports.shops.credit-notes'),
+                        'active' => request()->routeIs('admin.cashbook.reports.shops.credit-notes*'),
                     ],
                 ],
             ],

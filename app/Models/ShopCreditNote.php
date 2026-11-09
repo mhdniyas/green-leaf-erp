@@ -9,6 +9,7 @@ use App\Enums\ShopInvoice\ShopCreditNoteAccountingMode;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
 use App\Enums\ShopInvoice\ShopCreditNoteReason;
+use App\Enums\ShopInvoice\ShopCreditNoteReceiptStatus;
 use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use Database\Factories\ShopCreditNoteFactory;
@@ -159,6 +160,113 @@ class ShopCreditNote extends Model
         }
 
         return round(max(0.00, (float) $this->total_credit_amount - $this->appliedCreditTotal()), 2);
+    }
+
+    /**
+     * Summarize physical returns for this Credit Note.
+     *
+     * @return array{
+     *     has_physical_return: bool,
+     *     status: string,
+     *     status_label: string,
+     *     expected_quantity: float,
+     *     received_quantity: float,
+     *     remaining_quantity: float,
+     *     items_count: int
+     * }
+     */
+    public function physicalReturnSummary(): array
+    {
+        $items = $this->relationLoaded('items')
+            ? $this->items
+            : $this->items()->get();
+
+        $returnItems = $items->filter(
+            fn (ShopCreditNoteItem $it) => $it->inventory_action === ShopCreditNoteInventoryAction::ReturnToStock
+        );
+
+        if ($returnItems->isEmpty()) {
+            return [
+                'has_physical_return' => false,
+                'status' => 'not_applicable',
+                'status_label' => 'Financial Only',
+                'expected_quantity' => 0.0,
+                'received_quantity' => 0.0,
+                'remaining_quantity' => 0.0,
+                'items_count' => 0,
+            ];
+        }
+
+        $expectedQty = (float) $returnItems->sum('adjusted_quantity');
+        $receivedQty = (float) $returnItems->sum('received_quantity');
+        $remainingQty = max(0.0, $expectedQty - $receivedQty);
+
+        $hasDispute = $returnItems->contains(fn ($it) => $it->receipt_status === ShopCreditNoteReceiptStatus::Disputed);
+        $allVerified = $returnItems->every(fn ($it) => $it->receipt_status === ShopCreditNoteReceiptStatus::ReceivedAndVerified);
+        $anyPartial = $returnItems->contains(fn ($it) => $it->receipt_status === ShopCreditNoteReceiptStatus::PartiallyReceived || (float) $it->received_quantity > 0.0001);
+
+        // Check if all previously recorded receipts were reversed
+        $allReversed = false;
+        if (! $hasDispute && ! $allVerified && ! $anyPartial) {
+            $receipts = $this->relationLoaded('receipts') ? $this->receipts : $this->receipts()->get();
+            $allReversed = $receipts->isNotEmpty() && $receipts->every(fn ($r) => $r->isReversed());
+        }
+
+        $status = match (true) {
+            $hasDispute => 'disputed',
+            $allVerified => 'received_and_verified',
+            $anyPartial => 'partially_received',
+            $allReversed => 'reconciled',
+            default => 'pending_receipt',
+        };
+
+        $statusLabel = match ($status) {
+            'disputed' => 'Disputed',
+            'received_and_verified' => 'Fully Verified',
+            'partially_received' => 'Partially Received',
+            'reconciled' => 'Reconciled / Reversed',
+            default => 'Pending Receipt',
+        };
+
+        return [
+            'has_physical_return' => true,
+            'status' => $status,
+            'status_label' => $statusLabel,
+            'expected_quantity' => round($expectedQty, 3),
+            'received_quantity' => round($receivedQty, 3),
+            'remaining_quantity' => round($remainingQty, 3),
+            'items_count' => $returnItems->count(),
+        ];
+    }
+
+    /**
+     * Get distinct source invoice numbers referenced by this Credit Note.
+     *
+     * @return array<int, string>
+     */
+    public function sourceInvoiceNumbers(): array
+    {
+        if ($this->isLegacyMode() && $this->invoice) {
+            return [$this->invoice->invoice_number];
+        }
+
+        $items = $this->relationLoaded('items')
+            ? $this->items
+            : $this->items()->with(['sourceInvoice', 'invoiceItem.invoice'])->get();
+
+        $numbers = [];
+        foreach ($items as $item) {
+            $inv = $item->sourceInvoice ?? $item->invoiceItem?->invoice;
+            if ($inv && filled($inv->invoice_number)) {
+                $numbers[] = $inv->invoice_number;
+            }
+        }
+
+        if (empty($numbers) && $this->invoice) {
+            $numbers[] = $this->invoice->invoice_number;
+        }
+
+        return array_values(array_unique($numbers));
     }
 
     public function isLegacyMode(): bool

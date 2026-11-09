@@ -650,7 +650,17 @@
                             @foreach($damageEntries as $we)
                                 <tr class="hover:bg-slate-50/75 transition">
                                     <td class="py-2 px-3 whitespace-nowrap text-slate-500 font-mono">{{ $we->date }}</td>
-                                    <td class="py-2 px-3 whitespace-nowrap font-bold text-slate-900">{{ $we->product_name }}</td>
+                                    <td class="py-2 px-3 whitespace-nowrap">
+                                        <span class="font-bold text-slate-900 block">{{ $we->product_name }}</span>
+                                        @if(!empty($we->credit_note_number))
+                                            <span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200 mt-0.5">
+                                                <span>{{ $we->credit_note_number }}</span>
+                                                @if(!empty($we->invoice_number))
+                                                    <span class="text-slate-400">| {{ $we->invoice_number }}</span>
+                                                @endif
+                                            </span>
+                                        @endif
+                                    </td>
                                     <td class="py-2 px-3 whitespace-nowrap">
                                         <span class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold font-mono">
                                             {{ $we->source_grade_label }}
@@ -661,9 +671,14 @@
                                     <td class="py-2 px-3 text-right font-mono font-black text-rose-700">₹{{ number_format($we->total_cost, 2) }}</td>
                                     <td class="py-2 px-3 whitespace-nowrap text-slate-600">{{ $we->warehouse_name }}</td>
                                     <td class="py-2 px-3 whitespace-nowrap">
-                                        <span class="rounded bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 border border-rose-200">
+                                        <span class="rounded bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 border border-rose-200 block w-fit">
                                             {{ $we->reason }}
                                         </span>
+                                        @if(!empty($we->damage_location_label))
+                                            <span class="text-[9px] text-slate-400 font-semibold block mt-0.5">
+                                                Loc: {{ $we->damage_location_label }}
+                                            </span>
+                                        @endif
                                     </td>
                                     <td class="py-2 px-3 whitespace-nowrap font-mono text-[10px] text-slate-500">{{ $we->batch_reference }}</td>
                                     <td class="py-2 px-3 whitespace-nowrap">

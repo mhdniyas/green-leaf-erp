@@ -8,10 +8,12 @@ use App\Enums\Inventory\WastageReason;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
 use App\Enums\ShopInvoice\ShopCreditNoteReason;
+use App\Enums\ShopInvoice\ShopCreditNoteReceiptStatus;
 use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Admin\StoreShopCreditNoteRequest;
 use App\Models\Shop;
+use App\Models\ShopCreditApplication;
 use App\Models\ShopCreditNote;
 use App\Models\ShopInvoice;
 use App\Models\User;
@@ -129,7 +131,7 @@ class AdminShopReportsController extends Controller
     {
         $this->ensureAuthorized($request);
 
-        $dateRange = $this->resolveDateRange($request);
+        $dateRange = $this->resolveDateRange($request, 'today');
         $shops = Shop::query()->orderBy('name')->get();
 
         $shopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : null;
@@ -137,6 +139,7 @@ class AdminShopReportsController extends Controller
         $direction = trim((string) $request->input('direction', ''));
         $invoiceSearch = trim((string) $request->input('invoice_search', ''));
         $search = trim((string) $request->input('search', ''));
+        $physicalStatus = trim((string) $request->input('physical_status', ''));
 
         $query = ShopCreditNote::query()
             ->whereDate('shop_credit_notes.credit_note_date', '>=', $dateRange['start'])
@@ -154,43 +157,126 @@ class AdminShopReportsController extends Controller
             $query->where('shop_credit_notes.direction', $direction);
         }
 
+        if ($physicalStatus !== '' && $physicalStatus !== 'all') {
+            if ($physicalStatus === 'pending') {
+                $query->whereHas('items', fn ($iq) => $iq->where('inventory_action', ShopCreditNoteInventoryAction::ReturnToStock)->where('receipt_status', ShopCreditNoteReceiptStatus::PendingReceipt));
+            } elseif ($physicalStatus === 'partially_received') {
+                $query->whereHas('items', fn ($iq) => $iq->where('inventory_action', ShopCreditNoteInventoryAction::ReturnToStock)->where('receipt_status', ShopCreditNoteReceiptStatus::PartiallyReceived));
+            } elseif ($physicalStatus === 'verified') {
+                $query->whereHas('items', fn ($iq) => $iq->where('inventory_action', ShopCreditNoteInventoryAction::ReturnToStock)->where('receipt_status', ShopCreditNoteReceiptStatus::ReceivedAndVerified));
+            } elseif ($physicalStatus === 'disputed') {
+                $query->whereHas('items', fn ($iq) => $iq->where('inventory_action', ShopCreditNoteInventoryAction::ReturnToStock)->where('receipt_status', ShopCreditNoteReceiptStatus::Disputed));
+            }
+        }
+
         if ($invoiceSearch !== '') {
-            $query->whereHas('invoice', function ($q) use ($invoiceSearch): void {
-                $q->where('invoice_number', 'like', "%{$invoiceSearch}%");
+            $query->where(function ($q) use ($invoiceSearch): void {
+                $q->whereHas('invoice', function ($iq) use ($invoiceSearch): void {
+                    $iq->where('invoice_number', 'like', "%{$invoiceSearch}%");
+                })->orWhereHas('items.sourceInvoice', function ($siq) use ($invoiceSearch): void {
+                    $siq->where('invoice_number', 'like', "%{$invoiceSearch}%");
+                })->orWhereHas('items.invoiceItem.invoice', function ($iiq) use ($invoiceSearch): void {
+                    $iiq->where('invoice_number', 'like', "%{$invoiceSearch}%");
+                });
             });
         }
 
         if ($search !== '') {
-            $query->where('shop_credit_notes.credit_note_number', 'like', "%{$search}%");
+            $query->where(function ($q) use ($search): void {
+                $q->where('shop_credit_notes.credit_note_number', 'like', "%{$search}%")
+                    ->orWhereHas('invoice', function ($iq) use ($search): void {
+                        $iq->where('invoice_number', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('items.sourceInvoice', function ($siq) use ($search): void {
+                        $siq->where('invoice_number', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('items.invoiceItem.invoice', function ($iiq) use ($search): void {
+                        $iiq->where('invoice_number', 'like', "%{$search}%");
+                    });
+            });
         }
 
-        // Summary cards calculated across all filtered credit notes
-        $totalNotesCount = (int) (clone $query)->count();
+        // Summary cards calculated across all filtered notes in the selected period (independent of status filter)
+        $basePeriodQuery = ShopCreditNote::query()
+            ->whereDate('shop_credit_notes.credit_note_date', '>=', $dateRange['start'])
+            ->whereDate('shop_credit_notes.credit_note_date', '<=', $dateRange['end']);
 
-        $approvedCredits = (float) (clone $query)
+        if ($shopId) {
+            $basePeriodQuery->where('shop_credit_notes.shop_id', $shopId);
+        }
+        if ($search !== '') {
+            $basePeriodQuery->where(function ($q) use ($search): void {
+                $q->where('shop_credit_notes.credit_note_number', 'like', "%{$search}%")
+                    ->orWhereHas('invoice', function ($iq) use ($search): void {
+                        $iq->where('invoice_number', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('items.sourceInvoice', function ($siq) use ($search): void {
+                        $siq->where('invoice_number', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('items.invoiceItem.invoice', function ($iiq) use ($search): void {
+                        $iiq->where('invoice_number', 'like', "%{$search}%");
+                    });
+            });
+        }
+        if ($invoiceSearch !== '') {
+            $basePeriodQuery->where(function ($q) use ($invoiceSearch): void {
+                $q->whereHas('invoice', function ($iq) use ($invoiceSearch): void {
+                    $iq->where('invoice_number', 'like', "%{$invoiceSearch}%");
+                })->orWhereHas('items.sourceInvoice', function ($siq) use ($invoiceSearch): void {
+                    $siq->where('invoice_number', 'like', "%{$invoiceSearch}%");
+                })->orWhereHas('items.invoiceItem.invoice', function ($iiq) use ($invoiceSearch): void {
+                    $iiq->where('invoice_number', 'like', "%{$invoiceSearch}%");
+                });
+            });
+        }
+
+        // 1. Finalized (Approved) Notes
+        $finalizedCount = (int) (clone $basePeriodQuery)->where('status', ShopCreditNoteStatus::Approved)->count();
+        $finalizedCreditAmount = (float) (clone $basePeriodQuery)
             ->where('status', ShopCreditNoteStatus::Approved)
             ->where('direction', ShopCreditNoteDirection::Credit)
             ->sum('total_credit_amount');
 
-        $approvedDebits = (float) (clone $query)
-            ->where('status', ShopCreditNoteStatus::Approved)
-            ->where('direction', ShopCreditNoteDirection::Debit)
+        // 2. Voided Notes (shown separately, excluded from active totals)
+        $voidedCount = (int) (clone $basePeriodQuery)->where('status', ShopCreditNoteStatus::Voided)->count();
+        $voidedCreditAmount = (float) (clone $basePeriodQuery)
+            ->where('status', ShopCreditNoteStatus::Voided)
             ->sum('total_credit_amount');
 
-        $netAdjustment = round($approvedDebits - $approvedCredits, 2);
-
-        $draftNotesCount = (int) (clone $query)
+        // 3. Draft Notes (shown separately, excluded from active totals)
+        $draftCount = (int) (clone $basePeriodQuery)->where('status', ShopCreditNoteStatus::Draft)->count();
+        $draftAmount = (float) (clone $basePeriodQuery)
             ->where('status', ShopCreditNoteStatus::Draft)
-            ->count();
+            ->sum('total_credit_amount');
+
+        // 4. Applied and Unapplied Credit Balances for finalized credit notes
+        $approvedSubquery = (clone $basePeriodQuery)
+            ->where('status', ShopCreditNoteStatus::Approved)
+            ->where('direction', ShopCreditNoteDirection::Credit)
+            ->select('id');
+
+        $appliedCreditAmount = (float) ShopCreditApplication::query()
+            ->whereIn('shop_credit_note_id', $approvedSubquery)
+            ->whereNull('reversed_at')
+            ->sum('amount');
+
+        $unappliedCreditAmount = round(max(0.00, $finalizedCreditAmount - $appliedCreditAmount), 2);
+        $totalCount = (int) (clone $basePeriodQuery)->count();
 
         $creditNotes = (clone $query)
             ->with([
                 'shop',
                 'invoice',
                 'items.product',
-                'items.invoiceItem',
+                'items.invoiceItem.invoice',
+                'items.sourceInvoice',
+                'items.receipts.warehouse',
+                'activeApplications',
+                'receipts',
                 'creator',
                 'approver',
+                'approvedBy',
+                'voidedBy',
             ])
             ->orderByDesc('shop_credit_notes.credit_note_date')
             ->orderByDesc('shop_credit_notes.id')
@@ -203,17 +289,26 @@ class AdminShopReportsController extends Controller
             'selectedShopId' => $shopId,
             'selectedStatus' => $status,
             'selectedDirection' => $direction,
+            'selectedPhysicalStatus' => $physicalStatus,
             'invoiceSearch' => $invoiceSearch,
             'search' => $search,
             'timeframe' => $dateRange['timeframe'],
             'startDate' => $dateRange['start'],
             'endDate' => $dateRange['end'],
             'summary' => [
-                'total_count' => $totalNotesCount,
-                'approved_credits' => $approvedCredits,
-                'approved_debits' => $approvedDebits,
-                'net_adjustment' => $netAdjustment,
-                'draft_count' => $draftNotesCount,
+                'total_count' => $totalCount,
+                'finalized_count' => $finalizedCount,
+                'finalized_credit_amount' => $finalizedCreditAmount,
+                'applied_credit_amount' => $appliedCreditAmount,
+                'unapplied_credit_amount' => $unappliedCreditAmount,
+                'voided_count' => $voidedCount,
+                'voided_credit_amount' => $voidedCreditAmount,
+                'draft_count' => $draftCount,
+                'draft_amount' => $draftAmount,
+                // Backward-compatible keys
+                'approved_credits' => $finalizedCreditAmount,
+                'approved_debits' => 0.00,
+                'net_adjustment' => round(-$finalizedCreditAmount, 2),
             ],
         ]);
     }
@@ -223,9 +318,9 @@ class AdminShopReportsController extends Controller
      *
      * @return array{timeframe: string, start: string, end: string}
      */
-    private function resolveDateRange(Request $request): array
+    private function resolveDateRange(Request $request, string $defaultTimeframe = 'this_month'): array
     {
-        $timeframe = (string) $request->input('timeframe', 'this_month');
+        $timeframe = (string) $request->input('timeframe', $defaultTimeframe);
         $today = today();
 
         if ($request->filled('start_date') && $request->filled('end_date') && ! $request->has('timeframe')) {

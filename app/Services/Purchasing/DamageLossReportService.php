@@ -9,6 +9,7 @@ use App\Enums\Inventory\StockMovementType;
 use App\Models\Client;
 use App\Models\Product;
 use App\Models\Shop;
+use App\Models\ShopCreditNote;
 use App\Models\ShopInvoiceItem;
 use App\Models\ShopOrder;
 use App\Models\StockBatch;
@@ -668,11 +669,17 @@ final class DamageLossReportService
 
         $rawEntries = $wastageQuery->orderByDesc('wastage_date')->orderByDesc('id')->get();
 
-        // Batch pre-fetch referenced orders to avoid N+1 queries
+        // Batch pre-fetch referenced orders and credit notes to avoid N+1 queries
         $orderNumbers = [];
+        $creditNoteNumbers = [];
         foreach ($rawEntries as $we) {
-            if (! empty($we->notes) && preg_match('/Order:\s*([A-Za-z0-9\-_]+)/i', $we->notes, $matches)) {
-                $orderNumbers[] = $matches[1];
+            if (! empty($we->notes)) {
+                if (preg_match('/Order:\s*([A-Za-z0-9\-_]+)/i', $we->notes, $matches)) {
+                    $orderNumbers[] = $matches[1];
+                }
+                if (preg_match('/SCN:\s*([A-Za-z0-9\-_]+)/i', $we->notes, $matches)) {
+                    $creditNoteNumbers[] = $matches[1];
+                }
             }
         }
 
@@ -681,6 +688,12 @@ final class DamageLossReportService
             ->with('shop.client')
             ->get()
             ->keyBy('order_number');
+
+        $creditNotesMap = empty($creditNoteNumbers) ? collect() : ShopCreditNote::query()
+            ->whereIn('credit_note_number', array_unique($creditNoteNumbers))
+            ->with(['shop.client', 'invoice'])
+            ->get()
+            ->keyBy('credit_note_number');
 
         $entries = collect();
         $totalDamagedCost = 0.0;
@@ -693,19 +706,55 @@ final class DamageLossReportService
             $unitCost = (float) $we->cost_per_kg;
             $entryCost = round($qty * $unitCost, 2);
 
-            // Determine if this damage was directly attributable to a shop delivery review
+            // Determine attribution from order, credit note, or explicit shop tags
             $orderNumber = null;
+            $creditNoteNumber = null;
+            $invoiceNumber = null;
             $shop = null;
             $client = null;
 
-            if (! empty($we->notes) && preg_match('/Order:\s*([A-Za-z0-9\-_]+)/i', $we->notes, $matches)) {
-                $orderNumber = $matches[1];
-                $order = $ordersMap[$orderNumber] ?? null;
-                if ($order && $order->shop) {
-                    $shop = $order->shop;
-                    $client = $order->shop->client;
+            if (! empty($we->notes)) {
+                if (preg_match('/Order:\s*([A-Za-z0-9\-_]+)/i', $we->notes, $matches)) {
+                    $orderNumber = $matches[1];
+                    $order = $ordersMap[$orderNumber] ?? null;
+                    if ($order && $order->shop) {
+                        $shop = $order->shop;
+                        $client = $order->shop->client;
+                    }
+                }
+
+                if (preg_match('/SCN:\s*([A-Za-z0-9\-_]+)/i', $we->notes, $matches)) {
+                    $creditNoteNumber = $matches[1];
+                    $cn = $creditNotesMap[$creditNoteNumber] ?? null;
+                    if ($cn && ! $shop && $cn->shop) {
+                        $shop = $cn->shop;
+                        $client = $cn->shop->client;
+                    }
+                }
+
+                if (preg_match('/Invoice:\s*([A-Za-z0-9\-_]+)/i', $we->notes, $matches)) {
+                    $invoiceNumber = $matches[1];
                 }
             }
+
+            if (! $invoiceNumber && $creditNoteNumber) {
+                $cn = $creditNotesMap[$creditNoteNumber] ?? null;
+                if ($cn && $cn->invoice) {
+                    $invoiceNumber = $cn->invoice->invoice_number;
+                }
+            }
+
+            // Damage Location classification
+            $damageLocation = match (true) {
+                str_contains($we->notes ?? '', 'Warehouse Damaged Return') => 'warehouse',
+                str_contains($we->notes ?? '', 'Credit Note Damage') => 'shop',
+                default => 'warehouse',
+            };
+
+            $locationLabel = match ($damageLocation) {
+                'shop' => 'Shop (Retained)',
+                default => 'Warehouse Return',
+            };
 
             // Apply shop or client filter if requested
             if ($shopId && (! $shop || (int) $shop->id !== $shopId)) {
@@ -748,6 +797,11 @@ final class DamageLossReportService
                 'client_id' => $client?->id,
                 'client_name' => $client?->name,
                 'order_number' => $orderNumber,
+                'credit_note_number' => $creditNoteNumber,
+                'invoice_number' => $invoiceNumber,
+                'damage_location' => $damageLocation,
+                'damage_location_label' => $locationLabel,
+                'status' => 'Active',
             ]);
         }
 
