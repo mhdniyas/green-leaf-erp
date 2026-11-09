@@ -97,6 +97,7 @@ use App\Http\Controllers\Web\ShopOwnerController;
 use App\Http\Controllers\Web\ShopOwnerStaffController;
 use App\Http\Controllers\Web\ShopPresetController;
 use App\Http\Controllers\Web\SortSheetController;
+use App\Http\Controllers\Web\Warehouse\WarehouseCreditNoteReceiptController;
 use App\Http\Controllers\Web\Warehouse\WarehouseLoadoutController;
 use App\Http\Controllers\Web\Warehouse\WarehouseReceiverController;
 use App\Http\Controllers\Web\Warehouse\WarehouseSalesController;
@@ -750,6 +751,16 @@ Route::middleware('auth')->group(function () {
             Route::get('/segregation/matrix-print', [SortSheetController::class, 'segregationMatrixPrint'])->name('segregation.matrix-print');
             Route::get('/segregation/grid-print', [SortSheetController::class, 'segregationGridPrint'])->name('segregation.grid-print');
             Route::get('/print', [SortSheetController::class, 'print'])->name('print');
+        });
+
+        // ── Physical Return Receipts (Phase 3.4) ───────────────────────────
+        Route::prefix('credit-notes')->name('credit-notes.')->group(function () {
+            Route::get('/', [WarehouseCreditNoteReceiptController::class, 'index'])->name('index');
+            Route::post('items/{item}/receive', [WarehouseCreditNoteReceiptController::class, 'receive'])->name('items.receive');
+            Route::post('items/{item}/damage', [WarehouseCreditNoteReceiptController::class, 'damage'])->name('items.damage');
+            Route::post('items/{item}/dispute', [WarehouseCreditNoteReceiptController::class, 'dispute'])->name('items.dispute');
+            Route::post('receipts/{receipt}/reverse', [WarehouseCreditNoteReceiptController::class, 'reverse'])->name('receipts.reverse');
+            Route::get('items/{item}/history', [WarehouseCreditNoteReceiptController::class, 'history'])->name('items.history');
         });
     });
 

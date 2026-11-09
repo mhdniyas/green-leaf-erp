@@ -616,6 +616,9 @@
                         <x-nav-item href="{{ route('warehouse.receiver.sort-sheet.index') }}" :active="request()->routeIs('warehouse.receiver.sort-sheet.*')" :sub="true">
                             Sort Sheet
                         </x-nav-item>
+                        <x-nav-item href="{{ route('warehouse.receiver.credit-notes.index') }}" :active="request()->routeIs('warehouse.receiver.credit-notes.*')" :sub="true">
+                            Return Receipts
+                        </x-nav-item>
                         @can('purchaser.reports.sales.view')
                             <x-nav-item href="{{ route('purchaser.reports.sales-summary') }}" :active="request()->routeIs('purchaser.reports.sales-summary')" :sub="true">
                                 Sales Summary

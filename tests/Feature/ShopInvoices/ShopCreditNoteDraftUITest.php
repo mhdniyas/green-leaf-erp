@@ -133,7 +133,7 @@ class ShopCreditNoteDraftUITest extends TestCase
             'unit_cost' => $price * 0.8,
         ]);
 
-        return ShopInvoiceItem::factory()->create([
+        return ShopInvoiceItem::query()->create([
             'shop_invoice_id' => $invoice->id,
             'shop_order_item_id' => $orderItem->id,
             'product_id' => $product->id,
@@ -142,7 +142,9 @@ class ShopCreditNoteDraftUITest extends TestCase
             'unit' => 'kg',
             'price_unit' => 'kg',
             'approved_qty' => $qty,
+            'price_quantity' => $qty,
             'delivered_qty' => $qty,
+            'delivered_price_quantity' => $qty,
             'unit_price' => $price,
             'line_subtotal' => round($qty * $price, 2),
             'final_line_total' => round($qty * $price, 2),
@@ -266,7 +268,8 @@ class ShopCreditNoteDraftUITest extends TestCase
         );
 
         $response->assertOk();
-        $line = $response->json('items.0');
+        $line = collect($response->json('items'))->firstWhere('invoice_number', 'SINV-A1');
+        $this->assertNotNull($line, 'Expected invoice SINV-A1 in search results');
 
         $this->assertEquals('SINV-A1', $line['invoice_number']);
         $this->assertEquals(today()->subDays(2)->toDateString(), $line['invoice_date']);
