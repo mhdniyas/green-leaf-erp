@@ -1275,6 +1275,25 @@ class ShopCreditNoteService
     }
 
     /**
+     * Safely reverses an existing active credit application.
+     *
+     * @throws ValidationException
+     */
+    public function reverseCreditApplication(
+        ShopCreditApplication|int $application,
+        User|int $actor,
+        string $reason,
+        ?CarbonInterface $reversedAt = null,
+    ): ShopCreditApplication {
+        return app(ShopCreditApplicationService::class)->reverseCreditApplication(
+            $application,
+            $actor,
+            $reason,
+            $reversedAt,
+        );
+    }
+
+    /**
      * Parse and categorize lines into product adjustment lines and commercial discount lines.
      *
      * @param  array<string, mixed>  $payload

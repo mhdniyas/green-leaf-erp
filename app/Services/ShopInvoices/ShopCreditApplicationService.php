@@ -44,6 +44,23 @@ class ShopCreditApplicationService
     }
 
     /**
+     * Check if a user is authorized to reverse shop credit applications.
+     */
+    public function isAuthorizedToReverseApplication(?User $user): bool
+    {
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        return (method_exists($user, 'isMainAdmin') && $user->isMainAdmin())
+            || $user->hasRole('admin')
+            || $user->hasRole('super_admin')
+            || $user->hasRole('accounts')
+            || $user->can('accounting.invoice.approve')
+            || $user->can('finance.journals.reverse');
+    }
+
+    /**
      * Apply a finalized shop-level credit note to a specific outstanding shop invoice.
      *
      * @throws ValidationException
@@ -202,21 +219,22 @@ class ShopCreditApplicationService
                 if ($existing) {
                     return $existing->fresh(['creditNote', 'invoice', 'shop', 'appliedByUser']);
                 }
-            }
+            } else {
+                // Idempotency check 2: Rapid un-keyed double-click protection (exact same parameters within 5 seconds)
+                /** @var ShopCreditApplication|null $recentDuplicate */
+                $recentDuplicate = ShopCreditApplication::query()
+                    ->where('shop_credit_note_id', $lockedCreditNote->id)
+                    ->where('shop_invoice_id', $lockedInvoice->id)
+                    ->where('amount', $amount)
+                    ->where('applied_by', $actorUser->id)
+                    ->where('notes', $notes)
+                    ->whereNull('reversed_at')
+                    ->where('created_at', '>=', now()->subSeconds(5))
+                    ->first();
 
-            // Idempotency check 2: Rapid double-click protection (exact same parameters within 5 seconds)
-            /** @var ShopCreditApplication|null $recentDuplicate */
-            $recentDuplicate = ShopCreditApplication::query()
-                ->where('shop_credit_note_id', $lockedCreditNote->id)
-                ->where('shop_invoice_id', $lockedInvoice->id)
-                ->where('amount', $amount)
-                ->where('applied_by', $actorUser->id)
-                ->whereNull('reversed_at')
-                ->where('created_at', '>=', now()->subSeconds(5))
-                ->first();
-
-            if ($recentDuplicate) {
-                return $recentDuplicate->fresh(['creditNote', 'invoice', 'shop', 'appliedByUser']);
+                if ($recentDuplicate) {
+                    return $recentDuplicate->fresh(['creditNote', 'invoice', 'shop', 'appliedByUser']);
+                }
             }
 
             // Recalculate available unapplied credit under database lock
@@ -469,6 +487,138 @@ class ShopCreditApplicationService
             }
 
             return $createdApplications;
+        });
+    }
+
+    /**
+     * Safely reverses an existing active credit application.
+     * Restores unapplied credit to the Credit Note and restores effective payable on the target invoice.
+     *
+     * @throws ValidationException
+     */
+    public function reverseCreditApplication(
+        ShopCreditApplication|int $application,
+        User|int $actor,
+        string $reason,
+        ?CarbonInterface $reversedAt = null,
+    ): ShopCreditApplication {
+        $actorUser = $actor instanceof User ? $actor : User::find($actor);
+
+        if (! $this->isAuthorizedToReverseApplication($actorUser)) {
+            throw ValidationException::withMessages([
+                'reversed_by' => 'User is not authorized to reverse credit applications.',
+            ]);
+        }
+
+        if (blank($reason)) {
+            throw ValidationException::withMessages([
+                'reversal_reason' => 'A valid reversal reason is required.',
+            ]);
+        }
+
+        $applicationInstance = $application instanceof ShopCreditApplication
+            ? $application
+            : ShopCreditApplication::findOrFail($application);
+
+        if ($applicationInstance->isReversed()) {
+            throw ValidationException::withMessages([
+                'shop_credit_application_id' => 'Credit application is already reversed.',
+            ]);
+        }
+
+        $reversalDate = ($reversedAt ?? today())->toDateString();
+        $appliedDate = $applicationInstance->applied_at?->toDateString()
+            ?? $applicationInstance->created_at?->toDateString()
+            ?? today()->toDateString();
+
+        $reversalPeriodClosed = ShopAccountingPeriodClosure::query()
+            ->where('shop_id', $applicationInstance->shop_id)
+            ->whereDate('period_start', '<=', $reversalDate)
+            ->whereDate('period_end', '>=', $reversalDate)
+            ->exists();
+
+        if ($reversalPeriodClosed) {
+            throw ValidationException::withMessages([
+                'reversed_at' => 'Cannot reverse credit application in a closed accounting period.',
+            ]);
+        }
+
+        $appliedPeriodClosed = ShopAccountingPeriodClosure::query()
+            ->where('shop_id', $applicationInstance->shop_id)
+            ->whereDate('period_start', '<=', $appliedDate)
+            ->whereDate('period_end', '>=', $appliedDate)
+            ->exists();
+
+        if ($appliedPeriodClosed) {
+            throw ValidationException::withMessages([
+                'reversed_at' => 'Cannot reverse credit application originally applied in a closed accounting period. Compensating adjustment required.',
+            ]);
+        }
+
+        return DB::transaction(function () use (
+            $applicationInstance,
+            $actorUser,
+            $reason,
+            $reversedAt,
+            $reversalDate,
+            $appliedDate
+        ): ShopCreditApplication {
+            // Deterministic resource locking: Credit Note -> Invoice -> Credit Application
+            /** @var ShopCreditNote $lockedCreditNote */
+            $lockedCreditNote = ShopCreditNote::query()
+                ->whereKey($applicationInstance->shop_credit_note_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            /** @var ShopInvoice $lockedInvoice */
+            $lockedInvoice = ShopInvoice::query()
+                ->whereKey($applicationInstance->shop_invoice_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            /** @var ShopCreditApplication $lockedApplication */
+            $lockedApplication = ShopCreditApplication::query()
+                ->whereKey($applicationInstance->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($lockedApplication->isReversed()) {
+                throw ValidationException::withMessages([
+                    'shop_credit_application_id' => 'Credit application is already reversed.',
+                ]);
+            }
+
+            $reversalPeriodClosed = ShopAccountingPeriodClosure::query()
+                ->where('shop_id', $lockedCreditNote->shop_id)
+                ->whereDate('period_start', '<=', $reversalDate)
+                ->whereDate('period_end', '>=', $reversalDate)
+                ->exists();
+
+            if ($reversalPeriodClosed) {
+                throw ValidationException::withMessages([
+                    'reversed_at' => 'Cannot reverse credit application in a closed accounting period.',
+                ]);
+            }
+
+            $appliedPeriodClosed = ShopAccountingPeriodClosure::query()
+                ->where('shop_id', $lockedCreditNote->shop_id)
+                ->whereDate('period_start', '<=', $appliedDate)
+                ->whereDate('period_end', '>=', $appliedDate)
+                ->exists();
+
+            if ($appliedPeriodClosed) {
+                throw ValidationException::withMessages([
+                    'reversed_at' => 'Cannot reverse credit application originally applied in a closed accounting period. Compensating adjustment required.',
+                ]);
+            }
+
+            $lockedApplication->forceFill([
+                'reversed_at' => $reversedAt ?? now(),
+                'reversed_by' => $actorUser->id,
+                'reversal_reason' => trim($reason),
+            ])->save();
+
+            return $lockedApplication->fresh(['creditNote', 'invoice', 'shop', 'appliedByUser', 'reversedByUser']);
         });
     }
 }
