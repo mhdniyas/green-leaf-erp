@@ -9,11 +9,13 @@ use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
 use App\Enums\ShopInvoice\ShopCreditNoteLineType;
 use App\Enums\ShopInvoice\ShopCreditNoteReason;
+use App\Enums\ShopInvoice\ShopCreditNoteReceiptStatus;
 use Database\Factories\ShopCreditNoteItemFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ShopCreditNoteItem extends Model
 {
@@ -62,6 +64,7 @@ class ShopCreditNoteItem extends Model
             'line_credit_amount' => 'decimal:2',
             'direction' => ShopCreditNoteDirection::class,
             'inventory_action' => ShopCreditNoteInventoryAction::class,
+            'receipt_status' => ShopCreditNoteReceiptStatus::class,
         ];
     }
 
@@ -121,5 +124,41 @@ class ShopCreditNoteItem extends Model
     public function totalRestoredStockQuantity(): float
     {
         return round((float) $this->stockMovements()->sum('quantity'), 3);
+    }
+
+    public function receipts(): HasMany
+    {
+        return $this->hasMany(ShopCreditNoteReceipt::class, 'shop_credit_note_item_id');
+    }
+
+    public function verifiedReceipts(): HasMany
+    {
+        return $this->hasMany(ShopCreditNoteReceipt::class, 'shop_credit_note_item_id')
+            ->where('status', 'verified');
+    }
+
+    public function isPhysicalReturn(): bool
+    {
+        return $this->inventory_action === ShopCreditNoteInventoryAction::ReturnToStock;
+    }
+
+    public function isPendingReceipt(): bool
+    {
+        return $this->receipt_status === ShopCreditNoteReceiptStatus::PendingReceipt;
+    }
+
+    public function isPartiallyReceived(): bool
+    {
+        return $this->receipt_status === ShopCreditNoteReceiptStatus::PartiallyReceived;
+    }
+
+    public function isReceived(): bool
+    {
+        return $this->receipt_status === ShopCreditNoteReceiptStatus::ReceivedAndVerified;
+    }
+
+    public function isDisputed(): bool
+    {
+        return $this->receipt_status === ShopCreditNoteReceiptStatus::Disputed;
     }
 }

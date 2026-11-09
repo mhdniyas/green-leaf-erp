@@ -103,6 +103,11 @@ class ShopCreditNote extends Model
         return $this->hasMany(ShopCreditApplication::class, 'shop_credit_note_id');
     }
 
+    public function receipts(): HasMany
+    {
+        return $this->hasMany(ShopCreditNoteReceipt::class, 'shop_credit_note_id');
+    }
+
     public function activeApplications(): HasMany
     {
         return $this->hasMany(ShopCreditApplication::class, 'shop_credit_note_id')

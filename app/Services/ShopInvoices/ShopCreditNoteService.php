@@ -11,6 +11,7 @@ use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
 use App\Enums\ShopInvoice\ShopCreditNoteLineType;
 use App\Enums\ShopInvoice\ShopCreditNoteReason;
+use App\Enums\ShopInvoice\ShopCreditNoteReceiptStatus;
 use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Models\ProductUnit;
 use App\Models\Shop;
@@ -18,10 +19,12 @@ use App\Models\ShopAccountingPeriodClosure;
 use App\Models\ShopCreditApplication;
 use App\Models\ShopCreditNote;
 use App\Models\ShopCreditNoteItem;
+use App\Models\ShopCreditNoteReceipt;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\Cashbook\InvoiceCashbookProjectionService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Inventory\StockLedgerService;
@@ -792,7 +795,7 @@ class ShopCreditNoteService
                         'line_credit_amount' => $line->creditAmount,
                         'direction' => $line->direction,
                         'inventory_action' => $line->inventoryAction,
-                        'receipt_status' => 'not_applicable',
+                        'receipt_status' => $line->inventoryAction === ShopCreditNoteInventoryAction::ReturnToStock ? ShopCreditNoteReceiptStatus::PendingReceipt->value : ShopCreditNoteReceiptStatus::NotApplicable->value,
                         'notes' => $line->notes,
                     ]);
                 }
@@ -981,7 +984,7 @@ class ShopCreditNoteService
                         'line_credit_amount' => $line->creditAmount,
                         'direction' => $line->direction,
                         'inventory_action' => $line->inventoryAction,
-                        'receipt_status' => 'not_applicable',
+                        'receipt_status' => $line->inventoryAction === ShopCreditNoteInventoryAction::ReturnToStock ? ShopCreditNoteReceiptStatus::PendingReceipt->value : ShopCreditNoteReceiptStatus::NotApplicable->value,
                         'notes' => $line->notes,
                     ]);
                 }
@@ -1207,8 +1210,16 @@ class ShopCreditNoteService
                 'lock_version' => $lockedCreditNote->lock_version + 1,
             ])->save();
 
-            // Note: NO inventory/stock movements are created in this phase.
-            // Warehouse receipt verification is deferred to a future phase.
+            // Transition return-to-stock items to PendingReceipt for warehouse verification
+            foreach ($lockedCreditNote->items as $item) {
+                if ($item->inventory_action === ShopCreditNoteInventoryAction::ReturnToStock
+                    && ($item->receipt_status === null || $item->receipt_status === ShopCreditNoteReceiptStatus::NotApplicable || $item->receipt_status->value === 'not_applicable')) {
+                    $item->update(['receipt_status' => ShopCreditNoteReceiptStatus::PendingReceipt->value]);
+                }
+            }
+
+            // Note: NO inventory/stock movements are created at office finalization.
+            // Stock increases only after warehouse staff physically confirm actual receipt.
 
             // Post single financial credit to cashbook
             $this->cashbookProjectionService()->syncCreditNote($lockedCreditNote, $actorUser->id);
@@ -1567,6 +1578,60 @@ class ShopCreditNoteService
 
             return $lockedCreditNote->fresh(['items.product', 'items.invoiceItem', 'items.sourceInvoice', 'shop', 'ledgerTransaction', 'applications']);
         });
+    }
+
+    /**
+     * Check if a user is authorized to verify physical warehouse returns.
+     */
+    public function isAuthorizedToReceivePhysicalReturn(?User $user): bool
+    {
+        return app(ShopCreditNoteWarehouseReceiptService::class)->isAuthorizedToReceive($user);
+    }
+
+    /**
+     * Verify physical warehouse receipt for a credit note item.
+     *
+     * @throws ValidationException
+     */
+    public function receivePhysicalReturn(
+        ShopCreditNoteItem|int $item,
+        float $quantity,
+        ProductGrade|string $grade,
+        Warehouse|int $warehouse,
+        User|int $actor,
+        ?CarbonInterface $receivedAt = null,
+        ?string $remarks = null,
+        ?string $idempotencyKey = null,
+    ): ShopCreditNoteReceipt {
+        return app(ShopCreditNoteWarehouseReceiptService::class)->receivePhysicalReturn(
+            $item,
+            $quantity,
+            $grade,
+            $warehouse,
+            $actor,
+            $receivedAt,
+            $remarks,
+            $idempotencyKey,
+        );
+    }
+
+    /**
+     * Record a physical return dispute without generating stock movements.
+     *
+     * @throws ValidationException
+     */
+    public function disputePhysicalReturn(
+        ShopCreditNoteItem|int $item,
+        User|int $actor,
+        string $reason,
+        ?CarbonInterface $disputedAt = null,
+    ): ShopCreditNoteReceipt {
+        return app(ShopCreditNoteWarehouseReceiptService::class)->disputePhysicalReturn(
+            $item,
+            $actor,
+            $reason,
+            $disputedAt,
+        );
     }
 
     /**
