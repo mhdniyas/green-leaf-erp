@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\ShopInvoices;
 
 use App\Enums\Inventory\ProductGrade;
+use App\Enums\Inventory\StockMovementType;
 use App\Enums\ShopInvoice\ShopCreditNoteAccountingMode;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
@@ -19,6 +20,7 @@ use App\Models\ShopCreditNote;
 use App\Models\ShopCreditNoteItem;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
+use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\Cashbook\InvoiceCashbookProjectionService;
 use App\Services\Finance\OwnedShopAccountingService;
@@ -1291,6 +1293,280 @@ class ShopCreditNoteService
             $reason,
             $reversedAt,
         );
+    }
+
+    /**
+     * Check if a user is authorized to cancel shop-level credit notes.
+     */
+    public function isAuthorizedToCancelCreditNote(?User $user): bool
+    {
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        return (method_exists($user, 'isMainAdmin') && $user->isMainAdmin())
+            || $user->hasRole('admin')
+            || $user->hasRole('super_admin')
+            || $user->hasRole('accounts')
+            || $user->can('accounting.invoice.approve')
+            || $user->can('finance.journals.reverse');
+    }
+
+    /**
+     * Safely cancel a finalized shop-level credit note and reverse its financial effects.
+     *
+     * @throws ValidationException
+     */
+    public function cancelShopLevelCreditNote(
+        ShopCreditNote|int $creditNote,
+        User|int $actor,
+        string $reason,
+        ?CarbonInterface $cancelledAt = null,
+    ): ShopCreditNote {
+        $actorUser = $actor instanceof User ? $actor : User::find($actor);
+
+        if (! $this->isAuthorizedToCancelCreditNote($actorUser)) {
+            throw ValidationException::withMessages([
+                'cancelled_by' => 'User is not authorized to cancel credit notes.',
+            ]);
+        }
+
+        if (blank($reason)) {
+            throw ValidationException::withMessages([
+                'void_reason' => 'A valid cancellation reason is required.',
+            ]);
+        }
+
+        $creditNoteInstance = $creditNote instanceof ShopCreditNote
+            ? $creditNote
+            : ShopCreditNote::findOrFail($creditNote);
+
+        if (! $creditNoteInstance->isShopLevelMode()) {
+            throw ValidationException::withMessages([
+                'accounting_mode' => 'Only shop-level credit notes can be cancelled using this method.',
+            ]);
+        }
+
+        if ($creditNoteInstance->isVoided()) {
+            throw ValidationException::withMessages([
+                'status' => 'Credit note is already voided.',
+            ]);
+        }
+
+        if ($creditNoteInstance->isDraft()) {
+            throw ValidationException::withMessages([
+                'status' => 'Draft credit notes cannot be cancelled using this method. Use draft discard/delete instead.',
+            ]);
+        }
+
+        if (! $creditNoteInstance->isApproved()) {
+            throw ValidationException::withMessages([
+                'status' => "Cannot cancel credit note with status '{$creditNoteInstance->status->value}'.",
+            ]);
+        }
+
+        $hasPhysicalStockMovements = $creditNoteInstance->stockMovements()->exists()
+            || StockMovement::query()
+                ->where('type', StockMovementType::SaleReversal->value)
+                ->where('notes', 'like', "%SCN: {$creditNoteInstance->credit_note_number}%")
+                ->exists();
+
+        if ($hasPhysicalStockMovements) {
+            throw ValidationException::withMessages([
+                'stock_movements' => 'Cannot cancel credit note with associated inventory stock movements without warehouse reconciliation.',
+            ]);
+        }
+
+        $cancelledTimestamp = $cancelledAt !== null ? Carbon::instance($cancelledAt) : now();
+        $cancellationDate = $cancelledTimestamp->toDateString();
+        $creditNoteDate = $creditNoteInstance->credit_note_date?->toDateString() ?? today()->toDateString();
+
+        $cancellationPeriodClosed = ShopAccountingPeriodClosure::query()
+            ->where('shop_id', $creditNoteInstance->shop_id)
+            ->whereDate('period_start', '<=', $cancellationDate)
+            ->whereDate('period_end', '>=', $cancellationDate)
+            ->exists();
+
+        if ($cancellationPeriodClosed) {
+            throw ValidationException::withMessages([
+                'cancelled_at' => 'Cannot cancel credit note in a closed accounting period.',
+            ]);
+        }
+
+        $creditNotePeriodClosed = ShopAccountingPeriodClosure::query()
+            ->where('shop_id', $creditNoteInstance->shop_id)
+            ->whereDate('period_start', '<=', $creditNoteDate)
+            ->whereDate('period_end', '>=', $creditNoteDate)
+            ->exists();
+
+        if ($creditNotePeriodClosed) {
+            throw ValidationException::withMessages([
+                'credit_note_date' => 'Cannot cancel credit note posted in a closed accounting period. Compensating adjustment required.',
+            ]);
+        }
+
+        $activeApplications = ShopCreditApplication::query()
+            ->where('shop_credit_note_id', $creditNoteInstance->id)
+            ->whereNull('reversed_at')
+            ->get();
+
+        foreach ($activeApplications as $app) {
+            $appliedDate = $app->applied_at?->toDateString()
+                ?? $app->created_at?->toDateString()
+                ?? today()->toDateString();
+
+            $appPeriodClosed = ShopAccountingPeriodClosure::query()
+                ->where('shop_id', $creditNoteInstance->shop_id)
+                ->whereDate('period_start', '<=', $appliedDate)
+                ->whereDate('period_end', '>=', $appliedDate)
+                ->exists();
+
+            if ($appPeriodClosed) {
+                throw ValidationException::withMessages([
+                    'reversed_at' => 'Cannot cancel credit note with applications originally applied in a closed accounting period. Compensating adjustment required.',
+                ]);
+            }
+        }
+
+        return DB::transaction(function () use (
+            $creditNoteInstance,
+            $actorUser,
+            $reason,
+            $cancelledTimestamp,
+            $cancellationDate,
+            $creditNoteDate
+        ): ShopCreditNote {
+            /** @var ShopCreditNote $lockedCreditNote */
+            $lockedCreditNote = ShopCreditNote::query()
+                ->whereKey($creditNoteInstance->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($lockedCreditNote->isVoided()) {
+                throw ValidationException::withMessages([
+                    'status' => 'Credit note is already voided.',
+                ]);
+            }
+
+            if (! $lockedCreditNote->isApproved()) {
+                throw ValidationException::withMessages([
+                    'status' => "Cannot cancel credit note with status '{$lockedCreditNote->status->value}'.",
+                ]);
+            }
+
+            $hasPhysicalMovements = $lockedCreditNote->stockMovements()->exists()
+                || StockMovement::query()
+                    ->where('type', StockMovementType::SaleReversal->value)
+                    ->where('notes', 'like', "%SCN: {$lockedCreditNote->credit_note_number}%")
+                    ->exists();
+
+            if ($hasPhysicalMovements) {
+                throw ValidationException::withMessages([
+                    'stock_movements' => 'Cannot cancel credit note with associated inventory stock movements without warehouse reconciliation.',
+                ]);
+            }
+
+            $cancellationPeriodClosed = ShopAccountingPeriodClosure::query()
+                ->where('shop_id', $lockedCreditNote->shop_id)
+                ->whereDate('period_start', '<=', $cancellationDate)
+                ->whereDate('period_end', '>=', $cancellationDate)
+                ->exists();
+
+            if ($cancellationPeriodClosed) {
+                throw ValidationException::withMessages([
+                    'cancelled_at' => 'Cannot cancel credit note in a closed accounting period.',
+                ]);
+            }
+
+            $creditNotePeriodClosed = ShopAccountingPeriodClosure::query()
+                ->where('shop_id', $lockedCreditNote->shop_id)
+                ->whereDate('period_start', '<=', $creditNoteDate)
+                ->whereDate('period_end', '>=', $creditNoteDate)
+                ->exists();
+
+            if ($creditNotePeriodClosed) {
+                throw ValidationException::withMessages([
+                    'credit_note_date' => 'Cannot cancel credit note posted in a closed accounting period. Compensating adjustment required.',
+                ]);
+            }
+
+            $activeApps = ShopCreditApplication::query()
+                ->where('shop_credit_note_id', $lockedCreditNote->id)
+                ->whereNull('reversed_at')
+                ->get();
+
+            if ($activeApps->isNotEmpty()) {
+                $targetInvoiceIds = $activeApps->pluck('shop_invoice_id')->unique()->sort()->values()->all();
+                ShopInvoice::query()
+                    ->whereIn('id', $targetInvoiceIds)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+
+                $lockedApps = ShopCreditApplication::query()
+                    ->whereIn('id', $activeApps->pluck('id')->sort()->values()->all())
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($lockedApps as $lockedApp) {
+                    if ($lockedApp->isReversed()) {
+                        continue;
+                    }
+
+                    $appliedDate = $lockedApp->applied_at?->toDateString()
+                        ?? $lockedApp->created_at?->toDateString()
+                        ?? today()->toDateString();
+
+                    $appPeriodClosed = ShopAccountingPeriodClosure::query()
+                        ->where('shop_id', $lockedCreditNote->shop_id)
+                        ->whereDate('period_start', '<=', $appliedDate)
+                        ->whereDate('period_end', '>=', $appliedDate)
+                        ->exists();
+
+                    if ($appPeriodClosed) {
+                        throw ValidationException::withMessages([
+                            'reversed_at' => 'Cannot cancel credit note with applications originally applied in a closed accounting period. Compensating adjustment required.',
+                        ]);
+                    }
+
+                    $lockedApp->forceFill([
+                        'reversed_at' => $cancelledTimestamp,
+                        'reversed_by' => $actorUser->id,
+                        'reversal_reason' => "Credit note {$lockedCreditNote->credit_note_number} cancelled: ".trim($reason),
+                    ])->save();
+                }
+            }
+
+            $auditEntry = 'Cancelled on '.$cancelledTimestamp->toDateTimeString()." by {$actorUser->name} (#{$actorUser->id}): ".trim($reason);
+            $notesText = filled($lockedCreditNote->notes)
+                ? trim((string) $lockedCreditNote->notes)."\n".$auditEntry
+                : $auditEntry;
+
+            $lockedCreditNote->forceFill([
+                'status' => ShopCreditNoteStatus::Voided,
+                'voided_by' => $actorUser->id,
+                'voided_at' => $cancelledTimestamp,
+                'void_reason' => trim($reason),
+                'notes' => $notesText,
+                'lock_version' => $lockedCreditNote->lock_version + 1,
+            ])->save();
+
+            // In-place void of Cashbook transaction & daily balance recalculation
+            $this->cashbookProjectionService()->syncCreditNote($lockedCreditNote, $actorUser->id);
+
+            // Sync owned shop accounting closing balances if applicable
+            if ($lockedCreditNote->shop instanceof Shop && $lockedCreditNote->shop->isOwnedAccountingEnabled()) {
+                $businessDate = Carbon::parse($lockedCreditNote->credit_note_date?->toDateString() ?? today()->toDateString());
+                $this->ownedAccountingService()->syncStoredClosingBalancesFromDate(
+                    $lockedCreditNote->shop,
+                    $businessDate,
+                    $actorUser->id,
+                );
+            }
+
+            return $lockedCreditNote->fresh(['items.product', 'items.invoiceItem', 'items.sourceInvoice', 'shop', 'ledgerTransaction', 'applications']);
+        });
     }
 
     /**

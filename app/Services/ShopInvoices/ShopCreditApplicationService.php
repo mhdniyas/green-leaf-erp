@@ -621,4 +621,31 @@ class ShopCreditApplicationService
             return $lockedApplication->fresh(['creditNote', 'invoice', 'shop', 'appliedByUser', 'reversedByUser']);
         });
     }
+
+    /**
+     * Check if a user is authorized to cancel shop-level credit notes.
+     */
+    public function isAuthorizedToCancelCreditNote(?User $user): bool
+    {
+        return app(ShopCreditNoteService::class)->isAuthorizedToCancelCreditNote($user);
+    }
+
+    /**
+     * Safely cancel a finalized shop-level credit note and reverse its financial effects.
+     *
+     * @throws ValidationException
+     */
+    public function cancelShopLevelCreditNote(
+        ShopCreditNote|int $creditNote,
+        User|int $actor,
+        string $reason,
+        ?CarbonInterface $cancelledAt = null,
+    ): ShopCreditNote {
+        return app(ShopCreditNoteService::class)->cancelShopLevelCreditNote(
+            $creditNote,
+            $actor,
+            $reason,
+            $cancelledAt,
+        );
+    }
 }

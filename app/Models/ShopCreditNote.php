@@ -120,6 +120,10 @@ class ShopCreditNote extends Model
 
     public function unappliedCreditTotal(): float
     {
+        if ($this->isVoided()) {
+            return 0.00;
+        }
+
         return round(max(0.00, (float) $this->total_credit_amount - $this->appliedCreditTotal()), 2);
     }
 

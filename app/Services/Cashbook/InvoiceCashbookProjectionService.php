@@ -209,7 +209,7 @@ class InvoiceCashbookProjectionService
                 'approved_by' => $shouldVoid ? null : ($userId ?? $creditNote->approved_by),
                 'voided_by' => $shouldVoid ? ($userId ?? $transaction->voided_by) : null,
                 'voided_at' => $shouldVoid ? ($transaction->voided_at ?? now()) : null,
-                'void_reason' => $shouldVoid ? 'Credit note voided, draft, or has zero amount.' : null,
+                'void_reason' => $shouldVoid ? ($creditNote->void_reason ?? 'Credit note voided, draft, or has zero amount.') : null,
             ]);
 
             $transaction->save();
