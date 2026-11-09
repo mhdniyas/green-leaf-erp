@@ -1804,7 +1804,7 @@ class ShopCreditNoteService
                     'credit_rate' => round($rate, 2),
                     'credit_amount' => round($amt, 2),
                     'reason_type' => $line['reason_type'] ?? null,
-                    'received_grade' => $line['received_grade'] ?? null,
+                    'received_grade' => $line['received_grade'] ?? $line['expected_returned_grade'] ?? null,
                     'inventory_action' => $inventoryAction,
                     'direction' => $line['direction'] ?? ShopCreditNoteDirection::Credit,
                     'notes' => $itemNotes,
@@ -1816,7 +1816,7 @@ class ShopCreditNoteService
             if (! is_array($disc)) {
                 throw ValidationException::withMessages(["discounts.{$dIndex}" => 'Discount line must be an array.']);
             }
-            $amt = (float) ($disc['amount'] ?? $disc['discount_amount'] ?? 0.0);
+            $amt = (float) ($disc['line_credit_amount'] ?? $disc['amount'] ?? $disc['discount_amount'] ?? 0.0);
             if ($amt <= 0.0001) {
                 throw ValidationException::withMessages([
                     "discounts.{$dIndex}.amount" => 'Commercial discount amount must be greater than zero.',

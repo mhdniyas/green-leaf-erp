@@ -41,6 +41,7 @@ use App\Http\Controllers\Web\Admin\PurchaseProductFilterController;
 use App\Http\Controllers\Web\Admin\PurchaserMonthlySummaryController;
 use App\Http\Controllers\Web\Admin\SellingPriceCategoryController;
 use App\Http\Controllers\Web\Admin\SellingPriceManagementController;
+use App\Http\Controllers\Web\Admin\ShopCreditNotes\ShopCreditNoteDraftController;
 use App\Http\Controllers\Web\Admin\ShopSellingPriceController;
 use App\Http\Controllers\Web\Admin\StaffManagementController;
 use App\Http\Controllers\Web\Admin\StaffSyncFlagController;
@@ -1236,6 +1237,15 @@ Route::middleware('auth')->group(function () {
                 Route::post('credit-notes/select', [AdminShopReportsController::class, 'selectInvoiceForCreditNote'])->name('credit-notes.select');
                 Route::get('credit-notes/create', [AdminShopReportsController::class, 'createCreditNote'])->name('credit-notes.create');
                 Route::post('credit-notes', [AdminShopReportsController::class, 'storeCreditNote'])->name('credit-notes.store');
+
+                // Shop-First Credit Note Draft Engine (Phase 3.1)
+                Route::prefix('credit-notes/drafts')->name('credit-notes.drafts.')->group(function () {
+                    Route::get('create', [ShopCreditNoteDraftController::class, 'create'])->name('create');
+                    Route::post('/', [ShopCreditNoteDraftController::class, 'store'])->name('store');
+                    Route::get('{creditNote}/edit', [ShopCreditNoteDraftController::class, 'edit'])->name('edit');
+                    Route::match(['PUT', 'PATCH', 'POST'], '{creditNote}', [ShopCreditNoteDraftController::class, 'update'])->name('update');
+                    Route::get('search-lines', [ShopCreditNoteDraftController::class, 'searchLines'])->name('search-lines');
+                });
             });
 
             // ── Green Leaf Monthly Reports ────────────────────────────────────

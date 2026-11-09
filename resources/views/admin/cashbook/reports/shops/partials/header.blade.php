@@ -36,6 +36,12 @@
     </div>
 
     <div class="flex items-center gap-2">
+        @if ($activeTab === 'credit-notes')
+            <a href="{{ route('admin.cashbook.reports.shops.credit-notes.drafts.create') }}" class="inline-flex h-9 items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-600 px-3.5 text-xs font-bold text-white hover:bg-emerald-700 transition shadow-xs">
+                <i data-lucide="plus" class="w-3.5 h-3.5 text-white"></i>
+                <span>Create Shop Credit Note</span>
+            </a>
+        @endif
         <a href="{{ route('admin.cashbook.reports') }}" class="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 transition shadow-2xs">
             <i data-lucide="arrow-left" class="h-3.5 w-3.5 text-slate-400"></i>
             <span>All Cashbook Reports</span>

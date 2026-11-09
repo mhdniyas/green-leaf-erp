@@ -297,6 +297,15 @@
                                         <span>Details</span>
                                     </button>
 
+                                    @if ($note->isDraft() && $note->isShopLevelMode())
+                                        <a href="{{ route('admin.cashbook.reports.shops.credit-notes.drafts.edit', $note) }}"
+                                            class="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-900 hover:bg-amber-100 shadow-2xs"
+                                            title="Edit Draft">
+                                            <i data-lucide="edit-3" class="w-3 h-3 text-amber-700"></i>
+                                            <span>Edit Draft</span>
+                                        </a>
+                                    @endif
+
                                     @if ($note->invoice)
                                         <a href="{{ route('purchasing.shop-invoices.show', $note->invoice) }}"
                                             target="_blank"
