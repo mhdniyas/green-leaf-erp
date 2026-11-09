@@ -111,7 +111,7 @@ class ShopCreditNote extends Model
     public function activeReceipts(): HasMany
     {
         return $this->hasMany(ShopCreditNoteReceipt::class, 'shop_credit_note_id')
-            ->where('status', 'verified')
+            ->whereIn('status', ['verified', 'damaged'])
             ->whereNull('reversed_at');
     }
 
@@ -122,7 +122,7 @@ class ShopCreditNote extends Model
     {
         if ($this->receipts()->exists()) {
             return $this->receipts()
-                ->where('status', 'verified')
+                ->whereIn('status', ['verified', 'damaged'])
                 ->whereNull('reversed_at')
                 ->exists();
         }

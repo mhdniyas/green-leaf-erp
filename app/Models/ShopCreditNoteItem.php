@@ -45,6 +45,7 @@ class ShopCreditNoteItem extends Model
         'direction',
         'inventory_action',
         'receipt_status',
+        'wastage_entry_id',
         'notes',
         'physical_receipt_notes',
     ];
@@ -129,6 +130,11 @@ class ShopCreditNoteItem extends Model
     public function receipts(): HasMany
     {
         return $this->hasMany(ShopCreditNoteReceipt::class, 'shop_credit_note_item_id');
+    }
+
+    public function wastageEntry(): BelongsTo
+    {
+        return $this->belongsTo(WastageEntry::class, 'wastage_entry_id');
     }
 
     public function verifiedReceipts(): HasMany

@@ -743,8 +743,10 @@ class StockLedgerService
         }
 
         $orderItem = $invoiceItem->orderItem;
-        if (! $orderItem && $creditNote->invoice && $creditNote->invoice->order) {
-            $order = $creditNote->invoice->order;
+        $invoice = $creditItem->sourceInvoice ?? $invoiceItem->invoice ?? $creditNote->invoice;
+
+        if (! $orderItem && $invoice && $invoice->order) {
+            $order = $invoice->order;
             $orderItem = $order->items()
                 ->where('product_id', $invoiceItem->product_id)
                 ->where('product_grade', $invoiceItem->product_grade)
@@ -765,10 +767,31 @@ class StockLedgerService
             ->lockForUpdate()
             ->get();
 
+        $resolvedReason = $wastageReason ?? $this->resolveWastageReasonForCreditItem($creditItem, $creditNote);
+        $order = $orderItem->order;
+        $invoice = $creditItem->sourceInvoice ?? $invoiceItem?->invoice ?? $creditNote->invoice;
+        $shop = $creditNote->shop ?? $invoice?->shop;
+
         if ($outMovements->isEmpty()) {
-            throw ValidationException::withMessages([
-                'inventory_action' => "Cannot record damage for product '{$creditItem->product_name}': No loadout stock deduction was recorded for this order item.",
+            $costPerKg = (float) ($orderItem->unit_cost ?? $invoiceItem?->unit_price ?? 0.0);
+            $grade = ProductGrade::tryResolve($invoiceItem?->product_grade)?->value ?? (string) ($invoiceItem?->product_grade ?? 'A');
+            $notes = "{$noteMarker} Invoice: {$invoice?->invoice_number}; Order: {$order?->order_number}; Shop: {$shop?->name}; Reason: {$resolvedReason->label()}; Location: shop; ".($creditItem->notes ?? '');
+
+            $wastage = WastageEntry::create([
+                'product_id' => $creditItem->product_id,
+                'batch_id' => null,
+                'recorded_by' => $userId,
+                'grade' => $grade,
+                'quantity' => $quantityToDamage,
+                'cost_per_kg' => $costPerKg,
+                'reason' => $resolvedReason,
+                'wastage_date' => $creditNote->credit_note_date?->toDateString() ?? today()->toDateString(),
+                'notes' => trim($notes),
             ]);
+
+            $creditItem->forceFill(['wastage_entry_id' => $wastage->id])->save();
+
+            return $quantityToDamage;
         }
 
         $totalDeducted = round((float) $outMovements->sum('quantity'), 3);
@@ -799,8 +822,8 @@ class StockLedgerService
         $resolvedReason = $wastageReason ?? $this->resolveWastageReasonForCreditItem($creditItem, $creditNote);
 
         $order = $orderItem->order;
-        $invoice = $creditNote->invoice;
-        $shop = $creditNote->shop;
+        $invoice = $creditItem->sourceInvoice ?? $invoiceItem?->invoice ?? $creditNote->invoice;
+        $shop = $creditNote->shop ?? $invoice?->shop;
 
         $remainingToDamage = $quantityToDamage;
         $totalDamaged = 0.0;
@@ -813,7 +836,7 @@ class StockLedgerService
             $sourceGrade = ProductGrade::tryResolve($source->grade)?->value ?? (string) ($source->grade ?? 'A');
             $damageAmount = min($remainingToDamage, (float) $source->quantity);
 
-            WastageEntry::create([
+            $wastage = WastageEntry::create([
                 'product_id' => $creditItem->product_id,
                 'batch_id' => $source->batch_id,
                 'recorded_by' => $userId,
@@ -822,8 +845,10 @@ class StockLedgerService
                 'cost_per_kg' => (float) $source->cost_per_unit,
                 'reason' => $resolvedReason,
                 'wastage_date' => $creditNote->credit_note_date?->toDateString() ?? today()->toDateString(),
-                'notes' => "{$noteMarker} Invoice: {$invoice?->invoice_number}; Order: {$order?->order_number}; Shop: {$shop?->name}; Reason: {$resolvedReason->label()}; ".($creditItem->notes ?? ''),
+                'notes' => "{$noteMarker} Invoice: {$invoice?->invoice_number}; Order: {$order?->order_number}; Shop: {$shop?->name}; Reason: {$resolvedReason->label()}; Location: shop; ".($creditItem->notes ?? ''),
             ]);
+
+            $creditItem->forceFill(['wastage_entry_id' => $wastage->id])->save();
 
             $remainingToDamage = round($remainingToDamage - $damageAmount, 3);
             $totalDamaged = round($totalDamaged + $damageAmount, 3);
@@ -852,9 +877,14 @@ class StockLedgerService
             }
         }
 
-        return match ($creditNote->reason_type) {
+        $itemReason = $creditItem->reason_type instanceof ShopCreditNoteReason
+            ? $creditItem->reason_type
+            : ShopCreditNoteReason::tryFrom((string) $creditItem->reason_type);
+
+        $reasonToMatch = $itemReason ?? $creditNote->reason_type;
+
+        return match ($reasonToMatch) {
             ShopCreditNoteReason::DamageWastage => WastageReason::TransitDamage,
-            ShopCreditNoteReason::QualityIssue => WastageReason::Rotten,
             ShopCreditNoteReason::Shortage => WastageReason::Shrinkage,
             default => WastageReason::TransitDamage,
         };

@@ -21,6 +21,7 @@ class ShopCreditNoteReceipt extends Model
         'warehouse_id',
         'stock_movement_id',
         'reversal_stock_movement_id',
+        'wastage_entry_id',
         'received_grade',
         'received_quantity',
         'received_by',
@@ -82,9 +83,19 @@ class ShopCreditNoteReceipt extends Model
         return $this->belongsTo(User::class, 'reversed_by');
     }
 
+    public function wastageEntry(): BelongsTo
+    {
+        return $this->belongsTo(WastageEntry::class, 'wastage_entry_id');
+    }
+
     public function isVerified(): bool
     {
         return $this->status === 'verified';
+    }
+
+    public function isDamaged(): bool
+    {
+        return $this->status === 'damaged';
     }
 
     public function isDisputed(): bool
@@ -99,6 +110,6 @@ class ShopCreditNoteReceipt extends Model
 
     public function scopeActive($query)
     {
-        return $query->where('status', 'verified')->whereNull('reversed_at');
+        return $query->whereIn('status', ['verified', 'damaged'])->whereNull('reversed_at');
     }
 }

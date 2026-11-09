@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\ShopInvoices;
 
 use App\Enums\Inventory\ProductGrade;
+use App\Enums\Inventory\WastageReason;
 use App\Enums\ShopInvoice\ShopCreditNoteAccountingMode;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
@@ -23,6 +24,7 @@ use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Models\WastageEntry;
 use App\Services\Cashbook\InvoiceCashbookProjectionService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Inventory\StockLedgerService;
@@ -1209,10 +1211,14 @@ class ShopCreditNoteService
             ])->save();
 
             // Transition return-to-stock items to PendingReceipt for warehouse verification
+            // and process shop-side damage write-offs
             foreach ($lockedCreditNote->items as $item) {
                 if ($item->inventory_action === ShopCreditNoteInventoryAction::ReturnToStock
                     && ($item->receipt_status === null || $item->receipt_status === ShopCreditNoteReceiptStatus::NotApplicable || $item->receipt_status->value === 'not_applicable')) {
                     $item->update(['receipt_status' => ShopCreditNoteReceiptStatus::PendingReceipt->value]);
+                } elseif ($item->inventory_action === ShopCreditNoteInventoryAction::WriteOffWastage) {
+                    $item->update(['receipt_status' => ShopCreditNoteReceiptStatus::NotApplicable->value]);
+                    $this->getStockLedgerService()->recordCreditNoteDamageItem($item, $lockedCreditNote, $actorUser->id);
                 }
             }
 
@@ -1549,6 +1555,24 @@ class ShopCreditNoteService
                 'lock_version' => $lockedCreditNote->lock_version + 1,
             ])->save();
 
+            // Reconcile shop-side WastageEntry records: append cancellation note and soft-delete so they no longer count towards active loss reporting
+            $linkedWastageIds = $lockedCreditNote->items->pluck('wastage_entry_id')->filter()->all();
+            $noteMarker = "Credit Note Damage — SCN: {$lockedCreditNote->credit_note_number};";
+            $wastageQuery = WastageEntry::query()
+                ->where(function ($q) use ($linkedWastageIds, $noteMarker): void {
+                    if (! empty($linkedWastageIds)) {
+                        $q->whereIn('id', $linkedWastageIds);
+                    }
+                    $q->orWhere('notes', 'like', "{$noteMarker}%");
+                });
+
+            foreach ($wastageQuery->get() as $wastage) {
+                $voidNote = "\n[SCN Voided on ".$cancelledTimestamp->toDateTimeString()." by {$actorUser->name}: ".trim($reason).']';
+                $wastage->notes = trim((string) $wastage->notes).$voidNote;
+                $wastage->save();
+                $wastage->delete();
+            }
+
             // In-place void of Cashbook transaction & daily balance recalculation
             $this->cashbookProjectionService()->syncCreditNote($lockedCreditNote, $actorUser->id);
 
@@ -1617,6 +1641,33 @@ class ShopCreditNoteService
             $actor,
             $reason,
             $disputedAt,
+        );
+    }
+
+    /**
+     * Record physical warehouse receipt of goods that arrived damaged or unsellable.
+     *
+     * @throws ValidationException
+     */
+    public function receiveDamagedReturn(
+        ShopCreditNoteItem|int $item,
+        float $quantity,
+        WastageReason|string $damageReason,
+        Warehouse|int $warehouse,
+        User|int $actor,
+        ?CarbonInterface $receivedAt = null,
+        ?string $remarks = null,
+        ?string $idempotencyKey = null,
+    ): ShopCreditNoteReceipt {
+        return app(ShopCreditNoteWarehouseReceiptService::class)->receiveDamagedReturn(
+            $item,
+            $quantity,
+            $damageReason,
+            $warehouse,
+            $actor,
+            $receivedAt,
+            $remarks,
+            $idempotencyKey,
         );
     }
 
@@ -1731,6 +1782,18 @@ class ShopCreditNoteService
                     ]);
                 }
 
+                $itemNotes = $line['notes'] ?? null;
+                if (isset($line['damage_reason']) && filled($line['damage_reason'])) {
+                    $dReason = is_object($line['damage_reason']) ? $line['damage_reason']->value : (string) $line['damage_reason'];
+                    if (! str_contains((string) $itemNotes, 'damage_reason:')) {
+                        $itemNotes = trim(($itemNotes ? $itemNotes.'; ' : '')."damage_reason: {$dReason}");
+                    }
+                }
+
+                $inventoryAction = isset($line['inventory_action'])
+                    ? (ShopCreditNoteInventoryAction::tryResolve($line['inventory_action']) ?? $line['inventory_action'])
+                    : null;
+
                 $productLines[] = [
                     'source_shop_invoice_id' => $line['source_shop_invoice_id'] ?? null,
                     'shop_invoice_item_id' => (int) $line['shop_invoice_item_id'],
@@ -1742,9 +1805,9 @@ class ShopCreditNoteService
                     'credit_amount' => round($amt, 2),
                     'reason_type' => $line['reason_type'] ?? null,
                     'received_grade' => $line['received_grade'] ?? null,
-                    'inventory_action' => $line['inventory_action'] ?? null,
+                    'inventory_action' => $inventoryAction,
                     'direction' => $line['direction'] ?? ShopCreditNoteDirection::Credit,
-                    'notes' => $line['notes'] ?? null,
+                    'notes' => $itemNotes,
                 ];
             }
         }
