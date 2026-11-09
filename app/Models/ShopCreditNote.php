@@ -108,6 +108,35 @@ class ShopCreditNote extends Model
         return $this->hasMany(ShopCreditNoteReceipt::class, 'shop_credit_note_id');
     }
 
+    public function activeReceipts(): HasMany
+    {
+        return $this->hasMany(ShopCreditNoteReceipt::class, 'shop_credit_note_id')
+            ->where('status', 'verified')
+            ->whereNull('reversed_at');
+    }
+
+    /**
+     * Determine whether this credit note has active, unreconciled physical returns.
+     */
+    public function hasUnreconciledPhysicalReturns(): bool
+    {
+        if ($this->receipts()->exists()) {
+            return $this->receipts()
+                ->where('status', 'verified')
+                ->whereNull('reversed_at')
+                ->exists();
+        }
+
+        if ($this->stockMovements()->exists()) {
+            return true;
+        }
+
+        return StockMovement::query()
+            ->where('type', StockMovementType::SaleReversal->value)
+            ->where('notes', 'like', "%SCN: {$this->credit_note_number}%")
+            ->exists();
+    }
+
     public function activeApplications(): HasMany
     {
         return $this->hasMany(ShopCreditApplication::class, 'shop_credit_note_id')

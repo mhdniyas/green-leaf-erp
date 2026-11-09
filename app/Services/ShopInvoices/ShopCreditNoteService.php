@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services\ShopInvoices;
 
 use App\Enums\Inventory\ProductGrade;
-use App\Enums\Inventory\StockMovementType;
 use App\Enums\ShopInvoice\ShopCreditNoteAccountingMode;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
@@ -22,7 +21,6 @@ use App\Models\ShopCreditNoteItem;
 use App\Models\ShopCreditNoteReceipt;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
-use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Cashbook\InvoiceCashbookProjectionService;
@@ -1376,15 +1374,9 @@ class ShopCreditNoteService
             ]);
         }
 
-        $hasPhysicalStockMovements = $creditNoteInstance->stockMovements()->exists()
-            || StockMovement::query()
-                ->where('type', StockMovementType::SaleReversal->value)
-                ->where('notes', 'like', "%SCN: {$creditNoteInstance->credit_note_number}%")
-                ->exists();
-
-        if ($hasPhysicalStockMovements) {
+        if ($creditNoteInstance->hasUnreconciledPhysicalReturns()) {
             throw ValidationException::withMessages([
-                'stock_movements' => 'Cannot cancel credit note with associated inventory stock movements without warehouse reconciliation.',
+                'stock_movements' => 'Cannot cancel credit note with active, unreconciled warehouse receipts. Physical receipts must be reversed by warehouse staff first.',
             ]);
         }
 
@@ -1465,15 +1457,9 @@ class ShopCreditNoteService
                 ]);
             }
 
-            $hasPhysicalMovements = $lockedCreditNote->stockMovements()->exists()
-                || StockMovement::query()
-                    ->where('type', StockMovementType::SaleReversal->value)
-                    ->where('notes', 'like', "%SCN: {$lockedCreditNote->credit_note_number}%")
-                    ->exists();
-
-            if ($hasPhysicalMovements) {
+            if ($lockedCreditNote->hasUnreconciledPhysicalReturns()) {
                 throw ValidationException::withMessages([
-                    'stock_movements' => 'Cannot cancel credit note with associated inventory stock movements without warehouse reconciliation.',
+                    'stock_movements' => 'Cannot cancel credit note with active, unreconciled warehouse receipts. Physical receipts must be reversed by warehouse staff first.',
                 ]);
             }
 
@@ -1631,6 +1617,25 @@ class ShopCreditNoteService
             $actor,
             $reason,
             $disputedAt,
+        );
+    }
+
+    /**
+     * Reconcile / reverse a verified warehouse return receipt.
+     *
+     * @throws ValidationException
+     */
+    public function reversePhysicalReturn(
+        ShopCreditNoteReceipt|int $receipt,
+        User|int $actor,
+        string $reason,
+        ?CarbonInterface $reversedAt = null,
+    ): ShopCreditNoteReceipt {
+        return app(ShopCreditNoteWarehouseReceiptService::class)->reversePhysicalReturn(
+            $receipt,
+            $actor,
+            $reason,
+            $reversedAt,
         );
     }
 

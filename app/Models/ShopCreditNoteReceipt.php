@@ -20,12 +20,16 @@ class ShopCreditNoteReceipt extends Model
         'product_id',
         'warehouse_id',
         'stock_movement_id',
+        'reversal_stock_movement_id',
         'received_grade',
         'received_quantity',
         'received_by',
         'received_at',
         'status',
         'remarks',
+        'reversed_at',
+        'reversed_by',
+        'reversal_reason',
         'idempotency_key',
     ];
 
@@ -34,6 +38,7 @@ class ShopCreditNoteReceipt extends Model
         return [
             'received_quantity' => 'decimal:4',
             'received_at' => 'datetime',
+            'reversed_at' => 'datetime',
         ];
     }
 
@@ -67,6 +72,16 @@ class ShopCreditNoteReceipt extends Model
         return $this->belongsTo(User::class, 'received_by');
     }
 
+    public function reversalStockMovement(): BelongsTo
+    {
+        return $this->belongsTo(StockMovement::class, 'reversal_stock_movement_id');
+    }
+
+    public function reversedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reversed_by');
+    }
+
     public function isVerified(): bool
     {
         return $this->status === 'verified';
@@ -75,5 +90,15 @@ class ShopCreditNoteReceipt extends Model
     public function isDisputed(): bool
     {
         return $this->status === 'disputed';
+    }
+
+    public function isReversed(): bool
+    {
+        return $this->reversed_at !== null;
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('status', 'verified')->whereNull('reversed_at');
     }
 }
