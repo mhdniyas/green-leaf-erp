@@ -693,21 +693,18 @@ class ShopCreditNoteService
             ]);
         }
 
+        $defaultDate = today()->toDateString();
         $date = isset($payload['credit_note_date']) && filled($payload['credit_note_date'])
             ? Carbon::parse((string) $payload['credit_note_date'])->toDateString()
-            : today()->toDateString();
+            : $defaultDate;
 
-        $periodClosed = ShopAccountingPeriodClosure::query()
-            ->where('shop_id', $shopInstance->id)
-            ->whereDate('period_start', '<=', $date)
-            ->whereDate('period_end', '>=', $date)
-            ->exists();
-
-        if ($periodClosed) {
-            throw ValidationException::withMessages([
-                'credit_note_date' => 'Cannot create credit note in a closed accounting period.',
-            ]);
-        }
+        $this->validateBusinessDateSelection(
+            shop: $shopInstance,
+            creditNoteDate: $date,
+            defaultDate: $defaultDate,
+            actor: $creatorUser,
+            periodErrorMessage: 'Cannot create credit note in a closed accounting period.',
+        );
 
         $parsed = $this->parseDraftLinesPayload($payload);
         $productAdjustmentLines = $parsed['product_lines'];
@@ -880,21 +877,19 @@ class ShopCreditNoteService
             }
         }
 
+        $actorUser = $actor instanceof User ? $actor : User::findOrFail($actor);
+        $defaultDate = $creditNote->credit_note_date?->toDateString() ?? today()->toDateString();
         $date = isset($payload['credit_note_date']) && filled($payload['credit_note_date'])
             ? Carbon::parse((string) $payload['credit_note_date'])->toDateString()
-            : ($creditNote->credit_note_date?->toDateString() ?? today()->toDateString());
+            : $defaultDate;
 
-        $periodClosed = ShopAccountingPeriodClosure::query()
-            ->where('shop_id', $creditNote->shop_id)
-            ->whereDate('period_start', '<=', $date)
-            ->whereDate('period_end', '>=', $date)
-            ->exists();
-
-        if ($periodClosed) {
-            throw ValidationException::withMessages([
-                'credit_note_date' => 'Cannot update credit note to a closed accounting period.',
-            ]);
-        }
+        $this->validateBusinessDateSelection(
+            shop: $creditNote->shop,
+            creditNoteDate: $date,
+            defaultDate: $defaultDate,
+            actor: $actorUser,
+            periodErrorMessage: 'Cannot update credit note to a closed accounting period.',
+        );
 
         $parsed = $this->parseDraftLinesPayload($payload);
         $productAdjustmentLines = $parsed['product_lines'];
@@ -1030,6 +1025,55 @@ class ShopCreditNoteService
 
             return $lockedCreditNote->fresh(['items.product', 'items.invoiceItem', 'items.sourceInvoice', 'shop']);
         });
+    }
+
+    /**
+     * Check if a user is authorized to override the default Credit Note business date.
+     */
+    public function canOverrideBusinessDate(?User $user): bool
+    {
+        return $user instanceof User && (
+            (method_exists($user, 'isMainAdmin') && $user->isMainAdmin())
+            || $user->hasRole('admin')
+            || $user->hasRole('super_admin')
+        );
+    }
+
+    /**
+     * Validate business date bounds, override authorization, and accounting-period closure.
+     *
+     * @throws ValidationException
+     */
+    public function validateBusinessDateSelection(
+        Shop $shop,
+        string $creditNoteDate,
+        string $defaultDate,
+        ?User $actor,
+        string $periodErrorMessage = 'Cannot create credit note in a closed accounting period.',
+    ): void {
+        if (Carbon::parse($creditNoteDate)->startOfDay()->isAfter(today())) {
+            throw ValidationException::withMessages([
+                'credit_note_date' => 'Credit note business date cannot be in the future.',
+            ]);
+        }
+
+        if ($creditNoteDate !== $defaultDate && ! $this->canOverrideBusinessDate($actor)) {
+            throw ValidationException::withMessages([
+                'credit_note_date' => 'Only authorized administrators can override the default Credit Note business date.',
+            ]);
+        }
+
+        $periodClosed = ShopAccountingPeriodClosure::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('period_start', '<=', $creditNoteDate)
+            ->whereDate('period_end', '>=', $creditNoteDate)
+            ->exists();
+
+        if ($periodClosed) {
+            throw ValidationException::withMessages([
+                'credit_note_date' => $periodErrorMessage,
+            ]);
+        }
     }
 
     /**

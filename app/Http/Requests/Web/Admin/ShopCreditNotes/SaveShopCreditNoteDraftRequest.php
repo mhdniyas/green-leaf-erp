@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Requests\Web\Admin\ShopCreditNotes;
 
 use App\Models\Shop;
+use App\Models\ShopAccountingPeriodClosure;
+use App\Models\ShopCreditNote;
 use App\Models\ShopInvoice;
 use App\Models\User;
+use App\Services\ShopInvoices\ShopCreditNoteService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
@@ -41,11 +44,17 @@ class SaveShopCreditNoteDraftRequest extends FormRequest
         }
 
         // If editing an existing draft and shop_id was omitted, resolve from route model
-        if (! $this->filled('shop_id')) {
-            $routeModel = $this->route('creditNote');
-            if ($routeModel && isset($routeModel->shop_id)) {
-                $this->merge(['shop_id' => (int) $routeModel->shop_id]);
-            }
+        $routeModel = $this->route('creditNote');
+        if (! $this->filled('shop_id') && $routeModel && isset($routeModel->shop_id)) {
+            $this->merge(['shop_id' => (int) $routeModel->shop_id]);
+        }
+
+        // Default credit_note_date to existing draft date on update, or today on create
+        if (! $this->filled('credit_note_date')) {
+            $defaultDate = ($routeModel instanceof ShopCreditNote && $routeModel->credit_note_date)
+                ? $routeModel->credit_note_date->toDateString()
+                : today()->toDateString();
+            $this->merge(['credit_note_date' => $defaultDate]);
         }
     }
 
@@ -58,7 +67,7 @@ class SaveShopCreditNoteDraftRequest extends FormRequest
     {
         return [
             'shop_id' => ['required', 'integer', 'exists:shops,id'],
-            'credit_note_date' => ['required', 'date'],
+            'credit_note_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'expected_lock_version' => ['nullable', 'integer'],
             'expected_updated_at' => ['nullable', 'string'],
@@ -155,6 +164,37 @@ class SaveShopCreditNoteDraftRequest extends FormRequest
                                 "Cross-shop invoice blocked: Source invoice '{$invNum}' does not belong to the selected shop."
                             );
                         }
+                    }
+                }
+            }
+
+            // Business date override authorization and accounting-period closure validation
+            $submittedDate = (string) $this->input('credit_note_date', '');
+            if ($submittedDate !== '' && ! $v->errors()->has('credit_note_date')) {
+                $routeModel = $this->route('creditNote');
+                $defaultDate = ($routeModel instanceof ShopCreditNote && $routeModel->credit_note_date)
+                    ? $routeModel->credit_note_date->toDateString()
+                    : today()->toDateString();
+
+                if ($submittedDate !== $defaultDate && ! app(ShopCreditNoteService::class)->canOverrideBusinessDate($this->user())) {
+                    $v->errors()->add(
+                        'credit_note_date',
+                        'Only authorized administrators can override the default Credit Note business date.'
+                    );
+                } elseif ($shopId > 0) {
+                    $periodClosed = ShopAccountingPeriodClosure::query()
+                        ->where('shop_id', $shopId)
+                        ->whereDate('period_start', '<=', $submittedDate)
+                        ->whereDate('period_end', '>=', $submittedDate)
+                        ->exists();
+
+                    if ($periodClosed) {
+                        $v->errors()->add(
+                            'credit_note_date',
+                            $routeModel instanceof ShopCreditNote
+                                ? 'Cannot update credit note to a closed accounting period.'
+                                : 'Cannot create credit note in a closed accounting period.'
+                        );
                     }
                 }
             }

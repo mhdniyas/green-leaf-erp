@@ -1257,6 +1257,8 @@ Route::middleware('auth')->group(function () {
                     Route::get('{creditNote}/edit', [ShopCreditNoteDraftController::class, 'edit'])->name('edit');
                     Route::match(['PUT', 'PATCH', 'POST'], '{creditNote}', [ShopCreditNoteDraftController::class, 'update'])->name('update');
                     Route::get('search-lines', [ShopCreditNoteDraftController::class, 'searchLines'])->name('search-lines');
+                    Route::get('search-products', [ShopCreditNoteDraftController::class, 'searchProducts'])->name('search-products');
+                    Route::get('daily-price', [ShopCreditNoteDraftController::class, 'dailyPrice'])->name('daily-price');
                     Route::post('{creditNote}/finalize', [ShopCreditNoteDraftController::class, 'finalize'])->name('finalize');
                 });
 

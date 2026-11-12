@@ -10,10 +10,12 @@ use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
 use App\Enums\ShopInvoice\ShopCreditNoteReason;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Admin\ShopCreditNotes\SaveShopCreditNoteDraftRequest;
+use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopCreditNote;
 use App\Models\ShopInvoiceItem;
 use App\Models\User;
+use App\Services\Pricing\ApprovedDailyPriceResolver;
 use App\Services\ShopInvoices\ShopCreditNoteEligibilityService;
 use App\Services\ShopInvoices\ShopCreditNoteService;
 use Carbon\Carbon;
@@ -28,6 +30,7 @@ class ShopCreditNoteDraftController extends Controller
     public function __construct(
         protected ShopCreditNoteService $creditNoteService,
         protected ShopCreditNoteEligibilityService $eligibilityService,
+        protected ApprovedDailyPriceResolver $dailyPriceResolver,
     ) {}
 
     /**
@@ -35,7 +38,7 @@ class ShopCreditNoteDraftController extends Controller
      */
     public function create(Request $request): View
     {
-        $this->ensureAuthorizedOfficeUser($request);
+        $user = $this->ensureAuthorizedOfficeUser($request);
 
         $shops = Shop::query()->orderBy('name')->get(['id', 'name', 'code']);
         $selectedShopId = (int) $request->query('shop_id', 0);
@@ -47,6 +50,7 @@ class ShopCreditNoteDraftController extends Controller
             'shops' => $shops,
             'selectedShopId' => $selectedShopId ?: null,
             'defaultDate' => $defaultDate,
+            'canOverrideBusinessDate' => $this->creditNoteService->canOverrideBusinessDate($user),
             'reasons' => ShopCreditNoteReason::cases(),
             'inventoryActions' => ShopCreditNoteInventoryAction::cases(),
             'wastageReasons' => WastageReason::cases(),
@@ -101,7 +105,7 @@ class ShopCreditNoteDraftController extends Controller
      */
     public function edit(Request $request, ShopCreditNote $creditNote): View|RedirectResponse
     {
-        $this->ensureAuthorizedOfficeUser($request);
+        $user = $this->ensureAuthorizedOfficeUser($request);
 
         if (! $creditNote->isDraft()) {
             return redirect()
@@ -130,6 +134,7 @@ class ShopCreditNoteDraftController extends Controller
             'shops' => $shops,
             'selectedShopId' => $creditNote->shop_id,
             'defaultDate' => $creditNote->credit_note_date?->toDateString() ?? today()->toDateString(),
+            'canOverrideBusinessDate' => $this->creditNoteService->canOverrideBusinessDate($user),
             'reasons' => ShopCreditNoteReason::cases(),
             'inventoryActions' => ShopCreditNoteInventoryAction::cases(),
             'wastageReasons' => WastageReason::cases(),
@@ -362,6 +367,127 @@ class ShopCreditNoteDraftController extends Controller
             'count' => count($results),
             'items' => $results,
         ]);
+    }
+
+    /**
+     * Read-only paginated catalog search for active products in Shop Credit Note entry.
+     */
+    public function searchProducts(Request $request): JsonResponse
+    {
+        $this->ensureAuthorizedOfficeUser($request);
+
+        $validated = $request->validate([
+            'shop_id' => ['required', 'integer', 'exists:shops,id'],
+            'q' => ['nullable', 'string', 'max:100'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
+
+        $shopId = (int) $validated['shop_id'];
+        $searchQuery = trim((string) ($validated['q'] ?? ''));
+        $page = max(1, (int) ($validated['page'] ?? 1));
+        $perPage = max(1, min(100, (int) ($validated['per_page'] ?? 25)));
+
+        $paginator = Product::query()
+            ->active()
+            ->when($searchQuery !== '', function ($query) use ($searchQuery): void {
+                $query->where(function ($sub) use ($searchQuery): void {
+                    $sub->where('name', 'like', "%{$searchQuery}%")
+                        ->orWhere('sku', 'like', "%{$searchQuery}%");
+                });
+            })
+            ->ordered()
+            ->paginate($perPage, ['id', 'name', 'sku', 'unit'], 'page', $page);
+
+        $supportedGrades = array_map(
+            static fn (ProductGrade $grade): string => $grade->value,
+            ProductGrade::commercialGrades(),
+        );
+
+        $items = collect($paginator->items())
+            ->map(static fn (Product $product): array => [
+                'id' => $product->id,
+                'name' => $product->name,
+                'sku' => (string) ($product->sku ?? ''),
+                'unit' => (string) ($product->unit ?: 'kg'),
+                'supported_grades' => $supportedGrades,
+            ])
+            ->values()
+            ->all();
+
+        return response()->json([
+            'success' => true,
+            'shop_id' => $shopId,
+            'items' => $items,
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'has_more' => $paginator->hasMorePages(),
+            ],
+        ]);
+    }
+
+    /**
+     * Read-only daily selling price lookup for a shop, product, grade, and business date.
+     */
+    public function dailyPrice(Request $request): JsonResponse
+    {
+        $this->ensureAuthorizedOfficeUser($request);
+
+        $validated = $request->validate([
+            'shop_id' => ['required', 'integer', 'exists:shops,id'],
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'grade' => ['nullable', 'string', 'max:20'],
+            'business_date' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
+        ]);
+
+        $gradeInput = $validated['grade'] ?? ProductGrade::GradeA->value;
+        $resolvedGrade = ProductGrade::tryResolve($gradeInput);
+
+        if (! $resolvedGrade instanceof ProductGrade || ! $resolvedGrade->isDirectGraded()) {
+            throw ValidationException::withMessages([
+                'grade' => 'Selected grade must be A, B, or C.',
+            ]);
+        }
+
+        $businessDate = (string) ($validated['business_date'] ?? today()->toDateString());
+        $shop = Shop::query()->with('priceGroup')->findOrFail((int) $validated['shop_id']);
+        $product = Product::query()->findOrFail((int) $validated['product_id']);
+
+        try {
+            $resolved = $this->dailyPriceResolver->resolve($product, $shop, $businessDate, $resolvedGrade);
+
+            return response()->json([
+                'success' => true,
+                'available' => true,
+                'shop_id' => $shop->id,
+                'product_id' => $product->id,
+                'grade' => $resolved['grade'],
+                'business_date' => $businessDate,
+                'price' => $resolved['price'],
+                'price_unit' => $resolved['price_unit'],
+                'source' => $resolved['source'],
+                'category_code' => $resolved['category_code'],
+                'message' => null,
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => true,
+                'available' => false,
+                'shop_id' => $shop->id,
+                'product_id' => $product->id,
+                'grade' => $resolvedGrade->value,
+                'business_date' => $businessDate,
+                'price' => null,
+                'price_unit' => null,
+                'source' => null,
+                'category_code' => null,
+                'message' => collect($e->errors())->flatten()->first()
+                    ?? 'No approved daily price available for the selected date.',
+            ]);
+        }
     }
 
     /**
