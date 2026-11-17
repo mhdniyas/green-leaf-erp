@@ -772,7 +772,7 @@ class PurchaserDashboardController extends Controller
         ]);
     }
 
-    public function bulkBuy(Request $request): View|RedirectResponse
+    public function bulkBuy(Request $request): View|RedirectResponse|JsonResponse
     {
         $this->ensurePurchaser($request);
 
@@ -788,57 +788,138 @@ class PurchaserDashboardController extends Controller
         $frequentProductIds = $this->frequentProductIds((int) $user->id);
         $warehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
 
-        if ($purchaseGrade === 'ALL') {
-            $dailySummary = $this->dailyInitialQuery->getPendingDemand(
-                date: $date,
-                purchaseGrade: 'ALL',
-                user: $user,
-                warehouseId: $warehouseId,
-            )->map(function (array $item) use ($frequentProductIds): array {
-                $item['is_frequent'] = in_array((int) $item['product_id'], $frequentProductIds, true);
+        $pendingSummary = $this->dailyInitialQuery->getPendingDemand(
+            date: $date,
+            purchaseGrade: $purchaseGrade,
+            user: $user,
+            warehouseId: $warehouseId,
+            strictGrade: true,
+        )->map(function (array $item) use ($frequentProductIds): array {
+            $item['is_frequent'] = in_array((int) $item['product_id'], $frequentProductIds, true);
 
-                return $item;
-            });
-            $pendingSummary = $dailySummary;
-            $orderedSummary = $dailySummary;
+            return $item;
+        });
 
-            $totalOrderedProducts = (int) ShopOrderItem::query()
-                ->whereNull('deleted_at')
-                ->whereHas('order', function ($query) use ($date): void {
-                    $query->whereDate('business_date', $date->toDateString())->where('state', 'approved');
-                })
-                ->distinct('product_id')
-                ->count('product_id');
-            $fulfilledCount = max(0, $totalOrderedProducts - $pendingSummary->count());
-        } elseif ($purchaseGrade === 'B') {
-            $dailySummary = $this->buildGradeBPurchaseCatalog($date, (int) $user->id);
-            $orderedSummary = $dailySummary->where('has_grade_b_order', true);
-            $pendingSummary = $orderedSummary->filter(fn (array $summary): bool => (float) $summary['remaining_qty'] > 0)->values();
-            $pendingSummary = $this->warehouseBalanceService->attachWarehouseBalances($pendingSummary, $date, $warehouseId, 'B');
-            $fulfilledCount = $orderedSummary->filter(fn (array $summary): bool => (float) $summary['remaining_qty'] <= 0)->count();
-            $dailySummary = $pendingSummary;
-        } else {
-            $orderedSummary = $this->buildDailySummary($date, $frequentProductIds, includeDetails: false, purchaseGrade: $purchaseGrade);
-            $pendingSummary = $orderedSummary->filter(fn (array $summary): bool => (float) $summary['remaining_qty'] > 0)->values();
-            $pendingSummary = $this->warehouseBalanceService->attachWarehouseBalances($pendingSummary, $date, $warehouseId, $purchaseGrade);
-            $fulfilledCount = $orderedSummary->filter(fn (array $summary): bool => (float) $summary['remaining_qty'] <= 0)->count();
-            $dailySummary = $pendingSummary;
+        $fulfilledCount = $this->dailyInitialQuery->getFulfilledCount($date, $purchaseGrade, $user);
+        $quickFilters = $this->quickFiltersForPurchaser($user);
+
+        // JSON response for programmatic API / testing
+        if ($request->wantsJson() || $request->query('format') === 'json') {
+            return response()->json([
+                'date' => $date->format('Y-m-d'),
+                'purchase_grade' => $purchaseGrade,
+                'pending_summary' => $pendingSummary,
+                'pending_count' => $pendingSummary->count(),
+                'fulfilled_count' => $fulfilledCount,
+            ]);
         }
 
-        $quickFilters = $this->quickFiltersForPurchaser($user);
-        $draftCarts = $this->draftCartsForDate((int) $user->id, $date);
+        // Partial HTML for asynchronous grade switching
+        if ($request->boolean('partial') || $request->header('X-Partial') === 'pending') {
+            return view('purchasing.purchaser.partials.bulk_pending_items', [
+                'date' => $date->format('Y-m-d'),
+                'purchaseGrade' => $purchaseGrade,
+                'pendingSummary' => $pendingSummary,
+                'draftCarts' => collect(),
+            ]);
+        }
 
         return view('purchasing.purchaser.bulk_buy', [
             'date' => $date->format('Y-m-d'),
             'purchaseGrade' => $purchaseGrade,
             'quickFilters' => $quickFilters,
-            'dailySummary' => $dailySummary,
+            'dailySummary' => $pendingSummary,
             'pendingSummary' => $pendingSummary,
-            'draftCarts' => $draftCarts,
+            'draftCarts' => collect(),
             'pendingCount' => $pendingSummary->count(),
             'fulfilledCount' => $fulfilledCount,
             'deadlineAlert' => ['show' => false],
         ]);
+    }
+
+    public function bulkBuySecondary(Request $request): JsonResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+        if ($date instanceof RedirectResponse) {
+            $date = $this->businessDayService->operationalDate();
+        }
+
+        $rawGrade = $request->string('purchase_grade')->upper()->toString();
+        $purchaseGrade = $this->resolvePurchaseGrade($rawGrade, 'A');
+        $user = $request->user();
+
+        $cacheData = $this->readCacheService->remember(
+            scopes: ['orders', 'carts', 'products'],
+            dataset: 'bulk_buy_secondary',
+            ttlSeconds: 60,
+            callback: function () use ($date, $purchaseGrade, $user): array {
+                $draftCarts = PurchaserCart::query()
+                    ->where('user_id', (int) $user->id)
+                    ->whereDate('business_date', $date->toDateString())
+                    ->where('status', 'draft')
+                    ->select(['id', 'cart_number', 'purchase_grade', 'supplier_id', 'business_date', 'user_id', 'status', 'updated_at'])
+                    ->with('supplier:id,name')
+                    ->withCount('items')
+                    ->orderByDesc('updated_at')
+                    ->get()
+                    ->map(fn (PurchaserCart $cart): array => [
+                        'id' => (int) $cart->id,
+                        'cart_number' => (string) $cart->cart_number,
+                        'purchase_grade' => (string) $cart->purchase_grade,
+                        'supplier_id' => $cart->supplier_id ? (int) $cart->supplier_id : null,
+                        'supplier_name' => (string) ($cart->supplier?->name ?? ''),
+                        'items_count' => (int) ($cart->items_count ?? 0),
+                    ])
+                    ->all();
+
+                $productIds = ShopOrderItem::query()
+                    ->whereNull('deleted_at')
+                    ->whereHas('order', fn ($q) => $q->whereDate('business_date', $date->toDateString())->where('state', 'approved'))
+                    ->when($purchaseGrade !== 'ALL', function ($q) use ($purchaseGrade): void {
+                        if ($purchaseGrade === 'A') {
+                            $q->where(fn ($sub) => $sub->where('product_grade', 'A')->orWhereNull('product_grade'));
+                        } else {
+                            $q->where('product_grade', $purchaseGrade);
+                        }
+                    })
+                    ->distinct('product_id')
+                    ->pluck('product_id')
+                    ->map(fn ($id): int => (int) $id)
+                    ->all();
+
+                $previousPrices = $this->previousPriceResolver->getPreviousWeightedPrices(
+                    $productIds,
+                    $date,
+                    $purchaseGrade === 'ALL' ? 'A' : $purchaseGrade
+                );
+
+                $fallbackPrices = Product::query()
+                    ->whereIn('id', $productIds)
+                    ->pluck('vendor_price', 'id')
+                    ->map(fn ($p): float => (float) $p)
+                    ->all();
+
+                $priceHints = [];
+                foreach ($productIds as $pId) {
+                    $priceHints[$pId] = ($previousPrices[$pId] ?? 0.0) > 0
+                        ? (float) $previousPrices[$pId]
+                        : (float) ($fallbackPrices[$pId] ?? 0.0);
+                }
+
+                return [
+                    'purchase_grade' => $purchaseGrade,
+                    'price_hints' => $priceHints,
+                    'draft_carts' => $draftCarts,
+                ];
+            },
+            userId: (int) $user->id,
+            businessDate: $date,
+            grade: $purchaseGrade,
+        );
+
+        return response()->json($cacheData);
     }
 
     public function bulkBuyFulfilled(Request $request): View|RedirectResponse
@@ -849,34 +930,11 @@ class PurchaserDashboardController extends Controller
             return $date;
         }
         $rawGrade = $request->string('purchase_grade')->upper()->toString();
-        $purchaseGrade = in_array($rawGrade, ['A', 'B', 'C'], true) ? $rawGrade : 'ALL';
+        $purchaseGrade = $this->resolvePurchaseGrade($rawGrade, 'A');
         $user = $request->user();
-        $frequentProductIds = $this->frequentProductIds((int) $user->id);
         $warehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
 
-        if ($purchaseGrade === 'B') {
-            $summary = $this->buildGradeBPurchaseCatalog($date, (int) $user->id);
-            $fulfilledSummary = $summary
-                ->where('has_grade_b_order', true)
-                ->filter(fn (array $item): bool => (float) $item['remaining_qty'] <= 0)
-                ->values();
-        } elseif (in_array($purchaseGrade, ['A', 'C'], true)) {
-            $summary = $this->buildDailySummary($date, $frequentProductIds, includeDetails: false, purchaseGrade: $purchaseGrade);
-            $fulfilledSummary = $summary
-                ->filter(fn (array $item): bool => (float) $item['remaining_qty'] <= 0)
-                ->values();
-        } else {
-            $summaryA = $this->buildDailySummary($date, $frequentProductIds, includeDetails: false, purchaseGrade: 'A');
-            $summaryB = $this->buildDailySummary($date, $frequentProductIds, includeDetails: false, purchaseGrade: 'B');
-            $summaryC = $this->buildDailySummary($date, $frequentProductIds, includeDetails: false, purchaseGrade: 'C');
-            $combined = $summaryA->concat($summaryB)->concat($summaryC);
-            $fulfilledSummary = $combined
-                ->filter(fn (array $item): bool => (float) $item['remaining_qty'] <= 0)
-                ->unique('product_id')
-                ->values();
-        }
-
-        $fulfilledSummary = $this->warehouseBalanceService->attachWarehouseBalances($fulfilledSummary, $date, $warehouseId, $purchaseGrade);
+        $fulfilledSummary = $this->dailyInitialQuery->getFulfilledDemand($date, $purchaseGrade, $user, $warehouseId);
 
         return view('purchasing.purchaser.partials.bulk_fulfilled', [
             'fulfilledSummary' => $fulfilledSummary,
@@ -1391,12 +1449,21 @@ class PurchaserDashboardController extends Controller
                 });
             });
 
-        $tabCounts = [
-            'today' => (clone $todayBaseQuery)->count(),
-            'credit' => (clone $creditBaseQuery)->count(),
-            'due' => (clone $dueBaseQuery)->count(),
-            'history' => (clone $historyBaseQuery)->count(),
-        ];
+        $tabCounts = $this->readCacheService->remember(
+            scopes: ['carts'],
+            dataset: 'history_tab_counts',
+            ttlSeconds: 30,
+            callback: function () use ($todayBaseQuery, $creditBaseQuery, $dueBaseQuery, $historyBaseQuery): array {
+                return [
+                    'today' => (clone $todayBaseQuery)->count(),
+                    'credit' => (clone $creditBaseQuery)->count(),
+                    'due' => (clone $dueBaseQuery)->count(),
+                    'history' => (clone $historyBaseQuery)->count(),
+                ];
+            },
+            userId: $userId,
+            businessDate: $date,
+        );
 
         $activeQuery = match ($activeTab) {
             'credit' => (clone $creditBaseQuery)->orderByDesc('business_date')->orderByDesc('updated_at'),
@@ -1497,72 +1564,82 @@ class PurchaserDashboardController extends Controller
         $monthStart = $date->copy()->startOfMonth();
         $monthEnd = $date->copy()->endOfMonth();
 
-        $monthAggregates = DB::table('purchaser_carts')
-            ->leftJoin('purchase_invoices', function ($join): void {
-                $join->on('purchaser_carts.id', '=', 'purchase_invoices.purchaser_cart_id')
-                    ->whereNull('purchase_invoices.deleted_at');
-            })
-            ->leftJoin('purchaser_cart_items', 'purchaser_carts.id', '=', 'purchaser_cart_items.purchaser_cart_id')
-            ->where('purchaser_carts.user_id', $userId)
-            ->whereBetween('purchaser_carts.business_date', [$monthStart->format('Y-m-d'), $monthEnd->format('Y-m-d')])
-            ->where('purchaser_carts.status', '!=', 'cancelled')
-            ->selectRaw('
-                purchaser_carts.id,
-                purchaser_carts.status,
-                purchaser_carts.payment_method,
-                purchaser_carts.discount_amount as cart_discount,
-                purchase_invoices.id as invoice_id,
-                purchase_invoices.amount as invoice_amount,
-                purchase_invoices.discount_amount as invoice_discount,
-                purchase_invoices.paid_amount as invoice_paid,
-                COALESCE(SUM(purchaser_cart_items.line_total), 0) as items_line_total
-            ')
-            ->groupBy(
-                'purchaser_carts.id',
-                'purchaser_carts.status',
-                'purchaser_carts.payment_method',
-                'purchaser_carts.discount_amount',
-                'purchase_invoices.id',
-                'purchase_invoices.amount',
-                'purchase_invoices.discount_amount',
-                'purchase_invoices.paid_amount'
-            )
-            ->get();
+        $monthSummary = $this->readCacheService->remember(
+            scopes: ['carts'],
+            dataset: 'history_month_summary',
+            ttlSeconds: 60,
+            callback: function () use ($userId, $date, $monthStart, $monthEnd, $includeExpenses): array {
+                $monthAggregates = DB::table('purchaser_carts')
+                    ->leftJoin('purchase_invoices', function ($join): void {
+                        $join->on('purchaser_carts.id', '=', 'purchase_invoices.purchaser_cart_id')
+                            ->whereNull('purchase_invoices.deleted_at');
+                    })
+                    ->leftJoin('purchaser_cart_items', 'purchaser_carts.id', '=', 'purchaser_cart_items.purchaser_cart_id')
+                    ->where('purchaser_carts.user_id', $userId)
+                    ->whereBetween('purchaser_carts.business_date', [$monthStart->format('Y-m-d'), $monthEnd->format('Y-m-d')])
+                    ->where('purchaser_carts.status', '!=', 'cancelled')
+                    ->selectRaw('
+                        purchaser_carts.id,
+                        purchaser_carts.status,
+                        purchaser_carts.payment_method,
+                        purchaser_carts.discount_amount as cart_discount,
+                        purchase_invoices.id as invoice_id,
+                        purchase_invoices.amount as invoice_amount,
+                        purchase_invoices.discount_amount as invoice_discount,
+                        purchase_invoices.paid_amount as invoice_paid,
+                        COALESCE(SUM(purchaser_cart_items.line_total), 0) as items_line_total
+                    ')
+                    ->groupBy(
+                        'purchaser_carts.id',
+                        'purchaser_carts.status',
+                        'purchaser_carts.payment_method',
+                        'purchaser_carts.discount_amount',
+                        'purchase_invoices.id',
+                        'purchase_invoices.amount',
+                        'purchase_invoices.discount_amount',
+                        'purchase_invoices.paid_amount'
+                    )
+                    ->get();
 
-        $monthTotalPurchase = 0.0;
-        $monthTotalCash = 0.0;
-        foreach ($monthAggregates as $row) {
-            if ($row->status === 'draft') {
-                $monthTotalPurchase += (float) $row->items_line_total - (float) $row->cart_discount;
-            } elseif ($row->invoice_id) {
-                $net = max(0.0, (float) $row->invoice_amount - (float) $row->invoice_discount);
-                $monthTotalPurchase += $net;
-                $monthTotalCash += min($net, max(0.0, (float) $row->invoice_paid));
-            } else {
-                $net = max(0.0, (float) $row->items_line_total - (float) $row->cart_discount);
-                $monthTotalPurchase += $net;
-                if (strcasecmp((string) $row->payment_method, 'Cash') === 0) {
-                    $monthTotalCash += $net;
+                $monthTotalPurchase = 0.0;
+                $monthTotalCash = 0.0;
+                foreach ($monthAggregates as $row) {
+                    if ($row->status === 'draft') {
+                        $monthTotalPurchase += (float) $row->items_line_total - (float) $row->cart_discount;
+                    } elseif ($row->invoice_id) {
+                        $net = max(0.0, (float) $row->invoice_amount - (float) $row->invoice_discount);
+                        $monthTotalPurchase += $net;
+                        $monthTotalCash += min($net, max(0.0, (float) $row->invoice_paid));
+                    } else {
+                        $net = max(0.0, (float) $row->items_line_total - (float) $row->cart_discount);
+                        $monthTotalPurchase += $net;
+                        if (strcasecmp((string) $row->payment_method, 'Cash') === 0) {
+                            $monthTotalCash += $net;
+                        }
+                    }
                 }
-            }
-        }
 
-        $monthExpenseTotal = round((float) ProcurementExpense::query()
-            ->where('user_id', $userId)
-            ->whereBetween('expense_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
-            ->sum('amount'), 2);
+                $monthExpenseTotal = round((float) ProcurementExpense::query()
+                    ->where('user_id', $userId)
+                    ->whereBetween('expense_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
+                    ->sum('amount'), 2);
 
-        $monthSummary = [
-            'month_name' => $date->format('F Y'),
-            'start_date_formatted' => $monthStart->format('d M Y'),
-            'end_date_formatted' => $monthEnd->format('d M Y'),
-            'total_carts' => $monthAggregates->count(),
-            'total_purchase' => $monthTotalPurchase,
-            'total_cash' => $monthTotalCash,
-            'total_credit' => max(0.0, $monthTotalPurchase - $monthTotalCash),
-            'expense_total' => $monthExpenseTotal,
-            'grand_total' => round($monthTotalPurchase + ($includeExpenses ? $monthExpenseTotal : 0.0), 2),
-        ];
+                return [
+                    'month_name' => $date->format('F Y'),
+                    'start_date_formatted' => $monthStart->format('d M Y'),
+                    'end_date_formatted' => $monthEnd->format('d M Y'),
+                    'total_carts' => $monthAggregates->count(),
+                    'total_purchase' => $monthTotalPurchase,
+                    'total_cash' => $monthTotalCash,
+                    'total_credit' => max(0.0, $monthTotalPurchase - $monthTotalCash),
+                    'expense_total' => $monthExpenseTotal,
+                    'grand_total' => round($monthTotalPurchase + ($includeExpenses ? $monthExpenseTotal : 0.0), 2),
+                ];
+            },
+            userId: $userId,
+            businessDate: $date,
+            filters: ['include_expenses' => $includeExpenses, 'month' => $monthStart->format('Y-m')],
+        );
 
         $operationalDate = $this->businessDayService->operationalDate();
         $statusBadges = $paginatedCarts->getCollection()->mapWithKeys(function (PurchaserCart $cart) use ($operationalDate): array {
@@ -7083,9 +7160,9 @@ class PurchaserDashboardController extends Controller
     {
         $user ??= auth()->user();
         if (! $user) {
-            return Supplier::query()->orderBy('name')->get();
+            return Supplier::query()->select(['id', 'name', 'mobile_number'])->orderBy('name')->get();
         }
 
-        return $user->scopedSuppliersQuery()->orderBy('name')->get();
+        return $user->scopedSuppliersQuery()->select(['suppliers.id', 'suppliers.name', 'suppliers.mobile_number'])->orderBy('suppliers.name')->get();
     }
 }

@@ -21,6 +21,7 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -995,5 +996,368 @@ class PurchaserBulkBuyOptimizedTest extends TestCase
         $this->assertEquals('ALL', $responseReturnAll->viewData('purchaseGrade'));
         $responseReturnAll->assertSee('All Grades Purchaser Flow');
         $responseReturnAll->assertDontSee('Grade A Purchaser Flow');
+    }
+
+    public function test_default_grade_is_a_and_loads_only_configured_default_grade(): void
+    {
+        // Product C with only Grade C order
+        $productC = Product::factory()->create([
+            'category_id' => $this->category->id,
+            'name' => 'Broccoli Grade C Only',
+            'sku' => 'BROC-C',
+            'unit' => 'kg',
+            'is_active' => true,
+            'show_in_purchaser_order' => true,
+        ]);
+
+        $order = ShopOrder::factory()->create([
+            'business_date' => '2026-08-24',
+            'order_source' => 'shop_owner',
+            'state' => 'approved',
+            'order_number' => 'SO-BROC-C',
+        ]);
+        DB::table('shop_orders')->where('id', $order->id)->update(['business_date' => '2026-08-24']);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $productC->id,
+            'product_grade' => 'C',
+            'approved_qty' => 40.0,
+            'requested_qty' => 40.0,
+            'unit' => 'kg',
+        ]);
+
+        app(PurchaserReadCacheService::class)->invalidate(['orders', 'carts', 'products', 'settings']);
+
+        // 1. Visit bulk-buy without purchase_grade parameter (Default load)
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', ['date' => '2026-08-24']));
+        $response->assertOk();
+
+        // Default grade must be A
+        $this->assertEquals('A', $response->viewData('purchaseGrade'));
+        $response->assertSee('Grade A Purchaser Flow');
+
+        // Product C should NOT be included in Grade A pending items
+        $pendingSummary = $response->viewData('pendingSummary');
+        $this->assertNull($pendingSummary->firstWhere('product_id', $productC->id));
+
+        // Initial view defers draft carts (loaded via L2)
+        $this->assertEmpty($response->viewData('draftCarts'));
+    }
+
+    public function test_fetching_another_grade_via_partial_endpoint_on_explicit_selection(): void
+    {
+        $productC = Product::factory()->create([
+            'category_id' => $this->category->id,
+            'name' => 'Capsicum Grade C',
+            'sku' => 'CAP-C',
+            'unit' => 'kg',
+            'is_active' => true,
+            'show_in_purchaser_order' => true,
+        ]);
+
+        $order = ShopOrder::factory()->create([
+            'business_date' => '2026-08-24',
+            'order_source' => 'shop_owner',
+            'state' => 'approved',
+            'order_number' => 'SO-CAP-C',
+        ]);
+        DB::table('shop_orders')->where('id', $order->id)->update(['business_date' => '2026-08-24']);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $productC->id,
+            'product_grade' => 'C',
+            'approved_qty' => 25.0,
+            'requested_qty' => 25.0,
+            'unit' => 'kg',
+        ]);
+
+        app(PurchaserReadCacheService::class)->invalidate(['orders', 'carts', 'products', 'settings']);
+
+        // Explicitly fetch Grade C partial
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', [
+            'date' => '2026-08-24',
+            'purchase_grade' => 'C',
+            'partial' => '1',
+        ]));
+
+        $response->assertOk();
+        $response->assertViewIs('purchasing.purchaser.partials.bulk_pending_items');
+        $response->assertSee('Capsicum Grade C');
+        $response->assertSee('Need: 25.0 kg');
+        // Partial should not contain full page layout wrappers
+        $response->assertDontSee('<!DOCTYPE html>', false);
+        $response->assertDontSee('<x-layouts.app', false);
+    }
+
+    public function test_l2_secondary_endpoint_returns_price_hints_and_draft_carts_independently(): void
+    {
+        // Create a draft cart for this purchaser
+        $draftCart = PurchaserCart::query()->create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'business_date' => '2026-08-24',
+            'status' => 'draft',
+            'purchase_grade' => 'A',
+            'cart_number' => 'DC-L2-001',
+        ]);
+
+        PurchaserCartItem::query()->create([
+            'purchaser_cart_id' => $draftCart->id,
+            'product_id' => $this->productA->id,
+            'grade' => 'A',
+            'quantity' => 15.0,
+            'unit_price' => 22.50,
+            'line_total' => 337.50,
+        ]);
+
+        app(PurchaserReadCacheService::class)->invalidate(['orders', 'carts', 'products', 'settings']);
+
+        $response = $this->actingAs($this->purchaser)->getJson(route('purchaser.bulk-buy.secondary', [
+            'date' => '2026-08-24',
+            'purchase_grade' => 'A',
+        ]));
+
+        $response->assertOk();
+        $json = $response->json();
+
+        $this->assertEquals('A', $json['purchase_grade']);
+        $this->assertArrayHasKey('price_hints', $json);
+        $this->assertArrayHasKey('draft_carts', $json);
+
+        // Assert draft cart is returned with items_count
+        $this->assertNotEmpty($json['draft_carts']);
+        $returnedCart = collect($json['draft_carts'])->firstWhere('id', $draftCart->id);
+        $this->assertNotNull($returnedCart);
+        $this->assertEquals('DC-L2-001', $returnedCart['cart_number']);
+        $this->assertEquals(1, $returnedCart['items_count']);
+        $this->assertEquals($this->supplier->name, $returnedCart['supplier_name']);
+    }
+
+    public function test_l3_endpoints_work_on_demand_without_blocking_l1(): void
+    {
+        // 1. Fulfilled tab endpoint
+        $fulfilledResponse = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy.tabs.fulfilled', [
+            'date' => '2026-08-24',
+            'purchase_grade' => 'A',
+        ]));
+        $fulfilledResponse->assertOk();
+
+        // 2. Daily product demand details modal endpoint
+        $demandResponse = $this->actingAs($this->purchaser)->getJson(route('purchaser.daily.product-demand', [
+            'product' => $this->productA->id,
+            'date' => '2026-08-24',
+            'purchase_grade' => 'A',
+        ]));
+        $demandResponse->assertOk();
+        $this->assertEquals($this->productA->id, $demandResponse->json('product_id'));
+        $this->assertArrayHasKey('shop_details', $demandResponse->json());
+
+        // 3. Purchase options endpoint
+        $optionsResponse = $this->actingAs($this->purchaser)->getJson(route('purchaser.daily.product-purchase-options', [
+            'product' => $this->productA->id,
+        ]));
+        $optionsResponse->assertOk();
+        $this->assertEquals($this->productA->id, $optionsResponse->json('product_id'));
+        $this->assertArrayHasKey('orderable_units', $optionsResponse->json());
+    }
+
+    public function test_bulk_buy_json_format_returns_structured_payload(): void
+    {
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', [
+            'date' => '2026-08-24',
+            'purchase_grade' => 'A',
+            'format' => 'json',
+        ]));
+
+        $response->assertOk();
+        $json = $response->json();
+
+        $this->assertEquals('2026-08-24', $json['date']);
+        $this->assertEquals('A', $json['purchase_grade']);
+        $this->assertArrayHasKey('pending_summary', $json);
+        $this->assertArrayHasKey('pending_count', $json);
+        $this->assertArrayHasKey('fulfilled_count', $json);
+        $this->assertIsInt($json['pending_count']);
+        $this->assertIsInt($json['fulfilled_count']);
+    }
+
+    public function test_cache_separation_between_grades_and_invalidation(): void
+    {
+        $cacheService = app(PurchaserReadCacheService::class);
+        $cacheService->invalidate(['orders', 'carts', 'products', 'settings']);
+
+        // Load Grade A
+        $responseA = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', [
+            'date' => '2026-08-24',
+            'purchase_grade' => 'A',
+            'format' => 'json',
+        ]));
+        $responseA->assertOk();
+
+        // Load Grade ALL
+        $responseAll = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', [
+            'date' => '2026-08-24',
+            'purchase_grade' => 'ALL',
+            'format' => 'json',
+        ]));
+        $responseAll->assertOk();
+
+        // Distinct grade payloads
+        $this->assertEquals('A', $responseA->json('purchase_grade'));
+        $this->assertEquals('ALL', $responseAll->json('purchase_grade'));
+
+        // Invalidate orders scope
+        $cacheService->invalidate(['orders']);
+
+        // Re-requesting Grade A succeeds with clean re-population
+        $responseFresh = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', [
+            'date' => '2026-08-24',
+            'purchase_grade' => 'A',
+            'format' => 'json',
+        ]));
+        $responseFresh->assertOk();
+        $this->assertEquals('A', $responseFresh->json('purchase_grade'));
+    }
+
+    public function test_benchmark_l1_l2_l3_performance(): void
+    {
+        $cacheService = app(PurchaserReadCacheService::class);
+
+        // 1. Cold Cache L1 Initial Load
+        $cacheService->invalidate(['orders', 'carts', 'products', 'settings']);
+        $queriesCold = [];
+        DB::listen(function (QueryExecuted $query) use (&$queriesCold): void {
+            $queriesCold[] = ['sql' => $query->sql, 'time' => $query->time];
+        });
+
+        $startCold = microtime(true);
+        $responseCold = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', ['date' => '2026-08-24']));
+        $coldMs = (microtime(true) - $startCold) * 1000;
+        $responseCold->assertOk();
+        $coldQueryCount = count($queriesCold);
+        $coldSqlMs = array_sum(array_column($queriesCold, 'time'));
+        $coldPayloadBytes = strlen((string) $responseCold->getContent());
+
+        // 2. Warm Cache L1 Load
+        $queriesWarm = [];
+        DB::listen(function (QueryExecuted $query) use (&$queriesWarm): void {
+            $queriesWarm[] = ['sql' => $query->sql, 'time' => $query->time];
+        });
+
+        $startWarm = microtime(true);
+        $responseWarm = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', ['date' => '2026-08-24']));
+        $warmMs = (microtime(true) - $startWarm) * 1000;
+        $responseWarm->assertOk();
+        $warmQueryCount = count($queriesWarm) - $coldQueryCount;
+
+        // 3. Deferred L2 Secondary Endpoint
+        $queriesL2 = [];
+        DB::listen(function (QueryExecuted $query) use (&$queriesL2): void {
+            $queriesL2[] = ['sql' => $query->sql, 'time' => $query->time];
+        });
+
+        $startL2 = microtime(true);
+        $responseL2 = $this->actingAs($this->purchaser)->getJson(route('purchaser.bulk-buy.secondary', [
+            'date' => '2026-08-24',
+            'purchase_grade' => 'A',
+        ]));
+        $l2Ms = (microtime(true) - $startL2) * 1000;
+        $responseL2->assertOk();
+        $l2QueryCount = count($queriesL2) - count($queriesWarm);
+        $l2PayloadBytes = strlen((string) $responseL2->getContent());
+
+        // 4. On-demand L3 Fulfilled Tab
+        $startL3 = microtime(true);
+        $responseL3 = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy.tabs.fulfilled', [
+            'date' => '2026-08-24',
+            'purchase_grade' => 'A',
+        ]));
+        $l3Ms = (microtime(true) - $startL3) * 1000;
+        $responseL3->assertOk();
+
+        fwrite(STDERR, sprintf(
+            "\n[BENCHMARK] L1 Cold: %.2fms, Queries: %d, SQL: %.2fms, Payload: %d bytes\n[BENCHMARK] L1 Warm: %.2fms, Queries: %d\n[BENCHMARK] L2 Deferred: %.2fms, Queries: %d, Payload: %d bytes\n[BENCHMARK] L3 On-Demand Fulfilled: %.2fms\n",
+            $coldMs,
+            $coldQueryCount,
+            $coldSqlMs,
+            $coldPayloadBytes,
+            $warmMs,
+            $warmQueryCount,
+            $l2Ms,
+            $l2QueryCount,
+            $l2PayloadBytes,
+            $l3Ms
+        ));
+
+        $this->assertLessThan(25, $coldQueryCount);
+        $this->assertLessThan(10, $warmQueryCount);
+    }
+
+    public function test_bulk_buy_blade_renders_user_scoped_autosave_key(): void
+    {
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', ['date' => '2026-08-24']));
+        $response->assertOk();
+
+        // Verify the rendered script includes the purchaser's specific user ID
+        $content = $response->getContent();
+        $this->assertStringContainsString("const currentUserId = '{$this->purchaser->id}';", $content);
+        $this->assertStringContainsString('return `bulk_buy_autosave_${currentUserId}_${currentDate}`;', $content);
+        $this->assertStringContainsString('localStorage.removeItem(getAutosaveKey());', $content);
+        $this->assertStringContainsString("if (currentPurchaseGrade === 'ALL')", $content);
+
+        // Verify with another purchaser that the user ID changes accordingly
+        $otherPurchaser = User::factory()->create(['name' => 'Jane Purchaser']);
+        $otherPurchaser->assignRole('purchaser');
+
+        $responseOther = $this->actingAs($otherPurchaser)->get(route('purchaser.bulk-buy', ['date' => '2026-08-24']));
+        $responseOther->assertOk();
+        $this->assertStringContainsString("const currentUserId = '{$otherPurchaser->id}';", $responseOther->getContent());
+    }
+
+    public function test_bulk_buy_details_submission_for_grade_a_succeeds_without_cross_grade_items(): void
+    {
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy.details', [
+            'date' => '2026-08-24',
+            'purchase_grade' => 'A',
+            'product_ids' => [$this->productA->id, $this->productB->id],
+        ]));
+
+        $response->assertOk();
+        $response->assertViewIs('purchasing.purchaser.bulk_buy_details');
+        $response->assertViewHas('dailySummary');
+        $this->assertEquals(
+            [$this->productA->id, $this->productB->id],
+            $response->viewData('dailySummary')->pluck('product_id')->sort()->values()->all()
+        );
+    }
+
+    public function test_bulk_buy_all_grade_submission_persists_cross_grade_cart_items(): void
+    {
+        $response = $this->actingAs($this->purchaser)->post(route('purchaser.carts.bulk-store'), [
+            'business_date' => '2026-08-24',
+            'date' => '2026-08-24',
+            'purchase_grade' => 'ALL',
+            'submission_key' => (string) Str::uuid(),
+            'items' => [
+                $this->productA->id => [
+                    'A' => ['quantity' => 15, 'unit_price' => 30],
+                    'B' => ['quantity' => 10, 'unit_price' => 25],
+                ],
+            ],
+        ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseHas('purchaser_cart_items', [
+            'product_id' => $this->productA->id,
+            'grade' => 'A',
+            'quantity' => 15,
+        ]);
+        $this->assertDatabaseHas('purchaser_cart_items', [
+            'product_id' => $this->productA->id,
+            'grade' => 'B',
+            'quantity' => 10,
+        ]);
     }
 }

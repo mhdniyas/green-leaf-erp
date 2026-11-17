@@ -99,7 +99,7 @@
                         <a href="{{ route('purchaser.add-ons.create', ['date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-3 text-xs font-black text-white sm:w-24">
                             Add-on
                         </a>
-                        <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => in_array($purchaseGrade, ['B', 'C', 'ALL'], true) ? $purchaseGrade : ($purchaseGrade === 'MIXED' ? 'ALL' : 'A')]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600 px-3 text-xs font-black text-white sm:w-24">
+                        <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => in_array($purchaseGrade, ['B', 'C'], true) ? $purchaseGrade : 'ALL']) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600 px-3 text-xs font-black text-white sm:w-24">
                             Bulk
                         </a>
                         <a href="{{ route('purchaser.daily.share', ['date' => $date, 'purchase_grade' => $purchaseGrade]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-3 text-xs font-black text-white sm:w-24">

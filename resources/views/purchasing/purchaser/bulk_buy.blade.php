@@ -24,17 +24,33 @@
         </section>
 
         {{-- Grade Filter Navigation --}}
-        <div class="flex items-center gap-2 overflow-x-auto pb-0.5">
-            <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => 'ALL']) }}" class="shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all {{ $purchaseGrade === 'ALL' ? 'bg-teal-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' }}">
+        <div class="flex items-center gap-2 overflow-x-auto pb-0.5" id="grade-nav-container">
+            <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => 'ALL']) }}"
+               data-grade="ALL"
+               data-active-class="bg-teal-600 text-white shadow-xs"
+               data-inactive-class="bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
+               class="grade-nav-btn shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all {{ $purchaseGrade === 'ALL' ? 'bg-teal-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' }}">
                 All Grades
             </a>
-            <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => 'A']) }}" class="shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all {{ $purchaseGrade === 'A' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' }}">
+            <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => 'A']) }}"
+               data-grade="A"
+               data-active-class="bg-emerald-600 text-white shadow-xs"
+               data-inactive-class="bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
+               class="grade-nav-btn shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all {{ $purchaseGrade === 'A' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' }}">
                 Grade A
             </a>
-            <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => 'B']) }}" class="shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all {{ $purchaseGrade === 'B' ? 'bg-amber-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' }}">
+            <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => 'B']) }}"
+               data-grade="B"
+               data-active-class="bg-amber-600 text-white shadow-xs"
+               data-inactive-class="bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
+               class="grade-nav-btn shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all {{ $purchaseGrade === 'B' ? 'bg-amber-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' }}">
                 Grade B
             </a>
-            <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => 'C']) }}" class="shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all {{ $purchaseGrade === 'C' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' }}">
+            <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => 'C']) }}"
+               data-grade="C"
+               data-active-class="bg-indigo-600 text-white shadow-xs"
+               data-inactive-class="bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
+               class="grade-nav-btn shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all {{ $purchaseGrade === 'C' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' }}">
                 Grade C
             </a>
         </div>
@@ -79,17 +95,15 @@
             </div>
         </div>
 
-        @if ($purchaseGrade === 'ALL')
-            <form action="{{ route('purchaser.carts.bulk-store') }}" method="POST" id="bulk-buy-form" class="pb-24">
-                @csrf
-                <input type="hidden" name="business_date" value="{{ $date }}">
-                <input type="hidden" name="purchase_grade" value="ALL">
-                <input type="hidden" name="submission_key" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
-        @else
-            <form action="{{ route('purchaser.bulk-buy.details') }}" method="GET" id="bulk-buy-form" class="pb-24">
-                <input type="hidden" name="date" value="{{ $date }}">
-                <input type="hidden" name="purchase_grade" value="{{ $purchaseGrade }}">
-        @endif
+        <form action="{{ $purchaseGrade === 'ALL' ? route('purchaser.carts.bulk-store') : route('purchaser.bulk-buy.details') }}"
+              method="{{ $purchaseGrade === 'ALL' ? 'POST' : 'GET' }}"
+              id="bulk-buy-form"
+              class="pb-24">
+            <input type="hidden" name="_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="business_date" value="{{ $date }}">
+            <input type="hidden" name="date" value="{{ $date }}">
+            <input type="hidden" id="bulk-buy-purchase-grade" name="purchase_grade" value="{{ $purchaseGrade }}">
+            <input type="hidden" id="bulk-buy-submission-key" name="submission_key" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
 
             {{-- Professional Tabs switcher --}}
             <div class="mb-3 flex rounded-xl bg-slate-100 p-1 lg:rounded-2xl">
@@ -112,318 +126,7 @@
             <div class="space-y-3" id="product-list">
                 {{-- Pending Demand Items --}}
                 <div id="pending-container" class="space-y-3">
-                    @foreach ($pendingSummary as $summary)
-                        @php
-                            $hasNonAGrades = ! empty($summary['has_non_a_grades']) && ! empty($summary['grade_breakdown']);
-                            $isFrequent = ! empty($summary['is_frequent']);
-                        @endphp
-                        <div class="product-item block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:bg-slate-50/50 cursor-pointer"
-                             data-tab="pending"
-                             data-name="{{ $summary['product_name'] }}"
-                             data-sku="{{ $summary['sku'] }}"
-                             data-category="{{ $summary['category_name'] }}"
-                             data-frequent="{{ $isFrequent ? 'true' : 'false' }}">
-                            <div class="flex items-start gap-3">
-                                <div class="flex items-center shrink-0 pt-0.5">
-                                    <input type="checkbox" name="product_ids[]" value="{{ $summary['product_id'] }}" class="product-checkbox h-5 w-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer">
-                                </div>
-                                <div class="min-w-0 flex-1">
-                                    <div class="flex flex-wrap items-center justify-between gap-2">
-                                        <div class="flex flex-wrap items-center gap-2">
-                                            <h3 class="min-w-0 break-words font-black text-slate-900 text-sm">{{ $summary['product_name'] }}</h3>
-                                            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">{{ $summary['category_name'] ?: 'Other' }}</span>
-                                            @if ($hasNonAGrades)
-                                                <span class="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-700 border border-amber-200/60">Multi-grade</span>
-                                            @endif
-                                            @if (! empty($summary['is_addon']))
-                                                <span class="rounded-full bg-teal-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-teal-700 font-bold border border-teal-200">ADD-ON</span>
-                                            @endif
-                                            @if ($summary['draft_qty'] > 0)
-                                                <span class="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black text-amber-700">In Cart: {{ number_format($summary['draft_qty'], 1) }} {{ $summary['unit'] }}</span>
-                                            @endif
-                                        </div>
-                                        <div class="flex items-center gap-2.5">
-                                            @if ($hasNonAGrades)
-                                                <div class="text-xs font-bold text-slate-500">
-                                                    Total Approved: <span class="text-slate-900 font-black">{{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}</span>
-                                                </div>
-                                                <button type="button"
-                                                        onclick="event.stopPropagation(); openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', {{ $summary['remaining_qty'] }}, {{ $summary['draft_qty'] }}, '{{ $summary['unit'] === 'kg' ? '0.5' : '1' }}', '', 'mixed', 'MIXED')"
-                                                        class="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-indigo-600 px-2.5 text-[10px] font-black text-white hover:bg-indigo-500 shadow-xs transition-colors cursor-pointer">
-                                                    Buy Mixed
-                                                </button>
-                                            @endif
-                                        </div>
-                                    </div>
-
-                                    {{-- Prominent Stock --}}
-                                    <div class="mt-1 text-xs font-black text-slate-900">
-                                        Stock: <span class="font-black text-teal-700">{{ number_format($summary['warehouse_balance'] ?? 0, 1) }} kg</span>
-                                    </div>
-
-                                    @if ($hasNonAGrades)
-                                        <div class="mt-1 flex items-center justify-between gap-4 text-xs font-semibold text-slate-500">
-                                            <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
-                                                <span>Need: {{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}</span>
-                                                <span>Bought: {{ number_format($summary['bought_qty'], 1) }}</span>
-                                                <span class="text-teal-600 font-bold">Left: {{ number_format($summary['remaining_qty'], 1) }}</span>
-                                            </div>
-                                        </div>
-
-                                        {{-- Multi-grade breakdown table --}}
-                                        <div class="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/70">
-                                            <table class="w-full text-left text-xs">
-                                                <thead class="border-b border-slate-200 bg-slate-100/80 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                                    <tr>
-                                                        <th class="px-3 py-2">Quality Grade</th>
-                                                        <th class="px-3 py-2 text-right">Approved</th>
-                                                        <th class="px-3 py-2 text-right">Purchased</th>
-                                                        <th class="px-3 py-2 text-right">Remaining</th>
-                                                        <th class="px-3 py-2 text-right">Whse Stock</th>
-                                                        @if ($purchaseGrade === 'ALL')
-                                                            <th class="px-3 py-2 text-right w-24">Qty ({{ $summary['unit'] }})</th>
-                                                            <th class="px-3 py-2 text-right w-24">Rate (₹)</th>
-                                                            <th class="px-3 py-2 text-right w-24">Line Total</th>
-                                                        @endif
-                                                        <th class="px-3 py-2 text-right">Action</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody class="divide-y divide-slate-200/70 bg-white">
-                                                    @foreach ($summary['grade_breakdown'] as $gb)
-                                                        @php
-                                                            $gradeBadgeClass = match($gb['grade']) {
-                                                                'A' => 'bg-emerald-100 text-emerald-800 border-emerald-200',
-                                                                'B' => 'bg-amber-100 text-amber-800 border-amber-200',
-                                                                'C' => 'bg-indigo-100 text-indigo-800 border-indigo-200',
-                                                                default => 'bg-slate-100 text-slate-800 border-slate-200',
-                                                            };
-                                                        @endphp
-                                                        <tr class="hover:bg-slate-50/70 transition-colors">
-                                                            <td class="px-3 py-2 font-black text-slate-900">
-                                                                <span class="inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider {{ $gradeBadgeClass }}">
-                                                                    Grade {{ $gb['grade'] }}
-                                                                </span>
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-semibold text-slate-700">
-                                                                {{ number_format($gb['approved_qty'], 1) }} {{ $summary['unit'] }}
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-semibold text-slate-700">
-                                                                {{ number_format($gb['bought_qty'], 1) }} {{ $summary['unit'] }}
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-black {{ $gb['remaining_qty'] > 0 ? 'text-teal-700' : 'text-slate-400' }}">
-                                                                {{ number_format($gb['remaining_qty'], 1) }} {{ $summary['unit'] }}
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-black text-slate-800">
-                                                                {{ number_format($gb['warehouse_balance'] ?? 0, 1) }} kg
-                                                            </td>
-                                                            @if ($purchaseGrade === 'ALL')
-                                                                <td class="px-3 py-2 text-right">
-                                                                    <input type="number" step="any" min="0" name="items[{{ $summary['product_id'] }}][{{ $gb['grade'] }}][quantity]" placeholder="0" class="inline-qty-input w-20 rounded border border-slate-300 px-2 py-1 text-right text-xs font-bold text-slate-900 focus:border-teal-500 focus:ring-1 focus:ring-teal-500" data-product-id="{{ $summary['product_id'] }}" data-grade="{{ $gb['grade'] }}" oninput="updateInlineBulkTotals()">
-                                                                </td>
-                                                                <td class="px-3 py-2 text-right">
-                                                                    <input type="number" step="any" min="0" name="items[{{ $summary['product_id'] }}][{{ $gb['grade'] }}][unit_price]" placeholder="0.00" class="inline-rate-input w-20 rounded border border-slate-300 px-2 py-1 text-right text-xs font-bold text-slate-900 focus:border-teal-500 focus:ring-1 focus:ring-teal-500" data-product-id="{{ $summary['product_id'] }}" data-grade="{{ $gb['grade'] }}" oninput="updateInlineBulkTotals()">
-                                                                </td>
-                                                                <td class="px-3 py-2 text-right font-black text-slate-800">
-                                                                    <span class="inline-line-total text-xs" data-product-id="{{ $summary['product_id'] }}" data-grade="{{ $gb['grade'] }}">₹0.00</span>
-                                                                </td>
-                                                            @endif
-                                                            <td class="px-3 py-2 text-right">
-                                                                @if ($gb['remaining_qty'] > 0)
-                                                                    <button type="button"
-                                                                            onclick="event.stopPropagation(); openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', {{ $gb['remaining_qty'] }}, {{ $gb['draft_qty'] }}, '{{ $summary['unit'] === 'kg' ? '0.5' : '1' }}', '', 'shop_order', '{{ $gb['grade'] }}')"
-                                                                            class="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-teal-600 px-2.5 text-[10px] font-black text-white hover:bg-teal-500 shadow-xs transition-colors cursor-pointer">
-                                                                        Buy {{ $gb['grade'] }}
-                                                                    </button>
-                                                                @else
-                                                                    <span class="inline-flex h-7 items-center justify-center rounded-lg bg-slate-100 px-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                                                        Done
-                                                                    </span>
-                                                                @endif
-                                                            </td>
-                                                        </tr>
-                                                    @endforeach
-                                                    <tr class="bg-indigo-50/40 border-t border-indigo-100/80 hover:bg-indigo-50/70 transition-colors">
-                                                        <td class="px-3 py-2 font-black text-indigo-950">
-                                                            <span class="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-indigo-800">
-                                                                Mixed Lot
-                                                            </span>
-                                                        </td>
-                                                        <td colspan="2" class="px-3 py-2 text-[11px] font-semibold text-indigo-700">
-                                                            Ungraded purchase (warehouse physical sorting into A/B/C)
-                                                        </td>
-                                                        <td class="px-3 py-2 text-right font-black text-indigo-900 text-xs" colspan="2">
-                                                            @if (($summary['unsorted_warehouse_balance'] ?? 0) > 0)
-                                                                Unsorted: {{ number_format($summary['unsorted_warehouse_balance'], 1) }} kg
-                                                            @else
-                                                                -
-                                                            @endif
-                                                        </td>
-                                                        @if ($purchaseGrade === 'ALL')
-                                                            <td class="px-3 py-2 text-right">
-                                                                <input type="number" step="any" min="0" name="items[{{ $summary['product_id'] }}][MIXED][quantity]" placeholder="0" class="inline-qty-input w-20 rounded border border-slate-300 px-2 py-1 text-right text-xs font-bold text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" data-product-id="{{ $summary['product_id'] }}" data-grade="MIXED" oninput="updateInlineBulkTotals()">
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right">
-                                                                <input type="number" step="any" min="0" name="items[{{ $summary['product_id'] }}][MIXED][unit_price]" placeholder="0.00" class="inline-rate-input w-20 rounded border border-slate-300 px-2 py-1 text-right text-xs font-bold text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" data-product-id="{{ $summary['product_id'] }}" data-grade="MIXED" oninput="updateInlineBulkTotals()">
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-black text-indigo-900">
-                                                                <span class="inline-line-total text-xs" data-product-id="{{ $summary['product_id'] }}" data-grade="MIXED">₹0.00</span>
-                                                            </td>
-                                                        @endif
-                                                        <td class="px-3 py-2 text-right">
-                                                            <button type="button"
-                                                                    onclick="event.stopPropagation(); openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', {{ $summary['remaining_qty'] }}, {{ $summary['draft_qty'] }}, '{{ $summary['unit'] === 'kg' ? '0.5' : '1' }}', '', 'mixed', 'MIXED')"
-                                                                    class="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-indigo-600 px-2.5 text-[10px] font-black text-white hover:bg-indigo-500 shadow-xs transition-colors cursor-pointer">
-                                                                Buy Mixed
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    @else
-                                        {{-- Compact single grade layout --}}
-                                        <div class="mt-1 flex items-center justify-between gap-4 text-xs font-semibold text-slate-500">
-                                            <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
-                                                <span>Need: {{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}</span>
-                                                <span>Bought: {{ number_format($summary['bought_qty'], 1) }}</span>
-                                                <span class="text-teal-600 font-bold">Left: {{ number_format($summary['remaining_qty'], 1) }}</span>
-                                            </div>
-                                            @if ($purchaseGrade !== 'ALL' && $summary['remaining_qty'] > 0)
-                                                <button type="button"
-                                                        onclick="event.stopPropagation(); openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', {{ $summary['remaining_qty'] }}, {{ $summary['draft_qty'] }}, '{{ $summary['unit'] === 'kg' ? '0.5' : '1' }}', '', 'shop_order', '{{ $purchaseGrade }}')"
-                                                        class="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-teal-600 px-2.5 text-[10px] font-black text-white hover:bg-teal-500 shadow-xs transition-colors cursor-pointer">
-                                                    Buy {{ $purchaseGrade }}
-                                                </button>
-                                            @endif
-                                        </div>
-
-                                        @if ($purchaseGrade === 'ALL')
-                                            <div class="mt-2.5 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/70">
-                                                <table class="w-full text-left text-xs">
-                                                    <thead class="border-b border-slate-200 bg-slate-100/80 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                                        <tr>
-                                                            <th class="px-3 py-2">Quality Grade</th>
-                                                            <th class="px-3 py-2 text-right">Approved</th>
-                                                            <th class="px-3 py-2 text-right">Purchased</th>
-                                                            <th class="px-3 py-2 text-right">Remaining</th>
-                                                            <th class="px-3 py-2 text-right">Whse Stock</th>
-                                                            <th class="px-3 py-2 text-right w-24">Qty ({{ $summary['unit'] }})</th>
-                                                            <th class="px-3 py-2 text-right w-24">Rate (₹)</th>
-                                                            <th class="px-3 py-2 text-right w-24">Line Total</th>
-                                                            <th class="px-3 py-2 text-right">Action</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody class="divide-y divide-slate-200/70 bg-white">
-                                                        <tr class="hover:bg-slate-50/70 transition-colors">
-                                                            <td class="px-3 py-2 font-black text-slate-900">
-                                                                <span class="inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border-emerald-200">
-                                                                    Grade A
-                                                                </span>
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-semibold text-slate-700">
-                                                                {{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-semibold text-slate-700">
-                                                                {{ number_format($summary['bought_qty'], 1) }} {{ $summary['unit'] }}
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-black {{ $summary['remaining_qty'] > 0 ? 'text-teal-700' : 'text-slate-400' }}">
-                                                                {{ number_format($summary['remaining_qty'], 1) }} {{ $summary['unit'] }}
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-black text-slate-800">
-                                                                {{ number_format($summary['warehouse_balance'] ?? 0, 1) }} kg
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right">
-                                                                <input type="number" step="any" min="0" name="items[{{ $summary['product_id'] }}][A][quantity]" placeholder="0" class="inline-qty-input w-20 rounded border border-slate-300 px-2 py-1 text-right text-xs font-bold text-slate-900 focus:border-teal-500 focus:ring-1 focus:ring-teal-500" data-product-id="{{ $summary['product_id'] }}" data-grade="A" oninput="updateInlineBulkTotals()">
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right">
-                                                                <input type="number" step="any" min="0" name="items[{{ $summary['product_id'] }}][A][unit_price]" placeholder="0.00" class="inline-rate-input w-20 rounded border border-slate-300 px-2 py-1 text-right text-xs font-bold text-slate-900 focus:border-teal-500 focus:ring-1 focus:ring-teal-500" data-product-id="{{ $summary['product_id'] }}" data-grade="A" oninput="updateInlineBulkTotals()">
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-black text-slate-800">
-                                                                <span class="inline-line-total text-xs" data-product-id="{{ $summary['product_id'] }}" data-grade="A">₹0.00</span>
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right">
-                                                                @if ($summary['remaining_qty'] > 0)
-                                                                    <button type="button"
-                                                                            onclick="event.stopPropagation(); openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', {{ $summary['remaining_qty'] }}, {{ $summary['draft_qty'] }}, '{{ $summary['unit'] === 'kg' ? '0.5' : '1' }}', '', 'shop_order', 'A')"
-                                                                            class="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-teal-600 px-2.5 text-[10px] font-black text-white hover:bg-teal-500 shadow-xs transition-colors cursor-pointer">
-                                                                        Buy A
-                                                                    </button>
-                                                                @else
-                                                                    <span class="inline-flex h-7 items-center justify-center rounded-lg bg-slate-100 px-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                                                        Done
-                                                                    </span>
-                                                                @endif
-                                                            </td>
-                                                        </tr>
-                                                        <tr class="hover:bg-slate-50/70 transition-colors">
-                                                            <td class="px-3 py-2 font-black text-slate-900">
-                                                                <span class="inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border-amber-200">
-                                                                    Grade B
-                                                                </span>
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-medium text-slate-400">-</td>
-                                                            <td class="px-3 py-2 text-right font-medium text-slate-400">-</td>
-                                                            <td class="px-3 py-2 text-right font-medium text-slate-400">-</td>
-                                                            <td class="px-3 py-2 text-right font-medium text-slate-400">-</td>
-                                                            <td class="px-3 py-2 text-right">
-                                                                <input type="number" step="any" min="0" name="items[{{ $summary['product_id'] }}][B][quantity]" placeholder="0" class="inline-qty-input w-20 rounded border border-slate-300 px-2 py-1 text-right text-xs font-bold text-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500" data-product-id="{{ $summary['product_id'] }}" data-grade="B" oninput="updateInlineBulkTotals()">
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right">
-                                                                <input type="number" step="any" min="0" name="items[{{ $summary['product_id'] }}][B][unit_price]" placeholder="0.00" class="inline-rate-input w-20 rounded border border-slate-300 px-2 py-1 text-right text-xs font-bold text-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500" data-product-id="{{ $summary['product_id'] }}" data-grade="B" oninput="updateInlineBulkTotals()">
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-black text-slate-800">
-                                                                <span class="inline-line-total text-xs" data-product-id="{{ $summary['product_id'] }}" data-grade="B">₹0.00</span>
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right">
-                                                                <button type="button"
-                                                                        onclick="event.stopPropagation(); openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', 0, 0, '{{ $summary['unit'] === 'kg' ? '0.5' : '1' }}', '', 'green_leaf_direct_purchase', 'B')"
-                                                                        class="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-amber-600 px-2.5 text-[10px] font-black text-white hover:bg-amber-500 shadow-xs transition-colors cursor-pointer">
-                                                                    Buy B
-                                                                </button>
-                                                            </td>
-                                                        </tr>
-                                                        <tr class="bg-indigo-50/40 border-t border-indigo-100/80 hover:bg-indigo-50/70 transition-colors">
-                                                            <td class="px-3 py-2 font-black text-indigo-950">
-                                                                <span class="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-indigo-800">
-                                                                    Mixed Lot
-                                                                </span>
-                                                            </td>
-                                                            <td colspan="2" class="px-3 py-2 text-[11px] font-semibold text-indigo-700">
-                                                                Ungraded purchase (warehouse physical sorting into A/B/C)
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-black text-indigo-900 text-xs" colspan="2">
-                                                                @if (($summary['unsorted_warehouse_balance'] ?? 0) > 0)
-                                                                    Unsorted: {{ number_format($summary['unsorted_warehouse_balance'], 1) }} kg
-                                                                @else
-                                                                    -
-                                                                @endif
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right">
-                                                                <input type="number" step="any" min="0" name="items[{{ $summary['product_id'] }}][MIXED][quantity]" placeholder="0" class="inline-qty-input w-20 rounded border border-slate-300 px-2 py-1 text-right text-xs font-bold text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" data-product-id="{{ $summary['product_id'] }}" data-grade="MIXED" oninput="updateInlineBulkTotals()">
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right">
-                                                                <input type="number" step="any" min="0" name="items[{{ $summary['product_id'] }}][MIXED][unit_price]" placeholder="0.00" class="inline-rate-input w-20 rounded border border-slate-300 px-2 py-1 text-right text-xs font-bold text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" data-product-id="{{ $summary['product_id'] }}" data-grade="MIXED" oninput="updateInlineBulkTotals()">
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right font-black text-indigo-900">
-                                                                <span class="inline-line-total text-xs" data-product-id="{{ $summary['product_id'] }}" data-grade="MIXED">₹0.00</span>
-                                                            </td>
-                                                            <td class="px-3 py-2 text-right">
-                                                                <button type="button"
-                                                                        onclick="event.stopPropagation(); openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', {{ $summary['remaining_qty'] }}, {{ $summary['draft_qty'] }}, '{{ $summary['unit'] === 'kg' ? '0.5' : '1' }}', '', 'mixed', 'MIXED')"
-                                                                        class="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-indigo-600 px-2.5 text-[10px] font-black text-white hover:bg-indigo-500 shadow-xs transition-colors cursor-pointer">
-                                                                    Buy Mixed
-                                                                </button>
-                                                            </td>
-                                                        </tr>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        @endif
-                                    @endif
-                                </div>
-                            </div>
-                        </div>
-                    @endforeach
+                    @include('purchasing.purchaser.partials.bulk_pending_items')
                 </div>
 
                 {{-- Fulfilled Demand Container (Lazy Loaded) --}}
@@ -463,30 +166,19 @@
                 <div id="bulk-buy-bottom-bar" class="mx-auto flex max-w-full items-center justify-between gap-3 lg:max-w-6xl">
                     <div>
                         <p class="text-xs font-black text-slate-500 uppercase">Selection</p>
-                        @if ($purchaseGrade === 'ALL')
-                            <div class="flex items-center gap-2">
-                                <span class="text-sm font-black text-slate-900" id="inline-selected-lines">0 lines</span>
-                                <span class="text-xs text-slate-400">•</span>
-                                <span class="text-sm font-black text-teal-700" id="inline-total-amount">₹0.00</span>
-                                <span class="hidden" id="selection-count">0 items selected</span>
-                            </div>
-                        @else
-                            <p class="text-sm font-black text-slate-900" id="selection-count">0 items selected</p>
-                        @endif
+                        <div class="flex items-center gap-2 {{ $purchaseGrade === 'ALL' ? '' : 'hidden' }}" id="inline-totals-container">
+                            <span class="text-sm font-black text-slate-900" id="inline-selected-lines">0 lines</span>
+                            <span class="text-xs text-slate-400">•</span>
+                            <span class="text-sm font-black text-teal-700" id="inline-total-amount">₹0.00</span>
+                        </div>
+                        <p class="text-sm font-black text-slate-900 {{ $purchaseGrade === 'ALL' ? 'hidden' : '' }}" id="selection-count">0 items selected</p>
                     </div>
                     <div class="flex items-center gap-2">
-                        @if ($purchaseGrade === 'ALL' && ! empty($draftCarts) && $draftCarts->isNotEmpty())
-                            <div class="relative">
-                                <select name="cart_id" class="h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 shadow-xs focus:border-teal-500 focus:outline-none">
-                                    <option value="">+ New Draft Cart</option>
-                                    @foreach ($draftCarts as $dCart)
-                                        <option value="{{ $dCart->id }}">
-                                            {{ $dCart->cart_number }} {{ $dCart->supplier ? '('.$dCart->supplier->name.')' : '' }} ({{ $dCart->items->count() }} items)
-                                        </option>
-                                    @endforeach
-                                </select>
-                            </div>
-                        @endif
+                        <div id="bottom-cart-select-container" class="relative {{ $purchaseGrade === 'ALL' ? '' : 'hidden' }}">
+                            <select name="cart_id" id="bottom-cart-select" class="h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 shadow-xs focus:border-teal-500 focus:outline-none">
+                                <option value="">+ New Draft Cart</option>
+                            </select>
+                        </div>
                         <a href="{{ route('purchaser.daily', ['date' => $date]) }}" class="inline-flex h-11 items-center justify-center rounded-xl bg-slate-100 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-200">
                             Cancel
                         </a>
@@ -521,664 +213,997 @@
         </form>
     </div>
 
-    <script>
-        let activeTab = 'pending';
-        const selectedProductIds = new Set();
-        const selectedAddons = new Map(); // productId => { product, qty }
-        let addonsCurrentPage = 1;
-        let addonsHasMore = false;
-        let addonsLoading = false;
-        let addonsLoadedOnce = false;
-        let inlineEnteredLines = 0;
+        <script>
+            let activeTab = 'pending';
+            let currentPurchaseGrade = '{{ $purchaseGrade }}';
+            const currentDate = '{{ $date }}';
+            const currentUserId = '{{ auth()->id() ?? 'guest' }}';
 
-        function syncMobileBuyNavigation() {
-            const hasSelection = selectedProductIds.size > 0 || selectedAddons.size > 0 || inlineEnteredLines > 0;
-            const wrapper = document.getElementById('bulk-buy-bottom-wrapper');
-            if (wrapper) {
-                if (hasSelection) {
-                    wrapper.classList.remove('hidden');
-                } else {
-                    wrapper.classList.add('hidden');
-                }
+            function getAutosaveKey() {
+                return `bulk_buy_autosave_${currentUserId}_${currentDate}`;
+            }
+            const selectedProductIds = new Set();
+            const selectedAddons = new Map(); // productId => { product, qty }
+            let addonsCurrentPage = 1;
+            let addonsHasMore = false;
+            let addonsLoading = false;
+            let addonsLoadedOnce = false;
+            let inlineEnteredLines = 0;
+
+            // Progressive Loading Caches & State
+            const gradeCache = {};
+            const l2GradeCache = {};
+            const stateByGrade = { 'ALL': {}, 'A': {}, 'B': {}, 'C': {} };
+
+            // Initialize current grade cache from server-rendered HTML
+            const initialPendingContainer = document.getElementById('pending-container');
+            if (initialPendingContainer) {
+                gradeCache[currentPurchaseGrade] = initialPendingContainer.innerHTML;
             }
 
-            window.dispatchEvent(new CustomEvent('purchaser:buy-selection-change', {
-                detail: {
-                    hasSelection: hasSelection,
-                },
-            }));
-        }
-
-        function escapeHtml(str) {
-            if (!str) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-        }
-
-        function switchTab(tab) {
-            activeTab = tab;
-
-            const tabs = ['pending', 'fulfilled', 'addons'];
-            tabs.forEach(t => {
-                const btn = document.getElementById(`tab-btn-${t}`);
-                if (btn) {
-                    if (t === tab) {
-                        btn.classList.add('bg-white', 'text-slate-900', 'shadow-xs');
-                        btn.classList.remove('text-slate-600', 'hover:bg-white/50');
+            function syncMobileBuyNavigation() {
+                const hasSelection = selectedProductIds.size > 0 || selectedAddons.size > 0 || inlineEnteredLines > 0;
+                const wrapper = document.getElementById('bulk-buy-bottom-wrapper');
+                if (wrapper) {
+                    if (hasSelection) {
+                        wrapper.classList.remove('hidden');
                     } else {
-                        btn.classList.remove('bg-white', 'text-slate-900', 'shadow-xs');
-                        btn.classList.add('text-slate-600', 'hover:bg-white/50');
+                        wrapper.classList.add('hidden');
                     }
                 }
-            });
 
-            const pendingContainer = document.getElementById('pending-container');
-            const fulfilledContainer = document.getElementById('fulfilled-container');
-            const addonsContainer = document.getElementById('addons-container');
-            const bulkBuyBottomBar = document.getElementById('bulk-buy-bottom-bar');
-            const addonsBottomBar = document.getElementById('addons-bottom-bar');
-
-            if (tab === 'pending') {
-                if (pendingContainer) pendingContainer.classList.remove('hidden');
-                if (fulfilledContainer) fulfilledContainer.classList.add('hidden');
-                if (addonsContainer) addonsContainer.classList.add('hidden');
-                if (bulkBuyBottomBar) bulkBuyBottomBar.classList.remove('hidden');
-                if (addonsBottomBar) addonsBottomBar.classList.add('hidden');
-            } else if (tab === 'fulfilled') {
-                if (pendingContainer) pendingContainer.classList.add('hidden');
-                if (fulfilledContainer) fulfilledContainer.classList.remove('hidden');
-                if (addonsContainer) addonsContainer.classList.add('hidden');
-                if (bulkBuyBottomBar) bulkBuyBottomBar.classList.remove('hidden');
-                if (addonsBottomBar) addonsBottomBar.classList.add('hidden');
-
-                if (fulfilledContainer && fulfilledContainer.dataset.loaded !== 'true') {
-                    window.showLoader?.();
-                    fetch(`{{ route('purchaser.bulk-buy.tabs.fulfilled') }}?date={{ $date }}&purchase_grade={{ $purchaseGrade }}`)
-                        .then(response => response.text())
-                        .then(html => {
-                            fulfilledContainer.innerHTML = html;
-                            fulfilledContainer.dataset.loaded = 'true';
-                            window.filterItems?.();
-                        })
-                        .finally(() => {
-                            window.hideLoader?.();
-                        });
-                }
-            } else if (tab === 'addons') {
-                if (pendingContainer) pendingContainer.classList.add('hidden');
-                if (fulfilledContainer) fulfilledContainer.classList.add('hidden');
-                if (addonsContainer) addonsContainer.classList.remove('hidden');
-                if (bulkBuyBottomBar) bulkBuyBottomBar.classList.add('hidden');
-                if (addonsBottomBar) addonsBottomBar.classList.remove('hidden');
-
-                if (!addonsLoadedOnce) {
-                    fetchAddons(1, true);
-                }
-            }
-
-            if (window.filterItems) {
-                window.filterItems();
-            }
-        }
-
-        async function fetchAddons(page = 1, reset = false) {
-            if (addonsLoading) return;
-            addonsLoading = true;
-
-            const searchInput = document.getElementById('search-input');
-            const filterSelect = document.getElementById('filter-select');
-            const loadingIndicator = document.getElementById('addons-loading');
-            const loadMoreWrap = document.getElementById('addons-load-more-wrap');
-            const addonsList = document.getElementById('addons-list');
-            const noResultsMsg = document.getElementById('no-results-msg');
-
-            if (loadingIndicator) loadingIndicator.classList.remove('hidden');
-            if (reset && addonsList) {
-                addonsList.innerHTML = '';
-            }
-
-            const query = searchInput ? searchInput.value.trim() : '';
-            const category = filterSelect ? filterSelect.value : 'All';
-
-            const params = new URLSearchParams({
-                page: page,
-                limit: 24,
-                purchase_grade: '{{ $purchaseGrade }}',
-            });
-
-            if (query) {
-                params.append('q', query);
-            }
-            if (category && category !== 'All') {
-                params.append('category', category);
-            }
-
-            try {
-                const response = await fetch(`{{ route('purchaser.bulk-buy.product-search') }}?${params.toString()}`);
-                const result = await response.json();
-
-                const products = Array.isArray(result) ? result : (result.data || []);
-                addonsCurrentPage = result.current_page || page;
-                addonsHasMore = Boolean(result.has_more);
-                addonsLoadedOnce = true;
-
-                if (reset && products.length === 0) {
-                    if (noResultsMsg) {
-                        noResultsMsg.classList.remove('hidden');
-                        noResultsMsg.textContent = 'No add-on products match the selected filters.';
-                    }
-                } else {
-                    if (noResultsMsg && activeTab === 'addons') {
-                        noResultsMsg.classList.add('hidden');
-                    }
-                    products.forEach(product => {
-                        const card = createAddonPickerCard(product);
-                        addonsList.appendChild(card);
-                    });
-                }
-
-                if (loadMoreWrap) {
-                    if (addonsHasMore) {
-                        loadMoreWrap.classList.remove('hidden');
-                    } else {
-                        loadMoreWrap.classList.add('hidden');
-                    }
-                }
-            } catch (err) {
-                console.error('Failed to load add-on products:', err);
-            } finally {
-                addonsLoading = false;
-                if (loadingIndicator) loadingIndicator.classList.add('hidden');
-            }
-        }
-
-        function loadMoreAddons() {
-            if (!addonsHasMore || addonsLoading) return;
-            fetchAddons(addonsCurrentPage + 1, false);
-        }
-
-        function createAddonPickerCard(product) {
-            const isSelected = selectedAddons.has(product.id);
-            const selectedData = selectedAddons.get(product.id);
-            const qtyVal = isSelected ? selectedData.qty : '';
-
-            const wrapper = document.createElement('div');
-            wrapper.className = `product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border ${isSelected ? 'border-teal-500 bg-teal-50/20 ring-1 ring-teal-500' : 'border-slate-200 bg-white'} p-3.5 shadow-sm transition hover:border-teal-200`;
-            wrapper.dataset.productId = product.id;
-
-            wrapper.innerHTML = `
-                <div class="flex items-center justify-between gap-3">
-                    <div class="flex items-center gap-3 min-w-0 flex-1">
-                        <input type="checkbox" class="addon-checkbox h-5 w-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer" ${isSelected ? 'checked' : ''}>
-                        <div class="min-w-0 flex-1">
-                            <div class="flex flex-wrap items-center gap-2">
-                                <h3 class="font-black text-slate-900 text-sm truncate">${escapeHtml(product.name)}</h3>
-                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">${escapeHtml(product.category_name || 'Other')}</span>
-                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500">${escapeHtml(product.sku)}</span>
-                            </div>
-                            <p class="text-xs font-semibold text-slate-500 mt-0.5">Unit: <span class="font-bold text-slate-700">${escapeHtml(product.unit)}</span></p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-1.5 shrink-0">
-                        <div class="relative flex items-center">
-                            <input type="number" step="any" min="0.1" placeholder="Qty" value="${qtyVal}" class="addon-qty-input w-24 h-10 rounded-xl border border-slate-200 bg-white px-3 text-right text-sm font-black text-slate-900 shadow-xs focus:border-teal-500 focus:ring-1 focus:ring-teal-500 focus:outline-none">
-                            <span class="ml-1.5 text-xs font-bold text-slate-500 uppercase">${escapeHtml(product.unit)}</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            const checkbox = wrapper.querySelector('.addon-checkbox');
-            const qtyInput = wrapper.querySelector('.addon-qty-input');
-
-            function syncSelectionState() {
-                const num = parseFloat(qtyInput.value);
-                if (checkbox.checked) {
-                    const finalQty = !isNaN(num) && num > 0 ? num : 1;
-                    if (isNaN(num) || num <= 0) {
-                        qtyInput.value = finalQty;
-                    }
-                    selectedAddons.set(product.id, { product, qty: finalQty });
-                    wrapper.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-teal-500 bg-teal-50/20 ring-1 ring-teal-500 p-3.5 shadow-sm transition hover:border-teal-200';
-                } else {
-                    selectedAddons.delete(product.id);
-                    wrapper.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:border-teal-200';
-                }
-                updateAddonsSelectionCount();
-            }
-
-            checkbox.addEventListener('change', () => {
-                syncSelectionState();
-                if (checkbox.checked) {
-                    qtyInput.focus();
-                    qtyInput.select();
-                }
-            });
-
-            qtyInput.addEventListener('input', () => {
-                const num = parseFloat(qtyInput.value);
-                if (!isNaN(num) && num > 0) {
-                    checkbox.checked = true;
-                    selectedAddons.set(product.id, { product, qty: num });
-                    wrapper.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-teal-500 bg-teal-50/20 ring-1 ring-teal-500 p-3.5 shadow-sm transition hover:border-teal-200';
-                } else {
-                    checkbox.checked = false;
-                    selectedAddons.delete(product.id);
-                    wrapper.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:border-teal-200';
-                }
-                updateAddonsSelectionCount();
-            });
-
-            return wrapper;
-        }
-
-        function updateAddonsSelectionCount() {
-            const count = selectedAddons.size;
-            const countEl = document.getElementById('addons-selection-count');
-            const demandBtn = document.getElementById('add-to-demand-btn');
-            const cartBtn = document.getElementById('add-to-cart-btn');
-
-            if (countEl) {
-                countEl.textContent = count;
-            }
-            if (demandBtn) {
-                demandBtn.disabled = count === 0;
-            }
-            if (cartBtn) {
-                cartBtn.disabled = count === 0;
-            }
-
-            syncMobileBuyNavigation();
-        }
-
-        function clearAddonSelections() {
-            selectedAddons.clear();
-            document.querySelectorAll('.addon-picker-card').forEach(card => {
-                const cb = card.querySelector('.addon-checkbox');
-                const qi = card.querySelector('.addon-qty-input');
-                if (cb) cb.checked = false;
-                if (qi) qi.value = '';
-                card.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:border-teal-200';
-            });
-            updateAddonsSelectionCount();
-        }
-
-        async function submitAddonsToDemand() {
-            if (selectedAddons.size === 0) return;
-
-            const items = Array.from(selectedAddons.values()).map(entry => ({
-                product_id: entry.product.id,
-                quantity: entry.qty,
-            }));
-
-            window.showLoader?.();
-
-            try {
-                const response = await fetch('{{ route('purchaser.bulk-buy.add-ons.store') }}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                window.dispatchEvent(new CustomEvent('purchaser:buy-selection-change', {
+                    detail: {
+                        hasSelection: hasSelection,
                     },
-                    body: JSON.stringify({
-                        date: '{{ $date }}',
-                        purchase_grade: '{{ $purchaseGrade }}',
-                        items: items,
-                    }),
-                });
-
-                const result = await response.json();
-
-                if (response.ok && result.success) {
-                    if (result.redirect_url) {
-                        window.location.href = result.redirect_url;
-                    } else {
-                        window.location.reload();
-                    }
-                } else {
-                    window.hideLoader?.();
-                    alert(result.message || 'Failed to add items to demand. Please try again.');
-                }
-            } catch (err) {
-                window.hideLoader?.();
-                console.error('Error adding direct purchase add-ons:', err);
-                alert('A network error occurred while adding to demand.');
+                }));
             }
-        }
 
-        async function submitAddonsToCart() {
-            if (selectedAddons.size === 0) return;
-
-            const items = Array.from(selectedAddons.values()).map(entry => ({
-                product_id: entry.product.id,
-                quantity: entry.qty,
-            }));
-
-            window.showLoader?.();
-
-            try {
-                const response = await fetch('{{ route('purchaser.bulk-buy.add-ons-to-cart.store') }}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
-                    },
-                    body: JSON.stringify({
-                        date: '{{ $date }}',
-                        purchase_grade: '{{ $purchaseGrade }}',
-                        items: items,
-                    }),
-                });
-
-                const result = await response.json();
-
-                if (response.ok && result.success) {
-                    if (result.redirect_url) {
-                        window.location.href = result.redirect_url;
-                    } else {
-                        window.location.reload();
-                    }
-                } else {
-                    window.hideLoader?.();
-                    alert(result.message || 'Failed to add items to cart. Please try again.');
-                }
-            } catch (err) {
-                window.hideLoader?.();
-                console.error('Error adding add-ons to cart:', err);
-                alert('A network error occurred while adding to cart.');
+            function escapeHtml(str) {
+                if (!str) return '';
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
             }
-        }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            const searchInput = document.getElementById('search-input');
-            const filterSelect = document.getElementById('filter-select');
-            const staticItems = document.querySelectorAll('.product-item[data-tab="pending"]');
-            const selectionCount = document.getElementById('selection-count');
-            const nextBtn = document.getElementById('next-btn');
-            const noResultsMsg = document.getElementById('no-results-msg');
+            function switchTab(tab) {
+                activeTab = tab;
 
-            // Initialize selectedProductIds from any pre-checked checkboxes in Pending
-            document.querySelectorAll('#pending-container .product-checkbox:checked').forEach(cb => {
-                selectedProductIds.add(Number(cb.value));
-            });
-
-            // Handle Custom Dropdown clicks
-            document.addEventListener('click', (e) => {
-                const trigger = e.target.closest('.custom-select-trigger');
-                if (trigger) {
-                    const container = trigger.closest('.custom-select-container');
-                    const optionsList = container.querySelector('.custom-select-options');
-                    const arrow = trigger.querySelector('svg');
-
-                    document.querySelectorAll('.custom-select-options').forEach(el => {
-                        if (el !== optionsList) {
-                            el.classList.add('hidden');
-                            const otherTrigger = el.closest('.custom-select-container')?.querySelector('.custom-select-trigger svg');
-                            if (otherTrigger) otherTrigger.classList.remove('rotate-180');
-                        }
-                    });
-
-                    optionsList.classList.toggle('hidden');
-                    if (arrow) arrow.classList.toggle('rotate-180');
-                    return;
-                }
-
-                const option = e.target.closest('.custom-select-option');
-                if (option) {
-                    const container = option.closest('.custom-select-container');
-                    const input = container.querySelector('#filter-select');
-                    const label = container.querySelector('.custom-select-label');
-                    const optionsList = container.querySelector('.custom-select-options');
-
-                    const val = option.getAttribute('data-value');
-
-                    input.value = val;
-                    label.textContent = `Filter: ${val}`;
-
-                    container.querySelectorAll('.custom-select-option').forEach(opt => {
-                        const check = opt.querySelector('.checkmark');
-                        if (opt === option) {
-                            check.classList.remove('hidden');
+                const tabs = ['pending', 'fulfilled', 'addons'];
+                tabs.forEach(t => {
+                    const btn = document.getElementById(`tab-btn-${t}`);
+                    if (btn) {
+                        if (t === tab) {
+                            btn.classList.add('bg-white', 'text-slate-900', 'shadow-xs');
+                            btn.classList.remove('text-slate-600', 'hover:bg-white/50');
                         } else {
-                            check.classList.add('hidden');
+                            btn.classList.remove('bg-white', 'text-slate-900', 'shadow-xs');
+                            btn.classList.add('text-slate-600', 'hover:bg-white/50');
                         }
-                    });
-
-                    optionsList.classList.add('hidden');
-                    const arrow = container.querySelector('.custom-select-trigger svg');
-                    if (arrow) arrow.classList.remove('rotate-180');
-
-                    if (window.filterItems) {
-                        window.filterItems();
-                    }
-                    if (window.updatePillStyles) {
-                        window.updatePillStyles(val);
-                    }
-                    return;
-                }
-
-                if (!e.target.closest('.custom-select-container')) {
-                    document.querySelectorAll('.custom-select-options').forEach(el => {
-                        el.classList.add('hidden');
-                        const container = el.closest('.custom-select-container');
-                        const arrow = container?.querySelector('.custom-select-trigger svg');
-                        if (arrow) arrow.classList.remove('rotate-180');
-                    });
-                }
-            });
-
-            window.updatePillStyles = function(selectedCategory) {
-                document.querySelectorAll('.category-pill').forEach(pill => {
-                    const pillCat = pill.getAttribute('data-category-pill');
-                    if (pillCat && pillCat.toLowerCase() === (selectedCategory || '').toLowerCase()) {
-                        pill.className = 'category-pill snap-start shrink-0 rounded-full bg-teal-600 px-3.5 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] text-white shadow-xs transition';
-                    } else {
-                        pill.className = 'category-pill snap-start shrink-0 rounded-full bg-slate-100 px-3.5 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] text-slate-600 transition hover:bg-slate-200';
                     }
                 });
-            };
 
-            window.selectCategoryPill = function(category, btn) {
-                const filterSelectInput = document.getElementById('filter-select');
-                if (filterSelectInput) {
-                    filterSelectInput.value = category;
+                const pendingContainer = document.getElementById('pending-container');
+                const fulfilledContainer = document.getElementById('fulfilled-container');
+                const addonsContainer = document.getElementById('addons-container');
+                const bulkBuyBottomBar = document.getElementById('bulk-buy-bottom-bar');
+                const addonsBottomBar = document.getElementById('addons-bottom-bar');
+
+                if (tab === 'pending') {
+                    if (pendingContainer) pendingContainer.classList.remove('hidden');
+                    if (fulfilledContainer) fulfilledContainer.classList.add('hidden');
+                    if (addonsContainer) addonsContainer.classList.add('hidden');
+                    if (bulkBuyBottomBar) bulkBuyBottomBar.classList.remove('hidden');
+                    if (addonsBottomBar) addonsBottomBar.classList.add('hidden');
+                } else if (tab === 'fulfilled') {
+                    if (pendingContainer) pendingContainer.classList.add('hidden');
+                    if (fulfilledContainer) fulfilledContainer.classList.remove('hidden');
+                    if (addonsContainer) addonsContainer.classList.add('hidden');
+                    if (bulkBuyBottomBar) bulkBuyBottomBar.classList.remove('hidden');
+                    if (addonsBottomBar) addonsBottomBar.classList.add('hidden');
+
+                    if (fulfilledContainer && fulfilledContainer.dataset.loaded !== 'true') {
+                        window.showLoader?.();
+                        fetch(`{{ route('purchaser.bulk-buy.tabs.fulfilled') }}?date=${encodeURIComponent(currentDate)}&purchase_grade=${encodeURIComponent(currentPurchaseGrade)}`)
+                            .then(response => response.text())
+                            .then(html => {
+                                fulfilledContainer.innerHTML = html;
+                                fulfilledContainer.dataset.loaded = 'true';
+                                window.filterItems?.();
+                            })
+                            .finally(() => {
+                                window.hideLoader?.();
+                            });
+                    }
+                } else if (tab === 'addons') {
+                    if (pendingContainer) pendingContainer.classList.add('hidden');
+                    if (fulfilledContainer) fulfilledContainer.classList.add('hidden');
+                    if (addonsContainer) addonsContainer.classList.remove('hidden');
+                    if (bulkBuyBottomBar) bulkBuyBottomBar.classList.add('hidden');
+                    if (addonsBottomBar) addonsBottomBar.classList.remove('hidden');
+
+                    if (!addonsLoadedOnce) {
+                        fetchAddons(1, true);
+                    }
                 }
-                const label = document.querySelector('.custom-select-label');
-                if (label) {
-                    label.textContent = `Filter: ${category}`;
-                }
-                window.updatePillStyles(category);
+
                 if (window.filterItems) {
                     window.filterItems();
                 }
-            };
+            }
 
-            window.filterItems = function() {
-                if (activeTab === 'addons') {
-                    fetchAddons(1, true);
-                    return;
+            // Grade Switching with State Preservation & Caching
+            function saveCurrentGradeInputs(grade) {
+                if (!stateByGrade[grade]) stateByGrade[grade] = {};
+                const container = document.getElementById('pending-container');
+                if (!container) return;
+
+                const checked = [];
+                container.querySelectorAll('input.product-checkbox:checked').forEach(cb => {
+                    checked.push(Number(cb.value));
+                });
+                stateByGrade[grade].checkedProductIds = checked;
+
+                const inlines = {};
+                container.querySelectorAll('.inline-qty-input, .inline-rate-input').forEach(input => {
+                    if (input.value !== '') {
+                        const key = `${input.dataset.productId}_${input.dataset.grade}_${input.classList.contains('inline-qty-input') ? 'qty' : 'rate'}`;
+                        inlines[key] = input.value;
+                    }
+                });
+                stateByGrade[grade].inlineValues = inlines;
+
+                const bottomCartSelect = document.getElementById('bottom-cart-select');
+                if (bottomCartSelect) {
+                    stateByGrade[grade].selectedCartId = bottomCartSelect.value;
                 }
 
-                const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
-                const category = filterSelect ? filterSelect.value : 'All';
-                let visibleCount = 0;
+                try {
+                    localStorage.setItem(getAutosaveKey(), JSON.stringify(stateByGrade));
+                } catch (e) {}
+            }
 
-                const targetItems = activeTab === 'fulfilled'
-                    ? document.querySelectorAll('#fulfilled-container .product-item')
-                    : staticItems;
+            function restoreGradeInputs(grade) {
+                const container = document.getElementById('pending-container');
+                if (!container || !stateByGrade[grade]) return;
 
-                targetItems.forEach(item => {
-                    const name = (item.dataset.name || '').toLowerCase();
-                    const sku = (item.dataset.sku || '').toLowerCase();
-                    const itemCategory = item.dataset.category || '';
-                    const isFrequent = item.dataset.frequent === 'true';
+                const saved = stateByGrade[grade];
+                if (saved.checkedProductIds) {
+                    container.querySelectorAll('input.product-checkbox').forEach(cb => {
+                        const isChecked = saved.checkedProductIds.includes(Number(cb.value));
+                        cb.checked = isChecked;
+                        if (isChecked) {
+                            selectedProductIds.add(Number(cb.value));
+                        } else {
+                            selectedProductIds.delete(Number(cb.value));
+                        }
+                    });
+                }
 
-                    const matchSearch = name.includes(query) || sku.includes(query);
-                    let matchFilter = false;
+                if (saved.inlineValues) {
+                    container.querySelectorAll('.inline-qty-input, .inline-rate-input').forEach(input => {
+                        const key = `${input.dataset.productId}_${input.dataset.grade}_${input.classList.contains('inline-qty-input') ? 'qty' : 'rate'}`;
+                        if (saved.inlineValues[key] !== undefined) {
+                            input.value = saved.inlineValues[key];
+                        }
+                    });
+                }
 
-                    if (category === 'All') {
-                        matchFilter = true;
-                    } else if (category === 'Frequent') {
-                        matchFilter = isFrequent;
+                const bottomCartSelect = document.getElementById('bottom-cart-select');
+                if (bottomCartSelect && saved.selectedCartId !== undefined) {
+                    bottomCartSelect.value = saved.selectedCartId;
+                }
+
+                if (grade === 'ALL') {
+                    window.updateInlineBulkTotals?.();
+                }
+                updateSelectionCount();
+            }
+
+            async function switchGrade(targetGrade) {
+                if (targetGrade === currentPurchaseGrade) return;
+
+                saveCurrentGradeInputs(currentPurchaseGrade);
+
+                // Update Grade Nav Button Styles
+                document.querySelectorAll('.grade-nav-btn').forEach(btn => {
+                    const btnGrade = btn.getAttribute('data-grade');
+                    const activeClass = btn.getAttribute('data-active-class');
+                    const inactiveClass = btn.getAttribute('data-inactive-class');
+
+                    if (btnGrade === targetGrade) {
+                        btn.className = `grade-nav-btn shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all ${activeClass}`;
                     } else {
-                        matchFilter = itemCategory.toLowerCase() === category.toLowerCase();
-                    }
-
-                    if (matchSearch && matchFilter) {
-                        item.classList.remove('hidden');
-                        visibleCount++;
-                    } else {
-                        item.classList.add('hidden');
+                        btn.className = `grade-nav-btn shrink-0 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all ${inactiveClass}`;
                     }
                 });
 
-                if (noResultsMsg) {
-                    if (visibleCount === 0) {
-                        noResultsMsg.classList.remove('hidden');
-                        if (query === '' && category === 'All') {
-                            noResultsMsg.textContent = activeTab === 'fulfilled'
-                                ? 'No fulfilled products for this date.'
-                                : 'No pending products for this date.';
-                        } else {
-                            noResultsMsg.textContent = 'No products match the selected filters.';
+                const pendingContainer = document.getElementById('pending-container');
+
+                if (gradeCache[targetGrade]) {
+                    if (pendingContainer) {
+                        pendingContainer.innerHTML = gradeCache[targetGrade];
+                    }
+                    onGradeSwapped(targetGrade);
+                } else {
+                    if (pendingContainer) {
+                        pendingContainer.style.opacity = '0.5';
+                    }
+                    try {
+                        const url = `{{ route('purchaser.bulk-buy') }}?date=${encodeURIComponent(currentDate)}&purchase_grade=${encodeURIComponent(targetGrade)}&partial=1`;
+                        const response = await fetch(url, {
+                            headers: {
+                                'Accept': 'text/html',
+                                'X-Partial': 'pending',
+                            }
+                        });
+                        if (!response.ok) throw new Error('Failed to load grade partial');
+                        const html = await response.text();
+                        gradeCache[targetGrade] = html;
+                        if (pendingContainer) {
+                            pendingContainer.innerHTML = html;
+                        }
+                        onGradeSwapped(targetGrade);
+                    } catch (err) {
+                        console.error('Error switching grade:', err);
+                        window.location.href = `{{ route('purchaser.bulk-buy') }}?date=${encodeURIComponent(currentDate)}&purchase_grade=${encodeURIComponent(targetGrade)}`;
+                        return;
+                    } finally {
+                        if (pendingContainer) {
+                            pendingContainer.style.opacity = '1';
+                        }
+                    }
+                }
+            }
+
+            function onGradeSwapped(targetGrade) {
+                currentPurchaseGrade = targetGrade;
+
+                const bulkBuyForm = document.getElementById('bulk-buy-form');
+                const gradeInput = document.getElementById('bulk-buy-purchase-grade');
+                const bottomCartContainer = document.getElementById('bottom-cart-select-container');
+                const totalsContainer = document.getElementById('inline-totals-container');
+                const selectionCount = document.getElementById('selection-count');
+                const nextBtn = document.getElementById('next-btn');
+
+                if (gradeInput) gradeInput.value = targetGrade;
+
+                if (targetGrade === 'ALL') {
+                    if (bulkBuyForm) {
+                        bulkBuyForm.action = '{{ route('purchaser.carts.bulk-store') }}';
+                        bulkBuyForm.method = 'POST';
+                    }
+                    if (bottomCartContainer) bottomCartContainer.classList.remove('hidden');
+                    if (totalsContainer) totalsContainer.classList.remove('hidden');
+                    if (selectionCount) selectionCount.classList.add('hidden');
+                    if (nextBtn) nextBtn.textContent = 'Add Selected to Cart';
+                } else {
+                    if (bulkBuyForm) {
+                        bulkBuyForm.action = '{{ route('purchaser.bulk-buy.details') }}';
+                        bulkBuyForm.method = 'GET';
+                    }
+                    if (bottomCartContainer) bottomCartContainer.classList.add('hidden');
+                    if (totalsContainer) totalsContainer.classList.add('hidden');
+                    if (selectionCount) selectionCount.classList.remove('hidden');
+                    if (nextBtn) nextBtn.textContent = 'Next';
+                }
+
+                // Reset fulfilled container for on-demand reload if tab switched
+                const fulfilledContainer = document.getElementById('fulfilled-container');
+                if (fulfilledContainer) {
+                    fulfilledContainer.dataset.loaded = 'false';
+                    fulfilledContainer.innerHTML = '';
+                }
+                addonsLoadedOnce = false;
+
+                const newUrl = `{{ route('purchaser.bulk-buy') }}?date=${encodeURIComponent(currentDate)}&purchase_grade=${encodeURIComponent(targetGrade)}`;
+                window.history.pushState({ grade: targetGrade }, '', newUrl);
+
+                bindPendingItemListeners();
+                restoreGradeInputs(targetGrade);
+
+                if (window.filterItems) window.filterItems();
+                fetchL2Secondary(targetGrade);
+            }
+
+            // L2 Secondary Loading
+            async function fetchL2Secondary(grade) {
+                if (l2GradeCache[grade]) {
+                    applyL2Data(l2GradeCache[grade]);
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`{{ route('purchaser.bulk-buy.secondary') }}?date=${encodeURIComponent(currentDate)}&purchase_grade=${encodeURIComponent(grade)}`, {
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    });
+                    if (!response.ok) return;
+                    const data = await response.json();
+                    l2GradeCache[grade] = data;
+                    applyL2Data(data);
+                } catch (err) {
+                    console.error('Failed to load L2 secondary data:', err);
+                }
+            }
+
+            function applyL2Data(data) {
+                if (!data) return;
+
+                if (data.price_hints) {
+                    document.querySelectorAll('.inline-rate-input').forEach(input => {
+                        const pId = input.dataset.productId;
+                        if (pId && data.price_hints[pId] !== undefined) {
+                            const hint = Number(data.price_hints[pId]);
+                            input.dataset.priceHint = hint;
+                            if (!input.placeholder || input.placeholder === '0.00' || input.placeholder === '0') {
+                                input.placeholder = hint > 0 ? hint.toFixed(2) : '0.00';
+                            }
+                        }
+                    });
+                }
+
+                if (data.draft_carts) {
+                    const bottomSelect = document.getElementById('bottom-cart-select');
+                    const modalSelect = document.getElementById('add-to-cart-cart-id');
+
+                    if (bottomSelect) {
+                        const selectedVal = bottomSelect.value;
+                        bottomSelect.innerHTML = '<option value="">+ New Draft Cart</option>';
+                        data.draft_carts.forEach(cart => {
+                            const opt = document.createElement('option');
+                            opt.value = cart.id;
+                            opt.textContent = `${cart.cart_number} ${cart.supplier_name ? '(' + cart.supplier_name + ')' : ''} (${cart.items_count} items)`;
+                            bottomSelect.appendChild(opt);
+                        });
+                        bottomSelect.value = selectedVal;
+                    }
+
+                    if (modalSelect) {
+                        const selectedVal = modalSelect.value;
+                        modalSelect.innerHTML = '<option value="">New Cart (Automatic)</option>';
+                        data.draft_carts.forEach(cart => {
+                            const opt = document.createElement('option');
+                            opt.value = cart.id;
+                            opt.setAttribute('data-grade', cart.purchase_grade);
+                            opt.textContent = `${cart.cart_number} (${cart.purchase_grade === 'MIXED' ? 'Mixed Lot' : 'Grade ' + cart.purchase_grade})${cart.supplier_name ? ' - ' + cart.supplier_name : ''}`;
+                            modalSelect.appendChild(opt);
+                        });
+                        modalSelect.value = selectedVal;
+                    }
+                }
+            }
+
+            function bindPendingItemListeners() {
+                const container = document.getElementById('pending-container');
+                if (!container) return;
+
+                container.querySelectorAll('.product-item[data-tab="pending"]').forEach(item => {
+                    const cb = item.querySelector('.product-checkbox');
+                    if (cb) {
+                        cb.onchange = () => {
+                            if (cb.checked) {
+                                selectedProductIds.add(Number(cb.value));
+                            } else {
+                                selectedProductIds.delete(Number(cb.value));
+                            }
+                            updateSelectionCount();
+                            saveCurrentGradeInputs(currentPurchaseGrade);
+                        };
+                    }
+
+                    item.onclick = (e) => {
+                        if (e.target.closest('input') || e.target.closest('a') || e.target.closest('button') || e.target.closest('table')) {
+                            return;
+                        }
+                        if (cb) {
+                            cb.checked = !cb.checked;
+                            cb.dispatchEvent(new Event('change'));
+                        }
+                    };
+                });
+
+                container.querySelectorAll('.inline-qty-input, .inline-rate-input').forEach(input => {
+                    input.oninput = () => {
+                        window.updateInlineBulkTotals?.();
+                        saveCurrentGradeInputs(currentPurchaseGrade);
+                    };
+                });
+            }
+
+            async function fetchAddons(page = 1, reset = false) {
+                if (addonsLoading) return;
+                addonsLoading = true;
+
+                const searchInput = document.getElementById('search-input');
+                const filterSelect = document.getElementById('filter-select');
+                const loadingIndicator = document.getElementById('addons-loading');
+                const loadMoreWrap = document.getElementById('addons-load-more-wrap');
+                const addonsList = document.getElementById('addons-list');
+                const noResultsMsg = document.getElementById('no-results-msg');
+
+                if (loadingIndicator) loadingIndicator.classList.remove('hidden');
+                if (reset && addonsList) {
+                    addonsList.innerHTML = '';
+                }
+
+                const query = searchInput ? searchInput.value.trim() : '';
+                const category = filterSelect ? filterSelect.value : 'All';
+
+                const params = new URLSearchParams({
+                    page: page,
+                    limit: 24,
+                    purchase_grade: currentPurchaseGrade,
+                });
+
+                if (query) {
+                    params.append('q', query);
+                }
+                if (category && category !== 'All') {
+                    params.append('category', category);
+                }
+
+                try {
+                    const response = await fetch(`{{ route('purchaser.bulk-buy.product-search') }}?${params.toString()}`);
+                    const result = await response.json();
+
+                    const products = Array.isArray(result) ? result : (result.data || []);
+                    addonsCurrentPage = result.current_page || page;
+                    addonsHasMore = Boolean(result.has_more);
+                    addonsLoadedOnce = true;
+
+                    if (reset && products.length === 0) {
+                        if (noResultsMsg) {
+                            noResultsMsg.classList.remove('hidden');
+                            noResultsMsg.textContent = 'No add-on products match the selected filters.';
                         }
                     } else {
-                        noResultsMsg.classList.add('hidden');
+                        if (noResultsMsg && activeTab === 'addons') {
+                            noResultsMsg.classList.add('hidden');
+                        }
+                        products.forEach(product => {
+                            const card = createAddonPickerCard(product);
+                            addonsList.appendChild(card);
+                        });
                     }
-                }
 
-                updateSelectionCount();
-            };
-
-            function updateSelectionCount() {
-                const checkedCount = selectedProductIds.size;
-                if (selectionCount) {
-                    selectionCount.textContent = `${checkedCount} item${checkedCount !== 1 ? 's' : ''} selected`;
+                    if (loadMoreWrap) {
+                        if (addonsHasMore) {
+                            loadMoreWrap.classList.remove('hidden');
+                        } else {
+                            loadMoreWrap.classList.add('hidden');
+                        }
+                    }
+                } catch (err) {
+                    console.error('Failed to load add-on products:', err);
+                } finally {
+                    addonsLoading = false;
+                    if (loadingIndicator) loadingIndicator.classList.add('hidden');
                 }
-                if (nextBtn) {
-                    if (inlineEnteredLines > 0) {
-                        nextBtn.disabled = false;
+            }
+
+            function loadMoreAddons() {
+                if (!addonsHasMore || addonsLoading) return;
+                fetchAddons(addonsCurrentPage + 1, false);
+            }
+
+            function createAddonPickerCard(product) {
+                const isSelected = selectedAddons.has(product.id);
+                const selectedData = selectedAddons.get(product.id);
+                const qtyVal = isSelected ? selectedData.qty : '';
+
+                const wrapper = document.createElement('div');
+                wrapper.className = `product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border ${isSelected ? 'border-teal-500 bg-teal-50/20 ring-1 ring-teal-500' : 'border-slate-200 bg-white'} p-3.5 shadow-sm transition hover:border-teal-200`;
+                wrapper.dataset.productId = product.id;
+
+                wrapper.innerHTML = `
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-3 min-w-0 flex-1">
+                            <input type="checkbox" class="addon-checkbox h-5 w-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer" ${isSelected ? 'checked' : ''}>
+                            <div class="min-w-0 flex-1">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <h3 class="font-black text-slate-900 text-sm truncate">${escapeHtml(product.name)}</h3>
+                                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">${escapeHtml(product.category_name || 'Other')}</span>
+                                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500">${escapeHtml(product.sku)}</span>
+                                </div>
+                                <p class="text-xs font-semibold text-slate-500 mt-0.5">Unit: <span class="font-bold text-slate-700">${escapeHtml(product.unit)}</span></p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <div class="relative flex items-center">
+                                <input type="number" step="any" min="0.1" placeholder="Qty" value="${qtyVal}" class="addon-qty-input w-24 h-10 rounded-xl border border-slate-200 bg-white px-3 text-right text-sm font-black text-slate-900 shadow-xs focus:border-teal-500 focus:ring-1 focus:ring-teal-500 focus:outline-none">
+                                <span class="ml-1.5 text-xs font-bold text-slate-500 uppercase">${escapeHtml(product.unit)}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                const checkbox = wrapper.querySelector('.addon-checkbox');
+                const qtyInput = wrapper.querySelector('.addon-qty-input');
+
+                function syncSelectionState() {
+                    const num = parseFloat(qtyInput.value);
+                    if (checkbox.checked) {
+                        const finalQty = !isNaN(num) && num > 0 ? num : 1;
+                        if (isNaN(num) || num <= 0) {
+                            qtyInput.value = finalQty;
+                        }
+                        selectedAddons.set(product.id, { product, qty: finalQty });
+                        wrapper.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-teal-500 bg-teal-50/20 ring-1 ring-teal-500 p-3.5 shadow-sm transition hover:border-teal-200';
                     } else {
-                        nextBtn.disabled = checkedCount === 0;
+                        selectedAddons.delete(product.id);
+                        wrapper.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:border-teal-200';
                     }
+                    updateAddonsSelectionCount();
+                }
+
+                checkbox.addEventListener('change', () => {
+                    syncSelectionState();
+                    if (checkbox.checked) {
+                        qtyInput.focus();
+                        qtyInput.select();
+                    }
+                });
+
+                qtyInput.addEventListener('input', () => {
+                    const num = parseFloat(qtyInput.value);
+                    if (!isNaN(num) && num > 0) {
+                        checkbox.checked = true;
+                        selectedAddons.set(product.id, { product, qty: num });
+                        wrapper.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-teal-500 bg-teal-50/20 ring-1 ring-teal-500 p-3.5 shadow-sm transition hover:border-teal-200';
+                    } else {
+                        checkbox.checked = false;
+                        selectedAddons.delete(product.id);
+                        wrapper.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:border-teal-200';
+                    }
+                    updateAddonsSelectionCount();
+                });
+
+                return wrapper;
+            }
+
+            function updateAddonsSelectionCount() {
+                const count = selectedAddons.size;
+                const countEl = document.getElementById('addons-selection-count');
+                const demandBtn = document.getElementById('add-to-demand-btn');
+                const cartBtn = document.getElementById('add-to-cart-btn');
+
+                if (countEl) {
+                    countEl.textContent = count;
+                }
+                if (demandBtn) {
+                    demandBtn.disabled = count === 0;
+                }
+                if (cartBtn) {
+                    cartBtn.disabled = count === 0;
                 }
 
                 syncMobileBuyNavigation();
             }
 
-            window.updateInlineBulkTotals = function() {
-                let totalQty = 0;
-                let totalAmount = 0;
-                let linesCount = 0;
-                const activeProductIds = new Set();
-
-                document.querySelectorAll('.inline-qty-input').forEach(qtyInput => {
-                    const qty = parseFloat(qtyInput.value) || 0;
-                    const productId = qtyInput.dataset.productId;
-                    const grade = qtyInput.dataset.grade;
-                    const rateInput = document.querySelector(`.inline-rate-input[data-product-id="${productId}"][data-grade="${grade}"]`);
-                    const totalSpan = document.querySelector(`.inline-line-total[data-product-id="${productId}"][data-grade="${grade}"]`);
-
-                    const rate = parseFloat(rateInput ? rateInput.value : 0) || 0;
-                    const lineTotal = qty * rate;
-
-                    if (totalSpan) {
-                        totalSpan.textContent = '₹' + lineTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                    }
-
-                    if (qty > 0) {
-                        linesCount++;
-                        totalQty += qty;
-                        totalAmount += lineTotal;
-                        activeProductIds.add(Number(productId));
-                    }
+            function clearAddonSelections() {
+                selectedAddons.clear();
+                document.querySelectorAll('.addon-picker-card').forEach(card => {
+                    const cb = card.querySelector('.addon-checkbox');
+                    const qi = card.querySelector('.addon-qty-input');
+                    if (cb) cb.checked = false;
+                    if (qi) qi.value = '';
+                    card.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:border-teal-200';
                 });
+                updateAddonsSelectionCount();
+            }
 
-                inlineEnteredLines = linesCount;
+            async function submitAddonsToDemand() {
+                if (selectedAddons.size === 0) return;
 
-                // Check parent product checkboxes for active products
-                document.querySelectorAll('.product-checkbox').forEach(cb => {
-                    const pId = Number(cb.value);
-                    if (activeProductIds.has(pId) && !cb.checked) {
-                        cb.checked = true;
-                        selectedProductIds.add(pId);
-                    }
-                });
+                const items = Array.from(selectedAddons.values()).map(entry => ({
+                    product_id: entry.product.id,
+                    quantity: entry.qty,
+                }));
 
-                const linesEl = document.getElementById('inline-selected-lines');
-                if (linesEl) {
-                    linesEl.textContent = `${linesCount} line${linesCount === 1 ? '' : 's'}`;
-                }
-                const totalQtyEl = document.getElementById('inline-total-qty');
-                if (totalQtyEl) {
-                    totalQtyEl.textContent = totalQty.toFixed(1);
-                }
-                const totalAmountEl = document.getElementById('inline-total-amount');
-                if (totalAmountEl) {
-                    totalAmountEl.textContent = '₹' + totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                }
+                window.showLoader?.();
 
-                updateSelectionCount();
-            };
+                try {
+                    const response = await fetch('{{ route('purchaser.bulk-buy.add-ons.store') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                        },
+                        body: JSON.stringify({
+                            date: currentDate,
+                            purchase_grade: currentPurchaseGrade,
+                            items: items,
+                        }),
+                    });
 
-            // Bind change events on static checkboxes
-            staticItems.forEach(item => {
-                const cb = item.querySelector('.product-checkbox');
-                if (cb) {
-                    cb.addEventListener('change', () => {
-                        if (cb.checked) {
-                            selectedProductIds.add(Number(cb.value));
+                    const result = await response.json();
+
+                    if (response.ok && result.success) {
+                        if (result.redirect_url) {
+                            window.location.href = result.redirect_url;
                         } else {
-                            selectedProductIds.delete(Number(cb.value));
+                            window.location.reload();
                         }
-                        updateSelectionCount();
+                    } else {
+                        window.hideLoader?.();
+                        alert(result.message || 'Failed to add items to demand. Please try again.');
+                    }
+                } catch (err) {
+                    window.hideLoader?.();
+                    console.error('Error adding direct purchase add-ons:', err);
+                    alert('A network error occurred while adding to demand.');
+                }
+            }
+
+            async function submitAddonsToCart() {
+                if (selectedAddons.size === 0) return;
+
+                const items = Array.from(selectedAddons.values()).map(entry => ({
+                    product_id: entry.product.id,
+                    quantity: entry.qty,
+                }));
+
+                window.showLoader?.();
+
+                try {
+                    const response = await fetch('{{ route('purchaser.bulk-buy.add-ons-to-cart.store') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                        },
+                        body: JSON.stringify({
+                            date: currentDate,
+                            purchase_grade: currentPurchaseGrade,
+                            items: items,
+                        }),
+                    });
+
+                    const result = await response.json();
+
+                    if (response.ok && result.success) {
+                        if (result.redirect_url) {
+                            window.location.href = result.redirect_url;
+                        } else {
+                            window.location.reload();
+                        }
+                    } else {
+                        window.hideLoader?.();
+                        alert(result.message || 'Failed to add items to cart. Please try again.');
+                    }
+                } catch (err) {
+                    window.hideLoader?.();
+                    console.error('Error adding add-ons to cart:', err);
+                    alert('A network error occurred while adding to cart.');
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', () => {
+                const searchInput = document.getElementById('search-input');
+                const filterSelect = document.getElementById('filter-select');
+                const selectionCount = document.getElementById('selection-count');
+                const nextBtn = document.getElementById('next-btn');
+                const noResultsMsg = document.getElementById('no-results-msg');
+
+                // Intercept Grade Nav links for SPA progressive switching
+                document.querySelectorAll('.grade-nav-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const targetGrade = btn.getAttribute('data-grade');
+                        if (targetGrade) {
+                            switchGrade(targetGrade);
+                        }
+                    });
+                });
+
+                // Listen for browser back/forward buttons
+                window.addEventListener('popstate', (e) => {
+                    const params = new URLSearchParams(window.location.search);
+                    const grade = params.get('purchase_grade') || 'A';
+                    switchGrade(grade);
+                });
+
+                // Handle Custom Dropdown clicks
+                document.addEventListener('click', (e) => {
+                    const trigger = e.target.closest('.custom-select-trigger');
+                    if (trigger) {
+                        const container = trigger.closest('.custom-select-container');
+                        const optionsList = container.querySelector('.custom-select-options');
+                        const arrow = trigger.querySelector('svg');
+
+                        document.querySelectorAll('.custom-select-options').forEach(el => {
+                            if (el !== optionsList) {
+                                el.classList.add('hidden');
+                                const otherTrigger = el.closest('.custom-select-container')?.querySelector('.custom-select-trigger svg');
+                                if (otherTrigger) otherTrigger.classList.remove('rotate-180');
+                            }
+                        });
+
+                        optionsList.classList.toggle('hidden');
+                        if (arrow) arrow.classList.toggle('rotate-180');
+                        return;
+                    }
+
+                    const option = e.target.closest('.custom-select-option');
+                    if (option) {
+                        const container = option.closest('.custom-select-container');
+                        const input = container.querySelector('#filter-select');
+                        const label = container.querySelector('.custom-select-label');
+                        const optionsList = container.querySelector('.custom-select-options');
+
+                        const val = option.getAttribute('data-value');
+
+                        input.value = val;
+                        label.textContent = `Filter: ${val}`;
+
+                        container.querySelectorAll('.custom-select-option').forEach(opt => {
+                            const check = opt.querySelector('.checkmark');
+                            if (opt === option) {
+                                check.classList.remove('hidden');
+                            } else {
+                                check.classList.add('hidden');
+                            }
+                        });
+
+                        optionsList.classList.add('hidden');
+                        const arrow = container.querySelector('.custom-select-trigger svg');
+                        if (arrow) arrow.classList.remove('rotate-180');
+
+                        if (window.filterItems) {
+                            window.filterItems();
+                        }
+                        if (window.updatePillStyles) {
+                            window.updatePillStyles(val);
+                        }
+                        return;
+                    }
+
+                    if (!e.target.closest('.custom-select-container')) {
+                        document.querySelectorAll('.custom-select-options').forEach(el => {
+                            el.classList.add('hidden');
+                            const container = el.closest('.custom-select-container');
+                            const arrow = container?.querySelector('.custom-select-trigger svg');
+                            if (arrow) arrow.classList.remove('rotate-180');
+                        });
+                    }
+                });
+
+                window.updatePillStyles = function(selectedCategory) {
+                    document.querySelectorAll('.category-pill').forEach(pill => {
+                        const pillCat = pill.getAttribute('data-category-pill');
+                        if (pillCat && pillCat.toLowerCase() === (selectedCategory || '').toLowerCase()) {
+                            pill.className = 'category-pill snap-start shrink-0 rounded-full bg-teal-600 px-3.5 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] text-white shadow-xs transition';
+                        } else {
+                            pill.className = 'category-pill snap-start shrink-0 rounded-full bg-slate-100 px-3.5 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] text-slate-600 transition hover:bg-slate-200';
+                        }
+                    });
+                };
+
+                window.selectCategoryPill = function(category, btn) {
+                    const filterSelectInput = document.getElementById('filter-select');
+                    if (filterSelectInput) {
+                        filterSelectInput.value = category;
+                    }
+                    const label = document.querySelector('.custom-select-label');
+                    if (label) {
+                        label.textContent = `Filter: ${category}`;
+                    }
+                    window.updatePillStyles(category);
+                    if (window.filterItems) {
+                        window.filterItems();
+                    }
+                };
+
+                window.filterItems = function() {
+                    if (activeTab === 'addons') {
+                        fetchAddons(1, true);
+                        return;
+                    }
+
+                    const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+                    const category = filterSelect ? filterSelect.value : 'All';
+                    let visibleCount = 0;
+
+                    const targetItems = activeTab === 'fulfilled'
+                        ? document.querySelectorAll('#fulfilled-container .product-item')
+                        : document.querySelectorAll('#pending-container .product-item[data-tab="pending"]');
+
+                    targetItems.forEach(item => {
+                        const name = (item.dataset.name || '').toLowerCase();
+                        const sku = (item.dataset.sku || '').toLowerCase();
+                        const itemCategory = item.dataset.category || '';
+                        const isFrequent = item.dataset.frequent === 'true';
+
+                        const matchSearch = name.includes(query) || sku.includes(query);
+                        let matchFilter = false;
+
+                        if (category === 'All') {
+                            matchFilter = true;
+                        } else if (category === 'Frequent') {
+                            matchFilter = isFrequent;
+                        } else {
+                            matchFilter = itemCategory.toLowerCase() === category.toLowerCase();
+                        }
+
+                        if (matchSearch && matchFilter) {
+                            item.classList.remove('hidden');
+                            visibleCount++;
+                        } else {
+                            item.classList.add('hidden');
+                        }
+                    });
+
+                    if (noResultsMsg) {
+                        if (visibleCount === 0) {
+                            noResultsMsg.classList.remove('hidden');
+                            if (query === '' && category === 'All') {
+                                noResultsMsg.textContent = activeTab === 'fulfilled'
+                                    ? 'No fulfilled products for this date.'
+                                    : 'No pending products for this date.';
+                            } else {
+                                noResultsMsg.textContent = 'No products match the selected filters.';
+                            }
+                        } else {
+                            noResultsMsg.classList.add('hidden');
+                        }
+                    }
+
+                    updateSelectionCount();
+                };
+
+                function updateSelectionCount() {
+                    const checkedCount = selectedProductIds.size;
+                    if (selectionCount) {
+                        selectionCount.textContent = `${checkedCount} item${checkedCount !== 1 ? 's' : ''} selected`;
+                    }
+                    if (nextBtn) {
+                        if (inlineEnteredLines > 0) {
+                            nextBtn.disabled = false;
+                        } else {
+                            nextBtn.disabled = checkedCount === 0;
+                        }
+                    }
+
+                    syncMobileBuyNavigation();
+                }
+
+                window.updateInlineBulkTotals = function() {
+                    let totalQty = 0;
+                    let totalAmount = 0;
+                    let linesCount = 0;
+                    const activeProductIds = new Set();
+
+                    document.querySelectorAll('.inline-qty-input').forEach(qtyInput => {
+                        const qty = parseFloat(qtyInput.value) || 0;
+                        const productId = qtyInput.dataset.productId;
+                        const grade = qtyInput.dataset.grade;
+                        const rateInput = document.querySelector(`.inline-rate-input[data-product-id="${productId}"][data-grade="${grade}"]`);
+                        const totalSpan = document.querySelector(`.inline-line-total[data-product-id="${productId}"][data-grade="${grade}"]`);
+
+                        const rate = parseFloat(rateInput ? rateInput.value : 0) || 0;
+                        const lineTotal = qty * rate;
+
+                        if (totalSpan) {
+                            totalSpan.textContent = '₹' + lineTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                        }
+
+                        if (qty > 0) {
+                            linesCount++;
+                            totalQty += qty;
+                            totalAmount += lineTotal;
+                            activeProductIds.add(Number(productId));
+                        }
+                    });
+
+                    inlineEnteredLines = linesCount;
+
+                    document.querySelectorAll('#pending-container .product-checkbox').forEach(cb => {
+                        const pId = Number(cb.value);
+                        if (activeProductIds.has(pId) && !cb.checked) {
+                            cb.checked = true;
+                            selectedProductIds.add(pId);
+                        }
+                    });
+
+                    const linesEl = document.getElementById('inline-selected-lines');
+                    if (linesEl) {
+                        linesEl.textContent = `${linesCount} line${linesCount === 1 ? '' : 's'}`;
+                    }
+                    const totalAmountEl = document.getElementById('inline-total-amount');
+                    if (totalAmountEl) {
+                        totalAmountEl.textContent = '₹' + totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    }
+
+                    updateSelectionCount();
+                };
+
+                // Double submission prevention & cross-grade input preservation
+                const bulkBuyForm = document.getElementById('bulk-buy-form');
+                if (bulkBuyForm) {
+                    bulkBuyForm.addEventListener('submit', (e) => {
+                        if (e.defaultPrevented) {
+                            return;
+                        }
+                        if (bulkBuyForm.checkValidity && !bulkBuyForm.checkValidity()) {
+                            return;
+                        }
+
+                        saveCurrentGradeInputs(currentPurchaseGrade);
+
+                        // If submitting on ALL, append any inline edits from other grades
+                        if (currentPurchaseGrade === 'ALL') {
+                            Object.keys(stateByGrade).forEach(g => {
+                                if (g !== 'ALL' && stateByGrade[g].inlineValues) {
+                                    const inlines = stateByGrade[g].inlineValues;
+                                    Object.keys(inlines).forEach(k => {
+                                        const parts = k.split('_');
+                                        if (parts.length === 3) {
+                                            const [pId, itemGrade, type] = parts;
+                                            const fieldName = type === 'qty' ? 'quantity' : 'unit_price';
+                                            const hidden = document.createElement('input');
+                                            hidden.type = 'hidden';
+                                            hidden.name = `items[${pId}][${itemGrade}][${fieldName}]`;
+                                            hidden.value = inlines[k];
+                                            bulkBuyForm.appendChild(hidden);
+                                        }
+                                    });
+                                }
+                            });
+                        }
+
+                        // Clear autosave draft for current user and business date upon successful submit invocation
+                        try {
+                            localStorage.removeItem(getAutosaveKey());
+                        } catch (e) {}
+
+                        if (nextBtn) {
+                            nextBtn.disabled = true;
+                            nextBtn.innerHTML = '<svg class="inline h-4 w-4 animate-spin mr-1" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg> Adding...';
+                        }
                     });
                 }
 
-                item.addEventListener('click', (e) => {
-                    if (e.target.closest('input') || e.target.closest('a') || e.target.closest('button')) {
-                        return;
+                let searchTimer;
+                if (searchInput) {
+                    searchInput.addEventListener('input', () => {
+                        clearTimeout(searchTimer);
+                        searchTimer = setTimeout(() => {
+                            window.filterItems();
+                        }, 300);
+                    });
+                }
+
+                // Initial binding
+                bindPendingItemListeners();
+
+                // Restore autosaved state if available
+                try {
+                    const savedData = localStorage.getItem(getAutosaveKey());
+                    if (savedData) {
+                        const parsed = JSON.parse(savedData);
+                        if (parsed && typeof parsed === 'object') {
+                            Object.assign(stateByGrade, parsed);
+                            restoreGradeInputs(currentPurchaseGrade);
+                        }
                     }
-                    if (cb) {
-                        cb.checked = !cb.checked;
-                        cb.dispatchEvent(new Event('change'));
-                    }
-                });
+                } catch (e) {}
+
+                // Initial L2 fetch
+                fetchL2Secondary(currentPurchaseGrade);
+
+                updateSelectionCount();
+                updateAddonsSelectionCount();
+                window.filterItems();
             });
 
-            // Double submission prevention
-            const bulkBuyForm = document.getElementById('bulk-buy-form');
-            if (bulkBuyForm) {
-                bulkBuyForm.addEventListener('submit', () => {
-                    if (nextBtn) {
-                        nextBtn.disabled = true;
-                        nextBtn.innerHTML = '<svg class="inline h-4 w-4 animate-spin mr-1" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg> Adding...';
-                    }
-                });
-            }
-
-            let searchTimer;
-            if (searchInput) {
-                searchInput.addEventListener('input', () => {
-                    clearTimeout(searchTimer);
-                    searchTimer = setTimeout(() => {
-                        window.filterItems();
-                    }, 300);
-                });
-            }
-
-            updateSelectionCount();
-            updateAddonsSelectionCount();
-            window.filterItems();
-        });
-
-        // Add to Cart Modal Helpers
+                // Add to Cart Modal Helpers
         let currentProductUnit = 'kg';
         let currentModalBasis = 'kg';
         let currentPurchaseGrade = 'A';

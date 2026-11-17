@@ -631,6 +631,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/shop-orders/{order_number}', [PurchaserDashboardController::class, 'shopOrderShow'])->name('purchaser.shop-orders.show');
     Route::get('/purchaser/add-ons/create', [RequisitionController::class, 'createPurchaserDirectPurchase'])->name('purchaser.add-ons.create');
     Route::get('/purchaser/bulk-buy', [PurchaserDashboardController::class, 'bulkBuy'])->name('purchaser.bulk-buy');
+    Route::get('/purchaser/bulk-buy/secondary', [PurchaserDashboardController::class, 'bulkBuySecondary'])->name('purchaser.bulk-buy.secondary');
     Route::get('/purchaser/bulk-buy/details', [PurchaserDashboardController::class, 'bulkBuyDetails'])->name('purchaser.bulk-buy.details');
     Route::get('/purchaser/bulk-buy/tabs/fulfilled', [PurchaserDashboardController::class, 'bulkBuyFulfilled'])->name('purchaser.bulk-buy.tabs.fulfilled');
     Route::get('/purchaser/bulk-buy/product-search', [PurchaserDashboardController::class, 'bulkBuyProductSearch'])->name('purchaser.bulk-buy.product-search');

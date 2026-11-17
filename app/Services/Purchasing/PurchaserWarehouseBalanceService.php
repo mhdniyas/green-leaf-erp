@@ -13,7 +13,13 @@ class PurchaserWarehouseBalanceService
 {
     public function __construct(
         private readonly StockMovementRepository $stockMovementRepository,
+        private readonly ?PurchaserReadCacheService $readCacheService = null,
     ) {}
+
+    private function readCacheService(): PurchaserReadCacheService
+    {
+        return $this->readCacheService ?? app(PurchaserReadCacheService::class);
+    }
 
     /**
      * Get authoritative current stock levels grouped by product_id and grade.
@@ -24,10 +30,46 @@ class PurchaserWarehouseBalanceService
     public function getStockByProductAndGrade(Carbon|string $date, ?int $warehouseId = null, ?array $productIds = null): Collection
     {
         $dateString = $date instanceof Carbon ? $date->toDateString() : Carbon::parse($date)->toDateString();
+        $sortedProductIds = $productIds;
+        if (is_array($sortedProductIds)) {
+            sort($sortedProductIds);
+        }
 
-        return $this->stockMovementRepository
-            ->currentStockByProductAndGrade(date: $dateString, warehouseId: $warehouseId, productIds: $productIds)
-            ->groupBy('product_id');
+        $filters = [
+            'warehouse_id' => $warehouseId,
+            'product_ids' => is_array($sortedProductIds) ? md5(implode(',', $sortedProductIds)) : 'all',
+        ];
+
+        if (app()->runningUnitTests()) {
+            return $this->stockMovementRepository
+                ->currentStockByProductAndGrade(date: $dateString, warehouseId: $warehouseId, productIds: $productIds)
+                ->groupBy('product_id');
+        }
+
+        $rawArray = $this->readCacheService()->remember(
+            scopes: ['products', 'carts'],
+            dataset: 'stock_by_product_and_grade',
+            ttlSeconds: 60,
+            callback: function () use ($dateString, $warehouseId, $productIds): array {
+                return $this->stockMovementRepository
+                    ->currentStockByProductAndGrade(date: $dateString, warehouseId: $warehouseId, productIds: $productIds)
+                    ->groupBy('product_id')
+                    ->map(fn ($group) => $group->map(fn ($item) => (array) $item)->all())
+                    ->all();
+            },
+            businessDate: $dateString,
+            filters: $filters,
+        );
+
+        if (! is_array($rawArray)) {
+            $this->readCacheService()->invalidate(['products']);
+
+            return $this->stockMovementRepository
+                ->currentStockByProductAndGrade(date: $dateString, warehouseId: $warehouseId, productIds: $productIds)
+                ->groupBy('product_id');
+        }
+
+        return collect($rawArray)->map(fn (array $items) => collect($items)->map(fn (array $item) => (object) $item));
     }
 
     /**
