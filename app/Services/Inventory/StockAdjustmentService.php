@@ -446,10 +446,12 @@ class StockAdjustmentService
             }
 
             // Create baseline StockAdjustment records for all warehouses and grades where the product had stock
+            $gradesBaselined = [];
             foreach ($stockRows as $row) {
                 $systemQty = round((float) $row->current_stock, 3);
                 $whId = $row->warehouse_id ?? null;
                 $rowGrade = $row->grade ?? null;
+                $gradesBaselined[] = $rowGrade;
 
                 StockAdjustment::query()->create([
                     'product_id' => $productId,
@@ -464,6 +466,36 @@ class StockAdjustmentService
                     'notes' => 'Global inventory empty process: baseline reset to zero',
                 ]);
             }
+
+            // If Unsorted (U) was not in stockRows, also baseline U to prevent orphaned movements
+            if (! in_array(ProductGrade::Unsorted->value, $gradesBaselined, true)) {
+                StockAdjustment::query()->create([
+                    'product_id' => $productId,
+                    'warehouse_id' => null,
+                    'grade' => ProductGrade::Unsorted->value,
+                    'created_by' => $userId,
+                    'business_date' => now()->toDateString(),
+                    'system_qty' => 0,
+                    'counted_qty' => 0,
+                    'variance_qty' => 0,
+                    'category' => 'wastage',
+                    'notes' => 'Global inventory empty process: baseline reset to zero',
+                ]);
+            }
+
+            // Also create a null-grade adjustment to supersede any legacy adjustments in the all group
+            StockAdjustment::query()->create([
+                'product_id' => $productId,
+                'warehouse_id' => null,
+                'grade' => null,
+                'created_by' => $userId,
+                'business_date' => now()->toDateString(),
+                'system_qty' => 0,
+                'counted_qty' => 0,
+                'variance_qty' => 0,
+                'category' => 'wastage',
+                'notes' => 'Global inventory empty process: baseline reset to zero',
+            ]);
 
             return true;
         });
