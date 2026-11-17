@@ -1206,13 +1206,13 @@
                 // Add to Cart Modal Helpers
         let currentProductUnit = 'kg';
         let currentModalBasis = 'kg';
-        let currentPurchaseGrade = 'A';
+        let currentModalPurchaseGrade = 'A';
 
         function openAddToCartModal(productId, productName, productUnit, remainingQty, draftQty, step, draftPurchasers, purchaseSource = 'shop_order', purchaseGrade = 'A') {
             document.getElementById('add-to-cart-product-id').value = productId;
             document.getElementById('add-to-cart-purchase-source').value = purchaseSource;
             document.getElementById('add-to-cart-purchase-grade').value = purchaseGrade;
-            currentPurchaseGrade = purchaseGrade || 'A';
+            currentModalPurchaseGrade = purchaseGrade || 'A';
 
             let displayName = productName;
             if (purchaseGrade) {
@@ -1267,7 +1267,7 @@
             document.getElementById('add-to-cart-modal').classList.remove('hidden');
             document.body.classList.add('overflow-hidden');
             setTimeout(() => {
-                const targetFocus = currentPurchaseGrade === 'MIXED' ? document.getElementById('add-to-cart-price') : qtyInput;
+                const targetFocus = currentModalPurchaseGrade === 'MIXED' ? document.getElementById('add-to-cart-price') : qtyInput;
                 if (targetFocus) targetFocus.focus();
             }, 50);
         }
@@ -1288,7 +1288,7 @@
             const qtyInput = document.getElementById('add-to-cart-quantity');
             const priceInput = document.getElementById('add-to-cart-price');
 
-            const isMixed = currentPurchaseGrade === 'MIXED';
+            const isMixed = currentModalPurchaseGrade === 'MIXED';
 
             if (basis === 'box') {
                 btnKg.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50 cursor-pointer';
@@ -1336,7 +1336,7 @@
 
             if (!display) return;
 
-            const isMixed = currentPurchaseGrade === 'MIXED';
+            const isMixed = currentModalPurchaseGrade === 'MIXED';
 
             if (isMixed) {
                 const totalAmount = parseFloat(priceInput?.value) || 0;
@@ -1387,7 +1387,7 @@
             if (modalForm) {
                 modalForm.addEventListener('submit', (e) => {
                     const totalEl = document.getElementById('add-to-cart-total-amount');
-                    const isMixed = currentPurchaseGrade === 'MIXED';
+                    const isMixed = currentModalPurchaseGrade === 'MIXED';
 
                     if (isMixed) {
                         const totalAmount = parseFloat(priceEl?.value) || 0;
