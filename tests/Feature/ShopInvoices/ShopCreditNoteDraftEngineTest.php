@@ -8,6 +8,7 @@ use App\Enums\ShopInvoice\ShopCreditNoteAccountingMode;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
 use App\Enums\ShopInvoice\ShopCreditNoteLineType;
 use App\Enums\ShopInvoice\ShopCreditNoteReason;
+use App\Enums\ShopInvoice\ShopCreditNoteReceiptStatus;
 use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Product;
@@ -672,5 +673,234 @@ class ShopCreditNoteDraftEngineTest extends TestCase
 
         // Calling legacy approve on shop-level note must be blocked!
         $this->creditNoteService->approve($draft, $this->admin);
+    }
+
+    /**
+     * Test 17: Product-only draft creation without invoice reference.
+     */
+    public function test_17_product_only_draft_creation_without_invoice_reference(): void
+    {
+        $draft = $this->creditNoteService->createShopLevelDraft($this->shopA, [
+            'credit_note_date' => today()->toDateString(),
+            'notes' => 'Product-only draft adjustment',
+            'items' => [
+                [
+                    'product_id' => $this->productOnion->id,
+                    'product_grade' => 'A',
+                    'credit_quantity' => 15.0,
+                    'credit_rate' => 45.0,
+                    'direction' => 'credit',
+                    'inventory_action' => 'return_to_stock',
+                    'notes' => 'Returned damaged onions from shelf',
+                ],
+                [
+                    'product_id' => $this->productTomato->id,
+                    'product_grade' => 'B',
+                    'credit_quantity' => 10.0,
+                    'credit_rate' => 30.0,
+                    'direction' => 'credit',
+                    'inventory_action' => 'write_off_wastage',
+                    'notes' => 'Tomato wastage write-off',
+                ],
+            ],
+        ], $this->admin);
+
+        $this->assertEquals(ShopCreditNoteStatus::Draft, $draft->status);
+        $this->assertEquals(ShopCreditNoteAccountingMode::ShopLevel, $draft->accounting_mode);
+        $this->assertEquals(975.00, (float) $draft->total_credit_amount);
+        $this->assertEquals(975.00, (float) $draft->subtotal);
+        $this->assertCount(2, $draft->items);
+
+        $firstItem = $draft->items->firstWhere('product_id', $this->productOnion->id);
+        $this->assertNotNull($firstItem);
+        $this->assertNull($firstItem->source_shop_invoice_id);
+        $this->assertNull($firstItem->shop_invoice_item_id);
+        $this->assertEquals('A', $firstItem->product_grade);
+        $this->assertEquals(15.0, (float) $firstItem->adjusted_quantity);
+        $this->assertEquals(45.0, (float) $firstItem->credit_rate);
+        $this->assertEquals(675.00, (float) $firstItem->line_credit_amount);
+        $this->assertEquals(ShopCreditNoteInventoryAction::ReturnToStock, $firstItem->inventory_action);
+        $this->assertEquals(ShopCreditNoteReceiptStatus::PendingReceipt, $firstItem->receipt_status);
+
+        $secondItem = $draft->items->firstWhere('product_id', $this->productTomato->id);
+        $this->assertNotNull($secondItem);
+        $this->assertNull($secondItem->source_shop_invoice_id);
+        $this->assertNull($secondItem->shop_invoice_item_id);
+        $this->assertEquals('B', $secondItem->product_grade);
+        $this->assertEquals(10.0, (float) $secondItem->adjusted_quantity);
+        $this->assertEquals(30.0, (float) $secondItem->credit_rate);
+        $this->assertEquals(300.00, (float) $secondItem->line_credit_amount);
+        $this->assertEquals(ShopCreditNoteInventoryAction::WriteOffWastage, $secondItem->inventory_action);
+        $this->assertEquals(ShopCreditNoteReceiptStatus::NotApplicable, $secondItem->receipt_status);
+    }
+
+    /**
+     * Test 18: Product-only draft update modifies lines and recalculates totals.
+     */
+    public function test_18_product_only_draft_update_modifies_lines_and_recalculates_totals(): void
+    {
+        $draft = $this->creditNoteService->createShopLevelDraft($this->shopA, [
+            'credit_note_date' => today()->toDateString(),
+            'items' => [
+                [
+                    'product_id' => $this->productOnion->id,
+                    'product_grade' => 'A',
+                    'credit_quantity' => 10.0,
+                    'credit_rate' => 50.0,
+                    'direction' => 'credit',
+                    'inventory_action' => 'return_to_stock',
+                ],
+            ],
+        ], $this->admin);
+
+        $this->assertEquals(500.00, (float) $draft->total_credit_amount);
+        $this->assertEquals(1, $draft->lock_version);
+
+        $updatedDraft = $this->creditNoteService->updateShopLevelDraft($draft, [
+            'expected_lock_version' => 1,
+            'items' => [
+                [
+                    'product_id' => $this->productOnion->id,
+                    'product_grade' => 'A',
+                    'credit_quantity' => 20.0,
+                    'credit_rate' => 45.0,
+                    'direction' => 'credit',
+                    'inventory_action' => 'return_to_stock',
+                ],
+                [
+                    'product_id' => $this->productTomato->id,
+                    'product_grade' => 'A',
+                    'credit_quantity' => 5.0,
+                    'credit_rate' => 40.0,
+                    'direction' => 'credit',
+                    'inventory_action' => 'write_off_wastage',
+                ],
+            ],
+        ], $this->admin);
+
+        $this->assertEquals(2, $updatedDraft->lock_version);
+        $this->assertCount(2, $updatedDraft->items);
+        $this->assertEquals(1100.00, (float) $updatedDraft->total_credit_amount);
+        $this->assertEquals(1100.00, (float) $updatedDraft->subtotal);
+    }
+
+    /**
+     * Test 19: Product-only draft with optional historical invoice reference.
+     */
+    public function test_19_product_only_draft_with_optional_invoice_reference(): void
+    {
+        $draft = $this->creditNoteService->createShopLevelDraft($this->shopA, [
+            'items' => [
+                [
+                    'source_shop_invoice_id' => $this->invoiceA1->id,
+                    'product_id' => $this->productOnion->id,
+                    'product_grade' => 'A',
+                    'credit_quantity' => 12.0,
+                    'credit_rate' => 48.0,
+                    'direction' => 'credit',
+                    'inventory_action' => 'return_to_stock',
+                ],
+            ],
+        ], $this->admin);
+
+        $this->assertCount(1, $draft->items);
+        $item = $draft->items->first();
+        $this->assertEquals($this->invoiceA1->id, $item->source_shop_invoice_id);
+        $this->assertNull($item->shop_invoice_item_id);
+        $this->assertEquals(576.00, (float) $draft->total_credit_amount);
+    }
+
+    /**
+     * Test 20: Draft validation fails on missing or invalid product, grade, and rate.
+     */
+    public function test_20_draft_validation_fails_on_missing_or_invalid_product_grade_and_rate(): void
+    {
+        // 1. Missing product_id without shop_invoice_item_id
+        try {
+            $this->creditNoteService->createShopLevelDraft($this->shopA, [
+                'items' => [
+                    [
+                        'credit_quantity' => 10.0,
+                        'credit_rate' => 50.0,
+                    ],
+                ],
+            ], $this->admin);
+            $this->fail('Expected ValidationException for missing product_id');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('items.0.product_id', $e->errors());
+        }
+
+        // 2. Non-existent product_id
+        try {
+            $this->creditNoteService->createShopLevelDraft($this->shopA, [
+                'items' => [
+                    [
+                        'product_id' => 999999,
+                        'product_grade' => 'A',
+                        'credit_quantity' => 10.0,
+                        'credit_rate' => 50.0,
+                    ],
+                ],
+            ], $this->admin);
+            $this->fail('Expected ValidationException for non-existent product_id');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('items.0.product_id', $e->errors());
+        }
+
+        // 3. Invalid grade
+        try {
+            $this->creditNoteService->createShopLevelDraft($this->shopA, [
+                'items' => [
+                    [
+                        'product_id' => $this->productOnion->id,
+                        'product_grade' => 'Z',
+                        'credit_quantity' => 10.0,
+                        'credit_rate' => 50.0,
+                    ],
+                ],
+            ], $this->admin);
+            $this->fail('Expected ValidationException for invalid grade');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('items.0.product_grade', $e->errors());
+        }
+
+        // 4. Non-positive rate
+        try {
+            $this->creditNoteService->createShopLevelDraft($this->shopA, [
+                'items' => [
+                    [
+                        'product_id' => $this->productOnion->id,
+                        'product_grade' => 'A',
+                        'credit_quantity' => 10.0,
+                        'credit_rate' => 0.0,
+                    ],
+                ],
+            ], $this->admin);
+            $this->fail('Expected ValidationException for non-positive credit rate');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('items.0.credit_rate', $e->errors());
+        }
+    }
+
+    /**
+     * Test 21: Catalog product draft rejects cross-shop invoice reference.
+     */
+    public function test_21_catalog_product_draft_rejects_cross_shop_invoice_reference(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Cross-shop invoice blocked');
+
+        $this->creditNoteService->createShopLevelDraft($this->shopA, [
+            'items' => [
+                [
+                    // Invoice B1 belongs to Shop B, but draft is for Shop A
+                    'source_shop_invoice_id' => $this->invoiceB1->id,
+                    'product_id' => $this->productOnion->id,
+                    'product_grade' => 'A',
+                    'credit_quantity' => 10.0,
+                    'credit_rate' => 50.0,
+                ],
+            ],
+        ], $this->admin);
     }
 }

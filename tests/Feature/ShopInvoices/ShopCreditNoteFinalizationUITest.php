@@ -754,4 +754,158 @@ class ShopCreditNoteFinalizationUITest extends TestCase
         );
         $listResponse->assertOk();
     }
+
+    /**
+     * 21. Finalize modal displays effective business date in create view.
+     */
+    public function test_21_finalize_modal_displays_effective_business_date(): void
+    {
+        $response = $this->actingAs($this->admin)->get(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.create')
+        );
+
+        $response->assertOk();
+        $response->assertSee('Effective Business Date:');
+        $response->assertSee('x-text="creditNoteDate"', false);
+    }
+
+    /**
+     * 22. Invoices search filters by invoice date and includes date in results.
+     */
+    public function test_22_invoices_search_filters_by_date(): void
+    {
+        $draft = $this->createStandardDraft();
+        $finalized = $this->creditNoteService->finalizeShopLevelCreditNote($draft, $this->admin);
+
+        $targetDate = $this->invoiceA1->business_date->toDateString();
+
+        $response = $this->actingAs($this->admin)->getJson(
+            route('admin.cashbook.reports.shops.credit-notes.outstanding-invoices', [
+                'creditNote' => $finalized,
+                'date' => $targetDate,
+            ])
+        );
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+        $invoices = $response->json('invoices');
+        $this->assertNotEmpty($invoices);
+        $this->assertEquals($this->invoiceA1->invoice_number, $invoices[0]['invoice_number']);
+        $this->assertEquals($targetDate, $invoices[0]['invoice_date']);
+    }
+
+    /**
+     * 23. Admin can view all shop invoices including settled ones when include_all is requested.
+     */
+    public function test_23_admin_can_view_all_shop_invoices_including_settled(): void
+    {
+        $paidInvoice = ShopInvoice::factory()->create([
+            'shop_id' => $this->shopA->id,
+            'business_date' => today()->subDays(9)->toDateString(),
+            'status' => 'paid',
+            'final_total' => 2000.00,
+            'paid_amount' => 2000.00,
+            'balance_amount' => 0.00,
+        ]);
+
+        $draft = $this->createStandardDraft();
+        $finalized = $this->creditNoteService->finalizeShopLevelCreditNote($draft, $this->admin);
+
+        // Regular accounts user without include_all does not get settled invoice
+        $userResponse = $this->actingAs($this->accountsUser)->getJson(
+            route('admin.cashbook.reports.shops.credit-notes.outstanding-invoices', [
+                'creditNote' => $finalized,
+            ])
+        );
+        $userInvoices = collect($userResponse->json('invoices'))->pluck('invoice_number')->all();
+        $this->assertNotContains($paidInvoice->invoice_number, $userInvoices);
+
+        // Admin with include_all gets all shop invoices including settled
+        $adminResponse = $this->actingAs($this->admin)->getJson(
+            route('admin.cashbook.reports.shops.credit-notes.outstanding-invoices', [
+                'creditNote' => $finalized,
+                'include_all' => '1',
+            ])
+        );
+        $adminResponse->assertOk();
+        $adminInvoices = collect($adminResponse->json('invoices'))->pluck('invoice_number')->all();
+        $this->assertContains($paidInvoice->invoice_number, $adminInvoices);
+    }
+
+    /**
+     * 24. Admin can apply credit to any invoice with specific applied_at date.
+     */
+    public function test_24_admin_can_apply_credit_to_any_invoice_with_date(): void
+    {
+        $paidInvoice = ShopInvoice::factory()->create([
+            'shop_id' => $this->shopA->id,
+            'business_date' => today()->subDays(10)->toDateString(),
+            'status' => 'paid',
+            'final_total' => 1000.00,
+            'paid_amount' => 1000.00,
+            'balance_amount' => 0.00,
+        ]);
+
+        $draft = $this->createStandardDraft();
+        $finalized = $this->creditNoteService->finalizeShopLevelCreditNote($draft, $this->admin);
+
+        $customDate = today()->subDay()->toDateString();
+
+        $response = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.apply', $finalized),
+            [
+                'allocations' => [
+                    [
+                        'invoice_id' => $paidInvoice->id,
+                        'amount' => 150.00,
+                        'notes' => 'Admin override settlement against historical paid invoice',
+                    ],
+                ],
+                'applied_at' => $customDate,
+            ]
+        );
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+
+        $application = ShopCreditApplication::where('shop_credit_note_id', $finalized->id)
+            ->where('shop_invoice_id', $paidInvoice->id)
+            ->first();
+
+        $this->assertNotNull($application);
+        $this->assertEquals(150.00, (float) $application->amount);
+        $this->assertEquals($customDate, $application->applied_at->toDateString());
+    }
+
+    /**
+     * 25. Non-admin cannot apply credit to a settled invoice.
+     */
+    public function test_25_non_admin_cannot_apply_credit_to_settled_invoice(): void
+    {
+        $paidInvoice = ShopInvoice::factory()->create([
+            'shop_id' => $this->shopA->id,
+            'business_date' => today()->subDays(11)->toDateString(),
+            'status' => 'paid',
+            'final_total' => 1000.00,
+            'paid_amount' => 1000.00,
+            'balance_amount' => 0.00,
+        ]);
+
+        $draft = $this->createStandardDraft();
+        $finalized = $this->creditNoteService->finalizeShopLevelCreditNote($draft, $this->admin);
+
+        $response = $this->actingAs($this->accountsUser)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.apply', $finalized),
+            [
+                'allocations' => [
+                    [
+                        'invoice_id' => $paidInvoice->id,
+                        'amount' => 150.00,
+                    ],
+                ],
+            ]
+        );
+
+        $response->assertStatus(422);
+    }
 }

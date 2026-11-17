@@ -725,13 +725,6 @@ class StockLedgerService
             return 0.0;
         }
 
-        $invoiceItem = $creditItem->invoiceItem;
-        if (! $invoiceItem instanceof ShopInvoiceItem) {
-            throw ValidationException::withMessages([
-                'items' => "Invoice item for credit note item #{$creditItem->id} not found.",
-            ]);
-        }
-
         // Check idempotency: has damage already been recorded for this specific credit note item?
         $noteMarker = "Credit Note Damage — SCN: {$creditNote->credit_note_number}; NoteItem: {$creditItem->id};";
         $existingWastage = WastageEntry::query()
@@ -740,6 +733,33 @@ class StockLedgerService
 
         if ((float) $existingWastage >= ($quantityToDamage - 0.001)) {
             return (float) $existingWastage;
+        }
+
+        $invoiceItem = $creditItem->invoiceItem;
+        if (! $invoiceItem instanceof ShopInvoiceItem) {
+            $resolvedReason = $wastageReason ?? $this->resolveWastageReasonForCreditItem($creditItem, $creditNote);
+            $grade = ProductGrade::tryResolve($creditItem->product_grade)?->value ?? (string) ($creditItem->product_grade ?? 'A');
+            $costPerKg = (float) ($creditItem->credit_rate ?? $creditItem->adjusted_unit_price ?? 0.0);
+            $shop = $creditNote->shop;
+            $invoice = $creditItem->sourceInvoice;
+            $invNotes = $invoice ? " Invoice: {$invoice->invoice_number};" : '';
+            $notes = "{$noteMarker}{$invNotes} Shop: {$shop?->name}; Reason: {$resolvedReason->label()}; Location: shop; ".($creditItem->notes ?? '');
+
+            $wastage = WastageEntry::create([
+                'product_id' => $creditItem->product_id,
+                'batch_id' => null,
+                'recorded_by' => $userId,
+                'grade' => $grade,
+                'quantity' => $quantityToDamage,
+                'cost_per_kg' => $costPerKg,
+                'reason' => $resolvedReason,
+                'wastage_date' => $creditNote->credit_note_date?->toDateString() ?? today()->toDateString(),
+                'notes' => trim($notes),
+            ]);
+
+            $creditItem->forceFill(['wastage_entry_id' => $wastage->id])->save();
+
+            return $quantityToDamage;
         }
 
         $orderItem = $invoiceItem->orderItem;

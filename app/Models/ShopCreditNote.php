@@ -84,6 +84,23 @@ class ShopCreditNote extends Model
         return 'credit_note_number';
     }
 
+    /**
+     * Retrieve the model for a bound value.
+     * Supports both numeric id and credit_note_number string.
+     */
+    public function resolveRouteBinding($value, $field = null): ?self
+    {
+        $field = $field ?? $this->getRouteKeyName();
+
+        if (is_numeric($value)) {
+            return $this->where('id', (int) $value)
+                ->orWhere($field, (string) $value)
+                ->first();
+        }
+
+        return $this->where($field, (string) $value)->first();
+    }
+
     public function shop(): BelongsTo
     {
         return $this->belongsTo(Shop::class);

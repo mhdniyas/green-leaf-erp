@@ -306,6 +306,9 @@ class WarehouseCreditNoteReceiptUITest extends TestCase
         $response->assertSee('Big Onion');
         $response->assertSee('40.00');
         $response->assertSee('Kochi Central Shop');
+        $response->assertSee('cdn.jsdelivr.net/npm/alpinejs');
+        $response->assertSee('unpkg.com/lucide');
+        $response->assertSee('window.warehouseCreditNoteManager = warehouseCreditNoteManager;', false);
     }
 
     /**
@@ -1025,5 +1028,101 @@ class WarehouseCreditNoteReceiptUITest extends TestCase
         $this->actingAs($this->unauthorizedUser)
             ->getJson(route('warehouse.receiver.credit-notes.items.history', $item))
             ->assertForbidden();
+    }
+
+    /**
+     * Test: Stat counter cards at the top are clickable links that filter the return items queue.
+     */
+    public function test_stat_counter_cards_are_clickable_and_filter_return_items(): void
+    {
+        // Item 1: Pending receipt
+        $cnPending = $this->createFinalizedReturnCreditNote($this->invoiceItemA1, 20.0, 35.00);
+
+        // Item 2: Verified & Stocked
+        $invB = $this->createFinalizedInvoice($this->shopB, 'SINV-WH-VERIF-01', today()->toDateString(), 1500.0, 0.0);
+        $itemB = $this->createInvoiceItem($invB, $this->productTomato, 'A', 10.0, 40.0);
+        $cnVerified = $this->createFinalizedReturnCreditNote($itemB, 10.0, 40.00);
+        $verifiedItem = $cnVerified->items->first();
+
+        // Perform receipt to make it verified
+        $this->actingAs($this->warehouseStaff)
+            ->postJson(route('warehouse.receiver.credit-notes.items.receive', $verifiedItem), [
+                'quantity' => 10.0,
+                'received_grade' => 'A',
+                'warehouse_id' => $this->warehouseCentral->id,
+            ])
+            ->assertOk();
+
+        // 1. Visit with status=pending (default)
+        $respPending = $this->actingAs($this->warehouseStaff)
+            ->get(route('warehouse.receiver.credit-notes.index', ['status' => 'pending']));
+
+        $respPending->assertOk();
+        // Assert stat cards are links with href
+        $respPending->assertSee('href="'.route('warehouse.receiver.credit-notes.index', ['status' => 'pending']).'"', false);
+        $respPending->assertSee('href="'.route('warehouse.receiver.credit-notes.index', ['status' => 'verified']).'"', false);
+        $respPending->assertSee('href="'.route('warehouse.receiver.credit-notes.index', ['status' => 'partially_received']).'"', false);
+        $respPending->assertSee('href="'.route('warehouse.receiver.credit-notes.index', ['status' => 'disputed']).'"', false);
+
+        // Pending item is visible, verified item is NOT shown in table
+        $respPending->assertSee($cnPending->credit_note_number);
+        $respPending->assertDontSee($cnVerified->credit_note_number);
+
+        // 2. Click / visit the Verified stat card link (status=verified)
+        $respVerified = $this->actingAs($this->warehouseStaff)
+            ->get(route('warehouse.receiver.credit-notes.index', ['status' => 'verified']));
+
+        $respVerified->assertOk();
+        // Verified item is now visible below, pending item is filtered out
+        $respVerified->assertSee($cnVerified->credit_note_number);
+        $respVerified->assertDontSee($cnPending->credit_note_number);
+    }
+
+    /**
+     * Test: Stat counter cards at the top are clickable links that filter the return items queue.
+     */
+    public function test_stat_counter_cards_are_clickable_and_filter_return_items(): void
+    {
+        // Item 1: Pending receipt
+        $cnPending = $this->createFinalizedReturnCreditNote($this->invoiceItemA1, 20.0, 35.00);
+
+        // Item 2: Verified & Stocked
+        $invB = $this->createFinalizedInvoice($this->shopB, 'SINV-WH-VERIF-01', today()->toDateString(), 1500.0, 0.0);
+        $itemB = $this->createInvoiceItem($invB, $this->productTomato, 'A', 10.0, 40.0);
+        $cnVerified = $this->createFinalizedReturnCreditNote($itemB, 10.0, 40.00);
+        $verifiedItem = $cnVerified->items->first();
+
+        // Perform receipt to make it verified
+        $this->actingAs($this->warehouseStaff)
+            ->postJson(route('warehouse.receiver.credit-notes.items.receive', $verifiedItem), [
+                'quantity' => 10.0,
+                'received_grade' => 'A',
+                'warehouse_id' => $this->warehouseCentral->id,
+            ])
+            ->assertOk();
+
+        // 1. Visit with status=pending (default)
+        $respPending = $this->actingAs($this->warehouseStaff)
+            ->get(route('warehouse.receiver.credit-notes.index', ['status' => 'pending']));
+
+        $respPending->assertOk();
+        // Assert stat cards are links with href
+        $respPending->assertSee('href="'.route('warehouse.receiver.credit-notes.index', ['status' => 'pending']).'"', false);
+        $respPending->assertSee('href="'.route('warehouse.receiver.credit-notes.index', ['status' => 'verified']).'"', false);
+        $respPending->assertSee('href="'.route('warehouse.receiver.credit-notes.index', ['status' => 'partially_received']).'"', false);
+        $respPending->assertSee('href="'.route('warehouse.receiver.credit-notes.index', ['status' => 'disputed']).'"', false);
+
+        // Pending item is visible, verified item is NOT shown in table
+        $respPending->assertSee($cnPending->credit_note_number);
+        $respPending->assertDontSee($cnVerified->credit_note_number);
+
+        // 2. Click / visit the Verified stat card link (status=verified)
+        $respVerified = $this->actingAs($this->warehouseStaff)
+            ->get(route('warehouse.receiver.credit-notes.index', ['status' => 'verified']));
+
+        $respVerified->assertOk();
+        // Verified item is now visible below, pending item is filtered out
+        $respVerified->assertSee($cnVerified->credit_note_number);
+        $respVerified->assertDontSee($cnPending->credit_note_number);
     }
 }

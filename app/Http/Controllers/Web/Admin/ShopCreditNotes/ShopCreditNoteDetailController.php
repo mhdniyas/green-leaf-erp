@@ -68,6 +68,11 @@ class ShopCreditNoteDetailController extends Controller
         $unappliedCreditTotal = $creditNote->unappliedCreditTotal();
 
         $user = $request->user();
+        $isAdmin = $user instanceof User && (
+            (method_exists($user, 'isMainAdmin') && $user->isMainAdmin())
+            || $user->hasRole('admin')
+            || $user->hasRole('super_admin')
+        );
         $canReverseApp = $user instanceof User && $this->applicationService->isAuthorizedToReverseApplication($user);
         $canCancelCreditNote = $user instanceof User && $this->creditNoteService->isAuthorizedToCancelCreditNote($user);
         $hasUnreconciledPhysicalReturns = $creditNote->hasUnreconciledPhysicalReturns();
@@ -75,6 +80,7 @@ class ShopCreditNoteDetailController extends Controller
 
         return view('admin.cashbook.reports.shops.show_shop_credit_note', [
             'creditNote' => $creditNote,
+            'isAdmin' => $isAdmin,
             'productItems' => $productItems,
             'discountItems' => $discountItems,
             'returnCreditTotal' => $returnCreditTotal,
@@ -95,7 +101,7 @@ class ShopCreditNoteDetailController extends Controller
      */
     public function outstandingInvoices(Request $request, ShopCreditNote $creditNote): JsonResponse
     {
-        $this->ensureAuthorizedOfficeUser($request);
+        $user = $this->ensureAuthorizedOfficeUser($request);
 
         if (! $creditNote->isApproved()) {
             return response()->json([
@@ -105,16 +111,31 @@ class ShopCreditNoteDetailController extends Controller
         }
 
         $searchQuery = trim((string) $request->input('q', ''));
+        $dateFilter = trim((string) $request->input('date', ''));
+        $includeAll = filter_var($request->input('include_all', false), FILTER_VALIDATE_BOOLEAN);
+
+        $isAdmin = (method_exists($user, 'isMainAdmin') && $user->isMainAdmin())
+            || $user->hasRole('admin')
+            || $user->hasRole('super_admin');
 
         $invoicesQuery = ShopInvoice::query()
             ->where('shop_id', $creditNote->shop_id)
-            ->where('status', 'finalized')
-            ->where('balance_amount', '>', 0)
+            ->where('status', '!=', 'cancelled')
+            ->when(! ($isAdmin && ($includeAll || $searchQuery !== '' || $dateFilter !== '')), function ($q): void {
+                $q->where(function ($sub): void {
+                    $sub->where('balance_amount', '>', 0)
+                        ->orWhereIn('status', ['finalized', 'payment_pending']);
+                });
+            })
             ->when($searchQuery !== '', function ($q) use ($searchQuery): void {
                 $q->where('invoice_number', 'like', "%{$searchQuery}%");
             })
+            ->when($dateFilter !== '', function ($q) use ($dateFilter): void {
+                $q->whereDate('business_date', $dateFilter);
+            })
             ->with(['creditApplications', 'creditNotes'])
-            ->orderBy('business_date', 'asc')
+            ->orderBy('business_date', 'desc')
+            ->orderBy('id', 'desc')
             ->limit(50);
 
         $invoices = $invoicesQuery->get();
@@ -124,11 +145,16 @@ class ShopCreditNoteDetailController extends Controller
             $finalBill = $this->finalBillService->calculate($inv);
             $remainingOutstanding = round($finalBill->remainingBalance, 2);
 
-            if ($remainingOutstanding > 0.0001) {
+            $shouldInclude = ($isAdmin && ($includeAll || $searchQuery !== '' || $dateFilter !== ''))
+                || $remainingOutstanding > 0.0001;
+
+            if ($shouldInclude) {
                 $results[] = [
                     'id' => $inv->id,
                     'invoice_number' => $inv->invoice_number,
                     'invoice_date' => $inv->business_date?->toDateString() ?? '',
+                    'status' => $inv->status,
+                    'payment_status' => $finalBill->effectivePaymentStatus,
                     'final_total' => (float) $inv->final_total,
                     'paid_amount' => (float) $finalBill->amountPaid,
                     'prior_credits' => round((float) $finalBill->finalizedCreditTotal + (float) $finalBill->appliedCreditTotal, 2),
@@ -142,6 +168,7 @@ class ShopCreditNoteDetailController extends Controller
             'credit_note_id' => $creditNote->id,
             'credit_note_number' => $creditNote->credit_note_number,
             'unapplied_credit' => $creditNote->unappliedCreditTotal(),
+            'is_admin' => $isAdmin,
             'count' => count($results),
             'invoices' => $results,
         ]);
@@ -185,6 +212,10 @@ class ShopCreditNoteDetailController extends Controller
         $appliedAt = $request->filled('applied_at') ? Carbon::parse((string) $request->input('applied_at')) : null;
         $idempotencyKey = $request->input('idempotency_key');
 
+        $isAdmin = (method_exists($user, 'isMainAdmin') && $user->isMainAdmin())
+            || $user->hasRole('admin')
+            || $user->hasRole('super_admin');
+
         try {
             $applied = $this->applicationService->applyCreditToMany(
                 creditNote: $creditNote,
@@ -192,6 +223,7 @@ class ShopCreditNoteDetailController extends Controller
                 actor: $user,
                 appliedAt: $appliedAt,
                 idempotencyKey: is_string($idempotencyKey) ? $idempotencyKey : null,
+                allowSettledInvoice: $isAdmin,
             );
         } catch (ValidationException $e) {
             if ($request->expectsJson() || $request->ajax()) {

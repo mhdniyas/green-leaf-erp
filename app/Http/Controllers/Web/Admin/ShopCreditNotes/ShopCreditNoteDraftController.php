@@ -90,6 +90,7 @@ class ShopCreditNoteDraftController extends Controller
                 'success' => true,
                 'credit_note_id' => $draft->id,
                 'credit_note_number' => $draft->credit_note_number,
+                'finalize_url' => route('admin.cashbook.reports.shops.credit-notes.drafts.finalize', $draft),
                 'redirect_url' => route('admin.cashbook.reports.shops.credit-notes.drafts.edit', $draft),
                 'message' => "Draft Credit Note {$draft->credit_note_number} saved.",
             ], 201);
@@ -189,6 +190,7 @@ class ShopCreditNoteDraftController extends Controller
                 'credit_note_number' => $updated->credit_note_number,
                 'lock_version' => $updated->lock_version,
                 'expected_updated_at' => $updated->updated_at?->toISOString(),
+                'finalize_url' => route('admin.cashbook.reports.shops.credit-notes.drafts.finalize', $updated),
                 'message' => "Draft Credit Note {$updated->credit_note_number} updated successfully.",
             ]);
         }
@@ -302,7 +304,7 @@ class ShopCreditNoteDraftController extends Controller
         $itemsQuery = ShopInvoiceItem::query()
             ->whereHas('invoice', function ($iq) use ($shopId, $startDate, $endDate): void {
                 $iq->where('shop_id', $shopId)
-                    ->where('status', 'finalized');
+                    ->finalized();
                 if ($startDate) {
                     $iq->whereDate('business_date', '>=', $startDate);
                 }

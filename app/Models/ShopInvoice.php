@@ -10,6 +10,7 @@ use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Services\ShopInvoices\ShopFinalBill;
 use App\Services\ShopInvoices\ShopFinalBillService;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -377,6 +378,19 @@ class ShopInvoice extends Model
         }
 
         return false;
+    }
+
+    /**
+     * Scope query to finalized, non-cancelled shop invoices matching {@see isFinalized()}.
+     */
+    public function scopeFinalized(Builder $query): Builder
+    {
+        return $query
+            ->where(function (Builder $q): void {
+                $q->whereNotNull('finalized_at')
+                    ->orWhereIn('status', ['finalized', 'payment_pending', 'paid']);
+            })
+            ->where('status', '!=', 'cancelled');
     }
 
     public function isFinalized(): bool

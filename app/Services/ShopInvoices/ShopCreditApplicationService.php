@@ -44,6 +44,20 @@ class ShopCreditApplicationService
     }
 
     /**
+     * Check if a user has administrator override privileges.
+     */
+    public function isMainOrAdmin(?User $user): bool
+    {
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        return (method_exists($user, 'isMainAdmin') && $user->isMainAdmin())
+            || $user->hasRole('admin')
+            || $user->hasRole('super_admin');
+    }
+
+    /**
      * Check if a user is authorized to reverse shop credit applications.
      */
     public function isAuthorizedToReverseApplication(?User $user): bool
@@ -73,6 +87,7 @@ class ShopCreditApplicationService
         ?string $notes = null,
         ?CarbonInterface $appliedAt = null,
         ?string $idempotencyKey = null,
+        bool $allowSettledInvoice = false,
     ): ShopCreditApplication {
         $actorUser = $actor instanceof User ? $actor : User::find($actor);
 
@@ -122,7 +137,9 @@ class ShopCreditApplicationService
             ]);
         }
 
-        if (! $invoiceInstance->isFinalized()) {
+        $canBypassSettled = $allowSettledInvoice && $this->isMainOrAdmin($actorUser);
+
+        if (! $canBypassSettled && ! $invoiceInstance->isFinalized()) {
             throw ValidationException::withMessages([
                 'shop_invoice_id' => 'Invoice must be finalized before applying credit.',
             ]);
@@ -155,7 +172,8 @@ class ShopCreditApplicationService
             $notes,
             $appliedAt,
             $applicationDate,
-            $idempotencyKey
+            $idempotencyKey,
+            $allowSettledInvoice
         ): ShopCreditApplication {
             // Deterministic row locking: Lock Credit Note row first, then Lock Invoice row
             /** @var ShopCreditNote $lockedCreditNote */
@@ -256,16 +274,20 @@ class ShopCreditApplicationService
             $finalBill = $this->getFinalBillService()->calculate($lockedInvoice);
             $targetOutstanding = round($finalBill->remainingBalance, 2);
 
-            if ($targetOutstanding <= 0.0001) {
-                throw ValidationException::withMessages([
-                    'shop_invoice_id' => 'Target invoice is already fully settled.',
-                ]);
-            }
+            $canBypassSettled = $allowSettledInvoice && $this->isMainOrAdmin($actorUser);
 
-            if ($amount > ($targetOutstanding + 0.0001)) {
-                throw ValidationException::withMessages([
-                    'amount' => "Application amount (₹{$amount}) exceeds invoice effective outstanding balance (₹{$targetOutstanding}).",
-                ]);
+            if (! $canBypassSettled) {
+                if ($targetOutstanding <= 0.0001) {
+                    throw ValidationException::withMessages([
+                        'shop_invoice_id' => 'Target invoice is already fully settled.',
+                    ]);
+                }
+
+                if ($amount > ($targetOutstanding + 0.0001)) {
+                    throw ValidationException::withMessages([
+                        'amount' => "Application amount (₹{$amount}) exceeds invoice effective outstanding balance (₹{$targetOutstanding}).",
+                    ]);
+                }
             }
 
             $finalNotes = $notes;
@@ -303,6 +325,7 @@ class ShopCreditApplicationService
         User|int $actor,
         ?CarbonInterface $appliedAt = null,
         ?string $idempotencyKey = null,
+        bool $allowSettledInvoice = false,
     ): Collection {
         if (empty($allocations)) {
             throw ValidationException::withMessages([
@@ -362,7 +385,8 @@ class ShopCreditApplicationService
             $totalRequestedAmount,
             $actorUser,
             $appliedAt,
-            $idempotencyKey
+            $idempotencyKey,
+            $allowSettledInvoice
         ): Collection {
             // Deterministic row locking: Credit Note first
             /** @var ShopCreditNote $lockedCreditNote */
@@ -430,7 +454,9 @@ class ShopCreditApplicationService
                     ]);
                 }
 
-                if (! $inv->isFinalized()) {
+                $canBypassSettled = $allowSettledInvoice && $this->isMainOrAdmin($actorUser);
+
+                if (! $canBypassSettled && ! $inv->isFinalized()) {
                     throw ValidationException::withMessages([
                         'allocations' => "Target invoice #{$invId} is not finalized.",
                     ]);
@@ -466,7 +492,7 @@ class ShopCreditApplicationService
                 $finalBill = $this->getFinalBillService()->calculate($inv);
                 $invoiceOutstanding = round($finalBill->remainingBalance, 2);
 
-                if ($amt > ($invoiceOutstanding + 0.0001)) {
+                if (! $canBypassSettled && $amt > ($invoiceOutstanding + 0.0001)) {
                     throw ValidationException::withMessages([
                         "allocations.{$index}.amount" => "Allocation amount (₹{$amt}) exceeds invoice #{$invId} outstanding balance (₹{$invoiceOutstanding}).",
                     ]);

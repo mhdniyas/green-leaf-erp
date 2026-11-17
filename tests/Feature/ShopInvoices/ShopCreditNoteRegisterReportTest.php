@@ -747,4 +747,31 @@ class ShopCreditNoteRegisterReportTest extends TestCase
         // Damage & Loss Report
         $this->get(route('admin.cashbook.reports-v1.damage-loss'))->assertOk();
     }
+
+    /**
+     * Test 21: Credit Notes is rendered as a standalone sidebar module outside Reports -> Shops.
+     */
+    public function test_21_sidebar_credit_notes_rendered_as_separate_module_with_shop_credit_notes_child(): void
+    {
+        $this->actingAs($this->admin);
+
+        // 1. Visit Credit Notes register in Cashbook
+        $response = $this->get(route('admin.cashbook.reports.shops.credit-notes'));
+        $response->assertOk();
+
+        // Ensure standalone Credit Notes module and Shop Credit Notes child are rendered
+        $response->assertSee('Shop Credit Notes');
+        $response->assertSee(route('admin.cashbook.reports.shops.credit-notes'));
+
+        // 2. Visit Shop Invoices register
+        $invoiceResponse = $this->get(route('admin.cashbook.reports.shops.invoices'));
+        $invoiceResponse->assertOk();
+        $invoiceResponse->assertSee('Invoices');
+        $invoiceResponse->assertSee(route('admin.cashbook.reports.shops.invoices'));
+
+        // 3. Unauthorized user cannot access credit notes register
+        $this->actingAs($this->unauthorizedUser)
+            ->getJson(route('admin.cashbook.reports.shops.credit-notes'))
+            ->assertForbidden();
+    }
 }

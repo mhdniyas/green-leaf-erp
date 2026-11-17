@@ -8,6 +8,7 @@ use App\Enums\ShopInvoice\ShopCreditNoteAccountingMode;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
 use App\Enums\ShopInvoice\ShopCreditNoteLineType;
 use App\Enums\ShopInvoice\ShopCreditNoteReason;
+use App\Enums\ShopInvoice\ShopCreditNoteReceiptStatus;
 use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Product;
@@ -19,6 +20,7 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\ShopInvoices\ShopCreditNoteService;
 use Database\Seeders\Cashbook\LedgerEntryTypeSeeder;
 use Database\Seeders\Cashbook\ShopConfigPresetSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -80,8 +82,8 @@ class ShopCreditNoteDraftUITest extends TestCase
         $this->shopA = Shop::factory()->create(['code' => 'SHP-A', 'name' => 'Kochi Central', 'accounting_enabled' => true]);
         $this->shopB = Shop::factory()->create(['code' => 'SHP-B', 'name' => 'Calicut Mart', 'accounting_enabled' => true]);
 
-        $this->productOnion = Product::factory()->create(['name' => 'Onion Grade A', 'unit' => 'kg']);
-        $this->productTomato = Product::factory()->create(['name' => 'Tomato Grade A', 'unit' => 'kg']);
+        $this->productOnion = Product::factory()->create(['name' => 'Onion Grade A', 'sku' => 'ONION-A', 'unit' => 'kg']);
+        $this->productTomato = Product::factory()->create(['name' => 'Tomato Grade A', 'sku' => 'TOMATO-A', 'unit' => 'kg']);
 
         // Invoice A1 (Shop A) - 100 kg Onion @ 50 = 5000 (2 days ago)
         $this->invoiceA1 = $this->createFinalizedInvoice($this->shopA, 'SINV-A1', today()->subDays(2)->toDateString(), 5000.00);
@@ -841,5 +843,546 @@ class ShopCreditNoteDraftUITest extends TestCase
         $createRes->assertOk();
         $createRes->assertViewIs('admin.cashbook.reports.shops.create_credit_note');
         $createRes->assertSee($this->invoiceA1->invoice_number);
+    }
+
+    /**
+     * Test 21: Search includes real finalized statuses (payment_pending, paid) and excludes unfinalized or cancelled invoices.
+     */
+    public function test_21_search_includes_real_finalized_statuses_and_excludes_unfinalized_or_cancelled(): void
+    {
+        $orderPending = ShopOrder::factory()->create(['shop_id' => $this->shopA->id, 'business_date' => today()->subDays(3)->toDateString()]);
+        $invoicePending = ShopInvoice::factory()->create([
+            'shop_id' => $this->shopA->id,
+            'shop_order_id' => $orderPending->id,
+            'invoice_number' => 'SINV-PEND-1',
+            'business_date' => today()->subDays(3)->toDateString(),
+            'status' => 'payment_pending',
+            'final_total' => 1000.00,
+            'balance_amount' => 1000.00,
+            'finalized_by' => $this->admin->id,
+            'finalized_at' => now(),
+        ]);
+        $this->createInvoiceItem($invoicePending, $this->productOnion, 'A', 20.0, 50.0);
+
+        $orderPaid = ShopOrder::factory()->create(['shop_id' => $this->shopA->id, 'business_date' => today()->subDays(4)->toDateString()]);
+        $invoicePaid = ShopInvoice::factory()->create([
+            'shop_id' => $this->shopA->id,
+            'shop_order_id' => $orderPaid->id,
+            'invoice_number' => 'SINV-PAID-1',
+            'business_date' => today()->subDays(4)->toDateString(),
+            'status' => 'paid',
+            'payment_status' => 'paid',
+            'final_total' => 800.00,
+            'balance_amount' => 0.00,
+            'finalized_by' => $this->admin->id,
+            'finalized_at' => null,
+        ]);
+        $this->createInvoiceItem($invoicePaid, $this->productTomato, 'A', 20.0, 40.0);
+
+        $orderGenerated = ShopOrder::factory()->create(['shop_id' => $this->shopA->id, 'business_date' => today()->subDays(5)->toDateString()]);
+        $invoiceGenerated = ShopInvoice::factory()->create([
+            'shop_id' => $this->shopA->id,
+            'shop_order_id' => $orderGenerated->id,
+            'invoice_number' => 'SINV-GEN-1',
+            'business_date' => today()->subDays(5)->toDateString(),
+            'status' => 'generated',
+            'final_total' => 500.00,
+            'balance_amount' => 500.00,
+            'finalized_at' => null,
+        ]);
+        $this->createInvoiceItem($invoiceGenerated, $this->productOnion, 'A', 10.0, 50.0);
+
+        $orderCancelled = ShopOrder::factory()->create(['shop_id' => $this->shopA->id, 'business_date' => today()->subDays(6)->toDateString()]);
+        $invoiceCancelled = ShopInvoice::factory()->create([
+            'shop_id' => $this->shopA->id,
+            'shop_order_id' => $orderCancelled->id,
+            'invoice_number' => 'SINV-CANC-1',
+            'business_date' => today()->subDays(6)->toDateString(),
+            'status' => 'cancelled',
+            'final_total' => 500.00,
+            'balance_amount' => 500.00,
+            'finalized_at' => now(),
+        ]);
+        $this->createInvoiceItem($invoiceCancelled, $this->productOnion, 'A', 10.0, 50.0);
+
+        $response = $this->actingAs($this->admin)->getJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.search-lines', [
+                'shop_id' => $this->shopA->id,
+            ])
+        );
+
+        $response->assertOk();
+        $invoiceNumbers = collect($response->json('items'))->pluck('invoice_number')->all();
+
+        $this->assertContains('SINV-PEND-1', $invoiceNumbers);
+        $this->assertContains('SINV-PAID-1', $invoiceNumbers);
+        $this->assertContains('SINV-A1', $invoiceNumbers);
+        $this->assertNotContains('SINV-GEN-1', $invoiceNumbers);
+        $this->assertNotContains('SINV-CANC-1', $invoiceNumbers);
+    }
+
+    /**
+     * Test 22: Prior-month finalized invoices return when month filter is empty and match invoice number search.
+     */
+    public function test_22_search_returns_prior_month_invoices_when_month_is_empty_and_matches_invoice_number(): void
+    {
+        $priorDate = now()->subMonths(2)->startOfMonth()->addDays(5)->toDateString();
+        $priorOrder = ShopOrder::factory()->create(['shop_id' => $this->shopA->id, 'business_date' => $priorDate]);
+        $priorInvoice = ShopInvoice::factory()->create([
+            'shop_id' => $this->shopA->id,
+            'shop_order_id' => $priorOrder->id,
+            'invoice_number' => 'SINV-HIST-100',
+            'business_date' => $priorDate,
+            'status' => 'payment_pending',
+            'final_total' => 1500.00,
+            'balance_amount' => 1500.00,
+            'finalized_by' => $this->admin->id,
+            'finalized_at' => now()->subMonths(2),
+        ]);
+        $this->createInvoiceItem($priorInvoice, $this->productTomato, 'A', 30.0, 50.0);
+
+        // No month param => historical prior-month invoice appears
+        $allMonthsRes = $this->actingAs($this->admin)->getJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.search-lines', [
+                'shop_id' => $this->shopA->id,
+            ])
+        );
+        $allMonthsRes->assertOk();
+        $this->assertContains('SINV-HIST-100', collect($allMonthsRes->json('items'))->pluck('invoice_number')->all());
+
+        // Search by invoice number across months
+        $byInvoiceRes = $this->actingAs($this->admin)->getJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.search-lines', [
+                'shop_id' => $this->shopA->id,
+                'q' => 'SINV-HIST-100',
+            ])
+        );
+        $byInvoiceRes->assertOk();
+        $this->assertCount(1, $byInvoiceRes->json('items'));
+        $this->assertEquals('SINV-HIST-100', $byInvoiceRes->json('items.0.invoice_number'));
+
+        // Current month filter excludes the prior-month invoice
+        $currentMonthRes = $this->actingAs($this->admin)->getJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.search-lines', [
+                'shop_id' => $this->shopA->id,
+                'month' => now()->format('Y-m'),
+            ])
+        );
+        $currentMonthRes->assertOk();
+        $this->assertNotContains('SINV-HIST-100', collect($currentMonthRes->json('items'))->pluck('invoice_number')->all());
+    }
+
+    /**
+     * Test 23: Creation view defaults searchMonth to empty (all months) and provides filter reset control.
+     */
+    public function test_23_create_page_defaults_search_month_to_empty_and_renders_clear_filters(): void
+    {
+        $response = $this->actingAs($this->admin)->get(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.create')
+        );
+
+        $response->assertOk();
+        $response->assertSee("searchMonth: '',", false);
+        $response->assertSee('clearSearchFilters()', false);
+    }
+
+    /**
+     * Test 24: Fully credited items are flagged ineligible unless excluded for the editing draft.
+     */
+    public function test_24_search_marks_fully_credited_items_ineligible(): void
+    {
+        $draftRes = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.store'),
+            [
+                'shop_id' => $this->shopA->id,
+                'credit_note_date' => today()->toDateString(),
+                'items' => [
+                    [
+                        'source_shop_invoice_id' => $this->invoiceA1->id,
+                        'shop_invoice_item_id' => $this->itemOnionA1->id,
+                        'product_id' => $this->productOnion->id,
+                        'credit_quantity' => 100.0,
+                        'credit_rate' => 50.0,
+                    ],
+                ],
+            ]
+        );
+        $draftRes->assertCreated();
+        $creditNoteId = (int) $draftRes->json('credit_note_id');
+
+        $draft = ShopCreditNote::findOrFail($creditNoteId);
+
+        $finalizeRes = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.finalize', $draft)
+        );
+        $finalizeRes->assertOk();
+
+        $searchRes = $this->actingAs($this->admin)->getJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.search-lines', [
+                'shop_id' => $this->shopA->id,
+                'q' => 'SINV-A1',
+            ])
+        );
+        $searchRes->assertOk();
+        $line = collect($searchRes->json('items'))->firstWhere('shop_invoice_item_id', $this->itemOnionA1->id);
+        $this->assertNotNull($line);
+        $this->assertFalse($line['is_eligible']);
+        $this->assertEquals(0.0, (float) $line['remaining_eligible_quantity']);
+    }
+
+    /**
+     * Test 25: Store draft accepts catalog product without invoice reference.
+     */
+    public function test_25_store_draft_accepts_catalog_product_without_invoice_reference(): void
+    {
+        $response = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.store'),
+            [
+                'shop_id' => $this->shopA->id,
+                'credit_note_date' => today()->toDateString(),
+                'notes' => 'Product-only draft via HTTP',
+                'items' => [
+                    [
+                        'product_id' => $this->productOnion->id,
+                        'product_grade' => 'A',
+                        'credit_quantity' => 15.0,
+                        'credit_rate' => 45.0,
+                        'direction' => 'credit',
+                        'inventory_action' => 'return_to_stock',
+                    ],
+                ],
+            ]
+        );
+
+        $response->assertCreated();
+        $response->assertJson(['success' => true]);
+
+        $creditNoteId = (int) $response->json('credit_note_id');
+        $draft = ShopCreditNote::with('items')->findOrFail($creditNoteId);
+
+        $this->assertEquals(ShopCreditNoteStatus::Draft, $draft->status);
+        $this->assertEquals(ShopCreditNoteAccountingMode::ShopLevel, $draft->accounting_mode);
+        $this->assertEquals(675.00, (float) $draft->total_credit_amount);
+        $this->assertCount(1, $draft->items);
+
+        $item = $draft->items->first();
+        $this->assertNull($item->source_shop_invoice_id);
+        $this->assertNull($item->shop_invoice_item_id);
+        $this->assertEquals($this->productOnion->id, $item->product_id);
+        $this->assertEquals('A', $item->product_grade);
+        $this->assertEquals(15.0, (float) $item->adjusted_quantity);
+        $this->assertEquals(45.0, (float) $item->credit_rate);
+    }
+
+    /**
+     * Test 26: Update draft with catalog product lines.
+     */
+    public function test_26_update_draft_with_catalog_product_lines(): void
+    {
+        $creditNoteService = app(ShopCreditNoteService::class);
+        $draft = $creditNoteService->createShopLevelDraft($this->shopA, [
+            'items' => [
+                [
+                    'product_id' => $this->productOnion->id,
+                    'product_grade' => 'A',
+                    'credit_quantity' => 10.0,
+                    'credit_rate' => 50.0,
+                ],
+            ],
+        ], $this->admin);
+
+        $response = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.update', $draft),
+            [
+                'expected_lock_version' => 1,
+                'notes' => 'Updated catalog product lines',
+                'items' => [
+                    [
+                        'product_id' => $this->productOnion->id,
+                        'product_grade' => 'A',
+                        'credit_quantity' => 25.0,
+                        'credit_rate' => 48.0,
+                        'direction' => 'credit',
+                        'inventory_action' => 'return_to_stock',
+                    ],
+                ],
+            ]
+        );
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+
+        $draft->refresh();
+        $this->assertEquals(1200.00, (float) $draft->total_credit_amount);
+        $this->assertEquals(2, $draft->lock_version);
+        $this->assertCount(1, $draft->items);
+        $this->assertEquals(25.0, (float) $draft->items->first()->adjusted_quantity);
+    }
+
+    /**
+     * Test 27: Store draft validates required fields for product-only lines.
+     */
+    public function test_27_store_draft_validates_required_fields_for_product_only_lines(): void
+    {
+        // 1. Missing product_id when no invoice item
+        $res1 = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.store'),
+            [
+                'shop_id' => $this->shopA->id,
+                'items' => [
+                    [
+                        'credit_quantity' => 10.0,
+                        'credit_rate' => 50.0,
+                    ],
+                ],
+            ]
+        );
+        $res1->assertStatus(422);
+        $res1->assertJsonValidationErrors(['items.0.product_id']);
+
+        // 2. Invalid product grade
+        $res2 = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.store'),
+            [
+                'shop_id' => $this->shopA->id,
+                'items' => [
+                    [
+                        'product_id' => $this->productOnion->id,
+                        'product_grade' => 'INVALID_GRADE',
+                        'credit_quantity' => 10.0,
+                        'credit_rate' => 50.0,
+                    ],
+                ],
+            ]
+        );
+        $res2->assertStatus(422);
+        $res2->assertJsonValidationErrors(['items.0.product_grade']);
+
+        // 3. Non-positive rate
+        $res3 = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.store'),
+            [
+                'shop_id' => $this->shopA->id,
+                'items' => [
+                    [
+                        'product_id' => $this->productOnion->id,
+                        'product_grade' => 'A',
+                        'credit_quantity' => 10.0,
+                        'credit_rate' => 0.0,
+                    ],
+                ],
+            ]
+        );
+        $res3->assertStatus(422);
+        $res3->assertJsonValidationErrors(['items.0.credit_rate']);
+    }
+
+    /**
+     * Test 28: End-to-end product-first draft creation and finalization via HTTP.
+     */
+    public function test_28_end_to_end_product_first_draft_and_finalization_via_http(): void
+    {
+        // 1. Search products via catalog search endpoint
+        $searchRes = $this->actingAs($this->admin)->getJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.search-products', [
+                'shop_id' => $this->shopA->id,
+                'q' => 'Onion',
+            ])
+        );
+        $searchRes->assertOk();
+        $this->assertGreaterThanOrEqual(1, count($searchRes->json('items')));
+        $this->assertEquals($this->productOnion->id, $searchRes->json('items.0.id'));
+
+        // 2. Create product-first draft with 2 catalog products (no invoice referenced)
+        $storeRes = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.store'),
+            [
+                'shop_id' => $this->shopA->id,
+                'credit_note_date' => today()->toDateString(),
+                'notes' => 'Product-first claim via UI',
+                'items' => [
+                    [
+                        'product_id' => $this->productOnion->id,
+                        'product_grade' => 'A',
+                        'credit_quantity' => 15.0,
+                        'credit_rate' => 50.0,
+                        'direction' => 'credit',
+                        'inventory_action' => 'return_to_stock',
+                    ],
+                    [
+                        'product_id' => $this->productTomato->id,
+                        'product_grade' => 'B',
+                        'credit_quantity' => 10.0,
+                        'credit_rate' => 40.0,
+                        'direction' => 'credit',
+                        'inventory_action' => 'write_off_wastage',
+                    ],
+                ],
+            ]
+        );
+        $storeRes->assertCreated();
+        $draftId = (int) $storeRes->json('credit_note_id');
+        $draft = ShopCreditNote::findOrFail($draftId);
+
+        $this->assertEquals(ShopCreditNoteStatus::Draft, $draft->status);
+        $this->assertEquals(1150.00, (float) $draft->total_credit_amount);
+        $this->assertCount(2, $draft->items);
+
+        // 3. Finalize the draft
+        $finalizeRes = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.finalize', $draft),
+            ['notes' => 'Finalized via UI']
+        );
+        $finalizeRes->assertOk();
+        $finalizeRes->assertJson(['success' => true]);
+
+        $draft->refresh();
+        $this->assertEquals(ShopCreditNoteStatus::Approved, $draft->status);
+        $this->assertStringStartsWith('SCN-', $draft->credit_note_number);
+        $this->assertEquals(1150.00, (float) $draft->total_credit_amount);
+
+        // Assert pending receipt for physical return
+        $returnItem = $draft->items->firstWhere('product_id', $this->productOnion->id);
+        $this->assertEquals(ShopCreditNoteReceiptStatus::PendingReceipt, $returnItem->receipt_status);
+
+        // Assert wastage recorded for damage item
+        $damageItem = $draft->items->firstWhere('product_id', $this->productTomato->id);
+        $this->assertEquals(ShopCreditNoteReceiptStatus::NotApplicable, $damageItem->receipt_status);
+        $this->assertNotNull($damageItem->wastage_entry_id);
+    }
+
+    /**
+     * Test 29: Product-first draft with optional invoice link via HTTP.
+     */
+    public function test_29_product_first_draft_with_optional_invoice_link_via_http(): void
+    {
+        $originalInvoiceTotal = (float) $this->invoiceA1->final_total;
+
+        $storeRes = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.store'),
+            [
+                'shop_id' => $this->shopA->id,
+                'credit_note_date' => today()->toDateString(),
+                'items' => [
+                    [
+                        'source_shop_invoice_id' => $this->invoiceA1->id,
+                        'product_id' => $this->productOnion->id,
+                        'product_grade' => 'A',
+                        'credit_quantity' => 10.0,
+                        'credit_rate' => 45.0,
+                        'direction' => 'credit',
+                        'inventory_action' => 'return_to_stock',
+                    ],
+                ],
+            ]
+        );
+        $storeRes->assertCreated();
+        $draftId = (int) $storeRes->json('credit_note_id');
+        $draft = ShopCreditNote::findOrFail($draftId);
+
+        $this->assertCount(1, $draft->items);
+        $item = $draft->items->first();
+        $this->assertEquals($this->invoiceA1->id, $item->source_shop_invoice_id);
+        $this->assertNull($item->shop_invoice_item_id);
+
+        // Finalize draft
+        $finalizeRes = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.finalize', $draft)
+        );
+        $finalizeRes->assertOk();
+
+        // Historical invoice total remains unchanged
+        $this->invoiceA1->refresh();
+        $this->assertEquals($originalInvoiceTotal, (float) $this->invoiceA1->final_total);
+    }
+
+    /**
+     * Test 30: Draft routes resolve by both numeric ID and credit_note_number string.
+     */
+    public function test_30_draft_routes_resolve_by_numeric_id_and_credit_note_number(): void
+    {
+        $creditNoteService = app(ShopCreditNoteService::class);
+        $draft = $creditNoteService->createShopLevelDraft($this->shopA, [
+            'items' => [
+                [
+                    'product_id' => $this->productOnion->id,
+                    'product_grade' => 'A',
+                    'credit_quantity' => 10.0,
+                    'credit_rate' => 50.0,
+                ],
+            ],
+        ], $this->admin);
+
+        // 1. Resolve edit view using numeric database ID
+        $editByIdRes = $this->actingAs($this->admin)->get(
+            "/admin/cashbook/reports/shops/credit-notes/drafts/{$draft->id}/edit"
+        );
+        $editByIdRes->assertOk();
+        $editByIdRes->assertSee($draft->credit_note_number);
+
+        // 2. Resolve edit view using string credit_note_number
+        $editByNumRes = $this->actingAs($this->admin)->get(
+            "/admin/cashbook/reports/shops/credit-notes/drafts/{$draft->credit_note_number}/edit"
+        );
+        $editByNumRes->assertOk();
+        $editByNumRes->assertSee($draft->credit_note_number);
+
+        // 3. Resolve finalize endpoint using numeric database ID (the exact scenario from the alert)
+        $finalizeByIdRes = $this->actingAs($this->admin)->postJson(
+            "/admin/cashbook/reports/shops/credit-notes/drafts/{$draft->id}/finalize",
+            ['notes' => 'Finalized via numeric ID']
+        );
+        $finalizeByIdRes->assertOk();
+        $finalizeByIdRes->assertJson(['success' => true]);
+
+        $draft->refresh();
+        $this->assertEquals(ShopCreditNoteStatus::Approved, $draft->status);
+    }
+
+    /**
+     * Test 31: Store and update responses return dynamic finalize_url.
+     */
+    public function test_31_store_and_update_responses_return_dynamic_finalize_url(): void
+    {
+        $storeRes = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.store'),
+            [
+                'shop_id' => $this->shopA->id,
+                'items' => [
+                    [
+                        'product_id' => $this->productOnion->id,
+                        'product_grade' => 'A',
+                        'credit_quantity' => 5.0,
+                        'credit_rate' => 50.0,
+                    ],
+                ],
+            ]
+        );
+
+        $storeRes->assertCreated();
+        $this->assertNotEmpty($storeRes->json('finalize_url'));
+        $this->assertStringContainsString('/finalize', $storeRes->json('finalize_url'));
+
+        $draftId = (int) $storeRes->json('credit_note_id');
+        $draft = ShopCreditNote::findOrFail($draftId);
+
+        $updateRes = $this->actingAs($this->admin)->postJson(
+            route('admin.cashbook.reports.shops.credit-notes.drafts.update', $draft),
+            [
+                'expected_lock_version' => 1,
+                'items' => [
+                    [
+                        'product_id' => $this->productOnion->id,
+                        'product_grade' => 'A',
+                        'credit_quantity' => 8.0,
+                        'credit_rate' => 50.0,
+                    ],
+                ],
+            ]
+        );
+
+        $updateRes->assertOk();
+        $this->assertNotEmpty($updateRes->json('finalize_url'));
+        $this->assertStringContainsString('/finalize', $updateRes->json('finalize_url'));
     }
 }

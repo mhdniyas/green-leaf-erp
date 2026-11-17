@@ -25,6 +25,7 @@
         applyCreditUrl: '{{ route('admin.cashbook.reports.shops.credit-notes.apply', $creditNote) }}',
         cancelUrl: '{{ route('admin.cashbook.reports.shops.credit-notes.cancel', $creditNote) }}',
         reverseAppUrlBase: '{{ url('admin/cashbook/reports/shops/credit-notes/' . $creditNote->credit_note_number . '/applications') }}',
+        isAdmin: {{ ($isAdmin ?? false) ? 'true' : 'false' }},
     })">
 
     <!-- Top Breadcrumbs & Actions -->
@@ -409,7 +410,7 @@
                         <i data-lucide="split" class="w-4 h-4"></i>
                     </div>
                     <div>
-                        <h3 class="text-sm font-black text-slate-900">Apply Credit to Outstanding Invoices</h3>
+                        <h3 class="text-sm font-black text-slate-900">Apply Credit to Invoices</h3>
                         <p class="text-xs text-slate-500">Allocate unapplied credit from <span class="font-mono font-bold" x-text="creditNoteNumber"></span></p>
                     </div>
                 </div>
@@ -448,18 +449,59 @@
                 </div>
             </template>
 
-            <!-- Outstanding Invoices List -->
+            <!-- Search, Date Filter & Admin Controls -->
+            <div class="space-y-2 bg-slate-50/60 p-3 rounded-2xl border border-slate-100">
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                    <div class="sm:col-span-6 relative">
+                        <span class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
+                            <i data-lucide="search" class="w-3.5 h-3.5"></i>
+                        </span>
+                        <input type="text" x-model="searchQuery" @input.debounce.300ms="loadOutstandingInvoices()"
+                            placeholder="Search invoice number..."
+                            class="w-full rounded-xl border border-slate-200 bg-white pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                    </div>
+                    <div class="sm:col-span-6 flex items-center gap-2">
+                        <div class="relative flex-1">
+                            <input type="date" x-model="filterDate" @change="loadOutstandingInvoices()"
+                                title="Filter by invoice date"
+                                class="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                        </div>
+                        <template x-if="filterDate">
+                            <button type="button" @click="filterDate = ''; loadOutstandingInvoices()"
+                                class="rounded-xl border border-slate-200 bg-slate-100 hover:bg-slate-200 px-2 py-1.5 text-[11px] font-bold text-slate-600 transition"
+                                title="Clear date filter">
+                                ✕
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                <template x-if="isAdmin">
+                    <div class="flex items-center justify-between pt-1 border-t border-slate-100">
+                        <label class="inline-flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 select-none">
+                            <input type="checkbox" x-model="includeAll" @change="loadOutstandingInvoices()"
+                                class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5">
+                            <span class="text-indigo-900 font-bold">Show all shop invoices (Admin override &bull; include settled / zero balance)</span>
+                        </label>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Invoices List -->
             <div class="space-y-2 max-h-72 overflow-y-auto pr-1">
                 <template x-if="isLoadingInvoices">
                     <div class="py-12 text-center text-xs text-slate-400">
                         <i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto text-slate-400 mb-2"></i>
-                        <span>Loading outstanding invoices for <span x-text="shopName"></span>...</span>
+                        <span>Loading invoices for <span x-text="shopName"></span>...</span>
                     </div>
                 </template>
 
                 <template x-if="!isLoadingInvoices && availableInvoices.length === 0">
-                    <div class="py-8 text-center text-xs text-slate-400 bg-slate-50 rounded-xl">
-                        No outstanding invoices found for this shop. All invoices appear fully paid.
+                    <div class="py-8 text-center text-xs text-slate-500 bg-slate-50 rounded-xl space-y-1">
+                        <p class="font-medium">No matching invoices found for this shop.</p>
+                        <template x-if="isAdmin && !includeAll">
+                            <p class="text-[11px] text-indigo-600">Tip: Check "Show all shop invoices" above to view settled/paid invoices.</p>
+                        </template>
                     </div>
                 </template>
 
@@ -468,12 +510,27 @@
                         <template x-for="inv in availableInvoices" :key="inv.id">
                             <div class="p-3 bg-white hover:bg-slate-50/70 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                                 <div>
-                                    <div class="flex items-center gap-2">
+                                    <div class="flex items-center gap-2 flex-wrap">
                                         <span class="font-mono font-bold text-slate-900" x-text="inv.invoice_number"></span>
-                                        <span class="text-[10px] font-mono text-slate-400" x-text="inv.invoice_date"></span>
+                                        <span class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                                            <i data-lucide="calendar" class="w-3 h-3"></i>
+                                            <span x-text="inv.invoice_date || 'N/A'"></span>
+                                        </span>
+                                        <template x-if="inv.payment_status">
+                                            <span class="rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                                                :class="{
+                                                    'bg-emerald-50 text-emerald-700 border border-emerald-200': inv.payment_status === 'paid',
+                                                    'bg-amber-50 text-amber-700 border border-amber-200': inv.payment_status === 'partially_paid' || inv.status === 'payment_pending',
+                                                    'bg-blue-50 text-blue-700 border border-blue-200': inv.payment_status === 'overpaid',
+                                                    'bg-rose-50 text-rose-700 border border-rose-200': inv.payment_status === 'unpaid'
+                                                }"
+                                                x-text="inv.payment_status"></span>
+                                        </template>
                                     </div>
-                                    <div class="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
+                                    <div class="text-[11px] text-slate-500 flex items-center gap-2 mt-1 flex-wrap">
                                         <span>Billed: <strong class="font-mono">₹<span x-text="Number(inv.final_total).toFixed(2)"></span></strong></span>
+                                        <span>&bull;</span>
+                                        <span>Paid: <strong class="font-mono text-emerald-700">₹<span x-text="Number(inv.paid_amount || 0).toFixed(2)"></span></strong></span>
                                         <span>&bull;</span>
                                         <span>Outstanding: <strong class="font-mono text-rose-700">₹<span x-text="Number(inv.effective_outstanding).toFixed(2)"></span></strong></span>
                                     </div>
@@ -486,7 +543,7 @@
                                     </button>
                                     <div class="relative w-36">
                                         <span class="absolute left-2.5 top-1.5 text-xs text-slate-400 font-mono">₹</span>
-                                        <input type="number" step="0.01" min="0" :max="inv.effective_outstanding"
+                                        <input type="number" step="0.01" min="0" :max="isAdmin ? unappliedCredit : (inv.effective_outstanding > 0 ? inv.effective_outstanding : unappliedCredit)"
                                             x-model.number="allocations[inv.id]"
                                             class="w-full rounded-lg border border-slate-200 bg-white pl-6 pr-2 py-1 text-xs font-mono font-bold text-slate-800 focus:border-indigo-500"
                                             placeholder="0.00">
@@ -498,11 +555,20 @@
                 </template>
             </div>
 
-            <!-- Notes & Submission -->
-            <div>
-                <label class="block text-[11px] font-bold text-slate-600 mb-1">Application Remarks / Reference</label>
-                <input type="text" x-model="applicationNotes" placeholder="Optional notes for this credit allocation batch..."
-                    class="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-indigo-500">
+            <!-- Application Date, Notes & Submission -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-600 mb-1">
+                        Application Date <span class="text-rose-500">*</span>
+                    </label>
+                    <input type="date" x-model="applicationDate" required
+                        class="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-indigo-500">
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="block text-[11px] font-bold text-slate-600 mb-1">Application Remarks / Reference</label>
+                    <input type="text" x-model="applicationNotes" placeholder="Optional notes for this credit allocation batch..."
+                        class="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-indigo-500">
+                </div>
             </div>
 
             <div class="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
@@ -708,12 +774,17 @@
             applyCreditUrl: config.applyCreditUrl,
             cancelUrl: config.cancelUrl,
             reverseAppUrlBase: config.reverseAppUrlBase,
+            isAdmin: config.isAdmin || false,
 
             showModal: false,
             isLoadingInvoices: false,
             availableInvoices: [],
             allocations: {},
             applicationNotes: '',
+            filterDate: '',
+            searchQuery: '',
+            includeAll: false,
+            applicationDate: '{{ today()->toDateString() }}',
             isSubmitting: false,
 
             // Cancellation state
@@ -829,6 +900,10 @@
                 this.showModal = true;
                 this.allocations = {};
                 this.applicationNotes = '';
+                this.filterDate = '';
+                this.searchQuery = '';
+                this.includeAll = false;
+                this.applicationDate = '{{ today()->toDateString() }}';
                 this.loadOutstandingInvoices();
             },
 
@@ -838,17 +913,31 @@
 
             loadOutstandingInvoices() {
                 this.isLoadingInvoices = true;
-                fetch(this.outstandingInvoicesUrl, {
+                const url = new URL(this.outstandingInvoicesUrl, window.location.origin);
+                if (this.searchQuery && this.searchQuery.trim()) {
+                    url.searchParams.set('q', this.searchQuery.trim());
+                }
+                if (this.filterDate) {
+                    url.searchParams.set('date', this.filterDate);
+                }
+                if (this.includeAll) {
+                    url.searchParams.set('include_all', '1');
+                }
+
+                fetch(url.toString(), {
                     headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
                 })
                 .then(res => res.json())
                 .then(data => {
                     this.availableInvoices = data.invoices || [];
                     this.unappliedCredit = data.unapplied_credit ?? this.unappliedCredit;
+                    if (data.is_admin !== undefined) {
+                        this.isAdmin = data.is_admin;
+                    }
                     this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
                 })
                 .catch(err => {
-                    console.error('Error loading outstanding invoices:', err);
+                    console.error('Error loading invoices:', err);
                 })
                 .finally(() => {
                     this.isLoadingInvoices = false;
@@ -858,7 +947,10 @@
             allocateMax(inv) {
                 const currentTotal = this.totalAllocated - (parseFloat(this.allocations[inv.id]) || 0);
                 const remainingCredit = Math.max(0, this.unappliedCredit - currentTotal);
-                const maxAmount = Math.min(inv.effective_outstanding, remainingCredit);
+                let maxAmount = remainingCredit;
+                if (!this.isAdmin && inv.effective_outstanding > 0) {
+                    maxAmount = Math.min(inv.effective_outstanding, remainingCredit);
+                }
                 this.allocations[inv.id] = Math.round(maxAmount * 100) / 100;
             },
 
@@ -904,7 +996,8 @@
                         'X-Requested-With': 'XMLHttpRequest'
                     },
                     body: JSON.stringify({
-                        allocations: batch
+                        allocations: batch,
+                        applied_at: this.applicationDate || null
                     })
                 })
                 .then(async res => {

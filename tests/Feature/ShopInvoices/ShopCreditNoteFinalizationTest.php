@@ -10,6 +10,7 @@ use App\Enums\ShopInvoice\ShopCreditNoteAccountingMode;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteInventoryAction;
 use App\Enums\ShopInvoice\ShopCreditNoteReason;
+use App\Enums\ShopInvoice\ShopCreditNoteReceiptStatus;
 use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
 use App\Models\Cashbook\ShopLedgerTransaction;
@@ -884,5 +885,189 @@ class ShopCreditNoteFinalizationTest extends TestCase
         $this->assertNotNull($tx);
         $this->assertEquals(500.00, (float) $tx->amount);
         $this->assertEquals(TransactionStatus::Approved->value, $tx->status);
+    }
+
+    /**
+     * Test 21: Finalize product-first catalog-only draft without invoice reference.
+     */
+    public function test_21_finalize_product_first_catalog_only_draft_without_invoice_reference(): void
+    {
+        $draft = $this->service->createShopLevelDraft($this->shopA, [
+            'credit_note_date' => today()->toDateString(),
+            'notes' => 'Product-first adjustment finalization',
+            'items' => [
+                [
+                    'product_id' => $this->productOnion->id,
+                    'product_grade' => 'A',
+                    'credit_quantity' => 10.0,
+                    'credit_rate' => 45.0,
+                    'direction' => 'credit',
+                    'inventory_action' => 'return_to_stock',
+                    'notes' => 'Returned shelf onions',
+                ],
+                [
+                    'product_id' => $this->productTomato->id,
+                    'product_grade' => 'B',
+                    'credit_quantity' => 5.0,
+                    'credit_rate' => 40.0,
+                    'direction' => 'credit',
+                    'inventory_action' => 'write_off_wastage',
+                    'notes' => 'Damaged tomatoes',
+                ],
+            ],
+        ], $this->admin);
+
+        $this->assertEquals(ShopCreditNoteStatus::Draft, $draft->status);
+        $this->assertStringStartsWith('DRAFT-', $draft->credit_note_number);
+
+        $finalized = $this->service->finalizeShopLevelCreditNote($draft, $this->accountsUser, 'Office approved');
+
+        $this->assertEquals(ShopCreditNoteStatus::Approved, $finalized->status);
+        $this->assertStringStartsWith('SCN-', $finalized->credit_note_number);
+        $this->assertStringNotContainsString('DRAFT-', $finalized->credit_note_number);
+        $this->assertEquals(650.00, (float) $finalized->total_credit_amount);
+        $this->assertEquals(650.00, (float) $finalized->subtotal);
+
+        // Item 1: Physical return -> PendingReceipt for warehouse
+        $item1 = $finalized->items->firstWhere('product_id', $this->productOnion->id);
+        $this->assertNotNull($item1);
+        $this->assertNull($item1->shop_invoice_item_id);
+        $this->assertNull($item1->source_shop_invoice_id);
+        $this->assertEquals(ShopCreditNoteReceiptStatus::PendingReceipt, $item1->receipt_status);
+
+        // Item 2: Wastage write-off -> NotApplicable receipt status
+        $item2 = $finalized->items->firstWhere('product_id', $this->productTomato->id);
+        $this->assertNotNull($item2);
+        $this->assertNull($item2->shop_invoice_item_id);
+        $this->assertNull($item2->source_shop_invoice_id);
+        $this->assertEquals(ShopCreditNoteReceiptStatus::NotApplicable, $item2->receipt_status);
+
+        // Financial Posting: single transaction on credit note business date
+        $tx = ShopLedgerTransaction::query()
+            ->where('reference_type', ShopCreditNote::class)
+            ->where('reference_id', $finalized->id)
+            ->first();
+
+        $this->assertNotNull($tx);
+        $this->assertEquals(650.00, (float) $tx->amount);
+        $this->assertEquals(today()->toDateString(), $tx->business_date->toDateString());
+        $this->assertEquals(TransactionStatus::Approved->value, $tx->status);
+    }
+
+    /**
+     * Test 22: Finalize product-first draft with optional historical invoice link.
+     */
+    public function test_22_finalize_product_first_draft_with_optional_invoice_link(): void
+    {
+        $originalInvoiceTotal = (float) $this->invoiceA1->final_total;
+
+        $draft = $this->service->createShopLevelDraft($this->shopA, [
+            'credit_note_date' => today()->toDateString(),
+            'items' => [
+                [
+                    'source_shop_invoice_id' => $this->invoiceA1->id,
+                    'product_id' => $this->productOnion->id,
+                    'product_grade' => 'A',
+                    'credit_quantity' => 12.0,
+                    'credit_rate' => 48.0,
+                    'direction' => 'credit',
+                    'inventory_action' => 'return_to_stock',
+                ],
+            ],
+        ], $this->admin);
+
+        $finalized = $this->service->finalizeShopLevelCreditNote($draft, $this->accountsUser);
+
+        $this->assertEquals(ShopCreditNoteStatus::Approved, $finalized->status);
+        $this->assertEquals(576.00, (float) $finalized->total_credit_amount);
+
+        $item = $finalized->items->first();
+        $this->assertEquals($this->invoiceA1->id, $item->source_shop_invoice_id);
+        $this->assertNull($item->shop_invoice_item_id);
+
+        // Historical invoice remains completely unchanged
+        $this->invoiceA1->refresh();
+        $this->assertEquals($originalInvoiceTotal, (float) $this->invoiceA1->final_total);
+
+        // Ledger transaction posts to Credit Note date, NOT invoice date
+        $tx = ShopLedgerTransaction::query()
+            ->where('reference_type', ShopCreditNote::class)
+            ->where('reference_id', $finalized->id)
+            ->first();
+
+        $this->assertNotNull($tx);
+        $this->assertEquals(576.00, (float) $tx->amount);
+        $this->assertEquals(today()->toDateString(), $tx->business_date->toDateString());
+        $this->assertNotEquals($this->invoiceA1->business_date->toDateString(), $tx->business_date->toDateString());
+    }
+
+    /**
+     * Test 23: Finalize rejects cross-shop invoice link.
+     */
+    public function test_23_finalize_rejects_cross_shop_invoice_link(): void
+    {
+        $draft = $this->service->createShopLevelDraft($this->shopA, [
+            'items' => [
+                [
+                    'product_id' => $this->productOnion->id,
+                    'product_grade' => 'A',
+                    'credit_quantity' => 10.0,
+                    'credit_rate' => 50.0,
+                ],
+            ],
+        ], $this->admin);
+
+        // Tamper item to point to an invoice belonging to Shop B
+        $invoiceB = $this->createFinalizedInvoice($this->shopB, 'SINV-B-TEST');
+        $draft->items()->first()->update([
+            'source_shop_invoice_id' => $invoiceB->id,
+        ]);
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Cross-shop invoice blocked');
+
+        $this->service->finalizeShopLevelCreditNote($draft, $this->accountsUser);
+    }
+
+    /**
+     * Test 24: Finalize mixed credit and debit lines.
+     */
+    public function test_24_finalize_mixed_credit_and_debit_lines(): void
+    {
+        $draft = $this->service->createShopLevelDraft($this->shopA, [
+            'items' => [
+                [
+                    'product_id' => $this->productOnion->id,
+                    'product_grade' => 'A',
+                    'credit_quantity' => 10.0,
+                    'credit_rate' => 50.0,
+                    'direction' => 'credit',
+                    'inventory_action' => 'return_to_stock',
+                ],
+                [
+                    'product_id' => $this->productTomato->id,
+                    'product_grade' => 'A',
+                    'credit_quantity' => 5.0,
+                    'credit_rate' => 40.0,
+                    'direction' => 'debit',
+                    'inventory_action' => 'none',
+                ],
+            ],
+        ], $this->admin);
+
+        $finalized = $this->service->finalizeShopLevelCreditNote($draft, $this->accountsUser);
+
+        $this->assertEquals(ShopCreditNoteStatus::Approved, $finalized->status);
+        $this->assertEquals(700.00, (float) $finalized->subtotal); // Gross: 500 + 200
+        $this->assertEquals(300.00, (float) $finalized->total_credit_amount); // Net: 500 - 200
+        $this->assertEquals(ShopCreditNoteDirection::Credit, $finalized->direction);
+
+        $tx = ShopLedgerTransaction::query()
+            ->where('reference_type', ShopCreditNote::class)
+            ->where('reference_id', $finalized->id)
+            ->first();
+
+        $this->assertNotNull($tx);
+        $this->assertEquals(300.00, (float) $tx->amount);
     }
 }

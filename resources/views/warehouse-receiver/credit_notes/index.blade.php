@@ -49,28 +49,71 @@
             </div>
         @endif
 
-        {{-- Statistics Quick Counters --}}
+        {{-- Statistics Quick Counters (Clickable Filter Cards) --}}
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div class="rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-xs">
-                <span class="block text-[10px] font-black uppercase tracking-wider text-amber-600">Pending Receipt</span>
-                <span class="mt-1 block font-mono text-xl sm:text-2xl font-black text-slate-900">{{ $counts['pending'] }}</span>
+            <a href="{{ route('warehouse.receiver.credit-notes.index', array_merge(request()->except('page'), ['status' => 'pending'])) }}"
+                title="Filter by Pending Receipt"
+                class="group block rounded-2xl border p-3.5 shadow-xs transition hover:shadow-md hover:-translate-y-0.5 cursor-pointer {{ $statusFilter === 'pending' ? 'border-amber-400 ring-2 ring-amber-400/30 bg-amber-50/20' : 'border-slate-200/80 bg-white hover:border-slate-300' }}">
+                <div class="flex items-center justify-between">
+                    <span class="block text-[10px] font-black uppercase tracking-wider text-amber-600">Pending Receipt</span>
+                    @if ($statusFilter === 'pending')
+                        <span class="inline-flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-100/80 px-1.5 py-0.2 rounded-full">
+                            <span class="h-1.5 w-1.5 rounded-full bg-amber-600"></span>
+                            Active
+                        </span>
+                    @endif
+                </div>
+                <span class="mt-1 block font-mono text-xl sm:text-2xl font-black text-slate-900 group-hover:text-amber-700 transition">{{ $counts['pending'] }}</span>
                 <span class="mt-0.5 block text-[10px] text-slate-400">Awaiting arrival</span>
-            </div>
-            <div class="rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-xs">
-                <span class="block text-[10px] font-black uppercase tracking-wider text-blue-600">Partially Received</span>
-                <span class="mt-1 block font-mono text-xl sm:text-2xl font-black text-slate-900">{{ $counts['partially_received'] }}</span>
+            </a>
+
+            <a href="{{ route('warehouse.receiver.credit-notes.index', array_merge(request()->except('page'), ['status' => 'partially_received'])) }}"
+                title="Filter by Partially Received"
+                class="group block rounded-2xl border p-3.5 shadow-xs transition hover:shadow-md hover:-translate-y-0.5 cursor-pointer {{ $statusFilter === 'partially_received' ? 'border-blue-400 ring-2 ring-blue-400/30 bg-blue-50/20' : 'border-slate-200/80 bg-white hover:border-slate-300' }}">
+                <div class="flex items-center justify-between">
+                    <span class="block text-[10px] font-black uppercase tracking-wider text-blue-600">Partially Received</span>
+                    @if ($statusFilter === 'partially_received')
+                        <span class="inline-flex items-center gap-1 text-[9px] font-bold text-blue-700 bg-blue-100/80 px-1.5 py-0.2 rounded-full">
+                            <span class="h-1.5 w-1.5 rounded-full bg-blue-600"></span>
+                            Active
+                        </span>
+                    @endif
+                </div>
+                <span class="mt-1 block font-mono text-xl sm:text-2xl font-black text-slate-900 group-hover:text-blue-700 transition">{{ $counts['partially_received'] }}</span>
                 <span class="mt-0.5 block text-[10px] text-slate-400">Partial batches arrived</span>
-            </div>
-            <div class="rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-xs">
-                <span class="block text-[10px] font-black uppercase tracking-wider text-emerald-600">Verified & Stocked</span>
-                <span class="mt-1 block font-mono text-xl sm:text-2xl font-black text-slate-900">{{ $counts['verified'] }}</span>
+            </a>
+
+            <a href="{{ route('warehouse.receiver.credit-notes.index', array_merge(request()->except('page'), ['status' => 'verified'])) }}"
+                title="Filter by Verified & Stocked"
+                class="group block rounded-2xl border p-3.5 shadow-xs transition hover:shadow-md hover:-translate-y-0.5 cursor-pointer {{ $statusFilter === 'verified' ? 'border-emerald-400 ring-2 ring-emerald-400/30 bg-emerald-50/20' : 'border-slate-200/80 bg-white hover:border-slate-300' }}">
+                <div class="flex items-center justify-between">
+                    <span class="block text-[10px] font-black uppercase tracking-wider text-emerald-600">Verified & Stocked</span>
+                    @if ($statusFilter === 'verified')
+                        <span class="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-700 bg-emerald-100/80 px-1.5 py-0.2 rounded-full">
+                            <span class="h-1.5 w-1.5 rounded-full bg-emerald-600"></span>
+                            Active
+                        </span>
+                    @endif
+                </div>
+                <span class="mt-1 block font-mono text-xl sm:text-2xl font-black text-slate-900 group-hover:text-emerald-700 transition">{{ $counts['verified'] }}</span>
                 <span class="mt-0.5 block text-[10px] text-slate-400">Fully reconciled</span>
-            </div>
-            <div class="rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-xs">
-                <span class="block text-[10px] font-black uppercase tracking-wider text-rose-600">Disputed / Missing</span>
-                <span class="mt-1 block font-mono text-xl sm:text-2xl font-black text-slate-900">{{ $counts['disputed'] }}</span>
+            </a>
+
+            <a href="{{ route('warehouse.receiver.credit-notes.index', array_merge(request()->except('page'), ['status' => 'disputed'])) }}"
+                title="Filter by Disputed / Missing"
+                class="group block rounded-2xl border p-3.5 shadow-xs transition hover:shadow-md hover:-translate-y-0.5 cursor-pointer {{ $statusFilter === 'disputed' ? 'border-rose-400 ring-2 ring-rose-400/30 bg-rose-50/20' : 'border-slate-200/80 bg-white hover:border-slate-300' }}">
+                <div class="flex items-center justify-between">
+                    <span class="block text-[10px] font-black uppercase tracking-wider text-rose-600">Disputed / Missing</span>
+                    @if ($statusFilter === 'disputed')
+                        <span class="inline-flex items-center gap-1 text-[9px] font-bold text-rose-700 bg-rose-100/80 px-1.5 py-0.2 rounded-full">
+                            <span class="h-1.5 w-1.5 rounded-full bg-rose-600"></span>
+                            Active
+                        </span>
+                    @endif
+                </div>
+                <span class="mt-1 block font-mono text-xl sm:text-2xl font-black text-slate-900 group-hover:text-rose-700 transition">{{ $counts['disputed'] }}</span>
                 <span class="mt-0.5 block text-[10px] text-slate-400">Not received or rejected</span>
-            </div>
+            </a>
         </div>
 
         {{-- Filters & Search Section --}}
@@ -825,9 +868,19 @@
         </div>
     </div>
 
-    {{-- Alpine.js Manager Script --}}
-    <script>
-        function warehouseCreditNoteManager(config) {
+    {{-- Styles --}}
+    @push('styles')
+        <style>
+            [x-cloak] { display: none !important; }
+        </style>
+    @endpush
+
+    {{-- Scripts & Alpine.js Manager --}}
+    @push('scripts')
+        <script src="https://unpkg.com/lucide@latest"></script>
+        <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+        <script>
+            function warehouseCreditNoteManager(config) {
             return {
                 warehouses: config.warehouses || [],
                 defaultWarehouseId: config.defaultWarehouseId,
@@ -1138,6 +1191,8 @@
             };
         }
 
+        window.warehouseCreditNoteManager = warehouseCreditNoteManager;
+
         if (window.Alpine) {
             window.Alpine.data('warehouseCreditNoteManager', warehouseCreditNoteManager);
         } else {
@@ -1145,6 +1200,13 @@
                 window.Alpine.data('warehouseCreditNoteManager', warehouseCreditNoteManager);
             });
         }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            if (window.lucide) {
+                window.lucide.createIcons();
+            }
+        });
     </script>
+    @endpush
 </x-layouts.app>
 
