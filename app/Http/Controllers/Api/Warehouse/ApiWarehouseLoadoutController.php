@@ -544,7 +544,7 @@ class ApiWarehouseLoadoutController extends Controller
                         ], 422);
                     }
 
-                    if ($isOrderItemId) {
+                    if ($isOrderItemId && $multiGradeProductIds->contains($numericId)) {
                         $orderItem = $orderItems->firstWhere('id', $numericId);
                         if ($orderItem && $multiGradeProductIds->contains($orderItem->product_id)) {
                             $productItems = $itemsByProduct->get($orderItem->product_id, collect());
@@ -662,9 +662,8 @@ class ApiWarehouseLoadoutController extends Controller
 
                     $productIdsForProbe[] = $productId;
 
-                    $totalApproved = $this->loadoutApprovedQuantity($rows);
-                    $totalRequested = $this->loadoutRequestedQuantity($rows);
                     $firstRow = $rows->first();
+                    $isAddon = $rows->every(fn (ShopOrderItem $item): bool => $item->isAddon());
 
                     $requestedUnitQty = (float) ($firstRow->requested_unit_quantity ?? 0.0);
                     $conversionToBase = (float) ($firstRow->requested_unit_conversion_to_base ?? 1.0);
@@ -687,6 +686,14 @@ class ApiWarehouseLoadoutController extends Controller
                             : ($actualWeight > 0.0001
                                 ? $actualWeight
                                 : max(0.0, (float) ($itemsInput[$key] ?? 0)));
+                    }
+
+                    if ($isAddon) {
+                        $totalApproved = $isNotAvailable ? 0.0 : $submittedQty;
+                        $totalRequested = $isNotAvailable ? 0.0 : $submittedQty;
+                    } else {
+                        $totalApproved = $this->loadoutApprovedQuantity($rows);
+                        $totalRequested = $this->loadoutRequestedQuantity($rows);
                     }
 
                     // Fix 2: Calculate difference-based deduction against actual net deducted quantity from the ledger
@@ -741,7 +748,7 @@ class ApiWarehouseLoadoutController extends Controller
                             'approved_qty' => $totalApproved,
                             'loaded_qty' => 0.0,
                             'loaded_order_unit_qty' => $hasRequestedUnit ? 0.0 : null,
-                            'requested_unit_quantity' => $requestedUnitQty,
+                            'requested_unit_quantity' => $isAddon && $hasRequestedUnit ? ($loadedOrderUnitQty ?? $requestedUnitQty) : $requestedUnitQty,
                             'line_total' => round($totalApproved * $unitSellingPrice, 2),
                             'actual_weight' => null,
                             'delivered_qty' => 0.0,
@@ -765,7 +772,7 @@ class ApiWarehouseLoadoutController extends Controller
                                 'approved_qty' => $totalApproved,
                                 'loaded_qty' => $submittedQty,
                                 'loaded_order_unit_qty' => $hasRequestedUnit ? ($loadedOrderUnitQty ?? round($submittedQty / $conversionToBase, 2)) : null,
-                                'requested_unit_quantity' => $requestedUnitQty,
+                                'requested_unit_quantity' => $isAddon && $hasRequestedUnit ? ($loadedOrderUnitQty ?? $requestedUnitQty) : $requestedUnitQty,
                                 'line_total' => round($totalApproved * $unitSellingPrice, 2),
                                 'actual_weight' => $actualWeight > 0.0001 ? $actualWeight : null,
                                 'delivered_qty' => null,
@@ -784,7 +791,7 @@ class ApiWarehouseLoadoutController extends Controller
                                 'approved_qty' => $totalApproved,
                                 'loaded_qty' => 0.0,
                                 'loaded_order_unit_qty' => $hasRequestedUnit ? 0.0 : null,
-                                'requested_unit_quantity' => $requestedUnitQty,
+                                'requested_unit_quantity' => $isAddon && $hasRequestedUnit ? ($loadedOrderUnitQty ?? $requestedUnitQty) : $requestedUnitQty,
                                 'line_total' => round($totalApproved * $unitSellingPrice, 2),
                                 'actual_weight' => null,
                                 'delivered_qty' => null,
@@ -1205,22 +1212,24 @@ class ApiWarehouseLoadoutController extends Controller
     {
         $this->authorizeAccess($request);
 
-        $existingProductIds = $this->isCompatibleMultiGradeClient($request)
-            ? $shopOrder->items
-                ->groupBy('product_id')
-                ->filter(function ($items): bool {
-                    $grades = $items->pluck('product_grade')
-                        ->map(fn ($g) => strtoupper(trim((string) ($g ?? 'A'))))
-                        ->unique();
+        $existingGradesByProduct = $shopOrder->items
+            ->groupBy('product_id')
+            ->map(function ($items): array {
+                return $items->pluck('product_grade')
+                    ->map(fn ($g) => strtoupper(trim((string) ($g ?? 'A'))))
+                    ->unique()
+                    ->values()
+                    ->all();
+            });
 
-                    return $grades->contains('A') && $grades->contains('B') && $grades->contains('C');
-                })
+        $existingProductIds = $this->isCompatibleMultiGradeClient($request)
+            ? $existingGradesByProduct
+                ->filter(fn (array $grades): bool => in_array('A', $grades, true) && in_array('B', $grades, true) && in_array('C', $grades, true))
                 ->keys()
                 ->map(fn ($id) => (int) $id)
                 ->all()
-            : $shopOrder->items
-                ->pluck('product_id')
-                ->filter()
+            : $existingGradesByProduct
+                ->keys()
                 ->map(fn ($id) => (int) $id)
                 ->all();
 
@@ -1238,12 +1247,21 @@ class ApiWarehouseLoadoutController extends Controller
             ->map(fn (Category $category) => [
                 'id' => $category->id,
                 'name' => $category->name,
-                'products' => $category->products->map(fn (Product $product) => [
-                    'id' => $product->id,
-                    'name' => $product->name,
-                    'sku' => $product->sku,
-                    'unit' => $product->unit ?? 'KG',
-                ])->values()->toArray(),
+                'products' => $category->products->map(function (Product $product) use ($existingGradesByProduct): array {
+                    $occupied = $existingGradesByProduct->get($product->id, []);
+                    $allGrades = ['A', 'B', 'C'];
+                    $available = array_values(array_diff($allGrades, $occupied));
+
+                    return [
+                        'id' => $product->id,
+                        'name' => $product->name,
+                        'sku' => $product->sku,
+                        'unit' => $product->unit ?? 'KG',
+                        'default_warehouse_id' => $product->default_warehouse_id,
+                        'occupied_grades' => $occupied,
+                        'available_grades' => $available,
+                    ];
+                })->values()->toArray(),
             ])
             ->values();
 

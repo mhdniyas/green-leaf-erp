@@ -71,6 +71,11 @@ class WarehouseDispatchService
             $remainingItems = $lockedOrder->items
                 ->filter(function (ShopOrderItem $item): bool {
                     $approvedQty = (float) ($item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty);
+
+                    if ($approvedQty <= 0.001) {
+                        return false;
+                    }
+
                     $loadedQty = (float) ($item->loaded_qty ?? 0);
 
                     return $item->sorting_status !== 'loaded' || $loadedQty < $approvedQty;

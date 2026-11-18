@@ -605,9 +605,8 @@ class WarehouseLoadoutController extends Controller
                         continue;
                     }
 
-                    $totalApproved = $this->loadoutApprovedQuantity($rows);
-                    $totalRequested = $this->loadoutRequestedQuantity($rows);
                     $firstRow = $rows->first();
+                    $isAddon = $rows->every(fn (ShopOrderItem $item): bool => $item->isAddon());
 
                     $requestedUnitQty = (float) ($firstRow->requested_unit_quantity ?? 0.0);
                     $conversionToBase = (float) ($firstRow->requested_unit_conversion_to_base ?? 1.0);
@@ -631,6 +630,14 @@ class WarehouseLoadoutController extends Controller
                             : ($actualWeight > 0.0001
                                 ? $actualWeight
                                 : max(0.0, (float) ($itemsInput[$key] ?? 0)));
+                    }
+
+                    if ($isAddon) {
+                        $totalApproved = $isNotAvailable ? 0.0 : $submittedQty;
+                        $totalRequested = $isNotAvailable ? 0.0 : $submittedQty;
+                    } else {
+                        $totalApproved = $this->loadoutApprovedQuantity($rows);
+                        $totalRequested = $this->loadoutRequestedQuantity($rows);
                     }
 
                     // Fix 2: Calculate difference-based deduction against actual net deducted quantity from the ledger
@@ -687,7 +694,7 @@ class WarehouseLoadoutController extends Controller
                             'approved_qty' => $totalApproved,
                             'loaded_qty' => 0.0,
                             'loaded_order_unit_qty' => $hasRequestedUnit ? 0.0 : null,
-                            'requested_unit_quantity' => $requestedUnitQty,
+                            'requested_unit_quantity' => $isAddon && $hasRequestedUnit ? ($loadedOrderUnitQty ?? $requestedUnitQty) : $requestedUnitQty,
                             'line_total' => round($totalApproved * $unitSellingPrice, 2),
                             'actual_weight' => null,
                             'delivered_qty' => 0.0,
@@ -711,7 +718,7 @@ class WarehouseLoadoutController extends Controller
                                 'approved_qty' => $totalApproved,
                                 'loaded_qty' => $submittedQty,
                                 'loaded_order_unit_qty' => $hasRequestedUnit ? ($loadedOrderUnitQty ?? round($submittedQty / $conversionToBase, 2)) : null,
-                                'requested_unit_quantity' => $requestedUnitQty,
+                                'requested_unit_quantity' => $isAddon && $hasRequestedUnit ? ($loadedOrderUnitQty ?? $requestedUnitQty) : $requestedUnitQty,
                                 'line_total' => round($totalApproved * $unitSellingPrice, 2),
                                 'actual_weight' => $actualWeight > 0.0001 ? $actualWeight : null,
                                 'delivered_qty' => null,
@@ -730,7 +737,7 @@ class WarehouseLoadoutController extends Controller
                                 'approved_qty' => $totalApproved,
                                 'loaded_qty' => 0.0,
                                 'loaded_order_unit_qty' => $hasRequestedUnit ? 0.0 : null,
-                                'requested_unit_quantity' => $requestedUnitQty,
+                                'requested_unit_quantity' => $isAddon && $hasRequestedUnit ? ($loadedOrderUnitQty ?? $requestedUnitQty) : $requestedUnitQty,
                                 'line_total' => round($totalApproved * $unitSellingPrice, 2),
                                 'actual_weight' => null,
                                 'delivered_qty' => null,

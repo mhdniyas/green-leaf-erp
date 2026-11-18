@@ -218,4 +218,9 @@ class ShopOrderItem extends Model
 
         return "{$requested} = ".number_format($baseQty, 2, '.', '')." {$baseUnit}";
     }
+
+    public function isAddon(): bool
+    {
+        return str_contains((string) ($this->notes ?? ''), 'Addon item added from warehouse loadout');
+    }
 }
