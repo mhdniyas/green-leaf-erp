@@ -1163,4 +1163,75 @@ class LoadoutAddonGradeSupportTest extends TestCase
         $deliveryResponse->assertOk();
         $this->assertSame('in_transit', $order->fresh()->delivery_status);
     }
+
+    public function test_addon_creation_succeeds_when_invoice_has_unpaid_balance_and_not_financially_locked(): void
+    {
+        $this->createSortedBatch('A', 20.0);
+        $this->createSortedBatch('B', 20.0);
+
+        $order = ShopOrder::factory()->create([
+            'shop_id' => $this->shop->id,
+            'business_date' => $this->businessDate,
+            'state' => 'confirmed',
+            'delivery_status' => 'ready_for_dispatch',
+            'delivery_review_status' => 'pending',
+            'is_delivered' => false,
+        ]);
+
+        $itemA = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'product_grade' => 'A',
+            'requested_qty' => 5.0,
+            'approved_qty' => 5.0,
+            'loaded_qty' => 5.0,
+            'loaded_order_unit_qty' => 5.0,
+            'unit' => 'KG',
+            'locked_price_group_id' => $this->priceGroup->id,
+            'locked_selling_price' => 50.0,
+            'locked_price_source' => 'board',
+            'line_total' => 250.0,
+            'sorting_status' => 'loaded',
+            'fulfillment_type' => 'warehouse',
+        ]);
+
+        // Invoice exists with unpaid balance and no payment received
+        $invoice = ShopInvoice::create([
+            'shop_id' => $this->shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-TEST-UNPAID',
+            'business_date' => $this->businessDate,
+            'subtotal' => 250.0,
+            'final_total' => 250.0,
+            'balance_amount' => 250.0,
+            'paid_amount' => 0.0,
+            'status' => 'generated',
+            'payment_status' => 'unpaid',
+            'delivery_status' => 'pending',
+            'generated_by' => $this->receiver->id,
+        ]);
+
+        // Unloaded relation check
+        $freshOrder = ShopOrder::findOrFail($order->id);
+        $this->assertFalse($freshOrder->isFinanciallyLocked());
+
+        // Add Grade B addon product
+        $response = $this->actingAs($this->receiver)
+            ->withHeader('X-Client-Supports-Multi-Grade', 'true')
+            ->postJson("/api/v1/warehouse/loadout/{$order->id}/addon", [
+                'product_id' => $this->product->id,
+                'quantity' => 2.0,
+                'product_grade' => 'B',
+            ]);
+
+        $response->assertOk();
+        $this->assertTrue($response->json('success'));
+
+        $this->assertDatabaseHas('shop_order_items', [
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'product_grade' => 'B',
+            'loaded_qty' => 2.0,
+        ]);
+    }
 }

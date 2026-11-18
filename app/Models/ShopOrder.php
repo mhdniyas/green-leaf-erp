@@ -224,7 +224,12 @@ class ShopOrder extends Model
         } elseif ($this->invoice()->where(function ($query): void {
             $query
                 ->whereIn('delivery_status', ['received_full', 'approved_after_discrepancy'])
-                ->orWhereIn('status', ['finalized', 'payment_pending', 'paid'])
+                ->orWhereIn('status', ['finalized', 'payment_pending'])
+                ->orWhere(function ($q): void {
+                    $q->where('status', 'paid')
+                        ->where('balance_amount', '<=', 0.0001)
+                        ->where('final_total', '>', 0.0001);
+                })
                 ->orWhereIn('payment_status', ['partially_paid', 'paid'])
                 ->orWhereNotNull('payment_approved_at')
                 ->orWhere('paid_amount', '>', 0);

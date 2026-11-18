@@ -51,7 +51,7 @@ class ShopFinalBillService
 
         $effectivePaymentStatus = match (true) {
             $overpaymentCredit > 0.0001 => 'overpaid',
-            $remainingBalance <= 0.0001 && ($amountPaid > 0.0001 || $finalNetPayable <= 0.0001) => 'paid',
+            $remainingBalance <= 0.0001 && ($amountPaid > 0.0001 || ($finalNetPayable <= 0.0001 && $originalTotal > 0.0001)) => 'paid',
             $amountPaid > 0.0001 && $remainingBalance > 0.0001 => 'partially_paid',
             default => 'unpaid',
         };

@@ -355,9 +355,10 @@ class ShopInvoice extends Model
         }
 
         $hasPayment = (float) $this->paid_amount > 0.0001 || $this->payment_approved_at !== null;
+        $hasZeroOrNegativeBalance = (float) $this->balance_amount <= 0.0001;
         $hasBillableTotal = (float) $this->final_total > 0.0001;
 
-        if ($this->status === 'paid' && ($hasPayment || $hasBillableTotal)) {
+        if ($this->status === 'paid' && ($hasPayment || ($hasZeroOrNegativeBalance && $hasBillableTotal))) {
             return true;
         }
 
