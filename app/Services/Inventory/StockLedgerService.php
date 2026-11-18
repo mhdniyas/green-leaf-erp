@@ -132,17 +132,13 @@ class StockLedgerService
     public function availableLoadoutStockBreakdown(int $productId, ?int $warehouseId = null, ?ProductGrade $grade = null): array
     {
         $resolvedGrade = $grade ?? ProductGrade::GradeA;
-        $gradeStock = $this->availableStockForProduct($productId, $warehouseId, $resolvedGrade);
+        $breakdowns = $this->availableLoadoutStockBreakdownsForProducts([$productId], $warehouseId);
+        $gradeKey = $resolvedGrade->value;
 
-        $mixedStock = 0.0;
-        if ($resolvedGrade !== ProductGrade::Unsorted) {
-            $mixedStock = $this->availableStockForProduct($productId, $warehouseId, ProductGrade::Unsorted);
-        }
-
-        return [
-            'grade_stock' => round($gradeStock, 3),
-            'mixed_stock' => round($mixedStock, 3),
-            'available_stock' => round($gradeStock + $mixedStock, 3),
+        return $breakdowns[$productId][$gradeKey] ?? [
+            'grade_stock' => 0.0,
+            'mixed_stock' => 0.0,
+            'available_stock' => 0.0,
         ];
     }
 
@@ -161,7 +157,7 @@ class StockLedgerService
         }
 
         // 1. Bulk query sorted lots stock by product and grade
-        $sortedRows = StockMovement::query()
+        $sortedRows = DB::table('stock_movements')
             ->join('stock_batches', 'stock_batches.id', '=', 'stock_movements.batch_id')
             ->whereIn('stock_movements.product_id', $cleanIds)
             ->whereNull('stock_batches.deleted_at')
@@ -190,7 +186,7 @@ class StockLedgerService
         $sortedStock = [];
         foreach ($sortedRows as $row) {
             $pId = (int) $row->product_id;
-            $g = $row->grade instanceof ProductGrade ? $row->grade->value : (string) ($row->grade ?? '');
+            $g = (string) ($row->grade ?? '');
             $canonicalGrade = match (strtoupper($g)) {
                 'U', 'MIXED', 'UNSORTED' => 'U',
                 'A' => 'A',
@@ -201,62 +197,104 @@ class StockLedgerService
             $sortedStock[$pId][$canonicalGrade] = ($sortedStock[$pId][$canonicalGrade] ?? 0.0) + (float) $row->available_quantity;
         }
 
-        // 2. Bulk query pending batches stock by product and grade
-        $pendingBatches = StockBatch::query()
+        // 2. Bulk query pending batches stock by product and grade using set-based SQL
+        $pendingBatches = DB::table('stock_batches')
             ->whereIn('product_id', $cleanIds)
-            ->where('status', BatchStatus::Pending)
+            ->where('status', BatchStatus::Pending->value)
             ->where('warehouse_receive_pending', false)
+            ->whereNull('deleted_at')
             ->when($warehouseId !== null, fn ($query) => $query->where('warehouse_id', $warehouseId))
+            ->orderBy('id', 'asc')
+            ->select(['id', 'product_id', 'purchase_grade', 'total_kg', 'received_at'])
             ->get();
 
         $pendingStock = [];
         if ($pendingBatches->isNotEmpty()) {
             $batchIds = $pendingBatches->pluck('id')->all();
-            $movements = StockMovement::query()
+
+            $wastageMap = DB::table('wastage_entries')
+                ->whereIn('batch_id', $batchIds)
+                ->whereNull('deleted_at')
+                ->selectRaw('batch_id, SUM(quantity) as wasted')
+                ->groupBy('batch_id')
+                ->pluck('wasted', 'batch_id');
+
+            $writeOffMap = DB::table('stock_movements')
                 ->whereIn('batch_id', $batchIds)
                 ->whereIn('type', [
                     StockMovementType::Out->value,
                     StockMovementType::Sale->value,
                     StockMovementType::Wastage->value,
                     StockMovementType::Adjustment->value,
-                    StockMovementType::SaleReversal->value,
                 ])
-                ->selectRaw('batch_id, type, SUM(quantity) as total_qty')
-                ->groupBy('batch_id', 'type')
-                ->get()
-                ->groupBy('batch_id');
+                ->selectRaw('batch_id, SUM(quantity) as write_offs')
+                ->groupBy('batch_id')
+                ->pluck('write_offs', 'batch_id');
 
-            foreach ($pendingBatches as $batch) {
-                $bId = (int) $batch->id;
-                $batchMovements = $movements->get($bId, collect());
+            $reversalMap = DB::table('stock_movements')
+                ->whereIn('batch_id', $batchIds)
+                ->where('type', StockMovementType::SaleReversal->value)
+                ->selectRaw('batch_id, SUM(quantity) as reversals')
+                ->groupBy('batch_id')
+                ->pluck('reversals', 'batch_id');
 
-                $writeOffs = (float) $batchMovements
-                    ->whereIn('type', [
-                        StockMovementType::Out->value,
-                        StockMovementType::Sale->value,
-                        StockMovementType::Wastage->value,
-                        StockMovementType::Adjustment->value,
-                    ])
-                    ->sum('total_qty');
+            $allocations = DB::table('shop_order_items')
+                ->join('shop_orders', 'shop_orders.id', '=', 'shop_order_items.shop_order_id')
+                ->whereIn('shop_order_items.product_id', $cleanIds)
+                ->where('shop_order_items.sorting_status', 'allocated')
+                ->where('shop_orders.state', 'approved')
+                ->whereNull('shop_order_items.deleted_at')
+                ->selectRaw('shop_order_items.product_id, DATE(shop_orders.business_date) as b_date, SUM(shop_order_items.approved_qty) as total_allocated')
+                ->groupBy('shop_order_items.product_id', DB::raw('DATE(shop_orders.business_date)'))
+                ->get();
 
-                $reversals = (float) $batchMovements
-                    ->where('type', StockMovementType::SaleReversal->value)
-                    ->sum('total_qty');
+            $allocationMap = [];
+            foreach ($allocations as $a) {
+                $allocationMap[(int) $a->product_id][(string) $a->b_date] = (float) $a->total_allocated;
+            }
 
-                $netWriteOff = max(0.0, $writeOffs - $reversals);
-                $availableOnBatch = round(max(0.0, (float) $batch->remaining_qty - $netWriteOff), 3);
+            $batchesByProductAndDate = $pendingBatches->groupBy(function ($b): string {
+                $date = $b->received_at ? substr((string) $b->received_at, 0, 10) : '';
 
-                if ($availableOnBatch > 0.0001) {
-                    $pId = (int) $batch->product_id;
-                    $pGrade = $batch->purchase_grade instanceof ProductGrade ? $batch->purchase_grade->value : (string) ($batch->purchase_grade ?? 'U');
-                    $canonicalGrade = match (strtoupper($pGrade)) {
-                        'U', 'MIXED', 'UNSORTED', '' => 'U',
-                        'A' => 'A',
-                        'B' => 'B',
-                        'C' => 'C',
-                        default => $pGrade,
-                    };
-                    $pendingStock[$pId][$canonicalGrade] = ($pendingStock[$pId][$canonicalGrade] ?? 0.0) + $availableOnBatch;
+                return $b->product_id.'|'.$date;
+            });
+
+            foreach ($batchesByProductAndDate as $key => $batchesGroup) {
+                [$pIdStr, $bDate] = explode('|', (string) $key);
+                $pId = (int) $pIdStr;
+                $remainingAllocated = (float) ($allocationMap[$pId][$bDate] ?? 0.0);
+
+                foreach ($batchesGroup as $batch) {
+                    $bId = (int) $batch->id;
+                    $wasted = (float) ($wastageMap[$bId] ?? 0.0);
+                    $totalKg = (float) $batch->total_kg;
+
+                    $maxAllocatable = max(0.0, $totalKg - $wasted);
+                    $allocatedForThisBatch = 0.0;
+                    if ($remainingAllocated > 0.0) {
+                        $allocatedForThisBatch = min($maxAllocatable, $remainingAllocated);
+                        $remainingAllocated -= $allocatedForThisBatch;
+                    }
+
+                    $remainingQty = max(0.0, $totalKg - $wasted - $allocatedForThisBatch);
+
+                    $writeOffs = (float) ($writeOffMap[$bId] ?? 0.0);
+                    $reversals = (float) ($reversalMap[$bId] ?? 0.0);
+                    $netWriteOff = max(0.0, $writeOffs - $reversals);
+
+                    $availableOnBatch = round(max(0.0, $remainingQty - $netWriteOff), 3);
+
+                    if ($availableOnBatch > 0.0001) {
+                        $pGrade = (string) ($batch->purchase_grade ?? 'U');
+                        $canonicalGrade = match (strtoupper($pGrade)) {
+                            'U', 'MIXED', 'UNSORTED', '' => 'U',
+                            'A' => 'A',
+                            'B' => 'B',
+                            'C' => 'C',
+                            default => $pGrade,
+                        };
+                        $pendingStock[$pId][$canonicalGrade] = ($pendingStock[$pId][$canonicalGrade] ?? 0.0) + $availableOnBatch;
+                    }
                 }
             }
         }
@@ -283,7 +321,7 @@ class StockLedgerService
 
                 $results[$pId][$g] = [
                     'grade_stock' => $gradeStock,
-                    'mixed_stock' => $mixedStock,
+                    'mixed_stock' => $g === 'U' ? 0.0 : $mixedStock,
                     'available_stock' => $totalAvailable,
                 ];
             }

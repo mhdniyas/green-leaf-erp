@@ -26,6 +26,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -223,7 +224,7 @@ class ApiWarehouseLoadoutController extends Controller
             return response()->json(null, 304)->setEtag($etag);
         }
 
-        $shopOrder->load(['shop', 'items.product.category', 'items.product.orderUnits', 'items.product.defaultWarehouse', 'deliveredBy', 'invoice.items.product']);
+        $shopOrder->load(['shop.priceGroup', 'items.product.category', 'items.product.orderUnits', 'items.product.defaultWarehouse', 'deliveredBy', 'invoice.items.product']);
         $probe?->checkpoint('load_order_relations');
 
         $productIds = $shopOrder->items->pluck('product_id')->filter()->unique()->values()->all();
@@ -1414,19 +1415,24 @@ class ApiWarehouseLoadoutController extends Controller
             ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
             ->max('updated_at');
 
-        $productIds = $shopOrder->items()->pluck('product_id')->filter()->unique()->all();
+        $productIds = $shopOrder->relationLoaded('items')
+            ? $shopOrder->items->pluck('product_id')->filter()->unique()->values()->all()
+            : $shopOrder->items()->pluck('product_id')->filter()->unique()->all();
         $orderDate = $shopOrder->business_date ? $shopOrder->business_date->toDateString() : now()->toDateString();
+        $nextDate = Carbon::parse($orderDate)->addDay()->toDateString();
         $priceApprovalMax = ! empty($productIds)
             ? (string) DB::table('daily_price_approvals')
                 ->whereIn('product_id', $productIds)
-                ->whereDate('business_date', $orderDate)
+                ->where('business_date', '>=', $orderDate)
+                ->where('business_date', '<', $nextDate)
                 ->max('updated_at')
             : '';
         $specialPriceMax = (! empty($productIds) && $shopOrder->shop_id)
             ? (string) DB::table('shop_daily_product_prices')
                 ->where('shop_id', $shopOrder->shop_id)
                 ->whereIn('product_id', $productIds)
-                ->whereDate('business_date', $orderDate)
+                ->where('business_date', '>=', $orderDate)
+                ->where('business_date', '<', $nextDate)
                 ->max('updated_at')
             : '';
         $priceVersion = max($priceApprovalMax, $specialPriceMax);

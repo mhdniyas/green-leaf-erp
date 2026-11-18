@@ -4,19 +4,23 @@ declare(strict_types=1);
 
 namespace App\Services\ShopInvoices;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Models\BusinessSetting;
+use App\Models\DailyPriceApproval;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\Shop;
 use App\Models\ShopCredit;
+use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
 use App\Models\ShopInvoicePaymentAllocation;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\ShopPriceGroup;
 use App\Services\Cashbook\InvoiceCashbookProjectionService;
 use App\Services\Finance\JournalService;
 use App\Services\Finance\OwnedShopAccountingService;
@@ -1643,7 +1647,41 @@ class ShopInvoiceService
     {
         $order->loadMissing(['shop.priceGroup', 'items.product']);
         $businessDate = $order->business_date ? $order->business_date->toDateString() : now()->toDateString();
-        $groupName = $order->shop?->priceGroup?->name;
+        $nextBusinessDate = Carbon::parse($businessDate)->addDay()->toDateString();
+        $group = $order->shop?->priceGroup;
+        $groupName = $group?->name;
+
+        $productIds = $order->items->pluck('product_id')->filter()->unique()->values()->all();
+
+        $specialPrices = collect();
+        $approvals = collect();
+
+        if ($order->shop && ! empty($productIds)) {
+            $specialPrices = ShopDailyProductPrice::query()
+                ->where('shop_id', $order->shop->id)
+                ->whereIn('product_id', $productIds)
+                ->where('business_date', '>=', $businessDate)
+                ->where('business_date', '<', $nextBusinessDate)
+                ->where('status', 'approved')
+                ->get()
+                ->keyBy(fn (ShopDailyProductPrice $p): string => $p->product_id.'|'.(string) ($p->product_grade ?? 'A'));
+
+            $approvals = DailyPriceApproval::query()
+                ->whereIn('product_id', $productIds)
+                ->where('business_date', '>=', $businessDate)
+                ->where('business_date', '<', $nextBusinessDate)
+                ->get()
+                ->keyBy(fn (DailyPriceApproval $a): string => $a->product_id.'|'.($a->grade instanceof ProductGrade ? $a->grade->value : (string) $a->grade));
+        }
+
+        $priceColumn = match (strtoupper((string) ($groupName ?? ''))) {
+            'A' => 'price_a',
+            'B' => 'price_b',
+            'C' => 'price_c',
+            'D' => 'price_d',
+            'E' => 'price_e',
+            default => null,
+        };
 
         $unpricedItems = [];
         $unpricedNames = [];
@@ -1669,10 +1707,39 @@ class ShopInvoiceService
             }
 
             $grade = (string) ($item->product_grade ?? 'A');
-            try {
-                $this->approvedDailyPriceResolver->resolve($item->product, $order->shop, $order->business_date, $grade);
-            } catch (ValidationException $e) {
-                $firstError = collect($e->errors())->flatten()->first() ?? 'Price not configured';
+            $productGrade = ProductGrade::tryResolve($grade) ?? ProductGrade::GradeA;
+            $gradeVal = $productGrade->value;
+
+            $firstError = null;
+            if (! $group instanceof ShopPriceGroup || ! $group->is_active) {
+                $firstError = "Shop '{$order->shop->name}' does not have an active price group assigned.";
+            } else {
+                $special = $specialPrices->get($item->product_id.'|'.$gradeVal);
+                if ($special) {
+                    $price = round((float) $special->selling_price, 2);
+                    if ($price <= 0.0) {
+                        $firstError = "Special price for {$item->product->name} (Grade {$gradeVal}) on date {$businessDate} is invalid.";
+                    }
+                } else {
+                    if (! $priceColumn) {
+                        $firstError = "Price column not found for price group {$groupName}.";
+                    } else {
+                        $approval = $approvals->get($item->product_id.'|'.$gradeVal);
+                        if (! $approval) {
+                            $firstError = "Approved daily price is missing for {$item->product->name} (Grade {$gradeVal}) on {$businessDate} (Shop Price Group {$groupName}).";
+                        } elseif ($approval->status !== 'approved' || $approval->approved_at === null) {
+                            $firstError = "Daily price for {$item->product->name} (Grade {$gradeVal}) on {$businessDate} is '{$approval->status}' and not approved by admin (Shop Price Group {$groupName}).";
+                        } else {
+                            $price = round((float) $approval->{$priceColumn}, 2);
+                            if ($price <= 0.0) {
+                                $firstError = "Approved daily price column '{$priceColumn}' (Shop Price Group {$groupName}) for {$item->product->name} (Grade {$gradeVal}) on {$businessDate} is zero or not set.";
+                            }
+                        }
+                    }
+                }
+            }
+
+            if ($firstError !== null) {
                 $productLabel = $grade !== 'A' ? "{$item->product->name} (Grade {$grade})" : $item->product->name;
                 $unpricedNames[] = $productLabel;
                 $unpricedItems[] = [
