@@ -284,7 +284,7 @@ class AutoLoadAllService
                 // Synchronize and reprice invoice
                 $lockedOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
                 $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($lockedOrder, (int) $actor->id);
-                if ($invoice && ! $invoice->isFinalLocked()) {
+                if ($invoice && ! $invoice->isFinalLocked() && ! $invoice->isBillingProtected()) {
                     try {
                         $this->shopInvoiceService->repriceInvoice(
                             $invoice,

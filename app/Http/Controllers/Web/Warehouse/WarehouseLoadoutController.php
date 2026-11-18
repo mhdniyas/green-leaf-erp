@@ -772,7 +772,7 @@ class WarehouseLoadoutController extends Controller
         try {
             $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
             $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
-            if ($invoice && ! $invoice->isFinalLocked()) {
+            if ($invoice && ! $invoice->isFinalLocked() && ! $invoice->isBillingProtected()) {
                 $this->shopInvoiceService->repriceInvoice(
                     $invoice,
                     $userId,

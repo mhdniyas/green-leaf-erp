@@ -63,9 +63,9 @@ class BillPriceApiController extends Controller
         $invoice = $this->resolveInvoice($validated);
         $invoice?->loadMissing(['shop', 'items.product', 'order.items.product']);
 
-        if ($invoice && $invoice->isFinalLocked()) {
+        if ($invoice && ($invoice->isFinalLocked() || $invoice->isBillingProtected())) {
             throw ValidationException::withMessages([
-                'invoice' => 'This shop invoice is finalized. Create a price adjustment instead of repricing the original invoice.',
+                'invoice' => 'This shop invoice is finalized or billing-protected. Create a price adjustment or credit note instead of repricing the original invoice.',
             ]);
         }
 

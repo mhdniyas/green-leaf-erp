@@ -93,7 +93,7 @@ class WarehouseDispatchService
             // which rolls back the transaction and leaves delivery_status unchanged.
             $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($lockedOrder, (int) $user->id);
 
-            if (! $invoice->isFinalLocked()) {
+            if (! $invoice->isFinalLocked() && ! $invoice->isBillingProtected()) {
                 $this->shopInvoiceService->repriceInvoice(
                     $invoice,
                     (int) $user->id,

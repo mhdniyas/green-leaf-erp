@@ -830,7 +830,7 @@ class ApiWarehouseLoadoutController extends Controller
         try {
             $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
             $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
-            if ($invoice && ! $invoice->isFinalLocked()) {
+            if ($invoice && ! $invoice->isFinalLocked() && ! $invoice->isBillingProtected()) {
                 $this->shopInvoiceService->repriceInvoice(
                     $invoice,
                     $userId,
@@ -1346,7 +1346,7 @@ class ApiWarehouseLoadoutController extends Controller
 
             $this->markLoadoutStartedForProducts($shopOrder, collect([(int) $product->id]));
 
-            if ($shopOrder->invoice && ! $shopOrder->invoice->isFinalLocked()) {
+            if ($shopOrder->invoice && ! $shopOrder->invoice->isFinalLocked() && ! $shopOrder->invoice->isBillingProtected()) {
                 try {
                     $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
                     $this->shopInvoiceService->recalculateAndSaveInvoiceSummary($invoice, $userId);
@@ -1462,7 +1462,7 @@ class ApiWarehouseLoadoutController extends Controller
         $invoice = $shopOrder->invoice;
         if (! $invoice) {
             $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
-            if ($invoice && ! $invoice->isFinalLocked()) {
+            if ($invoice && ! $invoice->isFinalLocked() && ! $invoice->isBillingProtected()) {
                 $this->shopInvoiceService->repriceInvoice(
                     $invoice,
                     $userId,

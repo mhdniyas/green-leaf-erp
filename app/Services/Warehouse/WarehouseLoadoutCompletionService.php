@@ -179,7 +179,7 @@ class WarehouseLoadoutCompletionService
         $order->forceFill(['delivery_status' => 'ready_for_dispatch'])->save();
         $order->load(['shop.priceGroup', 'items.product', 'invoice.items']);
         $invoice = $this->invoiceService->synchronizeOrderInvoice($order, $user->id);
-        if (! $invoice->isFinalLocked()) {
+        if (! $invoice->isFinalLocked() && ! $invoice->isBillingProtected()) {
             try {
                 $this->invoiceService->repriceInvoice(
                     $invoice,

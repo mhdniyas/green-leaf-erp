@@ -229,9 +229,9 @@ class BillPriceApprovalController extends Controller
 
         $invoice->loadMissing(['shop', 'items.product']);
 
-        if ($invoice->isFinalLocked()) {
+        if ($invoice->isFinalLocked() || $invoice->isBillingProtected()) {
             throw ValidationException::withMessages([
-                'invoice' => 'This shop invoice is finalized. Create a price adjustment instead of repricing the original invoice.',
+                'invoice' => 'This shop invoice is finalized or billing-protected. Create a price adjustment or credit note instead of repricing the original invoice.',
             ]);
         }
 
@@ -391,9 +391,9 @@ class BillPriceApprovalController extends Controller
 
         $invoice->loadMissing(['shop', 'items.product']);
 
-        if ($invoice->isFinalLocked()) {
+        if ($invoice->isFinalLocked() || $invoice->isBillingProtected()) {
             throw ValidationException::withMessages([
-                'invoice' => 'This shop invoice is finalized. Create a price adjustment instead of repricing the original invoice.',
+                'invoice' => 'This shop invoice is finalized or billing-protected. Create a price adjustment or credit note instead of repricing the original invoice.',
             ]);
         }
 

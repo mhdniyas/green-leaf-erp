@@ -91,8 +91,9 @@ class ShopInvoiceService
     {
         $order->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
 
-        if ($order->invoice instanceof ShopInvoice && ($order->invoice->isFinalLocked() || $order->invoice->isBillingProtected())) {
-            return $order->invoice->fresh('items');
+        $invoice = $order->invoice ?? ShopInvoice::query()->where('shop_order_id', $order->id)->first();
+        if ($invoice instanceof ShopInvoice && ($invoice->isFinalLocked() || $invoice->isBillingProtected())) {
+            return $invoice->fresh('items');
         }
 
         $diagnostics = $this->getPricingDiagnosticsForOrder($order);

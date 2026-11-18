@@ -350,7 +350,14 @@ class ShopInvoice extends Model
             return true;
         }
 
-        if (in_array((string) $this->status, ['delivery_review', 'payment_pending', 'finalized', 'paid', 'cancelled'], true)) {
+        if (in_array((string) $this->status, ['delivery_review', 'payment_pending', 'finalized', 'cancelled'], true)) {
+            return true;
+        }
+
+        $hasPayment = (float) $this->paid_amount > 0.0001 || $this->payment_approved_at !== null;
+        $hasBillableTotal = (float) $this->final_total > 0.0001;
+
+        if ($this->status === 'paid' && ($hasPayment || $hasBillableTotal)) {
             return true;
         }
 
@@ -358,7 +365,7 @@ class ShopInvoice extends Model
             return true;
         }
 
-        if ((float) $this->paid_amount > 0.0001 || $this->payment_approved_at !== null) {
+        if ($hasPayment) {
             return true;
         }
 
@@ -367,7 +374,7 @@ class ShopInvoice extends Model
             return true;
         }
 
-        if ($this->status === 'generated') {
+        if ($this->status === 'generated' || ($this->status === 'paid' && ! $hasPayment && ! $hasBillableTotal)) {
             if (! $order) {
                 return true;
             }

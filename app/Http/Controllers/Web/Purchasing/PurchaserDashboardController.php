@@ -7024,7 +7024,7 @@ class PurchaserDashboardController extends Controller
             ->whereHas('items', fn ($query) => $query->whereIn('product_id', $uniqueProductIds))
             ->with(['shop.priceGroup', 'items.product', 'order.items.product'])
             ->get()
-            ->reject(fn (ShopInvoice $invoice): bool => $invoice->isFinalLocked())
+            ->reject(fn (ShopInvoice $invoice): bool => $invoice->isFinalLocked() || $invoice->isBillingProtected())
             ->values();
 
         $targetedInvoices = $targetInvoices->count();
