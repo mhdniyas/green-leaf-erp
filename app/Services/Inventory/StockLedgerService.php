@@ -146,6 +146,152 @@ class StockLedgerService
         ];
     }
 
+    /**
+     * Bulk version of availableLoadoutStockBreakdown for an array of products.
+     * Avoids N+1 queries during loadout initialization.
+     *
+     * @param  array<int, int>  $productIds
+     * @return array<int, array<string, array{grade_stock: float, mixed_stock: float, available_stock: float}>>
+     */
+    public function availableLoadoutStockBreakdownsForProducts(array $productIds, ?int $warehouseId = null): array
+    {
+        $cleanIds = array_values(array_filter(array_unique($productIds)));
+        if (empty($cleanIds)) {
+            return [];
+        }
+
+        // 1. Bulk query sorted lots stock by product and grade
+        $sortedRows = StockMovement::query()
+            ->join('stock_batches', 'stock_batches.id', '=', 'stock_movements.batch_id')
+            ->whereIn('stock_movements.product_id', $cleanIds)
+            ->whereNull('stock_batches.deleted_at')
+            ->where('stock_batches.status', BatchStatus::Sorted->value)
+            ->where('stock_batches.warehouse_receive_pending', false)
+            ->when($warehouseId !== null, fn ($query) => $query->where('stock_batches.warehouse_id', $warehouseId))
+            ->selectRaw(
+                'stock_movements.product_id, stock_movements.grade, '.
+                'SUM(CASE '.
+                'WHEN stock_movements.type IN (?, ?) THEN stock_movements.quantity '.
+                'WHEN stock_movements.type IN (?, ?, ?, ?) THEN -stock_movements.quantity '.
+                'ELSE 0 END) as available_quantity',
+                [
+                    StockMovementType::In->value,
+                    StockMovementType::SaleReversal->value,
+                    StockMovementType::Out->value,
+                    StockMovementType::Wastage->value,
+                    StockMovementType::Sale->value,
+                    StockMovementType::Adjustment->value,
+                ]
+            )
+            ->groupBy('stock_movements.product_id', 'stock_movements.grade')
+            ->having('available_quantity', '>', 0)
+            ->get();
+
+        $sortedStock = [];
+        foreach ($sortedRows as $row) {
+            $pId = (int) $row->product_id;
+            $g = $row->grade instanceof ProductGrade ? $row->grade->value : (string) ($row->grade ?? '');
+            $canonicalGrade = match (strtoupper($g)) {
+                'U', 'MIXED', 'UNSORTED' => 'U',
+                'A' => 'A',
+                'B' => 'B',
+                'C' => 'C',
+                default => $g,
+            };
+            $sortedStock[$pId][$canonicalGrade] = ($sortedStock[$pId][$canonicalGrade] ?? 0.0) + (float) $row->available_quantity;
+        }
+
+        // 2. Bulk query pending batches stock by product and grade
+        $pendingBatches = StockBatch::query()
+            ->whereIn('product_id', $cleanIds)
+            ->where('status', BatchStatus::Pending)
+            ->where('warehouse_receive_pending', false)
+            ->when($warehouseId !== null, fn ($query) => $query->where('warehouse_id', $warehouseId))
+            ->get();
+
+        $pendingStock = [];
+        if ($pendingBatches->isNotEmpty()) {
+            $batchIds = $pendingBatches->pluck('id')->all();
+            $movements = StockMovement::query()
+                ->whereIn('batch_id', $batchIds)
+                ->whereIn('type', [
+                    StockMovementType::Out->value,
+                    StockMovementType::Sale->value,
+                    StockMovementType::Wastage->value,
+                    StockMovementType::Adjustment->value,
+                    StockMovementType::SaleReversal->value,
+                ])
+                ->selectRaw('batch_id, type, SUM(quantity) as total_qty')
+                ->groupBy('batch_id', 'type')
+                ->get()
+                ->groupBy('batch_id');
+
+            foreach ($pendingBatches as $batch) {
+                $bId = (int) $batch->id;
+                $batchMovements = $movements->get($bId, collect());
+
+                $writeOffs = (float) $batchMovements
+                    ->whereIn('type', [
+                        StockMovementType::Out->value,
+                        StockMovementType::Sale->value,
+                        StockMovementType::Wastage->value,
+                        StockMovementType::Adjustment->value,
+                    ])
+                    ->sum('total_qty');
+
+                $reversals = (float) $batchMovements
+                    ->where('type', StockMovementType::SaleReversal->value)
+                    ->sum('total_qty');
+
+                $netWriteOff = max(0.0, $writeOffs - $reversals);
+                $availableOnBatch = round(max(0.0, (float) $batch->remaining_qty - $netWriteOff), 3);
+
+                if ($availableOnBatch > 0.0001) {
+                    $pId = (int) $batch->product_id;
+                    $pGrade = $batch->purchase_grade instanceof ProductGrade ? $batch->purchase_grade->value : (string) ($batch->purchase_grade ?? 'U');
+                    $canonicalGrade = match (strtoupper($pGrade)) {
+                        'U', 'MIXED', 'UNSORTED', '' => 'U',
+                        'A' => 'A',
+                        'B' => 'B',
+                        'C' => 'C',
+                        default => $pGrade,
+                    };
+                    $pendingStock[$pId][$canonicalGrade] = ($pendingStock[$pId][$canonicalGrade] ?? 0.0) + $availableOnBatch;
+                }
+            }
+        }
+
+        // 3. Assemble breakdowns for requested products across all standard grades
+        $grades = ['A', 'B', 'C', 'U'];
+        $results = [];
+
+        foreach ($cleanIds as $pId) {
+            $mixedStock = round(
+                ($sortedStock[$pId]['U'] ?? 0.0) + ($pendingStock[$pId]['U'] ?? 0.0),
+                3
+            );
+
+            foreach ($grades as $g) {
+                $gradeStock = round(
+                    ($sortedStock[$pId][$g] ?? 0.0) + ($pendingStock[$pId][$g] ?? 0.0),
+                    3
+                );
+
+                $totalAvailable = $g === 'U'
+                    ? $gradeStock
+                    : round($gradeStock + $mixedStock, 3);
+
+                $results[$pId][$g] = [
+                    'grade_stock' => $gradeStock,
+                    'mixed_stock' => $mixedStock,
+                    'available_stock' => $totalAvailable,
+                ];
+            }
+        }
+
+        return $results;
+    }
+
     public function consumeSortedStockForProduct(
         int $productId,
         float $quantity,
@@ -274,20 +420,6 @@ class StockLedgerService
             $this->lockStockBatchesForProduct($productId, $warehouseId, $targetGrade);
             if ($targetGrade !== ProductGrade::Unsorted) {
                 $this->lockStockBatchesForProduct($productId, $warehouseId, ProductGrade::Unsorted);
-            }
-
-            // Fix 4: Validate stock availability before performing deductions or segregation
-            $breakdown = $this->availableLoadoutStockBreakdown($productId, $warehouseId, $targetGrade);
-            $totalAvailable = $breakdown['available_stock'];
-
-            if ($quantity > round($totalAvailable, 3) + 0.001) {
-                $product = Product::find($productId);
-                $productName = $product?->name ?? "Product #{$productId}";
-                $gradeLabel = $targetGrade->value;
-
-                throw ValidationException::withMessages([
-                    'quantity' => "Insufficient stock for {$productName} (Grade {$gradeLabel}). Requested: {$quantity} kg, available: {$totalAvailable} kg (Grade {$gradeLabel}: {$breakdown['grade_stock']} kg, Mixed/U: {$breakdown['mixed_stock']} kg).",
-                ]);
             }
 
             $remainingQuantity = $quantity;
@@ -440,13 +572,22 @@ class StockLedgerService
             }
 
             if ($remainingQuantity > 0.0001) {
-                $product = Product::find($productId);
-                $productName = $product?->name ?? "Product #{$productId}";
-                $gradeLabel = $targetGrade->value;
+                $batch = $this->negativeStockBatchForProduct($productId, $userId, $warehouseId, $targetGrade);
 
-                throw ValidationException::withMessages([
-                    'quantity' => "Insufficient stock to fulfill loadout for {$productName} (Grade {$gradeLabel}). Unfulfilled shortfall: {$remainingQuantity} kg.",
+                StockMovement::create([
+                    'product_id' => $productId,
+                    'batch_id' => $batch->id,
+                    'created_by' => $userId,
+                    'grade' => $targetGrade->value,
+                    'type' => $movementType->value,
+                    'quantity' => $remainingQuantity,
+                    'cost_per_unit' => (float) ($batch->cost_per_kg ?? 0),
+                    'warehouse_id' => $batch->warehouse_id ?? $warehouseId,
+                    'shop_order_item_id' => $shopOrderItemId,
+                    'notes' => $notes.'; negative stock allowed',
                 ]);
+
+                $consumedQuantity = round($consumedQuantity + $remainingQuantity, 3);
             }
 
             return round($consumedQuantity, 3);

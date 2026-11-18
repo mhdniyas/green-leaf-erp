@@ -409,16 +409,13 @@ class LoadoutAddonGradeSupportTest extends TestCase
     }
 
     /**
-     * 8. Failed Add-on does not leave partial inventory movements.
+     * 8. Add-on with insufficient stock allows negative stock.
      */
-    public function test_failed_addon_does_not_leave_partial_inventory_movements(): void
+    public function test_addon_with_insufficient_stock_allows_negative_stock(): void
     {
         // Batch with only 5 KG available
         $this->createSortedBatch('B', 5.0);
         $order = $this->createOrder();
-
-        $movementCountBefore = StockMovement::count();
-        $itemCountBefore = ShopOrderItem::count();
 
         // Attempt to add 20 KG (exceeds available 5 KG)
         $response = $this->actingAs($this->receiver)
@@ -428,11 +425,12 @@ class LoadoutAddonGradeSupportTest extends TestCase
                 'product_grade' => 'B',
             ]);
 
-        $response->assertStatus(422);
+        $response->assertStatus(200);
+        $response->assertJson(['success' => true]);
 
-        // Transaction rolled back: zero items and zero movements added
-        $this->assertSame($movementCountBefore, StockMovement::count());
-        $this->assertSame($itemCountBefore, ShopOrderItem::count());
+        // Negative stock movement created for the 15 KG shortfall under Grade B
+        $this->assertSame(1, StockMovement::where('notes', 'like', '%negative stock allowed%')->where('grade', 'B')->count());
+        $this->assertSame(15.0, (float) StockMovement::where('notes', 'like', '%negative stock allowed%')->where('grade', 'B')->value('quantity'));
     }
 
     /**

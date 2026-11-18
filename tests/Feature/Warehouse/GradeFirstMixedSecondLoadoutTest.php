@@ -394,16 +394,16 @@ class GradeFirstMixedSecondLoadoutTest extends TestCase
                 'items' => ["{$this->product->id}|B" => 15.0],
             ]);
 
-        $response->assertSessionHasErrors(['quantity']);
+        $response->assertSessionHasNoErrors();
 
-        // Zero negative stock movements created
-        $this->assertSame(0, StockMovement::where('notes', 'like', '%negative stock allowed%')->count());
-        $this->assertSame(5.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
-        $this->assertSame(5.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
+        // 1 negative stock movement created for the 5.0 KG shortfall
+        $this->assertSame(1, StockMovement::where('notes', 'like', '%negative stock allowed%')->count());
+        $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
+        $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
     }
 
     // -------------------------------------------------------------------------
-    // Test 9: Grade A stock cannot satisfy Grade B
+    // Test 9: Grade A stock cannot satisfy Grade B (Grade B goes negative)
     // -------------------------------------------------------------------------
     public function test_09_grade_a_stock_cannot_satisfy_grade_b(): void
     {
@@ -418,14 +418,14 @@ class GradeFirstMixedSecondLoadoutTest extends TestCase
                 'items' => ["{$this->product->id}|B" => 10.0],
             ]);
 
-        $response->assertSessionHasErrors(['quantity']);
+        $response->assertSessionHasNoErrors();
 
         // Grade A stock MUST remain untouched at 100.0
         $this->assertSame(100.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeA));
 
-        // Available Grade B remains 0.0 with zero negative movements
-        $this->assertSame(0.0, $this->stockLedgerService->availableSortedStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::GradeB));
-        $this->assertSame(0, StockMovement::where('type', StockMovementType::Out->value)->count());
+        // Grade B shortfall was recorded as negative stock movement without touching Grade A
+        $this->assertSame(1, StockMovement::where('notes', 'like', '%negative stock allowed%')->where('grade', 'B')->count());
+        $this->assertSame(10.0, (float) StockMovement::where('notes', 'like', '%negative stock allowed%')->where('grade', 'B')->value('quantity'));
     }
 
     // -------------------------------------------------------------------------

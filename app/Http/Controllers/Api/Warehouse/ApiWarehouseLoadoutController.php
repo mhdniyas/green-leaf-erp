@@ -226,9 +226,12 @@ class ApiWarehouseLoadoutController extends Controller
         $shopOrder->load(['shop', 'items.product.category', 'items.product.orderUnits', 'items.product.defaultWarehouse', 'deliveredBy', 'invoice.items.product']);
         $probe?->checkpoint('load_order_relations');
 
+        $productIds = $shopOrder->items->pluck('product_id')->filter()->unique()->values()->all();
+        $bulkStockBreakdowns = $this->stockLedgerService->availableLoadoutStockBreakdownsForProducts($productIds, $selectedWarehouseId);
+
         $productGroups = $shopOrder->items
             ->groupBy(fn (ShopOrderItem $item) => $item->product_id.'|'.($item->product_grade ?? 'A'))
-            ->map(function ($items, $groupKey) use ($shopOrder, $selectedWarehouseId) {
+            ->map(function ($items, $groupKey) use ($shopOrder, $selectedWarehouseId, $bulkStockBreakdowns) {
                 $productId = $items->first()->product_id;
                 $gradeStr = (string) ($items->first()->product_grade ?? 'A');
                 $gradeEnum = ProductGrade::tryResolve($gradeStr) ?? ProductGrade::GradeA;
@@ -237,7 +240,8 @@ class ApiWarehouseLoadoutController extends Controller
                 $totalLoadedOrderUnit = (float) $items->where('sorting_status', 'loaded')->sum(fn (ShopOrderItem $item): float => (float) ($item->loaded_order_unit_qty ?? 0));
                 $totalRequestedOrderUnit = (float) $items->sum(fn (ShopOrderItem $item): float => (float) ($item->requested_qty ?? 0));
                 $totalBalance = max(0.0, round($totalApproved - $totalLoaded, 3));
-                $stockBreakdown = $this->stockLedgerService->availableLoadoutStockBreakdown($productId, $selectedWarehouseId, $gradeEnum);
+                $stockBreakdown = $bulkStockBreakdowns[$productId][$gradeStr]
+                    ?? $this->stockLedgerService->availableLoadoutStockBreakdown($productId, $selectedWarehouseId, $gradeEnum);
                 $available = round($stockBreakdown['available_stock'] + $totalLoaded, 3);
 
                 $firstItem = $items->first();

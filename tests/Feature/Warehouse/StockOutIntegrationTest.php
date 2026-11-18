@@ -29,7 +29,6 @@ use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Warehouse\WarehouseLoadoutCompletionService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class StockOutIntegrationTest extends TestCase
@@ -345,38 +344,29 @@ class StockOutIntegrationTest extends TestCase
             'cost_per_unit' => 30.0,
         ]);
 
-        // Total available is 40 KG (0 A + 40 U). Attempt loadout of 50 KG Grade A.
+        // Total available is 40 KG (0 A + 40 U). Loadout of 50 KG Grade A succeeds with negative stock.
         $order = $this->createOrderWithItems([
             ['product' => $this->product, 'grade' => 'A', 'qty' => 50.0, 'selling_price' => 60.0],
         ]);
         $item = $order->items->first();
 
-        $resFailed = $this->actingAs($this->receiver)
+        $res = $this->actingAs($this->receiver)
             ->postJson("/api/v1/warehouse/loadout/{$order->id}/save", [
                 'items' => ["{$this->product->id}|A" => 50.0],
             ], ['X-Client-Supports-Multi-Grade' => 'true']);
 
-        $resFailed->assertStatus(422);
-        $resFailed->assertJsonValidationErrors(['quantity']);
-        $errorMsg = $resFailed->json('errors.quantity.0');
-        $this->assertStringContainsString('Insufficient stock', $errorMsg);
-        $this->assertStringContainsString('50', $errorMsg);
-        $this->assertStringContainsString('40', $errorMsg);
+        $res->assertStatus(200);
+        $res->assertJson(['success' => true]);
 
-        // Verify zero stock movements or child batches were committed
-        $this->assertSame(0.0, $this->stockLedgerService->netDeductedQuantityForOrderItem($item->id));
-        $this->assertDatabaseMissing('stock_movements', [
-            'notes' => 'Loadout dispatch to delivery — Order: '.$order->order_number,
-        ]);
-        $this->assertDatabaseMissing('stock_batches', [
-            'reference' => 'NEG-%',
-        ]);
-        $this->assertSame(40.0, $this->stockLedgerService->availableStockForProduct($this->product->id, $this->warehouse->id, ProductGrade::Unsorted));
+        // Verify full 50 KG deducted (40 KG from mixed auto-segregation + 10 KG negative stock)
+        $this->assertSame(50.0, $this->stockLedgerService->netDeductedQuantityForOrderItem($item->id));
+        $this->assertSame(1, StockMovement::where('shop_order_item_id', $item->id)->where('notes', 'like', '%negative stock allowed%')->count());
+        $this->assertSame(10.0, (float) StockMovement::where('shop_order_item_id', $item->id)->where('notes', 'like', '%negative stock allowed%')->value('quantity'));
 
         // ---------------------------------------------------------------------
         // Part C: Warehouse Isolation
         // ---------------------------------------------------------------------
-        // Other warehouse has 0 KG stock. Loadout scoped to other warehouse must fail.
+        // Other warehouse has 0 KG stock. Deduction in other warehouse documents negative stock scoped to other warehouse.
         $otherShop = Shop::create([
             'name' => 'Secondary Shop',
             'code' => 'SEC-02',
@@ -404,8 +394,7 @@ class StockOutIntegrationTest extends TestCase
             'line_total' => 600.0,
         ]);
 
-        $this->expectException(ValidationException::class);
-        $this->stockLedgerService->consumeStockForProductAllowingNegative(
+        $consumed = $this->stockLedgerService->consumeStockForProductAllowingNegative(
             productId: $this->product->id,
             quantity: 10.0,
             userId: $this->receiver->id,
@@ -415,6 +404,14 @@ class StockOutIntegrationTest extends TestCase
             warehouseId: $this->otherWarehouse->id,
             grade: ProductGrade::GradeA,
         );
+
+        $this->assertSame(10.0, $consumed);
+        $this->assertDatabaseHas('stock_movements', [
+            'product_id' => $this->product->id,
+            'shop_order_item_id' => $otherItem->id,
+            'warehouse_id' => $this->otherWarehouse->id,
+            'quantity' => 10.0,
+        ]);
     }
 
     // -------------------------------------------------------------------------
