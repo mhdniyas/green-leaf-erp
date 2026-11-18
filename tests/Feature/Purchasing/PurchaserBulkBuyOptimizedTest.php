@@ -1360,4 +1360,20 @@ class PurchaserBulkBuyOptimizedTest extends TestCase
             'quantity' => 10,
         ]);
     }
+
+    public function test_bulk_buy_view_renders_mobile_action_bar_with_elevated_z_index_and_global_selection_sync(): void
+    {
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', [
+            'date' => '2026-08-24',
+            'purchase_grade' => 'A',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('id="bulk-buy-bottom-wrapper"', false);
+        $response->assertSee('z-[80]', false);
+        $response->assertSee('window.updateSelectionCount = updateSelectionCount;', false);
+        $response->assertSee("mobileNav.classList.toggle('hidden', hasSelection);", false);
+        $response->assertSee('Next');
+        $response->assertSee('Cancel');
+    }
 }

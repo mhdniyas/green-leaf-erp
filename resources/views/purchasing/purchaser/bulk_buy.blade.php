@@ -161,7 +161,7 @@
             </div>
 
             {{-- Sticky/Fixed bottom bar --}}
-            <div id="bulk-buy-bottom-wrapper" class="hidden lg:block fixed inset-x-3 bottom-[max(env(safe-area-inset-bottom),0.75rem)] z-50 bg-white/95 backdrop-blur-md border border-slate-200 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.12)] rounded-2xl lg:sticky lg:inset-x-auto lg:bottom-4 lg:z-40 lg:mt-6 lg:shadow-[0_8px_30px_rgba(0,0,0,0.08)] transition-all duration-200">
+            <div id="bulk-buy-bottom-wrapper" class="hidden lg:block fixed inset-x-3 bottom-[max(env(safe-area-inset-bottom),0.75rem)] z-[80] bg-white/95 backdrop-blur-md border border-slate-200 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.12)] rounded-2xl lg:sticky lg:inset-x-auto lg:bottom-4 lg:z-40 lg:mt-6 lg:shadow-[0_8px_30px_rgba(0,0,0,0.08)] transition-all duration-200">
                 {{-- Standard Bulk Buy Selection Bar (for Pending & Fulfilled) --}}
                 <div id="bulk-buy-bottom-bar" class="mx-auto flex max-w-full items-center justify-between gap-3 lg:max-w-6xl">
                     <div>
@@ -252,12 +252,51 @@
                     }
                 }
 
+                const mobileNav = document.getElementById('layout-mobile-nav');
+                if (mobileNav) {
+                    mobileNav.classList.toggle('hidden', hasSelection);
+                }
+
                 window.dispatchEvent(new CustomEvent('purchaser:buy-selection-change', {
                     detail: {
                         hasSelection: hasSelection,
                     },
                 }));
             }
+
+            function updateSelectionCount() {
+                const checkedCount = selectedProductIds.size;
+                const selectionCount = document.getElementById('selection-count');
+                const nextBtn = document.getElementById('next-btn');
+
+                if (selectionCount) {
+                    selectionCount.textContent = `${checkedCount} item${checkedCount !== 1 ? 's' : ''} selected`;
+                }
+                if (nextBtn) {
+                    if (inlineEnteredLines > 0) {
+                        nextBtn.disabled = false;
+                    } else {
+                        nextBtn.disabled = checkedCount === 0;
+                    }
+                }
+
+                syncMobileBuyNavigation();
+            }
+            window.updateSelectionCount = updateSelectionCount;
+
+            // Delegated listener for all product checkboxes (pending, fulfilled, SPA swapped)
+            document.addEventListener('change', (e) => {
+                const cb = e.target.closest('.product-checkbox');
+                if (!cb) return;
+                const pId = Number(cb.value);
+                if (cb.checked) {
+                    selectedProductIds.add(pId);
+                } else {
+                    selectedProductIds.delete(pId);
+                }
+                updateSelectionCount();
+                saveCurrentGradeInputs(currentPurchaseGrade);
+            });
 
             function escapeHtml(str) {
                 if (!str) return '';
@@ -597,12 +636,12 @@
                     }
 
                     item.onclick = (e) => {
-                        if (e.target.closest('input') || e.target.closest('a') || e.target.closest('button') || e.target.closest('table')) {
+                        if (e.target.closest('input') || e.target.closest('a') || e.target.closest('button') || e.target.closest('table') || e.target.closest('select') || e.target.closest('label')) {
                             return;
                         }
                         if (cb) {
                             cb.checked = !cb.checked;
-                            cb.dispatchEvent(new Event('change'));
+                            cb.dispatchEvent(new Event('change', { bubbles: true }));
                         }
                     };
                 });
@@ -1057,22 +1096,6 @@
 
                     updateSelectionCount();
                 };
-
-                function updateSelectionCount() {
-                    const checkedCount = selectedProductIds.size;
-                    if (selectionCount) {
-                        selectionCount.textContent = `${checkedCount} item${checkedCount !== 1 ? 's' : ''} selected`;
-                    }
-                    if (nextBtn) {
-                        if (inlineEnteredLines > 0) {
-                            nextBtn.disabled = false;
-                        } else {
-                            nextBtn.disabled = checkedCount === 0;
-                        }
-                    }
-
-                    syncMobileBuyNavigation();
-                }
 
                 window.updateInlineBulkTotals = function() {
                     let totalQty = 0;
