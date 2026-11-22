@@ -12,6 +12,7 @@ use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Services\ShopInvoices\ShopFinalBillService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
@@ -107,8 +108,22 @@ class ShopInvoiceController extends Controller
     {
         abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
 
-        $invoice->load(['shop', 'order.shopCheckedBy', 'order.adminReviewedBy', 'items.product', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy', 'finalizedBy']);
-        $invoice->load(['paymentRequests.requestedBy', 'paymentRequests.reviewedBy']);
+        $invoice->load([
+            'shop',
+            'order.shopCheckedBy',
+            'order.adminReviewedBy',
+            'items.product',
+            'items.orderItem',
+            'paymentApprovedBy',
+            'discountApprovedBy',
+            'priceUpdatedBy',
+            'finalizedBy',
+            'paymentRequests.requestedBy',
+            'paymentRequests.reviewedBy',
+            'creditApplications.creditNote.approvedBy',
+            'creditApplications.appliedByUser',
+            'creditNotes.approvedBy',
+        ]);
         $activities = Activity::query()
             ->with('causer')
             ->where('subject_type', ShopInvoice::class)
@@ -116,6 +131,8 @@ class ShopInvoiceController extends Controller
             ->latest('created_at')
             ->latest('id')
             ->get();
+
+        $finalBill = app(ShopFinalBillService::class)->calculate($invoice);
 
         $isAdmin = (bool) $request->user()?->hasRole('admin');
         $canApprove = $isAdmin || (bool) $request->user()?->hasRole('purchase') || (bool) $request->user()?->can('purchasing.order.approve');
@@ -135,6 +152,7 @@ class ShopInvoiceController extends Controller
         return view('purchasing.shop-invoices.show', compact(
             'invoice',
             'activities',
+            'finalBill',
             'canApprove',
             'canFinalize',
             'canOverride',

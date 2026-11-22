@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Admin\ShopCreditNotes;
 
+use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Enums\ShopInvoice\ShopCreditNoteLineType;
 use App\Http\Controllers\Controller;
 use App\Models\ShopCreditApplication;
@@ -118,10 +119,12 @@ class ShopCreditNoteDetailController extends Controller
             || $user->hasRole('admin')
             || $user->hasRole('super_admin');
 
+        $isDebit = $creditNote->direction === ShopCreditNoteDirection::Debit || $creditNote->direction === 'debit';
+
         $invoicesQuery = ShopInvoice::query()
             ->where('shop_id', $creditNote->shop_id)
             ->where('status', '!=', 'cancelled')
-            ->when(! ($isAdmin && ($includeAll || $searchQuery !== '' || $dateFilter !== '')), function ($q): void {
+            ->when(! ($isDebit || ($isAdmin && ($includeAll || $searchQuery !== '' || $dateFilter !== ''))), function ($q): void {
                 $q->where(function ($sub): void {
                     $sub->where('balance_amount', '>', 0)
                         ->orWhereIn('status', ['finalized', 'payment_pending']);
@@ -133,7 +136,7 @@ class ShopCreditNoteDetailController extends Controller
             ->when($dateFilter !== '', function ($q) use ($dateFilter): void {
                 $q->whereDate('business_date', $dateFilter);
             })
-            ->with(['creditApplications', 'creditNotes'])
+            ->with(['creditApplications.creditNote', 'creditNotes'])
             ->orderBy('business_date', 'desc')
             ->orderBy('id', 'desc')
             ->limit(50);
@@ -146,6 +149,7 @@ class ShopCreditNoteDetailController extends Controller
             $remainingOutstanding = round($finalBill->remainingBalance, 2);
 
             $shouldInclude = ($isAdmin && ($includeAll || $searchQuery !== '' || $dateFilter !== ''))
+                || $isDebit
                 || $remainingOutstanding > 0.0001;
 
             if ($shouldInclude) {
@@ -157,8 +161,10 @@ class ShopCreditNoteDetailController extends Controller
                     'payment_status' => $finalBill->effectivePaymentStatus,
                     'final_total' => (float) $inv->final_total,
                     'paid_amount' => (float) $finalBill->amountPaid,
-                    'prior_credits' => round((float) $finalBill->finalizedCreditTotal + (float) $finalBill->appliedCreditTotal, 2),
+                    'prior_credits' => (float) $finalBill->finalizedCreditTotal,
+                    'prior_debits' => (float) $finalBill->finalizedDebitTotal,
                     'effective_outstanding' => $remainingOutstanding,
+                    'view_url' => route('purchasing.shop-invoices.show', $inv),
                 ];
             }
         }

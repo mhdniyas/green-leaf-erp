@@ -136,17 +136,51 @@ class ShopInvoice extends Model
      */
     public function appliedCreditApplicationsTotal(): float
     {
-        if ($this->relationLoaded('activeCreditApplications')) {
-            return round((float) $this->activeCreditApplications->sum('amount'), 2);
-        }
+        return $this->resolveAppliedApplicationsTotal(ShopCreditNoteDirection::Credit);
+    }
 
-        if ($this->relationLoaded('creditApplications')) {
-            return round((float) $this->creditApplications
-                ->filter(fn ($app): bool => $app->reversed_at === null)
+    /**
+     * Total active debit applied to this invoice from shop-level debit credit notes.
+     */
+    public function appliedDebitApplicationsTotal(): float
+    {
+        return $this->resolveAppliedApplicationsTotal(ShopCreditNoteDirection::Debit);
+    }
+
+    private function resolveAppliedApplicationsTotal(ShopCreditNoteDirection $direction): float
+    {
+        $directionValue = $direction->value;
+
+        if ($this->relationLoaded('activeCreditApplications') || $this->relationLoaded('creditApplications')) {
+            $apps = $this->relationLoaded('activeCreditApplications')
+                ? $this->activeCreditApplications
+                : $this->creditApplications->filter(fn ($app): bool => $app->reversed_at === null);
+
+            $apps->loadMissing('creditNote');
+
+            return round((float) $apps
+                ->filter(function ($app) use ($direction, $directionValue): bool {
+                    $note = $app->creditNote;
+                    if (! $note) {
+                        return $direction === ShopCreditNoteDirection::Credit;
+                    }
+
+                    return $note->direction === $direction || $note->direction === $directionValue;
+                })
                 ->sum('amount'), 2);
         }
 
-        return round((float) $this->activeCreditApplications()->sum('amount'), 2);
+        return round((float) $this->activeCreditApplications()
+            ->whereHas('creditNote', function ($q) use ($direction, $directionValue): void {
+                if ($direction === ShopCreditNoteDirection::Credit) {
+                    $q->where(function ($sub) use ($directionValue): void {
+                        $sub->whereNull('direction')->orWhere('direction', $directionValue);
+                    });
+                } else {
+                    $q->where('direction', $directionValue);
+                }
+            })
+            ->sum('amount'), 2);
     }
 
     /**
@@ -184,8 +218,9 @@ class ShopInvoice extends Model
      */
     public function approvedDebitTotal(): float
     {
+        $legacyDebit = 0.0;
         if ($this->relationLoaded('creditNotes')) {
-            return round((float) $this->creditNotes
+            $legacyDebit = round((float) $this->creditNotes
                 ->filter(fn ($cn): bool => ($cn->status === ShopCreditNoteStatus::Approved || $cn->status === 'approved')
                     && ($cn->direction === ShopCreditNoteDirection::Debit || $cn->direction === 'debit')
                     && ($cn->accounting_mode === null
@@ -193,16 +228,18 @@ class ShopInvoice extends Model
                         || $cn->accounting_mode === ShopCreditNoteAccountingMode::LegacyInvoiceLinked->value
                         || $cn->accounting_mode === 'legacy_invoice_linked'))
                 ->sum('total_credit_amount'), 2);
+        } else {
+            $legacyDebit = round((float) $this->creditNotes()
+                ->where('status', ShopCreditNoteStatus::Approved->value)
+                ->where('direction', ShopCreditNoteDirection::Debit->value)
+                ->where(function ($q): void {
+                    $q->whereNull('accounting_mode')
+                        ->orWhere('accounting_mode', ShopCreditNoteAccountingMode::LegacyInvoiceLinked->value);
+                })
+                ->sum('total_credit_amount'), 2);
         }
 
-        return round((float) $this->creditNotes()
-            ->where('status', ShopCreditNoteStatus::Approved->value)
-            ->where('direction', ShopCreditNoteDirection::Debit->value)
-            ->where(function ($q): void {
-                $q->whereNull('accounting_mode')
-                    ->orWhere('accounting_mode', ShopCreditNoteAccountingMode::LegacyInvoiceLinked->value);
-            })
-            ->sum('total_credit_amount'), 2);
+        return round($legacyDebit + $this->appliedDebitApplicationsTotal(), 2);
     }
 
     /**

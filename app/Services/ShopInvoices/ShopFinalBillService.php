@@ -34,14 +34,24 @@ class ShopFinalBillService
             ShopCreditNoteDirection::Credit
         );
 
-        $appliedCreditTotal = $this->resolveAppliedCreditTotal($invoice);
+        $appliedCreditTotal = $this->resolveAppliedAdjustmentTotal(
+            $invoice,
+            ShopCreditNoteDirection::Credit
+        );
 
         $finalizedCreditTotal = round($legacyCreditTotal + $appliedCreditTotal, 2);
 
-        $finalizedDebitTotal = $this->resolveAdjustmentTotal(
+        $legacyDebitTotal = $this->resolveAdjustmentTotal(
             $invoice,
             ShopCreditNoteDirection::Debit
         );
+
+        $appliedDebitTotal = $this->resolveAppliedAdjustmentTotal(
+            $invoice,
+            ShopCreditNoteDirection::Debit
+        );
+
+        $finalizedDebitTotal = round($legacyDebitTotal + $appliedDebitTotal, 2);
 
         $netAdjustment = round($finalizedDebitTotal - $finalizedCreditTotal, 2);
         $finalNetPayable = round(max(0.00, $originalTotal - $finalizedCreditTotal + $finalizedDebitTotal), 2);
@@ -72,6 +82,7 @@ class ShopFinalBillService
             effectivePaymentStatus: $effectivePaymentStatus,
             hasAdjustments: $hasAdjustments,
             appliedCreditTotal: $appliedCreditTotal,
+            appliedDebitTotal: $appliedDebitTotal,
         );
     }
 
@@ -84,6 +95,8 @@ class ShopFinalBillService
     public function calculateMany(iterable $invoices): Collection
     {
         $collection = $invoices instanceof Collection ? $invoices : collect($invoices);
+
+        $collection->loadMissing(['creditNotes', 'activeCreditApplications.creditNote']);
 
         return $collection->mapWithKeys(function (ShopInvoice $invoice): array {
             return [(int) $invoice->id => $this->calculate($invoice)];
@@ -117,20 +130,41 @@ class ShopFinalBillService
     }
 
     /**
-     * Resolve total active credit applied from shop-level credit notes.
+     * Resolve total active adjustment applied from shop-level credit/debit notes.
      */
-    private function resolveAppliedCreditTotal(ShopInvoice $invoice): float
+    private function resolveAppliedAdjustmentTotal(ShopInvoice $invoice, ShopCreditNoteDirection $direction): float
     {
-        if ($invoice->relationLoaded('activeCreditApplications')) {
-            return round((float) $invoice->activeCreditApplications->sum('amount'), 2);
-        }
+        $directionValue = $direction->value;
 
-        if ($invoice->relationLoaded('creditApplications')) {
-            return round((float) $invoice->creditApplications
-                ->filter(fn ($app): bool => $app->reversed_at === null)
+        if ($invoice->relationLoaded('activeCreditApplications') || $invoice->relationLoaded('creditApplications')) {
+            $apps = $invoice->relationLoaded('activeCreditApplications')
+                ? $invoice->activeCreditApplications
+                : $invoice->creditApplications->filter(fn ($app): bool => $app->reversed_at === null);
+
+            $apps->loadMissing('creditNote');
+
+            return round((float) $apps
+                ->filter(function ($app) use ($direction, $directionValue): bool {
+                    $note = $app->creditNote;
+                    if (! $note) {
+                        return $direction === ShopCreditNoteDirection::Credit;
+                    }
+
+                    return $note->direction === $direction || $note->direction === $directionValue;
+                })
                 ->sum('amount'), 2);
         }
 
-        return round((float) $invoice->activeCreditApplications()->sum('amount'), 2);
+        return round((float) $invoice->activeCreditApplications()
+            ->whereHas('creditNote', function ($q) use ($direction, $directionValue): void {
+                if ($direction === ShopCreditNoteDirection::Credit) {
+                    $q->where(function ($sub) use ($directionValue): void {
+                        $sub->whereNull('direction')->orWhere('direction', $directionValue);
+                    });
+                } else {
+                    $q->where('direction', $directionValue);
+                }
+            })
+            ->sum('amount'), 2);
     }
 }

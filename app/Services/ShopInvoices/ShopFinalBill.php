@@ -25,6 +25,7 @@ final class ShopFinalBill implements Arrayable, JsonSerializable
         public readonly string $effectivePaymentStatus,
         public readonly bool $hasAdjustments,
         public readonly float $appliedCreditTotal = 0.0,
+        public readonly float $appliedDebitTotal = 0.0,
     ) {}
 
     public function isFullyPaid(): bool
@@ -83,6 +84,7 @@ final class ShopFinalBill implements Arrayable, JsonSerializable
             'effective_payment_status' => $this->effectivePaymentStatus,
             'has_adjustments' => $this->hasAdjustments,
             'applied_credit_total' => $this->appliedCreditTotal,
+            'applied_debit_total' => $this->appliedDebitTotal,
             'is_fully_paid' => $this->isFullyPaid(),
             'is_partially_paid' => $this->isPartiallyPaid(),
             'is_unpaid' => $this->isUnpaid(),

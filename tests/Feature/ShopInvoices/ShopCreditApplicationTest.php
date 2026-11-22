@@ -748,4 +748,51 @@ class ShopCreditApplicationTest extends TestCase
         $verifyStmt = $pdo1->query('SELECT SUM(amount) FROM shop_credit_applications WHERE shop_credit_note_id = 771 AND reversed_at IS NULL');
         $this->assertEquals(700.00, (float) $verifyStmt->fetchColumn());
     }
+
+    public function test_22_shop_level_debit_note_increases_invoice_payable_and_balance(): void
+    {
+        $shop = Shop::factory()->create();
+        $invoice = ShopInvoice::factory()->create([
+            'shop_id' => $shop->id,
+            'final_total' => 5400.00,
+            'paid_amount' => 0.00,
+            'balance_amount' => 5400.00,
+            'status' => 'payment_pending',
+        ]);
+
+        $debitNote = ShopCreditNote::factory()->create([
+            'shop_id' => $shop->id,
+            'shop_invoice_id' => null,
+            'accounting_mode' => 'shop_level',
+            'direction' => 'debit',
+            'status' => 'approved',
+            'total_credit_amount' => 572.00,
+        ]);
+
+        $this->actingAs($this->admin);
+
+        $app = $this->applicationService->applyCredit(
+            creditNote: $debitNote,
+            invoice: $invoice,
+            amount: 572.00,
+            actor: $this->admin,
+            notes: 'Forgotten loadout items adjustment (Debit)',
+        );
+
+        $this->assertNotNull($app->id);
+
+        $freshInvoice = $invoice->fresh(['activeCreditApplications.creditNote', 'creditNotes']);
+        $finalBill = app(ShopFinalBillService::class)->calculate($freshInvoice);
+
+        $this->assertEquals(0.00, $finalBill->finalizedCreditTotal);
+        $this->assertEquals(572.00, $finalBill->finalizedDebitTotal);
+        $this->assertEquals(572.00, $finalBill->netAdjustment);
+        $this->assertEquals(5972.00, $finalBill->finalNetPayable);
+        $this->assertEquals(5972.00, $finalBill->remainingBalance);
+
+        $this->assertEquals(0.00, $freshInvoice->approvedCreditTotal());
+        $this->assertEquals(572.00, $freshInvoice->approvedDebitTotal());
+        $this->assertEquals(5972.00, $freshInvoice->effectiveFinalTotal());
+        $this->assertEquals(5972.00, $freshInvoice->effectiveBalanceAmount());
+    }
 }

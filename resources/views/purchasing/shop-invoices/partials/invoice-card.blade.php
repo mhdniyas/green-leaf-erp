@@ -206,12 +206,46 @@
                     </span>
                     <span>{{ $money($discountTotal) }}</span>
                 </div>
+                @php
+                    $bill = $finalBill ?? $invoice->finalBill();
+                @endphp
+
+                @if ($bill->hasAdjustments)
+                    <div class="flex items-center justify-between text-xs font-semibold text-slate-500 pt-1 border-t border-slate-100">
+                        <span>Original Invoice Total</span>
+                        <span>{{ $money($bill->originalInvoiceTotal) }}</span>
+                    </div>
+                    @if ($bill->finalizedCreditTotal > 0)
+                        <div class="flex items-center justify-between text-xs font-bold text-emerald-700">
+                            <span>Credit Adjustments</span>
+                            <span>- {{ $money($bill->finalizedCreditTotal) }}</span>
+                        </div>
+                    @endif
+                    @if ($bill->finalizedDebitTotal > 0)
+                        <div class="flex items-center justify-between text-xs font-bold text-amber-700">
+                            <span>Debit Adjustments</span>
+                            <span>+ {{ $money($bill->finalizedDebitTotal) }}</span>
+                        </div>
+                    @endif
+                @endif
+
                 <div class="border-t border-slate-200 pt-3 print:border-slate-300">
                     <div class="flex items-center justify-between text-lg font-black text-slate-950">
-                        <span>Final Total</span>
-                        <span>{{ $money($finalTotal) }}</span>
+                        <span>{{ $bill->hasAdjustments ? 'Final Net Bill' : 'Final Total' }}</span>
+                        <span class="{{ $bill->hasAdjustments ? 'text-indigo-900' : '' }}">{{ $money($bill->hasAdjustments ? $bill->finalNetPayable : $finalTotal) }}</span>
                     </div>
                 </div>
+
+                @if ($isFinalized || $bill->amountPaid > 0)
+                    <div class="flex items-center justify-between text-xs font-bold text-emerald-700">
+                        <span>Paid Amount</span>
+                        <span>{{ $money($bill->amountPaid) }}</span>
+                    </div>
+                    <div class="flex items-center justify-between text-sm font-black {{ $bill->remainingBalance > 0 ? 'text-rose-700' : 'text-emerald-700' }}">
+                        <span>Balance Due</span>
+                        <span>{{ $money($bill->remainingBalance) }}</span>
+                    </div>
+                @endif
             </div>
         </div>
     </div>

@@ -1304,7 +1304,7 @@
             },
 
             get canSave() {
-                return this.shopId && (this.lines.length > 0 || this.discounts.length > 0) && this.grandTotal > 0 && !this.isSubmitting;
+                return this.shopId && (this.lines.length > 0 || this.discounts.length > 0) && this.grandTotal !== 0 && !this.isSubmitting;
             },
 
             buildPayload() {

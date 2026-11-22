@@ -226,8 +226,21 @@
                         @foreach ($productItems as $item)
                             <tr class="hover:bg-slate-50/60 transition">
                                 <td class="py-2.5 px-3 whitespace-nowrap">
-                                    <span class="font-mono font-bold text-slate-900 block">{{ $item->sourceInvoice?->invoice_number ?? "INV-{$item->source_shop_invoice_id}" }}</span>
-                                    <span class="text-[10px] text-slate-400 font-mono">{{ optional($item->sourceInvoice?->business_date)->format('d M Y') }}</span>
+                                    @php
+                                        $sourceInv = $item->sourceInvoice ?? $item->invoiceItem?->invoice;
+                                    @endphp
+                                    @if ($sourceInv)
+                                        <a href="{{ route('purchasing.shop-invoices.show', $sourceInv) }}"
+                                            class="font-mono font-bold text-indigo-600 hover:text-indigo-900 hover:underline inline-flex items-center gap-1 group">
+                                            <span>{{ $sourceInv->invoice_number }}</span>
+                                            <i data-lucide="external-link" class="w-3 h-3 text-indigo-400 group-hover:text-indigo-600 transition"></i>
+                                        </a>
+                                        <span class="text-[10px] text-slate-400 font-mono block">{{ optional($sourceInv->business_date)->format('d M Y') }}</span>
+                                    @elseif ($item->source_shop_invoice_id)
+                                        <span class="font-mono font-bold text-slate-900 block">{{ "INV-{$item->source_shop_invoice_id}" }}</span>
+                                    @else
+                                        <span class="text-slate-400 italic text-[11px]">Catalog Direct</span>
+                                    @endif
                                 </td>
                                 <td class="py-2.5 px-3">
                                     <span class="font-bold text-slate-900 block">{{ $item->product?->name ?? $item->product_name }}</span>
@@ -283,7 +296,10 @@
                         <div>
                             <span class="font-bold text-slate-800">{{ $disc->notes ?: 'Commercial Discount' }}</span>
                             @if ($disc->sourceInvoice)
-                                <span class="text-slate-400 block text-[10px]">Ref Invoice: {{ $disc->sourceInvoice->invoice_number }}</span>
+                                <a href="{{ route('purchasing.shop-invoices.show', $disc->sourceInvoice) }}"
+                                    class="text-indigo-600 hover:text-indigo-900 hover:underline block text-[10px] font-mono">
+                                    Ref Invoice: {{ $disc->sourceInvoice->invoice_number }} &nearr;
+                                </a>
                             @endif
                         </div>
                         <span class="font-mono font-bold text-emerald-700">-₹{{ number_format((float) $disc->line_credit_amount, 2) }}</span>
@@ -337,8 +353,16 @@
                         @foreach ($creditNote->applications as $app)
                             <tr class="hover:bg-slate-50/60 transition {{ $app->isReversed() ? 'opacity-60 bg-slate-50/40' : '' }}">
                                 <td class="py-2.5 px-3 whitespace-nowrap">
-                                    <span class="font-mono font-bold text-slate-900 block">{{ $app->invoice?->invoice_number ?? "INV-{$app->shop_invoice_id}" }}</span>
-                                    <span class="text-[10px] text-slate-400 font-mono">{{ optional($app->invoice?->business_date)->format('d M Y') }}</span>
+                                    @if ($app->invoice)
+                                        <a href="{{ route('purchasing.shop-invoices.show', $app->invoice) }}"
+                                            class="font-mono font-bold text-indigo-600 hover:text-indigo-900 hover:underline inline-flex items-center gap-1 group">
+                                            <span>{{ $app->invoice->invoice_number }}</span>
+                                            <i data-lucide="external-link" class="w-3 h-3 text-indigo-400 group-hover:text-indigo-600 transition"></i>
+                                        </a>
+                                        <span class="text-[10px] text-slate-400 font-mono block">{{ optional($app->invoice->business_date)->format('d M Y') }}</span>
+                                    @else
+                                        <span class="font-mono font-bold text-slate-900 block">{{ "INV-{$app->shop_invoice_id}" }}</span>
+                                    @endif
                                 </td>
                                 <td class="py-2.5 px-3 text-right font-mono font-bold text-indigo-700">
                                     ₹{{ number_format((float) $app->amount, 2) }}
@@ -511,7 +535,16 @@
                             <div class="p-3 bg-white hover:bg-slate-50/70 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                                 <div>
                                     <div class="flex items-center gap-2 flex-wrap">
-                                        <span class="font-mono font-bold text-slate-900" x-text="inv.invoice_number"></span>
+                                        <template x-if="inv.view_url">
+                                            <a :href="inv.view_url" target="_blank"
+                                                class="font-mono font-bold text-indigo-600 hover:text-indigo-900 hover:underline inline-flex items-center gap-1 group">
+                                                <span x-text="inv.invoice_number"></span>
+                                                <i data-lucide="external-link" class="w-3 h-3 text-indigo-400 group-hover:text-indigo-600 transition"></i>
+                                            </a>
+                                        </template>
+                                        <template x-if="!inv.view_url">
+                                            <span class="font-mono font-bold text-slate-900" x-text="inv.invoice_number"></span>
+                                        </template>
                                         <span class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
                                             <i data-lucide="calendar" class="w-3 h-3"></i>
                                             <span x-text="inv.invoice_date || 'N/A'"></span>

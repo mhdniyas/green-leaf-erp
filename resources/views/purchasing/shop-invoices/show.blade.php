@@ -117,6 +117,7 @@
         <div class="space-y-4">
             @include('purchasing.shop-invoices.partials.invoice-card', [
                 'invoice' => $invoice,
+                'finalBill' => $finalBill ?? $invoice->finalBill(),
                 'isFinalized' => $isFinalized,
                 'canEditBill' => $canEditBill,
                 'canEditDiscount' => $canEditDiscount,
@@ -162,6 +163,11 @@
                 </div>
             </div>
         </div>
+
+        @include('purchasing.shop-invoices.partials.applied-credit-notes', [
+            'invoice' => $invoice,
+            'finalBill' => $finalBill ?? $invoice->finalBill(),
+        ])
 
         @include('purchasing.shop-invoices.partials.credit-note', ['invoice' => $invoice])
 

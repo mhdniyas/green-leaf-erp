@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\ShopInvoices;
 
+use App\Enums\ShopInvoice\ShopCreditNoteDirection;
 use App\Models\ShopAccountingPeriodClosure;
 use App\Models\ShopCreditApplication;
 use App\Models\ShopCreditNote;
@@ -274,9 +275,13 @@ class ShopCreditApplicationService
             $finalBill = $this->getFinalBillService()->calculate($lockedInvoice);
             $targetOutstanding = round($finalBill->remainingBalance, 2);
 
+            $isDebitNote = ($lockedCreditNote->direction === ShopCreditNoteDirection::Debit
+                || $lockedCreditNote->direction === 'debit'
+                || $lockedCreditNote->direction?->value === 'debit');
+
             $canBypassSettled = $allowSettledInvoice && $this->isMainOrAdmin($actorUser);
 
-            if (! $canBypassSettled) {
+            if (! $canBypassSettled && ! $isDebitNote) {
                 if ($targetOutstanding <= 0.0001) {
                     throw ValidationException::withMessages([
                         'shop_invoice_id' => 'Target invoice is already fully settled.',
@@ -481,6 +486,10 @@ class ShopCreditApplicationService
             $createdApplications = collect();
             $runningAvailableCredit = $availableCredit;
 
+            $isDebitNote = ($lockedCreditNote->direction === ShopCreditNoteDirection::Debit
+                || $lockedCreditNote->direction === 'debit'
+                || $lockedCreditNote->direction?->value === 'debit');
+
             foreach ($allocations as $index => $alloc) {
                 $invId = $alloc['invoice_id'] instanceof ShopInvoice ? $alloc['invoice_id']->id : (int) $alloc['invoice_id'];
                 $amt = round((float) $alloc['amount'], 2);
@@ -492,7 +501,7 @@ class ShopCreditApplicationService
                 $finalBill = $this->getFinalBillService()->calculate($inv);
                 $invoiceOutstanding = round($finalBill->remainingBalance, 2);
 
-                if (! $canBypassSettled && $amt > ($invoiceOutstanding + 0.0001)) {
+                if (! $canBypassSettled && ! $isDebitNote && $amt > ($invoiceOutstanding + 0.0001)) {
                     throw ValidationException::withMessages([
                         "allocations.{$index}.amount" => "Allocation amount (₹{$amt}) exceeds invoice #{$invId} outstanding balance (₹{$invoiceOutstanding}).",
                     ]);
