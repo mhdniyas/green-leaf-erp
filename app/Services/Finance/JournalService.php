@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Services\Finance;
 
 use App\DTOs\Finance\JournalEntryData;
+use App\Enums\Purchasing\PurchaseCreditInventoryAction;
+use App\Enums\Purchasing\PurchaseCreditMoneyEffect;
 use App\Models\Account;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
@@ -16,6 +18,7 @@ use App\Models\DirectCompanySale;
 use App\Models\GoodsReceived;
 use App\Models\JournalEntry;
 use App\Models\Payment;
+use App\Models\PurchaseCreditNote;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaserCredit;
 use App\Models\SalesInvoice;
@@ -1129,6 +1132,156 @@ class JournalService
             sourceId: $settlement->id,
             sourceEvent: 'vendor-settlement:'.$settlement->id,
         ), $userId);
+    }
+
+    /**
+     * Record balanced double-entry journal entry for a Purchase Credit Note.
+     *
+     * @throws RuntimeException
+     */
+    public function recordPurchaseCreditNote(
+        PurchaseCreditNote $creditNote,
+        float $inventoryCostTotal,
+        User $actor,
+    ): JournalEntry {
+        $creditNote->loadMissing('supplier');
+
+        $totalAmount = round((float) $creditNote->total_amount, 2);
+        if ($totalAmount <= 0.0) {
+            throw new RuntimeException('Purchase credit note total amount must be positive.');
+        }
+
+        $appliedToInvoice = round((float) ($creditNote->applied_to_invoice_amount ?? 0.0), 2);
+        $excessAdvance = round(max(0.0, $totalAmount - $appliedToInvoice), 2);
+        $invCost = round(max(0.0, $inventoryCostTotal), 2);
+
+        $lines = [];
+
+        // 1. Money / Payable side
+        if ($creditNote->money_effect === PurchaseCreditMoneyEffect::VendorCredit) {
+            if ($appliedToInvoice > 0.0) {
+                $lines[] = ['account_id' => $this->getAccountIdByCode('2100'), 'type' => 'debit', 'amount' => $appliedToInvoice];
+            }
+            if ($excessAdvance > 0.0) {
+                $lines[] = ['account_id' => $this->getAccountIdByCode('1400'), 'type' => 'debit', 'amount' => $excessAdvance];
+            }
+        } elseif ($creditNote->money_effect === PurchaseCreditMoneyEffect::MoneyIn) {
+            $cashAccount = $this->cashAccountIdForPaymentMode($creditNote->payment_method ?? 'cash');
+            $lines[] = ['account_id' => $cashAccount, 'type' => 'debit', 'amount' => $totalAmount];
+        } elseif ($creditNote->money_effect === PurchaseCreditMoneyEffect::MoneyOut) {
+            $cashAccount = $this->cashAccountIdForPaymentMode($creditNote->payment_method ?? 'cash');
+            $lines[] = ['account_id' => $cashAccount, 'type' => 'credit', 'amount' => $totalAmount];
+        }
+
+        // 2. Inventory / Counterpart side
+        if ($creditNote->money_effect === PurchaseCreditMoneyEffect::MoneyOut) {
+            if ($creditNote->inventory_action === PurchaseCreditInventoryAction::In) {
+                $lines[] = ['account_id' => $this->getAccountIdByCode('1200'), 'type' => 'debit', 'amount' => $totalAmount];
+            } else {
+                $lines[] = ['account_id' => $this->getAccountIdByCode('4200'), 'type' => 'debit', 'amount' => $totalAmount];
+            }
+        } else {
+            if ($creditNote->inventory_action === PurchaseCreditInventoryAction::Out) {
+                if ($invCost > 0.0) {
+                    $creditInventory = min($invCost, $totalAmount);
+                    $lines[] = ['account_id' => $this->getAccountIdByCode('1200'), 'type' => 'credit', 'amount' => $creditInventory];
+                }
+                if ($totalAmount > $invCost) {
+                    $lines[] = ['account_id' => $this->getAccountIdByCode('4200'), 'type' => 'credit', 'amount' => round($totalAmount - $invCost, 2)];
+                } elseif ($invCost > $totalAmount) {
+                    $lines[] = ['account_id' => $this->getAccountIdByCode('4200'), 'type' => 'debit', 'amount' => round($invCost - $totalAmount, 2)];
+                    foreach ($lines as &$l) {
+                        if ($l['account_id'] === $this->getAccountIdByCode('1200') && $l['type'] === 'credit') {
+                            $l['amount'] = $invCost;
+                        }
+                    }
+                    unset($l);
+                }
+            } elseif ($creditNote->inventory_action === PurchaseCreditInventoryAction::Damage) {
+                if ($creditNote->deduct_stock_for_damage) {
+                    if ($invCost > 0.0) {
+                        $creditInventory = min($invCost, $totalAmount);
+                        $lines[] = ['account_id' => $this->getAccountIdByCode('1200'), 'type' => 'credit', 'amount' => $creditInventory];
+                    }
+                    if ($totalAmount > $invCost) {
+                        $lines[] = ['account_id' => $this->getAccountIdByCode('4200'), 'type' => 'credit', 'amount' => round($totalAmount - $invCost, 2)];
+                    } elseif ($invCost > $totalAmount) {
+                        $lines[] = ['account_id' => $this->getAccountIdByCode('4200'), 'type' => 'debit', 'amount' => round($invCost - $totalAmount, 2)];
+                        foreach ($lines as &$l) {
+                            if ($l['account_id'] === $this->getAccountIdByCode('1200') && $l['type'] === 'credit') {
+                                $l['amount'] = $invCost;
+                            }
+                        }
+                        unset($l);
+                    }
+                } else {
+                    $lines[] = ['account_id' => $this->getAccountIdByCode('5200'), 'type' => 'credit', 'amount' => $totalAmount];
+                }
+            } elseif ($creditNote->inventory_action === PurchaseCreditInventoryAction::None) {
+                $lines[] = ['account_id' => $this->getAccountIdByCode('4200'), 'type' => 'credit', 'amount' => $totalAmount];
+            } elseif ($creditNote->inventory_action === PurchaseCreditInventoryAction::In) {
+                $lines[] = ['account_id' => $this->getAccountIdByCode('1200'), 'type' => 'debit', 'amount' => $totalAmount];
+                $lines[] = ['account_id' => $this->getAccountIdByCode('2100'), 'type' => 'credit', 'amount' => $totalAmount];
+            }
+        }
+
+        // Clean lines (must have positive amount)
+        $lines = array_values(array_filter($lines, fn ($l) => isset($l['amount']) && round((float) $l['amount'], 2) > 0.009));
+
+        // Precision / balancing adjustment check
+        $debitCents = 0;
+        $creditCents = 0;
+        foreach ($lines as $line) {
+            $cents = (int) round($line['amount'] * 100);
+            if ($line['type'] === 'debit') {
+                $debitCents += $cents;
+            } else {
+                $creditCents += $cents;
+            }
+        }
+
+        if ($debitCents !== $creditCents) {
+            $diffCents = $debitCents - $creditCents;
+            $adjAccount = $this->getAccountIdByCode('4200');
+            $adjusted = false;
+            foreach ($lines as &$line) {
+                if ($line['account_id'] === $adjAccount) {
+                    if ($diffCents > 0 && $line['type'] === 'credit') {
+                        $line['amount'] = round($line['amount'] + ($diffCents / 100), 2);
+                        $adjusted = true;
+                        break;
+                    } elseif ($diffCents < 0 && $line['type'] === 'debit') {
+                        $line['amount'] = round($line['amount'] + (abs($diffCents) / 100), 2);
+                        $adjusted = true;
+                        break;
+                    }
+                }
+            }
+            unset($line);
+
+            if (! $adjusted) {
+                if ($diffCents > 0) {
+                    $lines[] = ['account_id' => $adjAccount, 'type' => 'credit', 'amount' => round($diffCents / 100, 2)];
+                } else {
+                    $lines[] = ['account_id' => $adjAccount, 'type' => 'debit', 'amount' => round(abs($diffCents) / 100, 2)];
+                }
+            }
+        }
+
+        $entryDate = $creditNote->credit_date?->format('Y-m-d') ?? now()->toDateString();
+        $supplierName = $creditNote->supplier?->name ?? 'Supplier';
+
+        $data = new JournalEntryData(
+            entryDate: $entryDate,
+            reference: $creditNote->credit_note_number,
+            description: "Purchase Credit Note #{$creditNote->credit_note_number} for {$supplierName}",
+            lines: $lines,
+            sourceType: PurchaseCreditNote::class,
+            sourceId: $creditNote->id,
+            sourceEvent: 'purchase_credit_note',
+        );
+
+        return $this->createEntry($data, $actor->id);
     }
 
     /**

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\Purchasing\InvoiceStatus;
+use App\Enums\Purchasing\PurchaseCreditStatus;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use Database\Factories\PurchaseInvoiceFactory;
@@ -252,6 +253,11 @@ class PurchaseInvoice extends Model
         return $this->hasMany(PurchaseInvoicePayment::class);
     }
 
+    public function purchaseCreditNotes(): HasMany
+    {
+        return $this->hasMany(PurchaseCreditNote::class);
+    }
+
     public function vendorSettlementAllocations(): HasMany
     {
         return $this->hasMany(VendorSettlementAllocation::class);
@@ -296,7 +302,11 @@ class PurchaseInvoice extends Model
         $settlementAdvance = $this->settlementAdvanceTotal();
         $totalPaidOrCovered = round($cashPaid + $settlementAdvance, 2);
 
-        return max(0, round($netPayable - $totalPaidOrCovered, 2));
+        $creditNotesApplied = $this->relationLoaded('purchaseCreditNotes')
+            ? round((float) $this->purchaseCreditNotes->where('status', PurchaseCreditStatus::Active)->sum('applied_to_invoice_amount'), 2)
+            : round((float) $this->purchaseCreditNotes()->where('status', PurchaseCreditStatus::Active->value)->sum('applied_to_invoice_amount'), 2);
+
+        return max(0, round($netPayable - $totalPaidOrCovered - $creditNotesApplied, 2));
     }
 
     public function settlementTotal(): float
@@ -310,7 +320,11 @@ class PurchaseInvoice extends Model
 
     public function settlementOutstanding(): float
     {
-        return round(max(0, ((float) $this->amount - (float) $this->discount_amount) - $this->settlementTotal()), 2);
+        $creditNotesApplied = $this->relationLoaded('purchaseCreditNotes')
+            ? round((float) $this->purchaseCreditNotes->where('status', PurchaseCreditStatus::Active)->sum('applied_to_invoice_amount'), 2)
+            : round((float) $this->purchaseCreditNotes()->where('status', PurchaseCreditStatus::Active->value)->sum('applied_to_invoice_amount'), 2);
+
+        return round(max(0, ((float) $this->amount - (float) $this->discount_amount) - $this->settlementTotal() - $creditNotesApplied), 2);
     }
 
     public function purchaserSubmittedBy(): BelongsTo

@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Purchasing;
 
+use App\Enums\Purchasing\PurchaseCreditMoneyEffect;
+use App\Enums\Purchasing\PurchaseCreditStatus;
+use App\Models\PurchaseCreditNote;
 use App\Models\User;
 use App\Services\Finance\PurchaserFinanceService;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -177,9 +181,33 @@ final class PurchaseReportingService
         $filters['vendor_id'] = $vendorId;
         $items = $this->filteredItems($filters);
 
+        $creditNotesQuery = PurchaseCreditNote::query()
+            ->with(['items.product', 'purchaseInvoice', 'companyAccount', 'warehouse', 'createdBy'])
+            ->where('supplier_id', $vendorId)
+            ->when(! empty($filters['start_date']) && ! empty($filters['end_date']), function (EloquentBuilder $q) use ($filters): void {
+                $q->forPeriod($filters['start_date'], $filters['end_date']);
+            })
+            ->orderByDesc('credit_date')
+            ->orderByDesc('id');
+
+        $creditNotesList = (clone $creditNotesQuery)->paginate(15, ['*'], 'credits_page')->withQueryString();
+
+        $activeCredits = (clone $creditNotesQuery)->active()->get();
+        $creditKpis = [
+            'credit_notes_count' => $activeCredits->count(),
+            'credit_notes_total' => round((float) $activeCredits->sum('total_amount'), 2),
+            'credit_notes_money_in' => round((float) $activeCredits->where('money_effect', PurchaseCreditMoneyEffect::MoneyIn)->sum('total_amount'), 2),
+            'credit_notes_money_out' => round((float) $activeCredits->where('money_effect', PurchaseCreditMoneyEffect::MoneyOut)->sum('total_amount'), 2),
+            'credit_notes_vendor_credit' => round((float) $activeCredits->where('money_effect', PurchaseCreditMoneyEffect::VendorCredit)->sum('total_amount'), 2),
+            'credit_notes_applied' => round((float) $activeCredits->sum('applied_to_invoice_amount'), 2),
+            'credit_notes_advance' => round(max(0.0, (float) $activeCredits->sum('total_amount') - (float) $activeCredits->sum('applied_to_invoice_amount')), 2),
+        ];
+
         return [
             'summary' => $this->summary($items),
             'invoices' => $this->invoiceRows($items)->orderByDesc('business_date')->paginate(15, ['*'], 'invoices_page')->withQueryString(),
+            'purchaseCredits' => $creditNotesList,
+            'creditKpis' => $creditKpis,
             'purchasers' => $this->purchaserRows($items, $filters)->orderByDesc('total_purchase')->limit(20)->get(),
             'categories' => $this->categoryRows($items)->orderByDesc('total_purchase')->limit(20)->get(),
             'payments' => DB::table('vendor_settlements')->where('supplier_id', $vendorId)
@@ -256,10 +284,18 @@ final class PurchaseReportingService
             ->selectRaw('purchase_invoice_id, SUM(total_settled) as settled_amount, SUM(discount_allocated) as discount_settled')
             ->groupBy('purchase_invoice_id');
 
+        $creditNotesQuery = DB::table('purchase_credit_notes')
+            ->whereNull('deleted_at')
+            ->where('status', PurchaseCreditStatus::Active->value)
+            ->whereNotNull('purchase_invoice_id')
+            ->selectRaw('purchase_invoice_id, SUM(applied_to_invoice_amount) as credited_amount')
+            ->groupBy('purchase_invoice_id');
+
         $grossExpression = 'CASE WHEN purchaser_cart_items.line_total > 0 THEN purchaser_cart_items.line_total ELSE purchaser_cart_items.quantity * purchaser_cart_items.unit_price END';
         $invoiceNetExpression = 'CASE WHEN purchase_invoices.amount - purchase_invoices.discount_amount > 0 THEN purchase_invoices.amount - purchase_invoices.discount_amount ELSE 0 END';
         $netExpression = "({$grossExpression} * CASE WHEN COALESCE(cart_totals.gross_total, 0) > 0 THEN (1.0 * ({$invoiceNetExpression})) / cart_totals.gross_total ELSE 1.0 END)";
-        $paidExpression = "CASE WHEN COALESCE(settlement_totals.settled_amount, purchase_invoices.paid_amount, 0) > {$invoiceNetExpression} THEN {$invoiceNetExpression} ELSE COALESCE(settlement_totals.settled_amount, purchase_invoices.paid_amount, 0) END";
+        $settledOrCredited = '(COALESCE(settlement_totals.settled_amount, purchase_invoices.paid_amount, 0) + COALESCE(credit_note_totals.credited_amount, 0))';
+        $paidExpression = "CASE WHEN {$settledOrCredited} > {$invoiceNetExpression} THEN {$invoiceNetExpression} ELSE {$settledOrCredited} END";
         $paymentClass = "CASE WHEN LOWER(COALESCE(purchase_invoices.payment_method, purchaser_carts.payment_method, '')) = 'credit' OR purchase_invoices.payment_paid_by IN ('vendor_credit', 'company') OR purchase_invoices.payment_status IN ('credit_pending_approval', 'unpaid', 'partial') THEN 'credit' ELSE 'cash' END";
 
         $directDiscountExpr = "CASE WHEN COALESCE(purchase_invoices.discount_amount, 0) > 0 THEN ({$grossExpression} * CASE WHEN COALESCE(cart_totals.gross_total, 0) > 0 THEN (1.0 * purchase_invoices.discount_amount) / cart_totals.gross_total ELSE 0 END) ELSE 0 END";
@@ -276,6 +312,7 @@ final class PurchaseReportingService
             ->leftJoin('users', 'users.id', '=', 'purchaser_carts.user_id')
             ->leftJoinSub($cartTotals, 'cart_totals', 'cart_totals.purchaser_cart_id', '=', 'purchaser_carts.id')
             ->leftJoinSub($settlements, 'settlement_totals', 'settlement_totals.purchase_invoice_id', '=', 'purchase_invoices.id')
+            ->leftJoinSub($creditNotesQuery, 'credit_note_totals', 'credit_note_totals.purchase_invoice_id', '=', 'purchase_invoices.id')
             ->whereNull('purchase_invoices.deleted_at')
             ->where('purchase_invoices.status', '!=', 'cancelled')
             ->selectRaw("purchase_invoices.id as invoice_id, purchase_invoices.public_uuid as invoice_public_uuid, purchase_invoices.invoice_number, purchase_invoices.status as invoice_status, purchase_invoices.payment_status, purchaser_carts.id as purchaser_cart_id, purchaser_carts.business_date, purchase_invoices.supplier_id, suppliers.public_uuid as supplier_public_uuid, suppliers.name as supplier_name, purchaser_carts.user_id as purchaser_id, users.public_uuid as purchaser_public_uuid, users.name as purchaser_name, products.id as product_id, products.name as product_name, products.unit as unit, products.default_warehouse_id, warehouses.code as warehouse_code, CASE WHEN warehouses.code = 'VEG-WH' THEN 'Vegetables' WHEN warehouses.code = 'FRT-WH' THEN 'Fruits' ELSE 'Other' END as produce_type, categories.id as category_id, categories.name as category_name, purchaser_cart_items.grade, purchaser_cart_items.quantity, purchaser_cart_items.unit_price, {$paymentClass} as payment_class, {$netExpression} as item_net, ({$netExpression} * (1.0 * {$paidExpression}) / NULLIF({$invoiceNetExpression}, 0)) as item_paid, {$itemDiscountExpr} as item_discount");

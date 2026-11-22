@@ -12,6 +12,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
@@ -136,6 +138,11 @@ class Supplier extends Model
         return $this->hasMany(VendorAdvance::class);
     }
 
+    public function purchaseCreditNotes(): HasMany
+    {
+        return $this->hasMany(PurchaseCreditNote::class);
+    }
+
     public function shops(): BelongsToMany
     {
         return $this->belongsToMany(Shop::class, 'shop_suppliers')
@@ -148,11 +155,96 @@ class Supplier extends Model
         return $this->hasMany(ShopVendorPayable::class);
     }
 
+    public function creditNotes(): HasMany
+    {
+        return $this->purchaseCreditNotes();
+    }
+
     public function products(): BelongsToMany
     {
         return $this->belongsToMany(Product::class)
             ->withPivot(['last_price', 'last_purchased_at'])
             ->withTimestamps();
+    }
+
+    /**
+     * Get IDs of products linked or previously purchased from this supplier.
+     *
+     * @return array<int>
+     */
+    public function relatedProductIds(?int $purchaseInvoiceId = null): array
+    {
+        $supplierId = (int) $this->id;
+
+        $pivotIds = DB::table('product_supplier')
+            ->where('supplier_id', $supplierId)
+            ->pluck('product_id');
+
+        $cartIds = DB::table('purchaser_cart_items')
+            ->join('purchaser_carts', 'purchaser_carts.id', '=', 'purchaser_cart_items.purchaser_cart_id')
+            ->where('purchaser_carts.supplier_id', $supplierId)
+            ->pluck('purchaser_cart_items.product_id');
+
+        $invoiceCartIds = DB::table('purchaser_cart_items')
+            ->join('purchase_invoices', 'purchase_invoices.purchaser_cart_id', '=', 'purchaser_cart_items.purchaser_cart_id')
+            ->where('purchase_invoices.supplier_id', $supplierId)
+            ->pluck('purchaser_cart_items.product_id');
+
+        $poGrnIds = DB::table('goods_received_items')
+            ->join('goods_received', 'goods_received.id', '=', 'goods_received_items.goods_received_id')
+            ->join('purchase_orders', 'purchase_orders.id', '=', 'goods_received.purchase_order_id')
+            ->where('purchase_orders.supplier_id', $supplierId)
+            ->pluck('goods_received_items.product_id');
+
+        $invGrnIds = DB::table('goods_received_items')
+            ->join('purchase_invoices', 'purchase_invoices.goods_received_id', '=', 'goods_received_items.goods_received_id')
+            ->where('purchase_invoices.supplier_id', $supplierId)
+            ->pluck('goods_received_items.product_id');
+
+        $merged = $pivotIds
+            ->merge($cartIds)
+            ->merge($invoiceCartIds)
+            ->merge($poGrnIds)
+            ->merge($invGrnIds);
+
+        if ($purchaseInvoiceId !== null) {
+            $singleInvCart = DB::table('purchaser_cart_items')
+                ->join('purchase_invoices', 'purchase_invoices.purchaser_cart_id', '=', 'purchaser_cart_items.purchaser_cart_id')
+                ->where('purchase_invoices.id', $purchaseInvoiceId)
+                ->pluck('purchaser_cart_items.product_id');
+
+            $singleInvGrn = DB::table('goods_received_items')
+                ->join('purchase_invoices', 'purchase_invoices.goods_received_id', '=', 'goods_received_items.goods_received_id')
+                ->where('purchase_invoices.id', $purchaseInvoiceId)
+                ->pluck('goods_received_items.product_id');
+
+            $merged = $merged->merge($singleInvCart)->merge($singleInvGrn);
+        }
+
+        return $merged
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Get collection of products related to this supplier.
+     *
+     * @return Collection<int, Product>
+     */
+    public function relatedProducts(?int $purchaseInvoiceId = null): Collection
+    {
+        $ids = $this->relatedProductIds($purchaseInvoiceId);
+        if (empty($ids)) {
+            return collect();
+        }
+
+        return Product::query()
+            ->whereIn('id', $ids)
+            ->orderBy('name')
+            ->get(['id', 'name', 'unit']);
     }
 
     public function creditApprovalRequestedBy(): BelongsTo
@@ -175,11 +267,11 @@ class Supplier extends Model
     public function getPendingAmountAttribute(): float
     {
         if (! $this->relationLoaded('purchaseInvoices')) {
-            $this->load('purchaseInvoices');
+            $this->load(['purchaseInvoices' => fn ($q) => $q->notCancelled()]);
         }
 
         return round((float) $this->purchaseInvoices->sum(function ($invoice) {
-            return max(0, ((float) $invoice->amount - (float) $invoice->discount_amount) - (float) $invoice->paid_amount);
+            return $invoice->remainingBalance();
         }), 2);
     }
 }

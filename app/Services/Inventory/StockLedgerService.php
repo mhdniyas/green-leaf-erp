@@ -11,6 +11,8 @@ use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
 use App\Enums\ShopInvoice\ShopCreditNoteReason;
 use App\Models\Product;
+use App\Models\PurchaseCreditNote;
+use App\Models\PurchaseInvoice;
 use App\Models\ShopCreditNote;
 use App\Models\ShopCreditNoteItem;
 use App\Models\ShopInvoiceItem;
@@ -1087,6 +1089,519 @@ class StockLedgerService
             ShopCreditNoteReason::Shortage => WastageReason::Shrinkage,
             default => WastageReason::TransitDamage,
         };
+    }
+
+    /**
+     * Deduct warehouse stock for a purchase credit note (returning goods to vendor).
+     * Prefers batches from the linked PurchaseInvoice's GoodsReceived record, then FIFO.
+     *
+     * @return Collection<int, StockMovement>
+     *
+     * @throws ValidationException
+     */
+    public function recordPurchaseCreditOut(
+        int $productId,
+        int $warehouseId,
+        string|ProductGrade $grade,
+        float $quantity,
+        int $userId,
+        string $notes,
+        ?int $purchaseInvoiceId = null,
+        bool $allowNegativeStock = false,
+        ?float $fallbackUnitCost = null,
+    ): Collection {
+        $quantityToDeduct = round($quantity, 3);
+        if ($quantityToDeduct <= 0.0) {
+            return collect();
+        }
+
+        $targetGrade = $grade instanceof ProductGrade ? $grade : (ProductGrade::tryResolve($grade) ?? ProductGrade::GradeA);
+
+        return DB::transaction(function () use (
+            $productId,
+            $warehouseId,
+            $targetGrade,
+            $quantityToDeduct,
+            $userId,
+            $notes,
+            $purchaseInvoiceId,
+            $allowNegativeStock,
+            $fallbackUnitCost,
+        ): Collection {
+            $this->lockStockBatchesForProduct($productId, $warehouseId, $targetGrade);
+
+            // 1. Identify preferred batch IDs from linked invoice (if any)
+            $preferredBatchIds = [];
+            if ($purchaseInvoiceId) {
+                $invoice = PurchaseInvoice::find($purchaseInvoiceId);
+                if ($invoice && $invoice->goods_received_id) {
+                    $preferredBatchIds = StockBatch::query()
+                        ->where('goods_received_id', $invoice->goods_received_id)
+                        ->where('warehouse_id', $warehouseId)
+                        ->where('product_id', $productId)
+                        ->pluck('id')
+                        ->all();
+                }
+            }
+
+            // 2. Fetch available sorted lots for this product and grade
+            $allLots = $this->sortedLotsForProduct($productId, $warehouseId, $targetGrade);
+
+            // Sort so preferred batches come first, keeping FIFO within each group
+            $sortedLots = $allLots->sortBy(function ($lot) use ($preferredBatchIds) {
+                return in_array((int) $lot->batch_id, $preferredBatchIds, true) ? 0 : 1;
+            })->values();
+
+            // 3. Fetch available pending batches as fallback
+            $allPending = $this->pendingBatchesForProduct($productId, $warehouseId, $targetGrade);
+            $sortedPending = $allPending->sortBy(function ($batch) use ($preferredBatchIds) {
+                return in_array((int) $batch->id, $preferredBatchIds, true) ? 0 : 1;
+            })->values();
+
+            // Check total available across sorted lots and pending batches
+            $totalAvailable = round(
+                (float) $sortedLots->sum('available_quantity') +
+                (float) $sortedPending->sum(fn ($b) => $this->pendingBatchAvailableQuantity($b)),
+                3
+            );
+
+            if (! $allowNegativeStock && $quantityToDeduct > ($totalAvailable + 0.001)) {
+                $productName = Product::find($productId)?->name ?? "Product #{$productId}";
+                throw ValidationException::withMessages([
+                    'items' => "Insufficient stock in warehouse for {$productName} (Grade {$targetGrade->value}). Requested return: {$quantityToDeduct} kg, available: {$totalAvailable} kg.",
+                ]);
+            }
+
+            $remaining = $quantityToDeduct;
+            $movements = collect();
+
+            // Deduct from sorted lots
+            foreach ($sortedLots as $lot) {
+                if ($remaining <= 0.0001) {
+                    break;
+                }
+
+                $available = (float) $lot->available_quantity;
+                if ($available <= 0.0001) {
+                    continue;
+                }
+
+                $deduct = min($remaining, $available);
+                $movement = StockMovement::create([
+                    'product_id' => $productId,
+                    'batch_id' => (int) $lot->batch_id,
+                    'warehouse_id' => $warehouseId,
+                    'grade' => (string) $lot->grade,
+                    'type' => StockMovementType::Out->value,
+                    'quantity' => $deduct,
+                    'cost_per_unit' => (float) $lot->cost_per_unit,
+                    'created_by' => $userId,
+                    'notes' => $notes,
+                ]);
+
+                $movements->push($movement);
+                $remaining = round($remaining - $deduct, 3);
+            }
+
+            // Deduct from pending batches if still needed
+            if ($remaining > 0.0001) {
+                foreach ($sortedPending as $batch) {
+                    if ($remaining <= 0.0001) {
+                        break;
+                    }
+
+                    $available = $this->pendingBatchAvailableQuantity($batch);
+                    if ($available <= 0.0001) {
+                        continue;
+                    }
+
+                    $deduct = min($remaining, $available);
+                    $movement = StockMovement::create([
+                        'product_id' => $productId,
+                        'batch_id' => (int) $batch->id,
+                        'warehouse_id' => $warehouseId,
+                        'grade' => $targetGrade->value,
+                        'type' => StockMovementType::Out->value,
+                        'quantity' => $deduct,
+                        'cost_per_unit' => (float) $batch->cost_per_kg,
+                        'created_by' => $userId,
+                        'notes' => $notes,
+                    ]);
+
+                    $movements->push($movement);
+                    $remaining = round($remaining - $deduct, 3);
+                }
+            }
+
+            // Deduct remainder from synthetic NEG- batch if negative stock is permitted
+            if ($allowNegativeStock && $remaining > 0.0001) {
+                $batch = $this->negativeStockBatchForProduct($productId, $userId, $warehouseId, $targetGrade);
+                $costPerUnit = $fallbackUnitCost !== null && $fallbackUnitCost > 0
+                    ? $fallbackUnitCost
+                    : (float) ($batch->cost_per_kg ?? 0);
+
+                $movement = StockMovement::create([
+                    'product_id' => $productId,
+                    'batch_id' => $batch->id,
+                    'warehouse_id' => $batch->warehouse_id ?? $warehouseId,
+                    'grade' => $targetGrade->value,
+                    'type' => StockMovementType::Out->value,
+                    'quantity' => $remaining,
+                    'cost_per_unit' => $costPerUnit,
+                    'created_by' => $userId,
+                    'notes' => $notes.'; negative stock allowed',
+                ]);
+
+                $movements->push($movement);
+                $remaining = 0.0;
+            }
+
+            return $movements;
+        });
+    }
+
+    /**
+     * Add stock into warehouse for a purchase credit note.
+     *
+     * @throws ValidationException
+     */
+    public function recordPurchaseCreditIn(
+        int $productId,
+        int $warehouseId,
+        string|ProductGrade $grade,
+        float $quantity,
+        float $unitPrice,
+        int $userId,
+        string $notes,
+        ?int $batchId = null,
+    ): StockMovement {
+        $quantityToAdd = round($quantity, 3);
+        if ($quantityToAdd <= 0.0) {
+            throw ValidationException::withMessages(['quantity' => 'Quantity must be greater than zero.']);
+        }
+
+        $targetGrade = $grade instanceof ProductGrade ? $grade : (ProductGrade::tryResolve($grade) ?? ProductGrade::GradeA);
+        $costPerKg = round($unitPrice, 4);
+
+        return DB::transaction(function () use (
+            $productId,
+            $warehouseId,
+            $targetGrade,
+            $quantityToAdd,
+            $costPerKg,
+            $userId,
+            $notes,
+            $batchId,
+        ): StockMovement {
+            if ($batchId) {
+                $batch = StockBatch::find($batchId);
+            } else {
+                $batch = StockBatch::create([
+                    'product_id' => $productId,
+                    'warehouse_id' => $warehouseId,
+                    'purchase_grade' => $targetGrade->value,
+                    'grading_mode' => 'fixed_purchase_grade',
+                    'status' => BatchStatus::Sorted,
+                    'warehouse_receive_pending' => false,
+                    'warehouse_confirmed_at' => now(),
+                    'warehouse_confirmed_by' => $userId,
+                    'sorted_at' => now(),
+                    'created_by' => $userId,
+                    'updated_by' => $userId,
+                    'received_at' => now()->toDateString(),
+                    'total_kg' => $quantityToAdd,
+                    'cost_per_kg' => $costPerKg,
+                    'reference' => 'PCN-IN',
+                    'notes' => $notes,
+                ]);
+            }
+
+            return StockMovement::create([
+                'product_id' => $productId,
+                'batch_id' => $batch->id,
+                'warehouse_id' => $warehouseId,
+                'grade' => $targetGrade->value,
+                'type' => StockMovementType::In->value,
+                'quantity' => $quantityToAdd,
+                'cost_per_unit' => $costPerKg,
+                'created_by' => $userId,
+                'notes' => $notes,
+            ]);
+        });
+    }
+
+    /**
+     * Record damage / wastage for a purchase credit note.
+     * If $deductStock is true, also deducts stock from warehouse via StockMovementType::Wastage.
+     *
+     * @return array{wastage: WastageEntry, movements: Collection<int, StockMovement>}
+     *
+     * @throws ValidationException
+     */
+    public function recordPurchaseCreditDamage(
+        int $productId,
+        ?int $warehouseId,
+        string|ProductGrade $grade,
+        float $quantity,
+        float $costPerKg,
+        int $userId,
+        WastageReason $reason,
+        string $notes,
+        bool $deductStock = true,
+        ?string $wastageDate = null,
+        ?int $purchaseInvoiceId = null,
+        bool $allowNegativeStock = false,
+    ): array {
+        $quantityToDamage = round($quantity, 3);
+        if ($quantityToDamage <= 0.0) {
+            throw ValidationException::withMessages(['quantity' => 'Wastage quantity must be greater than zero.']);
+        }
+
+        $targetGrade = $grade instanceof ProductGrade ? $grade : (ProductGrade::tryResolve($grade) ?? ProductGrade::GradeA);
+        $cost = round($costPerKg, 4);
+
+        return DB::transaction(function () use (
+            $productId,
+            $warehouseId,
+            $targetGrade,
+            $quantityToDamage,
+            $cost,
+            $userId,
+            $reason,
+            $notes,
+            $deductStock,
+            $wastageDate,
+            $purchaseInvoiceId,
+            $allowNegativeStock,
+        ): array {
+            $movements = collect();
+            $primaryBatchId = null;
+
+            if ($deductStock && $warehouseId !== null) {
+                $this->lockStockBatchesForProduct($productId, $warehouseId, $targetGrade);
+
+                $preferredBatchIds = [];
+                if ($purchaseInvoiceId) {
+                    $invoice = PurchaseInvoice::find($purchaseInvoiceId);
+                    if ($invoice && $invoice->goods_received_id) {
+                        $preferredBatchIds = StockBatch::query()
+                            ->where('goods_received_id', $invoice->goods_received_id)
+                            ->where('warehouse_id', $warehouseId)
+                            ->where('product_id', $productId)
+                            ->pluck('id')
+                            ->all();
+                    }
+                }
+
+                $allLots = $this->sortedLotsForProduct($productId, $warehouseId, $targetGrade);
+                $sortedLots = $allLots->sortBy(function ($lot) use ($preferredBatchIds) {
+                    return in_array((int) $lot->batch_id, $preferredBatchIds, true) ? 0 : 1;
+                })->values();
+
+                $allPending = $this->pendingBatchesForProduct($productId, $warehouseId, $targetGrade);
+                $sortedPending = $allPending->sortBy(function ($batch) use ($preferredBatchIds) {
+                    return in_array((int) $batch->id, $preferredBatchIds, true) ? 0 : 1;
+                })->values();
+
+                $totalAvailable = round(
+                    (float) $sortedLots->sum('available_quantity') +
+                    (float) $sortedPending->sum(fn ($b) => $this->pendingBatchAvailableQuantity($b)),
+                    3
+                );
+
+                if (! $allowNegativeStock && $quantityToDamage > ($totalAvailable + 0.001)) {
+                    $productName = Product::find($productId)?->name ?? "Product #{$productId}";
+                    throw ValidationException::withMessages([
+                        'items' => "Insufficient stock in warehouse for {$productName} (Grade {$targetGrade->value}) to record damage. Requested: {$quantityToDamage} kg, available: {$totalAvailable} kg.",
+                    ]);
+                }
+
+                $remaining = $quantityToDamage;
+
+                foreach ($sortedLots as $lot) {
+                    if ($remaining <= 0.0001) {
+                        break;
+                    }
+
+                    $available = (float) $lot->available_quantity;
+                    if ($available <= 0.0001) {
+                        continue;
+                    }
+
+                    $deduct = min($remaining, $available);
+                    $movement = StockMovement::create([
+                        'product_id' => $productId,
+                        'batch_id' => (int) $lot->batch_id,
+                        'warehouse_id' => $warehouseId,
+                        'grade' => (string) $lot->grade,
+                        'type' => StockMovementType::Wastage->value,
+                        'quantity' => $deduct,
+                        'cost_per_unit' => (float) $lot->cost_per_unit,
+                        'created_by' => $userId,
+                        'notes' => $notes,
+                    ]);
+
+                    $movements->push($movement);
+                    if ($primaryBatchId === null) {
+                        $primaryBatchId = (int) $lot->batch_id;
+                    }
+                    $remaining = round($remaining - $deduct, 3);
+                }
+
+                if ($remaining > 0.0001) {
+                    foreach ($sortedPending as $batch) {
+                        if ($remaining <= 0.0001) {
+                            break;
+                        }
+
+                        $available = $this->pendingBatchAvailableQuantity($batch);
+                        if ($available <= 0.0001) {
+                            continue;
+                        }
+
+                        $deduct = min($remaining, $available);
+                        $movement = StockMovement::create([
+                            'product_id' => $productId,
+                            'batch_id' => (int) $batch->id,
+                            'warehouse_id' => $warehouseId,
+                            'grade' => $targetGrade->value,
+                            'type' => StockMovementType::Wastage->value,
+                            'quantity' => $deduct,
+                            'cost_per_unit' => (float) $batch->cost_per_kg,
+                            'created_by' => $userId,
+                            'notes' => $notes,
+                        ]);
+
+                        $movements->push($movement);
+                        if ($primaryBatchId === null) {
+                            $primaryBatchId = (int) $batch->id;
+                        }
+                        $remaining = round($remaining - $deduct, 3);
+                    }
+                }
+
+                // Deduct remainder from synthetic NEG- batch if negative stock is permitted
+                if ($allowNegativeStock && $remaining > 0.0001) {
+                    $batch = $this->negativeStockBatchForProduct($productId, $userId, $warehouseId, $targetGrade);
+                    $costPerUnit = $cost > 0 ? $cost : (float) ($batch->cost_per_kg ?? 0);
+
+                    $movement = StockMovement::create([
+                        'product_id' => $productId,
+                        'batch_id' => $batch->id,
+                        'warehouse_id' => $batch->warehouse_id ?? $warehouseId,
+                        'grade' => $targetGrade->value,
+                        'type' => StockMovementType::Wastage->value,
+                        'quantity' => $remaining,
+                        'cost_per_unit' => $costPerUnit,
+                        'created_by' => $userId,
+                        'notes' => $notes.'; negative stock allowed',
+                    ]);
+
+                    $movements->push($movement);
+                    if ($primaryBatchId === null) {
+                        $primaryBatchId = $batch->id;
+                    }
+                    $remaining = 0.0;
+                }
+            }
+
+            $wastage = WastageEntry::create([
+                'product_id' => $productId,
+                'batch_id' => $primaryBatchId,
+                'recorded_by' => $userId,
+                'grade' => $targetGrade->value,
+                'quantity' => $quantityToDamage,
+                'cost_per_kg' => $cost,
+                'reason' => $reason,
+                'wastage_date' => $wastageDate ?? now()->toDateString(),
+                'notes' => $notes,
+            ]);
+
+            return [
+                'wastage' => $wastage,
+                'movements' => $movements,
+            ];
+        });
+    }
+
+    /**
+     * Reverse all stock movements and soft-delete wastage entries created for a Purchase Credit Note.
+     */
+    public function reversePurchaseCreditNoteMovements(
+        PurchaseCreditNote $creditNote,
+        int $userId,
+        string $reason = 'Voided Purchase Credit Note',
+    ): void {
+        DB::transaction(function () use ($creditNote, $userId, $reason): void {
+            $marker = "PCN: {$creditNote->credit_note_number};";
+
+            // Find all movements created for this credit note
+            $movements = StockMovement::query()
+                ->where('notes', 'like', "%{$marker}%")
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($movements as $movement) {
+                // Skip if this movement is already a reversal
+                if (str_contains((string) $movement->notes, 'Void Reversal')) {
+                    continue;
+                }
+
+                $qty = (float) $movement->quantity;
+                if ($qty <= 0.0001) {
+                    continue;
+                }
+
+                $movType = $movement->type instanceof StockMovementType ? $movement->type : StockMovementType::tryFrom((string) $movement->type);
+                $gradeVal = $movement->grade instanceof ProductGrade ? $movement->grade->value : (string) ($movement->grade ?? 'A');
+
+                // If original movement was an OUT or WASTAGE deduction, restore stock via StockMovementType::In
+                if (in_array($movType, [StockMovementType::Out, StockMovementType::Wastage], true)) {
+                    StockMovement::create([
+                        'product_id' => $movement->product_id,
+                        'batch_id' => $movement->batch_id,
+                        'warehouse_id' => $movement->warehouse_id,
+                        'grade' => $gradeVal,
+                        'type' => StockMovementType::In->value,
+                        'quantity' => $qty,
+                        'cost_per_unit' => (float) $movement->cost_per_unit,
+                        'created_by' => $userId,
+                        'notes' => "Void Reversal — Restored stock for PCN: {$creditNote->credit_note_number}; OrigMovement #{$movement->id}; Reason: {$reason}",
+                    ]);
+                } elseif ($movType === StockMovementType::In) {
+                    // Original movement was an IN, reverse it via StockMovementType::Adjustment (deduction)
+                    StockMovement::create([
+                        'product_id' => $movement->product_id,
+                        'batch_id' => $movement->batch_id,
+                        'warehouse_id' => $movement->warehouse_id,
+                        'grade' => $gradeVal,
+                        'type' => StockMovementType::Adjustment->value,
+                        'quantity' => $qty,
+                        'cost_per_unit' => (float) $movement->cost_per_unit,
+                        'created_by' => $userId,
+                        'notes' => "Void Reversal — Deducted returned stock for PCN: {$creditNote->credit_note_number}; OrigMovement #{$movement->id}; Reason: {$reason}",
+                    ]);
+                }
+            }
+
+            // Soft-delete linked WastageEntry records
+            $linkedWastageIds = $creditNote->items->pluck('wastage_entry_id')->filter()->all();
+            $wastageQuery = WastageEntry::query()
+                ->where(function ($q) use ($linkedWastageIds, $marker): void {
+                    if (! empty($linkedWastageIds)) {
+                        $q->whereIn('id', $linkedWastageIds);
+                    }
+                    $q->orWhere('notes', 'like', "%{$marker}%");
+                })
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($wastageQuery as $wastage) {
+                $wastage->notes = trim(($wastage->notes ?? '')." [VOIDED: {$reason}]");
+                $wastage->save();
+                $wastage->delete();
+            }
+        });
     }
 
     /**

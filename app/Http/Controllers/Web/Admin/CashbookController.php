@@ -9493,6 +9493,7 @@ final class CashbookController extends Controller
         $supplierBaseInvoices = PurchaseInvoice::query()
             ->withSum('vendorSettlementAllocations', 'advance_allocated')
             ->withSum('vendorSettlementAllocations', 'discount_allocated')
+            ->withSum(['purchaseCreditNotes as credit_notes_applied' => fn ($q) => $q->active()], 'applied_to_invoice_amount')
             ->where('supplier_id', $supplier->id)
             ->whereNull('deleted_at')
             ->where('status', '!=', 'cancelled')
@@ -9514,7 +9515,8 @@ final class CashbookController extends Controller
             $net = max(0, (float) $invoice->amount - (float) $invoice->discount_amount);
             $settled = (float) $invoice->paid_amount
                 + (float) ($invoice->vendor_settlement_allocations_sum_advance_allocated ?? 0)
-                + (float) ($invoice->vendor_settlement_allocations_sum_discount_allocated ?? 0);
+                + (float) ($invoice->vendor_settlement_allocations_sum_discount_allocated ?? 0)
+                + (float) ($invoice->credit_notes_applied ?? 0);
 
             return min($net, $settled);
         });
@@ -9530,6 +9532,7 @@ final class CashbookController extends Controller
         $query = PurchaseInvoice::query()
             ->with(['purchaserCart:id,business_date,bill_number,cart_number', 'supplier:id,name,mobile_number,contact'])
             ->withSum('vendorSettlementAllocations', 'total_settled')
+            ->withSum(['purchaseCreditNotes as credit_notes_applied' => fn ($q) => $q->active()], 'applied_to_invoice_amount')
             ->where('supplier_id', $supplier->id)
             ->whereNull('deleted_at')
             ->where('status', '!=', 'cancelled')
@@ -9589,6 +9592,7 @@ final class CashbookController extends Controller
             ->get();
         $settlementCandidates = PurchaseInvoice::query()
             ->withSum('vendorSettlementAllocations', 'total_settled')
+            ->withSum(['purchaseCreditNotes as credit_notes_applied' => fn ($q) => $q->active()], 'applied_to_invoice_amount')
             ->where('supplier_id', $supplier->id)
             ->whereNull('deleted_at')
             ->orderBy('created_at')
@@ -9597,7 +9601,7 @@ final class CashbookController extends Controller
                 'id' => $invoice->id,
                 'number' => $invoice->invoice_number ?: '#'.$invoice->id,
                 'date' => $invoice->created_at?->toDateString(),
-                'outstanding' => round(max(0, (float) $invoice->amount - (float) $invoice->discount_amount - (float) $invoice->vendor_settlement_allocations_sum_total_settled), 2),
+                'outstanding' => round(max(0, (float) $invoice->amount - (float) $invoice->discount_amount - (float) $invoice->vendor_settlement_allocations_sum_total_settled - (float) ($invoice->credit_notes_applied ?? 0)), 2),
             ])
             ->filter(fn (array $invoice): bool => $invoice['outstanding'] > 0.01)
             ->values();
