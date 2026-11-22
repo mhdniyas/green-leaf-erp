@@ -15,7 +15,7 @@
     $formatQty = fn (float|int $qty): string => rtrim(rtrim(number_format($qty, 4), '0'), '.');
 @endphp
 
-<section class="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+<section class="hidden space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
     <div class="flex items-center justify-between border-b border-slate-100 pb-3">
         <div>
             <h3 class="text-sm font-black uppercase tracking-[0.16em] text-slate-950">Credit Note / Invoice Changes</h3>
