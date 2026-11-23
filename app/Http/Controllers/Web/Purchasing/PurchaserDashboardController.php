@@ -2280,7 +2280,7 @@ class PurchaserDashboardController extends Controller
         ]);
     }
 
-    public function supplierHub(Request $request): View|RedirectResponse
+    public function supplierHub(Request $request): View|RedirectResponse|JsonResponse
     {
         $this->ensurePurchaser($request);
 
@@ -2291,112 +2291,194 @@ class PurchaserDashboardController extends Controller
         }
 
         $search = trim($request->string('search')->toString());
-        $normalizedSearch = mb_strtolower($search);
         $selectedTab = $request->string('tab')->toString();
-        if (! in_array($selectedTab, ['pending', 'credit'], true)) {
+        if (! in_array($selectedTab, ['pending', 'credit', 'all'], true)) {
             $selectedTab = 'pending';
         }
         $userId = (int) $request->user()->id;
-        $suppliers = $request->user()->scopedSuppliersQuery()
-            ->when($search !== '', function ($query) use ($search, $normalizedSearch): void {
-                $query->where(function ($innerQuery) use ($search, $normalizedSearch): void {
-                    $innerQuery
-                        ->where('name', 'like', '%'.$search.'%')
-                        ->orWhere('mobile_number', 'like', '%'.$search.'%')
-                        ->orWhere('location', 'like', '%'.$search.'%')
-                        ->orWhereHas('purchaseInvoices', function ($invoiceQuery) use ($search): void {
-                            $invoiceQuery
-                                ->where('payment_status', 'like', '%'.$search.'%')
-                                ->orWhere('payment_method', 'like', '%'.$search.'%')
-                                ->orWhere('invoice_number', 'like', '%'.$search.'%');
-                        })
-                        ->orWhereHas('purchaserCarts', function ($cartQuery) use ($search): void {
-                            $cartQuery
-                                ->where('cart_number', 'like', '%'.$search.'%')
-                                ->orWhere('status', 'like', '%'.$search.'%');
-                        });
+        $scopedQuery = $request->user()->scopedSuppliersQuery();
+        $scopedSupplierIds = (clone $scopedQuery)->pluck('id')->map(fn ($id) => (int) $id)->all();
 
-                    if (str_contains($normalizedSearch, 'pending')) {
-                        $innerQuery->orWhereHas('purchaseInvoices', function ($invoiceQuery): void {
-                            $invoiceQuery->whereIn('payment_status', ['unpaid', 'partial', 'credit_pending_approval']);
-                        });
-                    }
+        if (empty($scopedSupplierIds)) {
+            $emptyPayload = [
+                'date' => $date->format('Y-m-d'),
+                'search' => $search,
+                'selectedTab' => $selectedTab,
+                'tabCounts' => ['pending' => 0, 'credit' => 0, 'all' => 0],
+                'totalVendorsCount' => 0,
+                'globalTotals' => ['total_amount' => 0.0, 'paid_amount' => 0.0, 'discount_amount' => 0.0, 'balance_amount' => 0.0],
+                'supplierRows' => collect(),
+                'hasMorePages' => false,
+                'currentPage' => 1,
+                'totalRowsCount' => 0,
+                'deadlineAlert' => $this->buildSupplierHubDeadlineAlert($userId, $date),
+            ];
 
-                    if (str_contains($normalizedSearch, 'credit')) {
-                        $innerQuery->orWhere('credit_approved', true);
-                    }
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'status' => 'success',
+                    'data' => [],
+                    'pagination' => [
+                        'current_page' => 1,
+                        'per_page' => 20,
+                        'total_records' => 0,
+                        'last_page' => 1,
+                        'has_more' => false,
+                    ],
+                    'tab_counts' => $emptyPayload['tabCounts'],
+                    'global_totals' => $emptyPayload['globalTotals'],
+                ]);
+            }
 
-                    if (str_contains($normalizedSearch, 'paid')) {
-                        $innerQuery->orWhereHas('purchaseInvoices', function ($invoiceQuery): void {
-                            $invoiceQuery->where('payment_status', 'paid');
-                        });
-                    }
-                });
-            })
-            ->with([
-                'purchaseInvoices' => fn ($query) => $query
-                    ->with(['purchaserCart', 'vendorSettlementAllocations'])
-                    ->latest('updated_at'),
-                'purchaserCarts' => fn ($query) => $query
-                    ->with(['purchaseInvoice.vendorSettlementAllocations'])
-                    ->latest('business_date'),
-            ])
-            ->orderBy('name')
-            ->get();
+            return view('purchasing.purchaser.suppliers.index', $emptyPayload);
+        }
 
-        $sameDayAssignedDrafts = PurchaserCart::query()
-            ->where('user_id', $userId)
-            ->whereDate('business_date', $date)
-            ->where('status', 'draft')
-            ->whereNotNull('supplier_id')
-            ->whereHas('items')
-            ->with(['supplier', 'items.product', 'purchaseInvoice', 'goodsReceived'])
-            ->orderByDesc('updated_at')
-            ->get();
+        // 1. Single bulk financial aggregation
+        $financialRows = $this->supplierHubFinancialAggregates($scopedSupplierIds);
 
-        $overdueCarts = $this->overdueCartsForUser($userId)->loadMissing(['supplier', 'items.product', 'purchaseInvoice', 'goodsReceived']);
-        $overdueBatchState = $this->relatedBatchStateForCarts($overdueCarts);
-
-        $tabCounts = [
-            'pending' => $suppliers->filter(fn (Supplier $supplier): bool => $this->supplierPendingHubIssueCount($supplier, $sameDayAssignedDrafts, $overdueCarts, $overdueBatchState, 'pending') > 0)->count(),
-            'credit' => $suppliers->filter(fn (Supplier $supplier): bool => $this->supplierPendingHubIssueCount($supplier, $sameDayAssignedDrafts, $overdueCarts, $overdueBatchState, 'credit') > 0)->count(),
+        $globalTotals = [
+            'total_amount' => round((float) $financialRows->sum('total_amount'), 2),
+            'paid_amount' => round((float) $financialRows->sum('paid_amount'), 2),
+            'discount_amount' => round((float) $financialRows->sum('discount_amount'), 2),
+            'balance_amount' => round((float) $financialRows->sum('balance_amount'), 2),
         ];
 
-        $issueSections = $this->buildSupplierIssueSections(
-            userId: $userId,
-            selectedDate: $date,
-            suppliers: $suppliers,
-            selectedTab: $selectedTab,
-            sameDayAssignedDrafts: $sameDayAssignedDrafts,
-            overdueCarts: $overdueCarts,
-            overdueBatchState: $overdueBatchState,
-        );
+        // 2. Draft suppliers check for pending tab
+        $operationalDate = $this->businessDayService->operationalDate();
+        $draftSupplierIds = PurchaserCart::query()
+            ->whereIn('supplier_id', $scopedSupplierIds)
+            ->where('user_id', $userId)
+            ->where('status', 'draft')
+            ->whereHas('items')
+            ->pluck('supplier_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
 
-        $filteredSuppliers = $suppliers->filter(fn (Supplier $supplier): bool => $this->supplierPendingHubIssueCount($supplier, $sameDayAssignedDrafts, $overdueCarts, $overdueBatchState, $selectedTab) > 0)->values();
+        $balanceSupplierIds = $financialRows
+            ->filter(fn ($row) => (float) $row->balance_amount > 0)
+            ->keys()
+            ->map(fn ($id) => (int) $id)
+            ->all();
 
-        $supplierRows = $suppliers->map(function (Supplier $supplier) use ($date, $selectedTab, $sameDayAssignedDrafts, $overdueCarts, $overdueBatchState): array {
-            $relevantInvoices = $this->linkedInvoicesForSupplier($supplier);
-            $recentInvoice = $relevantInvoices
-                ->sortByDesc(fn (PurchaseInvoice $invoice): int => $invoice->updated_at?->getTimestamp() ?? 0)
-                ->first();
-            $recentCart = $supplier->purchaserCarts->first();
-            $totalAmount = round((float) $relevantInvoices->sum('amount'), 2);
-            $discountAmount = round((float) $relevantInvoices->sum('discount_amount'), 2);
-            $paidAmount = round((float) $relevantInvoices->sum('paid_amount'), 2);
-            $balanceAmount = round((float) $relevantInvoices->sum(fn (PurchaseInvoice $invoice): float => $this->invoiceRemainingBalance($invoice)), 2);
-            $recentBusinessDate = $recentInvoice?->purchaserCart?->business_date ?? $recentCart?->business_date;
-            $pendingIssueSummary = $this->supplierPendingHubIssueSummary($supplier, $sameDayAssignedDrafts, $overdueCarts, $overdueBatchState, $selectedTab);
+        $pendingSupplierIds = array_values(array_unique(array_merge($balanceSupplierIds, $draftSupplierIds)));
+        $creditSupplierIds = $balanceSupplierIds;
+
+        $tabCounts = [
+            'pending' => count($pendingSupplierIds),
+            'credit' => count($creditSupplierIds),
+            'all' => count($scopedSupplierIds),
+        ];
+
+        // 3. Tab & search filtered query
+        $displayQuery = (clone $scopedQuery);
+
+        if ($selectedTab === 'pending') {
+            $displayQuery->whereIn('id', $pendingSupplierIds);
+        } elseif ($selectedTab === 'credit') {
+            $displayQuery->whereIn('id', $creditSupplierIds);
+        }
+
+        if ($search !== '') {
+            $displayQuery->where(function ($q) use ($search): void {
+                $q->where('name', 'like', '%'.$search.'%')
+                    ->orWhere('mobile_number', 'like', '%'.$search.'%')
+                    ->orWhere('location', 'like', '%'.$search.'%');
+
+                if (preg_match('/^[A-Za-z0-9_-]+$/', $search)) {
+                    $q->orWhereHas('purchaserCarts', fn ($cq) => $cq->where('cart_number', 'like', '%'.$search.'%'))
+                        ->orWhereHas('purchaseInvoices', fn ($iq) => $iq->where('invoice_number', 'like', '%'.$search.'%'));
+                }
+            });
+        }
+
+        // 4. Paginate 20 suppliers
+        $perPage = 20;
+        $page = max(1, (int) $request->integer('page', 1));
+        $paginated = $displayQuery->orderBy('name')->paginate($perPage, ['*'], 'page', $page);
+        $pageSuppliers = collect($paginated->items());
+        $pageSupplierIds = $pageSuppliers->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        // 5. Recent dates & pending issues for the 20 suppliers only
+        $recentDates = empty($pageSupplierIds)
+            ? collect()
+            : DB::table('purchaser_carts')
+                ->whereIn('supplier_id', $pageSupplierIds)
+                ->groupBy('supplier_id')
+                ->select('supplier_id', DB::raw('MAX(business_date) as max_date'))
+                ->pluck('max_date', 'supplier_id');
+
+        $sameDayDrafts = empty($pageSupplierIds)
+            ? []
+            : PurchaserCart::query()
+                ->whereIn('supplier_id', $pageSupplierIds)
+                ->where('user_id', $userId)
+                ->whereDate('business_date', $date)
+                ->where('status', 'draft')
+                ->whereHas('items')
+                ->pluck('supplier_id')
+                ->flip()
+                ->all();
+
+        $overdueDrafts = empty($pageSupplierIds)
+            ? []
+            : PurchaserCart::query()
+                ->whereIn('supplier_id', $pageSupplierIds)
+                ->where('user_id', $userId)
+                ->where('status', 'draft')
+                ->whereDate('business_date', '<', $operationalDate)
+                ->whereHas('items')
+                ->pluck('supplier_id')
+                ->flip()
+                ->all();
+
+        $supplierRows = $pageSuppliers->map(function (Supplier $supplier) use (
+            $financialRows,
+            $recentDates,
+            $sameDayDrafts,
+            $overdueDrafts,
+            $selectedTab,
+            $date
+        ): array {
+            $fin = $financialRows->get($supplier->id);
+            $totalAmount = $fin ? round((float) $fin->total_amount, 2) : 0.0;
+            $discountAmount = $fin ? round((float) $fin->discount_amount, 2) : 0.0;
+            $paidAmount = $fin ? round((float) $fin->paid_amount, 2) : 0.0;
+            $balanceAmount = $fin ? round((float) $fin->balance_amount, 2) : 0.0;
+
+            $recentDateRaw = $recentDates->get($supplier->id);
+            $recentBusinessDate = $recentDateRaw ? Carbon::parse($recentDateRaw)->format('d M Y') : '—';
+
+            $hasSameDay = isset($sameDayDrafts[$supplier->id]);
+            $hasOverdue = isset($overdueDrafts[$supplier->id]);
+
+            if ($selectedTab === 'credit') {
+                $pendingCount = $balanceAmount > 0 ? 1 : 0;
+                $label = $balanceAmount > 0 ? 'Credit Pending' : 'No issue';
+                $tone = $balanceAmount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600';
+            } elseif ($hasSameDay) {
+                $pendingCount = 1;
+                $label = 'Bill Pending';
+                $tone = 'bg-amber-100 text-amber-700';
+            } elseif ($hasOverdue) {
+                $pendingCount = 1;
+                $label = 'Overdue Bill Pending';
+                $tone = 'bg-rose-100 text-rose-700';
+            } elseif ($balanceAmount > 0) {
+                $pendingCount = 1;
+                $label = 'Payment Pending';
+                $tone = 'bg-amber-100 text-amber-700';
+            } else {
+                $pendingCount = 0;
+                $label = 'No issue';
+                $tone = 'bg-slate-100 text-slate-600';
+            }
 
             return [
                 'supplier' => $supplier,
-                'pending_count' => $pendingIssueSummary['count'],
-                'pending_issue_label' => $pendingIssueSummary['label'],
-                'pending_issue_tone' => $pendingIssueSummary['tone'],
-                'pending_issue_paid' => $pendingIssueSummary['paid'],
-                'recent_invoice_number' => $recentInvoice?->invoice_number ?: 'None yet',
-                'recent_cart_number' => $recentCart?->cart_number ?: 'No cart yet',
-                'recent_business_date' => $recentBusinessDate?->format('d M Y') ?: '—',
-                'recent_updated_label' => $recentInvoice?->updated_at?->format('d M Y') ?: '—',
+                'pending_count' => $pendingCount,
+                'pending_issue_label' => $label,
+                'pending_issue_tone' => $tone,
+                'recent_business_date' => $recentBusinessDate,
                 'total_amount' => $totalAmount,
                 'discount_amount' => $discountAmount,
                 'paid_amount' => $paidAmount,
@@ -2405,15 +2487,53 @@ class PurchaserDashboardController extends Controller
             ];
         });
 
+        // 6. JSON output for Load More / Search requests
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json([
+                'status' => 'success',
+                'data' => $supplierRows->map(fn (array $row): array => [
+                    'id' => (int) $row['supplier']->id,
+                    'name' => (string) $row['supplier']->name,
+                    'credit_approved' => (bool) $row['supplier']->credit_approved,
+                    'mobile_number' => $row['supplier']->mobile_number,
+                    'location' => $row['supplier']->location,
+                    'has_bank_details' => filled($row['supplier']->bank_details),
+                    'bank_details' => $row['supplier']->bank_details,
+                    'recent_business_date' => $row['recent_business_date'],
+                    'total_amount' => $row['total_amount'],
+                    'discount_amount' => $row['discount_amount'],
+                    'paid_amount' => $row['paid_amount'],
+                    'balance_amount' => $row['balance_amount'],
+                    'pending_count' => $row['pending_count'],
+                    'pending_issue_label' => $row['pending_issue_label'],
+                    'pending_issue_tone' => $row['pending_issue_tone'],
+                    'history_route' => $row['history_route'],
+                ])->values()->all(),
+                'pagination' => [
+                    'current_page' => $paginated->currentPage(),
+                    'per_page' => $paginated->perPage(),
+                    'total_records' => $paginated->total(),
+                    'last_page' => $paginated->lastPage(),
+                    'has_more' => $paginated->hasMorePages(),
+                ],
+                'tab_counts' => $tabCounts,
+                'global_totals' => $globalTotals,
+            ]);
+        }
+
+        // 7. Initial HTML render
         return view('purchasing.purchaser.suppliers.index', [
             'date' => $date->format('Y-m-d'),
             'search' => $search,
-            'suppliers' => $filteredSuppliers,
-            'supplierRows' => $supplierRows,
-            'issueSections' => $issueSections,
             'selectedTab' => $selectedTab,
             'tabCounts' => $tabCounts,
-            'deadlineAlert' => $this->buildDeadlineAlert($userId, $date, $overdueCarts, $overdueBatchState),
+            'totalVendorsCount' => count($scopedSupplierIds),
+            'globalTotals' => $globalTotals,
+            'supplierRows' => $supplierRows,
+            'hasMorePages' => $paginated->hasMorePages(),
+            'currentPage' => $paginated->currentPage(),
+            'totalRowsCount' => $paginated->total(),
+            'deadlineAlert' => $this->buildSupplierHubDeadlineAlert($userId, $date),
         ]);
     }
 
@@ -2473,12 +2593,14 @@ class PurchaserDashboardController extends Controller
                         'goodsReceived.items.product',
                         'goodsReceived.items.purchaseOrderItem.product',
                         'vendorSettlementAllocations',
+                        'purchaseCreditNotes',
                     ])
                     ->latest('updated_at'),
                 'purchaserCarts' => fn ($query) => $query
                     ->with([
                         'items.product',
                         'purchaseInvoice.vendorSettlementAllocations',
+                        'purchaseInvoice.purchaseCreditNotes',
                         'goodsReceived.items.product',
                         'goodsReceived.items.purchaseOrderItem.product',
                     ])
@@ -5633,6 +5755,143 @@ class PurchaserDashboardController extends Controller
             'tone' => 'bg-emerald-100 text-emerald-700',
             'unresolved' => false,
             'payment_pending' => false,
+        ];
+    }
+
+    /**
+     * Bulk SQL aggregation for supplier financials preserving exact PurchaseInvoice remaining balance rules.
+     *
+     * @param  array<int, int>  $supplierIds
+     * @return Collection<int, object{supplier_id: int, total_amount: float, discount_amount: float, paid_amount: float, balance_amount: float}>
+     */
+    private function supplierHubFinancialAggregates(array $supplierIds): Collection
+    {
+        if (empty($supplierIds)) {
+            return collect();
+        }
+
+        $placeholders = implode(',', array_fill(0, count($supplierIds), '?'));
+
+        $sql = "
+            SELECT 
+                pc.supplier_id,
+                COALESCE(SUM(pi.amount), 0) AS total_amount,
+                COALESCE(SUM(pi.discount_amount), 0) AS discount_amount,
+                COALESCE(SUM(pi.paid_amount), 0) AS paid_amount,
+                COALESCE(SUM(
+                    CASE 
+                        WHEN pi.status = 'cancelled' THEN 0
+                        WHEN (
+                            ROUND(pi.amount - CASE 
+                                WHEN ROUND(COALESCE(pi.discount_amount, 0) + COALESCE(vsa.vsa_discount, 0), 2) > pi.amount 
+                                THEN pi.amount 
+                                ELSE ROUND(COALESCE(pi.discount_amount, 0) + COALESCE(vsa.vsa_discount, 0), 2) 
+                            END, 2)
+                            - ROUND(COALESCE(pi.paid_amount, 0) + COALESCE(vsa.vsa_advance, 0), 2)
+                            - COALESCE(pcn.pcn_applied, 0)
+                        ) > 0
+                        THEN (
+                            ROUND(pi.amount - CASE 
+                                WHEN ROUND(COALESCE(pi.discount_amount, 0) + COALESCE(vsa.vsa_discount, 0), 2) > pi.amount 
+                                THEN pi.amount 
+                                ELSE ROUND(COALESCE(pi.discount_amount, 0) + COALESCE(vsa.vsa_discount, 0), 2) 
+                            END, 2)
+                            - ROUND(COALESCE(pi.paid_amount, 0) + COALESCE(vsa.vsa_advance, 0), 2)
+                            - COALESCE(pcn.pcn_applied, 0)
+                        )
+                        ELSE 0
+                    END
+                ), 0) AS balance_amount
+            FROM (
+                SELECT supplier_id, purchase_invoice_id
+                FROM purchaser_carts
+                WHERE supplier_id IN ({$placeholders}) AND purchase_invoice_id IS NOT NULL
+                GROUP BY supplier_id, purchase_invoice_id
+            ) pc
+            JOIN purchase_invoices pi ON pi.id = pc.purchase_invoice_id AND pi.deleted_at IS NULL
+            LEFT JOIN (
+                SELECT purchase_invoice_id, 
+                       ROUND(SUM(CASE WHEN is_reversed = 0 THEN discount_allocated ELSE 0 END), 2) AS vsa_discount,
+                       ROUND(SUM(CASE WHEN is_reversed = 0 THEN advance_allocated ELSE 0 END), 2) AS vsa_advance
+                FROM vendor_settlement_allocations
+                WHERE purchase_invoice_id IS NOT NULL
+                GROUP BY purchase_invoice_id
+            ) vsa ON vsa.purchase_invoice_id = pi.id
+            LEFT JOIN (
+                SELECT purchase_credit_notes.purchase_invoice_id,
+                       ROUND(SUM(applied_to_invoice_amount), 2) AS pcn_applied
+                FROM purchase_credit_notes
+                WHERE status = 'active' AND deleted_at IS NULL AND purchase_credit_notes.purchase_invoice_id IS NOT NULL
+                GROUP BY purchase_credit_notes.purchase_invoice_id
+            ) pcn ON pcn.purchase_invoice_id = pi.id
+            GROUP BY pc.supplier_id
+        ";
+
+        return collect(DB::select($sql, $supplierIds))->keyBy('supplier_id');
+    }
+
+    /**
+     * High-performance deadline alert computation for Supplier Hub without loading historical carts.
+     *
+     * @return array{show: bool, same_day: bool, overdue_count: int, credit_overdue_count: int, payment_overdue_count: int, vendor_missing_count: int, bill_pending_count: int, warehouse_pending_count: int, pending_total_count: int, overdue_carts: Collection, operational_date: string}
+     */
+    private function buildSupplierHubDeadlineAlert(int $userId, Carbon $selectedDate): array
+    {
+        $operationalDate = $this->businessDayService->operationalDate();
+        $calendarDate = $this->businessDayService->currentCalendarDate();
+        $warningOpen = $this->businessDayService->isWarningWindowOpen($calendarDate) && $selectedDate->isSameDay($calendarDate);
+
+        $vendorMissingCount = 0;
+        $billPendingCount = 0;
+
+        if ($warningOpen) {
+            $sameDayDraftCounts = PurchaserCart::query()
+                ->where('user_id', $userId)
+                ->whereDate('business_date', $calendarDate)
+                ->where('status', 'draft')
+                ->whereHas('items')
+                ->selectRaw('SUM(CASE WHEN supplier_id IS NULL THEN 1 ELSE 0 END) as missing_vendor, SUM(CASE WHEN supplier_id IS NOT NULL THEN 1 ELSE 0 END) as bill_pending')
+                ->first();
+
+            $vendorMissingCount = (int) ($sameDayDraftCounts->missing_vendor ?? 0);
+            $billPendingCount = (int) ($sameDayDraftCounts->bill_pending ?? 0);
+        }
+
+        $overdueCounts = DB::selectOne("
+            SELECT 
+                COUNT(*) as total_overdue,
+                SUM(CASE WHEN COALESCE(pi.payment_method, pc.payment_method) = 'Credit' THEN 1 ELSE 0 END) as credit_overdue
+            FROM purchaser_carts pc
+            LEFT JOIN purchase_invoices pi ON pi.id = pc.purchase_invoice_id
+            WHERE pc.user_id = ?
+              AND pc.business_date < ?
+              AND pc.status != 'cancelled'
+              AND (
+                  (pc.status = 'draft' AND EXISTS (SELECT 1 FROM purchaser_cart_items WHERE purchaser_cart_id = pc.id))
+                  OR (pi.id IS NOT NULL AND (
+                      (COALESCE(pi.payment_method, pc.payment_method) = 'Credit' AND pi.payment_status != 'paid')
+                      OR (pi.amount - pi.discount_amount - pi.paid_amount > 0)
+                  ))
+                  OR (pi.id IS NULL AND pc.payment_status IN ('unpaid', 'partial', 'credit_pending_approval'))
+              )
+        ", [$userId, $operationalDate]);
+
+        $overdueCount = (int) ($overdueCounts->total_overdue ?? 0);
+        $creditOverdueCount = (int) ($overdueCounts->credit_overdue ?? 0);
+        $paymentOverdueCount = max(0, $overdueCount - $creditOverdueCount);
+
+        return [
+            'show' => $overdueCount > 0 || ($warningOpen && ($vendorMissingCount > 0 || $billPendingCount > 0)),
+            'same_day' => $warningOpen,
+            'overdue_count' => $overdueCount,
+            'credit_overdue_count' => $creditOverdueCount,
+            'payment_overdue_count' => $paymentOverdueCount,
+            'vendor_missing_count' => $vendorMissingCount,
+            'bill_pending_count' => $billPendingCount,
+            'warehouse_pending_count' => 0,
+            'pending_total_count' => $overdueCount + $vendorMissingCount + $billPendingCount,
+            'overdue_carts' => collect(),
+            'operational_date' => $operationalDate->format('Y-m-d'),
         ];
     }
 

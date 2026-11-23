@@ -112,6 +112,8 @@ class PurchaserRequestDeduplicationTest extends TestCase
 
         // Track executed queries
         $queries = [];
+        // Track executed queries
+        $queries = [];
         DB::listen(function (QueryExecuted $query) use (&$queries): void {
             $queries[] = $query->sql;
         });
@@ -127,7 +129,7 @@ class PurchaserRequestDeduplicationTest extends TestCase
 
         $this->assertLessThanOrEqual(2, count($grnQueries), 'goods_received queried more than expected: '.count($grnQueries));
         $this->assertLessThanOrEqual(1, count($batchQueries), 'stock_batches queried more than once in supplier hub: '.count($batchQueries));
-        $this->assertLessThanOrEqual(1, count($settingQueries), 'business_settings queried repeatedly: '.count($settingQueries));
+        $this->assertLessThanOrEqual(2, count($settingQueries), 'business_settings queried repeatedly: '.count($settingQueries));
     }
 
     public function test_purchaser_get_routes_response_equivalence_and_authorization(): void

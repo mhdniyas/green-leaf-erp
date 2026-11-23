@@ -39,22 +39,22 @@
             <div class="flex items-center justify-between gap-2 border-b border-slate-800 pb-1.5 text-[10px]">
                 <div class="flex items-center gap-1.5 truncate">
                     <span class="rounded bg-teal-500/20 px-1.5 py-0.5 font-black uppercase text-teal-300">Vendors</span>
-                    <span class="truncate font-bold text-slate-300">{{ $supplierRows->count() }} {{ Str::plural('vendor', $supplierRows->count()) }}</span>
+                    <span class="truncate font-bold text-slate-300"><span id="top-bar-total-vendors">{{ $totalVendorsCount ?? $supplierRows->count() }}</span> {{ Str::plural('vendor', $totalVendorsCount ?? $supplierRows->count()) }}</span>
                 </div>
                 <span class="shrink-0 font-bold text-slate-400">{{ $selectedTab === 'all' || !$selectedTab ? 'All' : ucfirst($selectedTab) }} Tab</span>
             </div>
             <div class="mt-2 grid grid-cols-3 gap-1.5 text-center">
                 <div class="rounded-lg bg-slate-900 px-1 py-1.5">
                     <p class="text-[9px] font-black uppercase tracking-tight text-teal-400 truncate">Total Buy</p>
-                    <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-white truncate">₹{{ number_format($supplierRows->sum('total_amount'), 2) }}</p>
+                    <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-white truncate" id="top-bar-total-buy">₹{{ number_format($globalTotals['total_amount'] ?? $supplierRows->sum('total_amount'), 2) }}</p>
                 </div>
                 <div class="rounded-lg bg-slate-900 px-1 py-1.5">
                     <p class="text-[9px] font-black uppercase tracking-tight text-emerald-400 truncate">Paid</p>
-                    <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-emerald-300 truncate">₹{{ number_format($supplierRows->sum('paid_amount'), 2) }}</p>
+                    <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-emerald-300 truncate" id="top-bar-paid">₹{{ number_format($globalTotals['paid_amount'] ?? $supplierRows->sum('paid_amount'), 2) }}</p>
                 </div>
                 <div class="rounded-lg bg-slate-900 px-1 py-1.5">
                     <p class="text-[9px] font-black uppercase tracking-tight text-amber-400 truncate">Balance Due</p>
-                    <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-amber-300 truncate">₹{{ number_format($supplierRows->sum('balance_amount'), 2) }}</p>
+                    <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-amber-300 truncate" id="top-bar-balance">₹{{ number_format($globalTotals['balance_amount'] ?? $supplierRows->sum('balance_amount'), 2) }}</p>
                 </div>
             </div>
         </section>
@@ -69,27 +69,33 @@
                     <a href="{{ route('purchaser.suppliers', ['date' => $date, 'tab' => 'pending', 'search' => $search]) }}"
                        class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-all {{ $selectedTab === 'pending' ? 'bg-white text-slate-950 shadow-2xs font-black' : 'text-slate-500 hover:text-slate-800' }}">
                         <span>PENDING</span>
-                        <span class="rounded-full bg-slate-200/80 px-1.5 py-0.2 text-[9px] font-black text-slate-700">{{ $tabCounts['pending'] ?? 0 }}</span>
+                        <span id="tab-count-pending" class="rounded-full bg-slate-200/80 px-1.5 py-0.2 text-[9px] font-black text-slate-700">{{ $tabCounts['pending'] ?? 0 }}</span>
                     </a>
                     <a href="{{ route('purchaser.suppliers', ['date' => $date, 'tab' => 'credit', 'search' => $search]) }}"
                        class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-all {{ $selectedTab === 'credit' ? 'bg-white text-slate-950 shadow-2xs font-black' : 'text-slate-500 hover:text-slate-800' }}">
                         <span>CREDIT</span>
-                        <span class="rounded-full bg-slate-200/80 px-1.5 py-0.2 text-[9px] font-black text-slate-700">{{ $tabCounts['credit'] ?? 0 }}</span>
+                        <span id="tab-count-credit" class="rounded-full bg-slate-200/80 px-1.5 py-0.2 text-[9px] font-black text-slate-700">{{ $tabCounts['credit'] ?? 0 }}</span>
                     </a>
                     <a href="{{ route('purchaser.suppliers', ['date' => $date, 'tab' => 'all', 'search' => $search]) }}"
-                       class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-all {{ $selectedTab === 'all' || !$selectedTab ? 'bg-white text-slate-950 shadow-2xs font-black' : 'text-slate-500 hover:text-slate-800' }}">
+                       class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-all {{ $selectedTab === 'all' ? 'bg-white text-slate-950 shadow-2xs font-black' : 'text-slate-500 hover:text-slate-800' }}">
                         <span>ALL VENDORS</span>
-                        <span class="rounded-full bg-slate-200/80 px-1.5 py-0.2 text-[9px] font-black text-slate-700">{{ $tabCounts['all'] ?? $supplierRows->count() }}</span>
+                        <span id="tab-count-all" class="rounded-full bg-slate-200/80 px-1.5 py-0.2 text-[9px] font-black text-slate-700">{{ $tabCounts['all'] ?? 0 }}</span>
                     </a>
                 </div>
 
                 <!-- Middle: Instant Search -->
                 <div class="flex-1 max-w-sm min-w-0">
                     <div class="relative">
-                        <input type="search" id="vendor-search-input" placeholder="Search vendor, mobile, location..." oninput="filterVendorRows(this.value)" value="{{ $search }}" class="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:border-teal-500 focus:outline-none">
+                        <input type="search" id="vendor-search-input" placeholder="Search vendor, mobile, location..." oninput="handleVendorSearch(this.value)" value="{{ $search }}" class="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-8 text-xs font-semibold text-slate-900 focus:bg-white focus:border-teal-500 focus:outline-none">
                         <svg class="absolute left-2.5 top-2 h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                         </svg>
+                        <span id="vendor-search-spinner" class="absolute right-2.5 top-2 hidden">
+                            <svg class="h-4 w-4 animate-spin text-teal-600" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                            </svg>
+                        </span>
                     </div>
                 </div>
 
@@ -97,7 +103,7 @@
                 <div class="flex items-center justify-between md:justify-end gap-3 text-xs shrink-0">
                     <div class="text-right">
                         <span class="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Total Balance</span>
-                        <span class="font-mono font-black text-amber-700 text-xs sm:text-sm">₹{{ number_format($supplierRows->sum('balance_amount'), 2) }}</span>
+                        <span class="font-mono font-black text-amber-700 text-xs sm:text-sm" id="tab-total-balance">₹{{ number_format($globalTotals['balance_amount'] ?? $supplierRows->sum('balance_amount'), 2) }}</span>
                     </div>
                     <!-- Desktop View Switcher -->
                     <div class="hidden md:flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
@@ -127,10 +133,10 @@
                         <th scope="col" class="py-3 px-3.5 text-center">Action</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-100 text-slate-700">
+                <tbody id="vendor-table-body" class="divide-y divide-slate-100 text-slate-700">
                     @forelse ($supplierRows as $row)
                         @php($supplier = $row['supplier'])
-                        <tr class="transition-colors hover:bg-slate-50/80">
+                        <tr class="transition-colors hover:bg-slate-50/80" data-supplier-id="{{ $supplier->id }}" data-total="{{ $row['total_amount'] }}" data-paid="{{ $row['paid_amount'] }}" data-discount="{{ $row['discount_amount'] }}" data-balance="{{ $row['balance_amount'] }}">
                             <!-- Vendor Name & Badges -->
                             <td class="py-3 px-3.5 align-top">
                                 <p class="font-bold text-slate-900">{{ $supplier->name }}</p>
@@ -186,7 +192,7 @@
                             </td>
                         </tr>
                     @empty
-                        <tr>
+                        <tr id="vendor-table-empty-row">
                             <td colspan="8" class="py-8 text-center text-xs font-bold text-slate-500">
                                 @if (auth()->user()?->showsRelatedVendorsOnly())
                                     No suppliers are assigned to this purchaser.
@@ -197,20 +203,18 @@
                         </tr>
                     @endforelse
                 </tbody>
-                @if ($supplierRows->isNotEmpty())
-                    <tfoot class="border-t-2 border-slate-900 bg-slate-950 text-white font-mono text-xs">
-                        <tr>
-                            <td colspan="3" class="py-3 px-3.5 font-sans font-black uppercase text-[10px] tracking-wider text-slate-300">
-                                Table Total ({{ $supplierRows->count() }} {{ \Illuminate\Support\Str::plural('vendor', $supplierRows->count()) }})
-                            </td>
-                            <td class="py-3 px-3 text-right font-black text-white whitespace-nowrap">₹{{ number_format($supplierRows->sum('total_amount'), 2) }}</td>
-                            <td class="py-3 px-3 text-right font-black text-emerald-400 whitespace-nowrap">₹{{ number_format($supplierRows->sum('paid_amount'), 2) }}</td>
-                            <td class="py-3 px-3 text-right font-bold text-slate-300 whitespace-nowrap">₹{{ number_format($supplierRows->sum('discount_amount'), 2) }}</td>
-                            <td class="py-3 px-3 text-right font-black text-amber-400 whitespace-nowrap">₹{{ number_format($supplierRows->sum('balance_amount'), 2) }}</td>
-                            <td></td>
-                        </tr>
-                    </tfoot>
-                @endif
+                <tfoot id="vendor-table-footer" class="border-t-2 border-slate-900 bg-slate-950 text-white font-mono text-xs {{ $supplierRows->isEmpty() ? 'hidden' : '' }}">
+                    <tr>
+                        <td colspan="3" class="py-3 px-3.5 font-sans font-black uppercase text-[10px] tracking-wider text-slate-300">
+                            Table Total (<span id="table-footer-count">{{ $supplierRows->count() }}</span> of <span id="table-footer-total">{{ $totalRowsCount }}</span> {{ \Illuminate\Support\Str::plural('vendor', $totalRowsCount) }})
+                        </td>
+                        <td id="table-footer-total-buy" class="py-3 px-3 text-right font-black text-white whitespace-nowrap">₹{{ number_format($supplierRows->sum('total_amount'), 2) }}</td>
+                        <td id="table-footer-paid" class="py-3 px-3 text-right font-black text-emerald-400 whitespace-nowrap">₹{{ number_format($supplierRows->sum('paid_amount'), 2) }}</td>
+                        <td id="table-footer-discount" class="py-3 px-3 text-right font-bold text-slate-300 whitespace-nowrap">₹{{ number_format($supplierRows->sum('discount_amount'), 2) }}</td>
+                        <td id="table-footer-balance" class="py-3 px-3 text-right font-black text-amber-400 whitespace-nowrap">₹{{ number_format($supplierRows->sum('balance_amount'), 2) }}</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
 
@@ -218,7 +222,7 @@
         <div id="vendor-cards-container" class="space-y-2 md:hidden">
             @forelse ($supplierRows as $row)
                 @php($supplier = $row['supplier'])
-                <article class="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs space-y-2">
+                <article class="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs space-y-2" data-supplier-id="{{ $supplier->id }}" data-total="{{ $row['total_amount'] }}" data-paid="{{ $row['paid_amount'] }}" data-discount="{{ $row['discount_amount'] }}" data-balance="{{ $row['balance_amount'] }}">
                     <!-- Row 1: Vendor Name & Badges -->
                     <div class="flex items-start justify-between gap-2">
                         <div class="min-w-0">
@@ -262,7 +266,7 @@
                     </div>
                 </article>
             @empty
-                <div class="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-xs font-bold text-slate-500">
+                <div id="vendor-cards-empty-card" class="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-xs font-bold text-slate-500">
                     @if (auth()->user()?->showsRelatedVendorsOnly())
                         No suppliers are assigned to this purchaser.
                     @else
@@ -270,7 +274,24 @@
                     @endif
                 </div>
             @endforelse
-    </div>
+        </div>
+
+        <!-- Load More Section -->
+        <div id="vendor-load-more-container" class="mt-2 flex flex-col items-center justify-center gap-2 {{ $hasMorePages ? '' : 'hidden' }}">
+            <button type="button"
+                    id="vendor-load-more-btn"
+                    onclick="loadMoreVendors()"
+                    class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 active:scale-98 transition-all">
+                <span id="load-more-spinner" class="hidden">
+                    <svg class="h-4 w-4 animate-spin text-teal-600" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                    </svg>
+                </span>
+                <span id="load-more-text">Load More Vendors (<span id="load-more-count">{{ $supplierRows->count() }}</span> of <span id="load-more-total">{{ $totalRowsCount }}</span>)</span>
+            </button>
+            <p id="load-more-error" class="hidden text-xs font-semibold text-rose-600"></p>
+        </div>
 
 
     {{-- ═══════════════════════════════════════════════════════════
@@ -434,15 +455,350 @@
             }
         }
 
-        function filterVendorRows(query) {
-            const q = query.toLowerCase().trim();
-            document.querySelectorAll('#vendor-table-container tbody tr, #vendor-cards-container article').forEach(el => {
-                if (!q) {
-                    el.style.display = '';
-                    return;
-                }
-                el.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none';
+        let currentPage = {{ $currentPage }};
+        let hasMore = {{ $hasMorePages ? 'true' : 'false' }};
+        let isLoadingMore = false;
+        let currentSearch = @json($search);
+        let searchDebounceTimer = null;
+        const currentTab = @json($selectedTab);
+        const currentDate = @json($date);
+        const suppliersUrl = @json(route('purchaser.suppliers'));
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function formatMoney(amount) {
+            return Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function renderTableRowHtml(row) {
+            const totalFormatted = formatMoney(row.total_amount);
+            const paidFormatted = formatMoney(row.paid_amount);
+            const discountFormatted = formatMoney(row.discount_amount);
+            const balanceFormatted = formatMoney(row.balance_amount);
+            const isCredit = Boolean(row.credit_approved);
+            const creditBadge = `<span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] ${isCredit ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${isCredit ? 'Credit' : 'Cash'}</span>`;
+            const pendingBadge = row.pending_count > 0
+                ? `<span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] ${escapeHtml(row.pending_issue_tone)}">${escapeHtml(row.pending_issue_label)}</span>`
+                : '';
+            const bankBadge = row.has_bank_details && row.bank_details
+                ? `<span class="mt-1 inline-flex items-center gap-1 rounded bg-teal-50 px-1.5 py-0.5 text-[9px] font-bold text-teal-700" title="${escapeHtml(row.bank_details)}">🏦 Bank</span>`
+                : '';
+            const locationText = row.location ? `<p class="text-[10px] font-medium text-slate-500">${escapeHtml(row.location)}</p>` : '';
+            const balanceClass = Number(row.balance_amount) > 0 ? 'text-amber-700' : 'text-slate-900';
+
+            return `
+                <tr class="transition-colors hover:bg-slate-50/80" data-supplier-id="${row.id}" data-total="${row.total_amount}" data-paid="${row.paid_amount}" data-discount="${row.discount_amount}" data-balance="${row.balance_amount}">
+                    <td class="py-3 px-3.5 align-top">
+                        <p class="font-bold text-slate-900">${escapeHtml(row.name)}</p>
+                        <div class="mt-1 flex flex-wrap items-center gap-1">
+                            ${creditBadge}
+                            ${pendingBadge}
+                        </div>
+                    </td>
+                    <td class="py-3 px-3 align-top">
+                        <p class="text-[10px] font-medium text-slate-500">${escapeHtml(row.mobile_number || 'Mobile pending')}</p>
+                        ${locationText}
+                        ${bankBadge}
+                    </td>
+                    <td class="py-3 px-3 align-top font-mono text-[10px] font-bold text-slate-700">
+                        ${escapeHtml(row.recent_business_date)}
+                    </td>
+                    <td class="py-3 px-3 text-right align-top font-mono font-black text-slate-950 whitespace-nowrap text-xs">
+                        ₹${totalFormatted}
+                    </td>
+                    <td class="py-3 px-3 text-right align-top font-mono font-black text-emerald-700 whitespace-nowrap text-xs">
+                        ₹${paidFormatted}
+                    </td>
+                    <td class="py-3 px-3 text-right align-top font-mono font-bold text-slate-600 whitespace-nowrap text-xs">
+                        ₹${discountFormatted}
+                    </td>
+                    <td class="py-3 px-3 text-right align-top font-mono font-black ${balanceClass} whitespace-nowrap text-xs">
+                        ₹${balanceFormatted}
+                    </td>
+                    <td class="py-3 px-3.5 text-center align-top whitespace-nowrap">
+                        <a href="${escapeHtml(row.history_route)}" class="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-slate-950 px-2.5 text-[10px] font-black text-white shadow-2xs transition-all hover:bg-slate-800 active:scale-95">
+                            <span>View History</span>
+                            <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                            </svg>
+                        </a>
+                    </td>
+                </tr>
+            `;
+        }
+
+        function renderCardHtml(row) {
+            const totalFormatted = formatMoney(row.total_amount);
+            const balanceFormatted = formatMoney(row.balance_amount);
+            const isCredit = Boolean(row.credit_approved);
+            const creditBadge = `<span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] ${isCredit ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${isCredit ? 'Credit' : 'Cash'}</span>`;
+            const pendingBadge = row.pending_count > 0
+                ? `<span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] ${escapeHtml(row.pending_issue_tone)}">${escapeHtml(row.pending_issue_label)}</span>`
+                : '';
+            const locText = row.location ? ` • ${escapeHtml(row.location)}` : '';
+            const balanceText = Number(row.balance_amount) > 0
+                ? `<span class="text-[10px] font-bold text-amber-700">Due ₹${balanceFormatted}</span>`
+                : `<span class="text-[10px] font-bold text-emerald-700">Cleared</span>`;
+
+            return `
+                <article class="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs space-y-2" data-supplier-id="${row.id}" data-total="${row.total_amount}" data-paid="${row.paid_amount}" data-discount="${row.discount_amount}" data-balance="${row.balance_amount}">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="min-w-0">
+                            <h3 class="text-xs font-black text-slate-950 truncate">${escapeHtml(row.name)}</h3>
+                            <p class="mt-0.5 text-[10px] font-medium text-slate-500">
+                                ${escapeHtml(row.mobile_number || 'Mobile pending')}${locText}
+                            </p>
+                        </div>
+                        <div class="flex flex-col items-end gap-1 shrink-0">
+                            ${creditBadge}
+                            ${pendingBadge}
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between gap-2 border-t border-slate-100/80 pt-2 text-xs">
+                        <div class="min-w-0">
+                            <div class="flex items-baseline gap-1.5 flex-wrap">
+                                <span class="font-mono text-xs font-black text-slate-950">₹${totalFormatted}</span>
+                                ${balanceText}
+                            </div>
+                            <p class="text-[10px] font-medium text-slate-500 mt-0.5">${escapeHtml(row.recent_business_date)}</p>
+                        </div>
+                        <a href="${escapeHtml(row.history_route)}" class="inline-flex h-7 items-center justify-center gap-1 rounded-lg bg-slate-950 px-2.5 text-[10px] font-black text-white shadow-2xs transition-all hover:bg-slate-800 active:scale-95 shrink-0">
+                            History
+                            <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                            </svg>
+                        </a>
+                    </div>
+                </article>
+            `;
+        }
+
+        function updateTableFooter(totalRecords) {
+            const tableFooter = document.getElementById('vendor-table-footer');
+            const tableBody = document.getElementById('vendor-table-body');
+            if (!tableFooter || !tableBody) return;
+
+            const rows = tableBody.querySelectorAll('tr[data-supplier-id]');
+            const count = rows.length;
+
+            if (count === 0) {
+                tableFooter.classList.add('hidden');
+                return;
+            }
+
+            tableFooter.classList.remove('hidden');
+
+            let totalBuy = 0;
+            let totalPaid = 0;
+            let totalDiscount = 0;
+            let totalBalance = 0;
+
+            rows.forEach(r => {
+                totalBuy += parseFloat(r.dataset.total || '0');
+                totalPaid += parseFloat(r.dataset.paid || '0');
+                totalDiscount += parseFloat(r.dataset.discount || '0');
+                totalBalance += parseFloat(r.dataset.balance || '0');
             });
+
+            const footerCount = document.getElementById('table-footer-count');
+            const footerTotal = document.getElementById('table-footer-total');
+            const footerBuy = document.getElementById('table-footer-total-buy');
+            const footerPaid = document.getElementById('table-footer-paid');
+            const footerDiscount = document.getElementById('table-footer-discount');
+            const footerBalance = document.getElementById('table-footer-balance');
+
+            if (footerCount) footerCount.textContent = count;
+            if (footerTotal && totalRecords !== undefined) footerTotal.textContent = totalRecords;
+            if (footerBuy) footerBuy.textContent = '₹' + formatMoney(totalBuy);
+            if (footerPaid) footerPaid.textContent = '₹' + formatMoney(totalPaid);
+            if (footerDiscount) footerDiscount.textContent = '₹' + formatMoney(totalDiscount);
+            if (footerBalance) footerBalance.textContent = '₹' + formatMoney(totalBalance);
+        }
+
+        async function loadMoreVendors() {
+            if (isLoadingMore || !hasMore) return;
+
+            isLoadingMore = true;
+            const btn = document.getElementById('vendor-load-more-btn');
+            const spinner = document.getElementById('load-more-spinner');
+            const errorEl = document.getElementById('load-more-error');
+
+            if (btn) btn.classList.add('pointer-events-none', 'opacity-60');
+            if (spinner) spinner.classList.remove('hidden');
+            if (errorEl) errorEl.classList.add('hidden');
+
+            const nextPage = currentPage + 1;
+            const url = new URL(suppliersUrl, window.location.origin);
+            url.searchParams.set('page', nextPage);
+            url.searchParams.set('tab', currentTab);
+            url.searchParams.set('date', currentDate);
+            if (currentSearch) {
+                url.searchParams.set('search', currentSearch);
+            }
+
+            try {
+                const response = await fetch(url.toString(), {
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server returned ${response.status}`);
+                }
+
+                const data = await response.json();
+                const rows = data.data || [];
+                const tableBody = document.getElementById('vendor-table-body');
+                const cardsContainer = document.getElementById('vendor-cards-container');
+
+                rows.forEach(row => {
+                    if (document.querySelector(`[data-supplier-id="${row.id}"]`)) {
+                        return;
+                    }
+                    if (tableBody) {
+                        const tr = document.createElement('tbody');
+                        tr.innerHTML = renderTableRowHtml(row).trim();
+                        tableBody.appendChild(tr.firstElementChild);
+                    }
+                    if (cardsContainer) {
+                        const card = document.createElement('div');
+                        card.innerHTML = renderCardHtml(row).trim();
+                        cardsContainer.appendChild(card.firstElementChild);
+                    }
+                });
+
+                currentPage = data.pagination.current_page;
+                hasMore = data.pagination.has_more;
+
+                const loadMoreCount = document.getElementById('load-more-count');
+                const loadMoreTotal = document.getElementById('load-more-total');
+                const loadMoreContainer = document.getElementById('vendor-load-more-container');
+
+                const currentDisplayedCount = document.querySelectorAll('#vendor-table-body tr[data-supplier-id]').length;
+                if (loadMoreCount) loadMoreCount.textContent = currentDisplayedCount;
+                if (loadMoreTotal) loadMoreTotal.textContent = data.pagination.total_records;
+
+                if (!hasMore && loadMoreContainer) {
+                    loadMoreContainer.classList.add('hidden');
+                }
+
+                updateTableFooter(data.pagination.total_records);
+            } catch (err) {
+                console.error('Failed to load more vendors:', err);
+                if (errorEl) {
+                    errorEl.textContent = 'Failed to load more vendors. Click button to retry.';
+                    errorEl.classList.remove('hidden');
+                }
+            } finally {
+                isLoadingMore = false;
+                if (btn) btn.classList.remove('pointer-events-none', 'opacity-60');
+                if (spinner) spinner.classList.add('hidden');
+            }
+        }
+
+        function handleVendorSearch(query) {
+            clearTimeout(searchDebounceTimer);
+            const spinner = document.getElementById('vendor-search-spinner');
+            if (spinner) spinner.classList.remove('hidden');
+
+            searchDebounceTimer = setTimeout(() => {
+                executeVendorSearch(query);
+            }, 300);
+        }
+
+        async function executeVendorSearch(query) {
+            currentSearch = query.trim();
+            currentPage = 1;
+
+            const url = new URL(suppliersUrl, window.location.origin);
+            url.searchParams.set('page', 1);
+            url.searchParams.set('tab', currentTab);
+            url.searchParams.set('date', currentDate);
+            if (currentSearch) {
+                url.searchParams.set('search', currentSearch);
+            }
+
+            try {
+                const response = await fetch(url.toString(), {
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server returned ${response.status}`);
+                }
+
+                const data = await response.json();
+                const rows = data.data || [];
+                const tableBody = document.getElementById('vendor-table-body');
+                const cardsContainer = document.getElementById('vendor-cards-container');
+                const loadMoreContainer = document.getElementById('vendor-load-more-container');
+
+                if (tableBody) tableBody.innerHTML = '';
+                if (cardsContainer) cardsContainer.innerHTML = '';
+
+                if (rows.length === 0) {
+                    const emptyText = currentSearch ? 'No vendors match your search.' : 'No vendors found for this tab yet.';
+                    if (tableBody) {
+                        tableBody.innerHTML = `<tr><td colspan="8" class="py-8 text-center text-xs font-bold text-slate-500">${escapeHtml(emptyText)}</td></tr>`;
+                    }
+                    if (cardsContainer) {
+                        cardsContainer.innerHTML = `<div class="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-xs font-bold text-slate-500">${escapeHtml(emptyText)}</div>`;
+                    }
+                    if (loadMoreContainer) {
+                        loadMoreContainer.classList.add('hidden');
+                    }
+                } else {
+                    rows.forEach(row => {
+                        if (tableBody) {
+                            const tr = document.createElement('tbody');
+                            tr.innerHTML = renderTableRowHtml(row).trim();
+                            tableBody.appendChild(tr.firstElementChild);
+                        }
+                        if (cardsContainer) {
+                            const card = document.createElement('div');
+                            card.innerHTML = renderCardHtml(row).trim();
+                            cardsContainer.appendChild(card.firstElementChild);
+                        }
+                    });
+
+                    hasMore = data.pagination.has_more;
+                    if (loadMoreContainer) {
+                        loadMoreContainer.classList.toggle('hidden', !hasMore);
+                        const loadMoreCount = document.getElementById('load-more-count');
+                        const loadMoreTotal = document.getElementById('load-more-total');
+                        if (loadMoreCount) loadMoreCount.textContent = rows.length;
+                        if (loadMoreTotal) loadMoreTotal.textContent = data.pagination.total_records;
+                    }
+                }
+
+                updateTableFooter(data.pagination.total_records);
+
+                const stateUrl = new URL(window.location.href);
+                if (currentSearch) {
+                    stateUrl.searchParams.set('search', currentSearch);
+                } else {
+                    stateUrl.searchParams.delete('search');
+                }
+                window.history.replaceState(null, '', stateUrl.toString());
+            } catch (err) {
+                console.error('Vendor search error:', err);
+            } finally {
+                const spinner = document.getElementById('vendor-search-spinner');
+                if (spinner) spinner.classList.add('hidden');
+            }
         }
     </script>
 </x-layouts.app>
