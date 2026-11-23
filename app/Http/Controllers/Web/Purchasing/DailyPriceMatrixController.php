@@ -76,14 +76,51 @@ class DailyPriceMatrixController extends Controller
         ]);
     }
 
-    public function exportWhatsApp(Request $request): RedirectResponse
+    public function exportWhatsApp(Request $request): RedirectResponse|View
     {
         $this->authorizeBoardAccess();
 
         $data = $this->buildMatrixViewData($request, forExport: true);
         $scope = $this->exportScope($request);
+        $shareText = $this->buildMatrixShareText($data, $scope);
+        $encoded = rawurlencode($shareText);
+        $whatsappUrl = 'https://api.whatsapp.com/send?text='.$encoded;
 
-        return redirect()->away('https://api.whatsapp.com/send?text='.rawurlencode($this->buildMatrixShareText($data, $scope)));
+        // If URL length is within safe web server / Cloudflare header limits (<= 3500 chars)
+        // and preview is not explicitly requested, redirect directly.
+        if (strlen($whatsappUrl) <= 3500 && ! $request->boolean('preview') && ! $request->has('view')) {
+            return redirect()->away($whatsappUrl);
+        }
+
+        // When the catalog is large (e.g. 300+ products = 18KB+ URL), redirecting via HTTP 302
+        // causes Nginx/Cloudflare 502 Bad Gateway due to header size limits.
+        // Instead, render a dedicated WhatsApp share view where the user can copy or open in WhatsApp safely.
+        $rows = $this->matrixExportRows($data, $scope);
+        $pricedRows = array_values(array_filter($rows, function (array $row): bool {
+            foreach ($row['prices'] as $p) {
+                if ($p['price'] !== null && (float) $p['price'] > 0) {
+                    return true;
+                }
+            }
+
+            return false;
+        }));
+
+        $pricedShareText = $this->buildMatrixShareTextFromRows($pricedRows, $data, $scope);
+
+        return view('purchase-manager.prices.matrix-whatsapp', [
+            ...$data,
+            'exportScope' => $scope,
+            'exportRows' => $rows,
+            'shareText' => $shareText,
+            'pricedShareText' => $pricedShareText,
+            'totalItemsCount' => count($rows),
+            'pricedItemsCount' => count($pricedRows),
+            'generatedBy' => $request->user()?->name ?? 'System',
+            'generatedAt' => now()->format('d M Y, h:i A'),
+            'companyName' => 'Green Leaf Distribution',
+            'whatsappUrl' => strlen($whatsappUrl) <= 3500 ? $whatsappUrl : null,
+        ]);
     }
 
     /**
@@ -1139,6 +1176,16 @@ class DailyPriceMatrixController extends Controller
     private function buildMatrixShareText(array $data, string $scope): string
     {
         $rows = $this->matrixExportRows($data, $scope);
+
+        return $this->buildMatrixShareTextFromRows($rows, $data, $scope);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<string, mixed>  $data
+     */
+    private function buildMatrixShareTextFromRows(array $rows, array $data, string $scope): string
+    {
         $category = strtoupper((string) $data['matrixCategory']);
         $title = match ($scope) {
             'today' => 'Today Selling Price Matrix',

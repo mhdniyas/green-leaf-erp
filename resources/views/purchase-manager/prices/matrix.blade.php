@@ -26,7 +26,8 @@
 
 /* ─── Export / action dropdowns ────────────────────────────────────────── */
 .matrix-dropdown{position:relative;display:inline-flex}
-.matrix-dropdown-menu{position:absolute;top:calc(100% + 4px);right:0;min-width:11rem;background:#fff;border:1px solid #e2e8f0;border-radius:0.5rem;box-shadow:0 8px 24px rgba(0,0,0,0.1);padding:0.25rem;z-index:50;display:none}
+.matrix-dropdown:focus-within{z-index:60}
+.matrix-dropdown-menu{position:absolute;top:calc(100% + 4px);right:0;min-width:12rem;background:#fff;border:1px solid #e2e8f0;border-radius:0.5rem;box-shadow:0 10px 25px -5px rgba(0,0,0,0.15),0 8px 10px -6px rgba(0,0,0,0.1);padding:0.375rem;z-index:100;display:none;max-height:calc(100vh - 100px);overflow-y:auto}
 .matrix-dropdown-menu.open{display:block}
 .matrix-dropdown-menu a,.matrix-dropdown-menu button{display:flex;align-items:center;gap:0.5rem;width:100%;padding:0.375rem 0.625rem;border-radius:0.3rem;font-size:0.6875rem;font-weight:600;color:#1e293b;text-align:left;transition:background-color 100ms;white-space:nowrap;background:none;border:none;cursor:pointer;text-decoration:none}
 .matrix-dropdown-menu a:hover,.matrix-dropdown-menu button:hover{background-color:#f1f5f9}
@@ -43,7 +44,7 @@
 .status-pill.unpublished{background:#fef3c7;color:#92400e}
 
 /* ─── Page-level overflow guard ────────────────────────────────────────── */
-.matrix-page-root{min-width:0;width:100%;overflow-x:hidden}
+.matrix-page-root{min-width:0;width:100%}
 
 /* ─── Category chip strip ───────────────────────────────────────────────── */
 .cat-chip{display:inline-flex;align-items:center;gap:0.25rem;height:1.625rem;border-radius:9999px;padding:0 0.625rem;font-size:0.6875rem;font-weight:600;transition:background-color 120ms,color 120ms;cursor:pointer;border:1px solid transparent;touch-action:manipulation}
@@ -186,7 +187,7 @@
     {{-- ═══════════════════════════════════════════════════════════
          SECTION B+C — Filter control card
     ═══════════════════════════════════════════════════════════ --}}
-    <section class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+    <section class="rounded-xl border border-slate-200 bg-white shadow-sm relative z-20">
         <form method="GET" action="{{ route('purchasing.prices.matrix.index') }}" id="matrix-filter-form">
             <input type="hidden" name="matrix_category" id="filter-matrix-category" value="{{ $matrixCategory }}">
             <input type="hidden" name="quality_grade" id="matrix-filter-quality-grade" value="{{ $qualityGrade ?? 'A' }}">
