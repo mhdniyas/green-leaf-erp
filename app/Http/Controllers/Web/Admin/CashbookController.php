@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web\Admin;
 
 use App\Enums\Cashbook\TransactionStatus;
 use App\Enums\ShopInvoice\ShopCreditNoteStatus;
+use App\Exports\PurchasePriceReportExport;
 use App\Exports\PurchaserExpenseReportExport;
 use App\Exports\PurchaserReportArrayExport;
 use App\Exports\ShopSalesReportExport;
@@ -8274,9 +8275,9 @@ final class CashbookController extends Controller
         $filters = $request->priceFilters();
         $rows = $priceReportingService->priceReport($filters);
         $options = $priceReportingService->options();
-        $activePriceGroups = $priceReportingService->activePriceGroups();
+        $activeGrades = $priceReportingService->activeGrades();
 
-        return view('admin.cashbook.finance.purchase.reports.prices', array_merge($this->purchaseLayoutData(), compact('filters', 'rows', 'options', 'activePriceGroups')));
+        return view('admin.cashbook.finance.purchase.reports.prices', array_merge($this->purchaseLayoutData(), compact('filters', 'rows', 'options', 'activeGrades')));
     }
 
     public function companyFinancePurchasePriceReportPdf(PurchasePriceReportRequest $request, PurchasePriceReportingService $priceReportingService): mixed
@@ -8308,9 +8309,65 @@ final class CashbookController extends Controller
         $filename = 'price-report-'.$filters['date'].$produceSuffix.'.pdf';
 
         $pdf = Pdf::loadView('admin.cashbook.finance.purchase.reports.prices_pdf', $viewData)
-            ->setPaper('a4', 'portrait');
+            ->setPaper('a4', 'landscape');
 
         return $pdf->download($filename);
+    }
+
+    public function companyFinancePurchasePriceReportCsv(PurchasePriceReportRequest $request, PurchasePriceReportingService $priceReportingService): StreamedResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $request->priceFilters();
+        $rows = $priceReportingService->priceReport($filters, false);
+        $export = new PurchasePriceReportExport($rows);
+
+        $produceSuffix = match ($filters['warehouse_code'] ?? null) {
+            'VEG-WH' => '-vegetables',
+            'FRT-WH' => '-fruits',
+            default => '',
+        };
+        $filename = 'purchase-price-report-'.$filters['start_date'].'-to-'.$filters['end_date'].$produceSuffix.'.csv';
+
+        return response()->streamDownload(function () use ($export, $rows): void {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, $export->headings(), ',', '"', '\\');
+
+            foreach ($rows->chunk(200) as $chunk) {
+                foreach ($chunk as $row) {
+                    fputcsv($handle, $export->map($row), ',', '"', '\\');
+                }
+                if (ob_get_level() > 0) {
+                    ob_flush();
+                }
+                flush();
+            }
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+        ]);
+    }
+
+    public function companyFinancePurchasePriceReportExcel(PurchasePriceReportRequest $request, PurchasePriceReportingService $priceReportingService): BinaryFileResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $request->priceFilters();
+        $rows = $priceReportingService->priceReport($filters, false);
+
+        $produceSuffix = match ($filters['warehouse_code'] ?? null) {
+            'VEG-WH' => '-vegetables',
+            'FRT-WH' => '-fruits',
+            default => '',
+        };
+        $filename = 'purchase-price-report-'.$filters['start_date'].'-to-'.$filters['end_date'].$produceSuffix.'.xlsx';
+
+        return Excel::download(
+            new PurchasePriceReportExport($rows),
+            $filename
+        );
     }
 
     public function companyFinancePurchasePriceProduct(PurchasePriceReportRequest $request, Product $product, PurchasePriceReportingService $priceReportingService): View

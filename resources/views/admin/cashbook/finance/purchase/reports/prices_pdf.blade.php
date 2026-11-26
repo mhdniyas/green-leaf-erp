@@ -6,7 +6,7 @@
     <style>
         @page {
             margin: 20px 25px;
-            size: a4 portrait;
+            size: a4 landscape;
         }
         body {
             font-family: DejaVu Sans, sans-serif;
@@ -127,22 +127,25 @@
     <table>
         <thead>
             <tr>
-                <th style="width: 12%;">Code</th>
-                <th style="width: {{ $isCategorySort ? '36%' : '26%' }};">Product</th>
+                <th style="width: 9%;">Code</th>
+                <th style="width: {{ $isCategorySort ? '22%' : '16%' }};">Product</th>
                 @if(!$isCategorySort)
-                    <th style="width: 16%;">Category</th>
+                    <th style="width: 11%;">Category</th>
                 @endif
-                <th class="center" style="width: 8%;">Unit</th>
-                <th class="right" style="width: 15%;">Purchase Price</th>
-                <th class="right" style="width: 14%;">Selling Price</th>
-                <th class="right" style="width: 12%;">Difference</th>
-                <th class="right" style="width: 11%;">Margin %</th>
+                <th class="center" style="width: 6%;">Grade</th>
+                <th class="right" style="width: 8%;">Qty</th>
+                <th class="right" style="width: 10%;">Current Price</th>
+                <th class="right" style="width: 11%;">Last Price</th>
+                <th style="width: 9%;">Last Date</th>
+                <th class="right" style="width: 9%;">Selling Price</th>
+                <th class="right" style="width: 7%;">Diff</th>
+                <th style="width: 9%;">Status</th>
             </tr>
         </thead>
         <tbody>
             @if($rows->isEmpty())
                 <tr>
-                    <td colspan="{{ $isCategorySort ? 7 : 8 }}" class="center muted" style="padding: 24px;">
+                    <td colspan="{{ $isCategorySort ? 10 : 11 }}" class="center muted" style="padding: 24px;">
                         No price records found for the selected date and filters.
                     </td>
                 </tr>
@@ -154,7 +157,7 @@
                 @foreach($groupedCollection as $catName => $categoryRows)
                     @if($isCategorySort)
                         <tr class="category-row">
-                            <td colspan="7">
+                            <td colspan="10">
                                 {{ $catName ?: 'Uncategorized' }} ({{ count($categoryRows) }} items)
                             </td>
                         </tr>
@@ -163,36 +166,23 @@
                     @foreach($categoryRows as $row)
                         @php
                             $actualPrice = $row->actual_purchase_price !== null ? (float) $row->actual_purchase_price : null;
+                            $lastPrice = $row->last_purchase_price !== null ? (float) $row->last_purchase_price : null;
+                            $purchaseQty = $row->purchase_qty !== null ? (float) $row->purchase_qty : null;
                             $sellingPrice = $row->selling_price !== null ? (float) $row->selling_price : null;
                             $diff = ($actualPrice !== null && $sellingPrice !== null) ? ($sellingPrice - $actualPrice) : null;
-                            $margin = ($diff !== null && $actualPrice > 0) ? ($diff / $actualPrice * 100) : null;
                         @endphp
                         <tr>
-                            <!-- Code -->
                             <td class="mono bold">{{ $row->product_sku ?: '—' }}</td>
-
-                            <!-- Product -->
                             <td class="bold">{{ $row->product_name }}</td>
-
-                            <!-- Category (when not grouped) -->
                             @if(!$isCategorySort)
                                 <td>{{ $row->category_name ?: '—' }}</td>
                             @endif
-
-                            <!-- Unit -->
-                            <td class="center uppercase mono">{{ strtoupper($row->price_unit ?: $row->product_unit) }}</td>
-
-                            <!-- Purchase Price (Actual) -->
-                            <td class="right mono bold">
-                                {{ $actualPrice !== null ? '₹'.number_format($actualPrice, 2) : '—' }}
-                            </td>
-
-                            <!-- Selling Price -->
-                            <td class="right mono bold">
-                                {{ $sellingPrice !== null ? '₹'.number_format($sellingPrice, 2) : '—' }}
-                            </td>
-
-                            <!-- Difference -->
+                            <td class="center bold">{{ $row->grade ?? 'A' }}</td>
+                            <td class="right mono">{{ $purchaseQty !== null ? number_format($purchaseQty, 3) : '—' }}</td>
+                            <td class="right mono bold">{{ $actualPrice !== null ? '₹'.number_format($actualPrice, 2) : '—' }}</td>
+                            <td class="right mono">{{ $lastPrice !== null ? '₹'.number_format($lastPrice, 2) : ($actualPrice === null ? 'No Price Available' : '—') }}</td>
+                            <td class="mono">{{ !empty($row->last_purchase_date) ? \Carbon\Carbon::parse($row->last_purchase_date)->format('d M Y') : '—' }}</td>
+                            <td class="right mono bold">{{ $sellingPrice !== null ? '₹'.number_format($sellingPrice, 2) : '—' }}</td>
                             <td class="right mono bold {{ $diff !== null ? ($diff < 0 ? 'negative' : 'positive') : 'muted' }}">
                                 @if($diff !== null)
                                     {{ $diff >= 0 ? '+' : '' }}₹{{ number_format($diff, 2) }}
@@ -200,11 +190,7 @@
                                     —
                                 @endif
                             </td>
-
-                            <!-- Margin % -->
-                            <td class="right mono bold {{ $margin !== null ? ($margin < 0 ? 'negative' : 'positive') : 'muted' }}">
-                                {{ $margin !== null ? number_format($margin, 2).'%' : '—' }}
-                            </td>
+                            <td>{{ $row->price_status_label ?? 'Not Available' }}</td>
                         </tr>
                     @endforeach
                 @endforeach

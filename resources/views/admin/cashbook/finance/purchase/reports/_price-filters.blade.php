@@ -1,4 +1,5 @@
 @php($produceType = ($filters['warehouse_code'] ?? null) === 'VEG-WH' ? 'vegetables' : (($filters['warehouse_code'] ?? null) === 'FRT-WH' ? 'fruits' : ($filters['produce_type'] ?? 'all')))
+@php($gradeOptions = $activeGrades ?? \App\Enums\Inventory\ProductGrade::cases())
 
 @component('admin.cashbook.finance.purchase.partials._period-filter', [
     'action' => route($filterRoute),
@@ -14,7 +15,7 @@
         'grade' => $filters['grade'] ?? null,
     ], fn ($v) => $v !== null && $v !== ''),
 ])
-    <div class="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 items-end">
+    <div class="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 items-end">
         <div>
             <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Produce</label>
             <select name="produce_type" onchange="this.form.submit()" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
@@ -63,6 +64,16 @@
         </div>
 
         <div>
+            <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Grade</label>
+            <select name="grade" onchange="this.form.submit()" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
+                <option value="">All Grades</option>
+                @foreach($gradeOptions as $gradeOption)
+                    <option value="{{ $gradeOption->value }}" @selected(($filters['grade'] ?? null) === $gradeOption->value)>{{ $gradeOption->label() }}</option>
+                @endforeach
+            </select>
+        </div>
+
+        <div>
             <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Search</label>
             <input type="text" name="search" value="{{ $filters['search'] ?? '' }}" placeholder="Code or name..."
                    class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
@@ -86,19 +97,14 @@
             @endif
         </div>
 
-        <details class="text-xs font-bold text-slate-600 cursor-pointer" @if($filters['vendor_id'] || $filters['grade']) open @endif>
-            <summary class="hover:text-slate-900">More (Vendor, Grade)</summary>
+        <details class="text-xs font-bold text-slate-600 cursor-pointer" @if($filters['vendor_id']) open @endif>
+            <summary class="hover:text-slate-900">More (Vendor)</summary>
             <div class="mt-2 flex items-center gap-2">
                 <select name="vendor_id" onchange="this.form.submit()" class="rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
                     <option value="">All Vendors</option>
                     @foreach($options['vendors'] as $option)
                         <option value="{{ $option->id }}" @selected(($filters['vendor_id'] ?? null) === (int) $option->id)>{{ $option->name }}</option>
                     @endforeach
-                </select>
-                <select name="grade" onchange="this.form.submit()" class="rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
-                    <option value="">All Grades</option>
-                    <option value="A" @selected(($filters['grade'] ?? null) === 'A')>Grade A</option>
-                    <option value="B" @selected(($filters['grade'] ?? null) === 'B')>Grade B</option>
                 </select>
             </div>
         </details>

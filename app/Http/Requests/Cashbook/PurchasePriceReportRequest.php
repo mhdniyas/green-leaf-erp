@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Cashbook;
 
+use App\Enums\Inventory\ProductGrade;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\Rule;
 
 final class PurchasePriceReportRequest extends FormRequest
 {
@@ -33,7 +35,7 @@ final class PurchasePriceReportRequest extends FormRequest
             'product_id' => ['nullable', 'integer', 'exists:products,id'],
             'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
             'vendor_id' => ['nullable', 'integer', 'exists:suppliers,id'],
-            'grade' => ['nullable', 'in:A,B'],
+            'grade' => ['nullable', 'string', Rule::in(array_map(static fn (ProductGrade $grade): string => $grade->value, ProductGrade::cases()))],
             'price_group' => ['nullable', 'in:A,B,C'],
             'sort' => ['nullable', 'in:code,category'],
             'search' => ['nullable', 'string', 'max:100'],
@@ -49,17 +51,25 @@ final class PurchasePriceReportRequest extends FormRequest
 
         $monthInput = (string) ($validated['month'] ?? '');
         $periodMode = (string) ($validated['period_mode'] ?? '');
+        $period = (string) ($validated['period'] ?? '');
+        $today = today('Asia/Kolkata');
 
         if ($monthInput !== '' && preg_match('/^\d{4}-\d{2}$/', $monthInput)) {
             $month = $monthInput;
+        } elseif (! empty($validated['to'])) {
+            $month = Carbon::parse((string) $validated['to'])->format('Y-m');
+        } elseif (! empty($validated['end_date'])) {
+            $month = Carbon::parse((string) $validated['end_date'])->format('Y-m');
         } elseif (! empty($validated['date'])) {
             $month = Carbon::parse((string) $validated['date'])->format('Y-m');
         } elseif (! empty($validated['day'])) {
             $month = Carbon::parse((string) $validated['day'])->format('Y-m');
         } elseif (! empty($validated['from'])) {
             $month = Carbon::parse((string) $validated['from'])->format('Y-m');
+        } elseif (! empty($validated['start_date'])) {
+            $month = Carbon::parse((string) $validated['start_date'])->format('Y-m');
         } else {
-            $month = today('Asia/Kolkata')->format('Y-m');
+            $month = $today->format('Y-m');
         }
 
         $monthCarbon = Carbon::createFromFormat('Y-m', $month);
@@ -69,21 +79,49 @@ final class PurchasePriceReportRequest extends FormRequest
         $nextMonth = $monthCarbon->copy()->addMonth()->format('Y-m');
         $monthTitle = $monthCarbon->format('F Y');
 
-        if (! empty($validated['date'])) {
-            $date = Carbon::parse((string) $validated['date'])->toDateString();
-            $periodMode = $periodMode ?: 'day';
-        } elseif (! empty($validated['day'])) {
-            $date = Carbon::parse((string) $validated['day'])->toDateString();
-            $periodMode = 'day';
-        } elseif (! empty($validated['from'])) {
-            $date = Carbon::parse((string) $validated['from'])->toDateString();
+        $hasExplicitRange = ! empty($validated['from']) || ! empty($validated['to']) || ! empty($validated['start_date']) || ! empty($validated['end_date']);
+
+        if ($periodMode === 'custom' || $period === 'custom' || $hasExplicitRange) {
             $periodMode = 'custom';
-        } elseif ($month === today('Asia/Kolkata')->format('Y-m')) {
-            $date = today('Asia/Kolkata')->toDateString();
-            $periodMode = $periodMode ?: 'month';
+            $rawStart = $validated['from'] ?? $validated['start_date'] ?? $validated['date'] ?? $validated['day'] ?? $monthStart;
+            $rawEnd = $validated['to'] ?? $validated['end_date'] ?? $validated['date'] ?? $validated['day'] ?? $rawStart;
+            $startDate = Carbon::parse((string) $rawStart)->toDateString();
+            $endDate = Carbon::parse((string) $rawEnd)->toDateString();
+            if ($startDate > $endDate) {
+                [$startDate, $endDate] = [$endDate, $startDate];
+            }
+            $date = $endDate;
+        } elseif ($period === 'yesterday') {
+            $periodMode = 'day';
+            $date = $today->copy()->subDay()->toDateString();
+            $startDate = $date;
+            $endDate = $date;
+        } elseif ($period === 'today') {
+            $periodMode = 'day';
+            $date = $today->toDateString();
+            $startDate = $date;
+            $endDate = $date;
+        } elseif ($period === 'week') {
+            $periodMode = 'custom';
+            $endDate = $today->toDateString();
+            $startDate = $today->copy()->subDays(6)->toDateString();
+            $date = $endDate;
+        } elseif (! empty($validated['date']) || ! empty($validated['day']) || $periodMode === 'day') {
+            $periodMode = 'day';
+            $rawDate = $validated['date'] ?? $validated['day'] ?? ($month === $today->format('Y-m') ? $today->toDateString() : $monthStart);
+            $date = Carbon::parse((string) $rawDate)->toDateString();
+            $startDate = $date;
+            $endDate = $date;
+        } elseif ($periodMode === 'month' || $period === 'month') {
+            $periodMode = 'month';
+            $startDate = $monthStart;
+            $endDate = $monthEnd;
+            $date = $month === $today->format('Y-m') ? $today->toDateString() : $monthStart;
         } else {
-            $date = $monthStart;
-            $periodMode = $periodMode ?: 'month';
+            $periodMode = 'month';
+            $date = $month === $today->format('Y-m') ? $today->toDateString() : $monthStart;
+            $startDate = $date;
+            $endDate = $date;
         }
 
         return $this->commonFilters($validated) + [
@@ -95,10 +133,10 @@ final class PurchasePriceReportRequest extends FormRequest
             'prev_month' => $prevMonth,
             'next_month' => $nextMonth,
             'month_title' => $monthTitle,
-            'start_date' => $date,
-            'end_date' => $date,
-            'from' => $date,
-            'to' => $date,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'from' => $startDate,
+            'to' => $endDate,
             'search' => ! empty($validated['search']) ? trim((string) $validated['search']) : null,
             'sort' => in_array($sort, ['code', 'category'], true) ? $sort : 'code',
         ];
