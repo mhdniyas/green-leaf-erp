@@ -14,6 +14,8 @@
     $discountTotal = $discountTotal ?? round((float) $invoice->discount_total, 2);
     $subtotal = $subtotal ?? round((float) $invoice->subtotal, 2);
     $finalTotal = $finalTotal ?? round((float) $invoice->final_total, 2);
+    $bill = $finalBill ?? $invoice->finalBill();
+    $appliedAdjustments = $invoice->appliedAdjustments();
     $isFinalized = $invoice->isFinalized();
     $invoiceStatus = $isFinalized ? 'FINALIZED' : strtoupper(str_replace('_', ' ', (string) $invoice->status));
 @endphp
@@ -195,10 +197,11 @@
             margin-top: 14px;
             border-top: 2px dashed #e2e8f0;
             padding-top: 12px;
+            page-break-inside: avoid;
         }
 
         .totals-table {
-            width: 260px;
+            width: 320px;
             margin-left: auto;
             border-collapse: collapse;
         }
@@ -216,6 +219,53 @@
             font-size: 13px;
             font-weight: 900;
             color: #020617;
+        }
+
+        .section-header {
+            margin-top: 14px;
+            margin-bottom: 5px;
+        }
+
+        .section-title {
+            font-size: 9px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: #020617;
+            margin: 0;
+        }
+
+        .section-subtitle {
+            font-size: 8px;
+            color: #64748b;
+            margin: 1px 0 0 0;
+        }
+
+        .adjustments-section {
+            margin-top: 14px;
+            page-break-inside: avoid;
+        }
+
+        .adjustments-table th {
+            background-color: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 6px 10px;
+            font-size: 8px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: #64748b;
+        }
+
+        .adjustments-table td {
+            padding: 6px 10px;
+            border-bottom: 1px solid #f1f5f9;
+            font-size: 10px;
+            vertical-align: middle;
+        }
+
+        .adjustments-table tr:last-child td {
+            border-bottom: none;
         }
     </style>
 </head>
@@ -273,8 +323,8 @@
                                         <div style="font-size: 10px; font-weight: 900; margin-top: 2px;">{{ $invoice->finalized_at?->format('d M Y, h:i A') ?? 'Recorded' }}</div>
                                     </td>
                                     <td style="width: 33.3%;">
-                                        <div style="font-size: 8px; font-weight: 900; text-transform: uppercase; color: #047857;">Final Amount</div>
-                                        <div style="font-size: 10px; font-weight: 900; margin-top: 2px;">{{ $money($finalTotal) }}</div>
+                                        <div style="font-size: 8px; font-weight: 900; text-transform: uppercase; color: #047857;">{{ $bill->hasAdjustments ? 'Net Payable' : 'Final Amount' }}</div>
+                                        <div style="font-size: 10px; font-weight: 900; margin-top: 2px;">{{ $money($bill->hasAdjustments ? $bill->finalNetPayable : $finalTotal) }}</div>
                                     </td>
                                 </tr>
                             </table>
@@ -324,6 +374,57 @@
             </table>
         </div>
 
+        {{-- Applied Credit & Debit Notes Section --}}
+        @if ($appliedAdjustments->isNotEmpty())
+            <div class="adjustments-section">
+                <div class="section-header">
+                    <div class="section-title">Applied Credit &amp; Debit Notes</div>
+                    <div class="section-subtitle">Audited adjustments and credit notes applied to this bill</div>
+                </div>
+                <div class="items-table-container" style="margin-top: 4px;">
+                    <table class="items-table adjustments-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 30px;">Sl No</th>
+                                <th style="width: 140px;">Credit / Debit Note #</th>
+                                <th style="width: 75px;">Date</th>
+                                <th style="width: 80px;">Type</th>
+                                <th>Description / Reason</th>
+                                <th class="text-right" style="width: 85px;">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($appliedAdjustments as $adj)
+                                <tr>
+                                    <td style="color: #64748b; font-weight: bold;">{{ $loop->iteration }}</td>
+                                    <td>
+                                        <span style="font-family: monospace; font-weight: 900; color: #020617;">{{ $adj['number'] }}</span>
+                                    </td>
+                                    <td style="color: #475569; font-weight: bold;">{{ $adj['date'] }}</td>
+                                    <td>
+                                        @if ($adj['is_debit'])
+                                            <span style="color: #b45309; font-weight: 900;">Debit Note</span>
+                                        @else
+                                            <span style="color: #047857; font-weight: 900;">Credit Note</span>
+                                        @endif
+                                    </td>
+                                    <td>
+                                        <div style="font-weight: 900; color: #020617;">{{ $adj['reason'] }}</div>
+                                        @if (! empty($adj['notes']) && $adj['notes'] !== $adj['reason'])
+                                            <div style="font-size: 8.5px; color: #64748b; font-style: italic; margin-top: 1px;">{{ $adj['notes'] }}</div>
+                                        @endif
+                                    </td>
+                                    <td class="text-right" style="font-weight: 900; color: {{ $adj['is_debit'] ? '#b45309' : '#047857' }};">
+                                        {{ $adj['is_debit'] ? '+ ' : '- ' }}{{ $money($adj['amount']) }}
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        @endif
+
         {{-- Totals Section --}}
         <div class="totals-section">
             <table class="totals-table">
@@ -335,10 +436,42 @@
                     <td>Discount</td>
                     <td class="text-right">{{ $money($discountTotal) }}</td>
                 </tr>
+                @if ($bill->hasAdjustments)
+                    <tr style="border-top: 1px solid #f1f5f9;">
+                        <td>Original Invoice Amount</td>
+                        <td class="text-right">{{ $money($bill->originalInvoiceTotal) }}</td>
+                    </tr>
+                    @if ($bill->finalizedCreditTotal > 0.0001)
+                        <tr style="color: #047857;">
+                            <td>Credit Note Deductions</td>
+                            <td class="text-right">- {{ $money($bill->finalizedCreditTotal) }}</td>
+                        </tr>
+                    @endif
+                    @if ($bill->finalizedDebitTotal > 0.0001)
+                        <tr style="color: #b45309;">
+                            <td>Debit Note Additions</td>
+                            <td class="text-right">+ {{ $money($bill->finalizedDebitTotal) }}</td>
+                        </tr>
+                    @endif
+                @endif
                 <tr class="final-total-row">
-                    <td>Final Total</td>
-                    <td class="text-right">{{ $money($finalTotal) }}</td>
+                    <td>Net Payable</td>
+                    <td class="text-right">{{ $money($bill->hasAdjustments ? $bill->finalNetPayable : $finalTotal) }}</td>
                 </tr>
+                <tr>
+                    <td style="color: #047857;">Paid Amount</td>
+                    <td class="text-right" style="color: #047857;">{{ $money($bill->amountPaid) }}</td>
+                </tr>
+                <tr>
+                    <td style="font-weight: 900; color: {{ $bill->remainingBalance > 0.0001 ? '#b91c1c' : '#047857' }};">Outstanding Balance</td>
+                    <td class="text-right" style="font-weight: 900; color: {{ $bill->remainingBalance > 0.0001 ? '#b91c1c' : '#047857' }};">{{ $money($bill->remainingBalance) }}</td>
+                </tr>
+                @if ($bill->overpaymentCredit > 0.0001)
+                    <tr style="color: #047857;">
+                        <td>Overpayment Credit</td>
+                        <td class="text-right">{{ $money($bill->overpaymentCredit) }}</td>
+                    </tr>
+                @endif
             </table>
         </div>
     </div>

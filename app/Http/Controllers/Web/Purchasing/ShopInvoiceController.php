@@ -221,7 +221,21 @@ class ShopInvoiceController extends Controller
     {
         abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
 
-        $invoice->load(['shop', 'order', 'items.product.category', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy', 'finalizedBy']);
+        $invoice->load([
+            'shop',
+            'order',
+            'items.product.category',
+            'items.orderItem',
+            'paymentApprovedBy',
+            'discountApprovedBy',
+            'priceUpdatedBy',
+            'finalizedBy',
+            'creditApplications.creditNote.approvedBy',
+            'creditApplications.appliedByUser',
+            'creditNotes.approvedBy',
+        ]);
+
+        $finalBill = app(ShopFinalBillService::class)->calculate($invoice);
 
         $data = $this->resolveFilteredInvoiceItemsAndTotals($invoice, $request);
         $items = $data['items'];
@@ -230,33 +244,61 @@ class ShopInvoiceController extends Controller
         $finalTotal = $data['finalTotal'];
 
         if ($request->boolean('download') || $request->query('format') === 'pdf') {
-            return Pdf::loadView('purchasing.shop-invoices.dompdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal'))
+            return Pdf::loadView('purchasing.shop-invoices.dompdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal', 'finalBill'))
                 ->download("Shop-Invoice-{$invoice->invoice_number}.pdf");
         }
 
         $shareUrl = URL::signedRoute('shop-invoices.shared', ['invoice' => $invoice->invoice_number]);
         $pdfUrl = route('purchasing.shop-invoices.pdf', array_merge(['invoice' => $invoice], $request->query()));
 
-        return view('purchasing.shop-invoices.pdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal', 'shareUrl', 'pdfUrl'));
+        return view('purchasing.shop-invoices.pdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal', 'finalBill', 'shareUrl', 'pdfUrl'));
     }
 
     public function shared(Request $request, ShopInvoice $invoice): View
     {
         abort_unless($request->hasValidSignature(), 403, 'Invalid or expired bill link.');
 
-        $invoice->load(['shop', 'order', 'items.product.category', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy', 'finalizedBy']);
+        $invoice->load([
+            'shop',
+            'order',
+            'items.product.category',
+            'items.orderItem',
+            'paymentApprovedBy',
+            'discountApprovedBy',
+            'priceUpdatedBy',
+            'finalizedBy',
+            'creditApplications.creditNote.approvedBy',
+            'creditApplications.appliedByUser',
+            'creditNotes.approvedBy',
+        ]);
+
+        $finalBill = app(ShopFinalBillService::class)->calculate($invoice);
 
         $shareUrl = $request->fullUrl();
         $pdfUrl = URL::signedRoute('shop-invoices.shared.pdf', ['invoice' => $invoice->invoice_number]);
 
-        return view('purchasing.shop-invoices.shared', compact('invoice', 'shareUrl', 'pdfUrl'));
+        return view('purchasing.shop-invoices.shared', compact('invoice', 'finalBill', 'shareUrl', 'pdfUrl'));
     }
 
     public function sharedPdf(Request $request, ShopInvoice $invoice): View|Response
     {
         abort_unless($request->hasValidSignature(), 403, 'Invalid or expired bill link.');
 
-        $invoice->load(['shop', 'order', 'items.product.category', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy', 'finalizedBy']);
+        $invoice->load([
+            'shop',
+            'order',
+            'items.product.category',
+            'items.orderItem',
+            'paymentApprovedBy',
+            'discountApprovedBy',
+            'priceUpdatedBy',
+            'finalizedBy',
+            'creditApplications.creditNote.approvedBy',
+            'creditApplications.appliedByUser',
+            'creditNotes.approvedBy',
+        ]);
+
+        $finalBill = app(ShopFinalBillService::class)->calculate($invoice);
 
         $data = $this->resolveFilteredInvoiceItemsAndTotals($invoice, $request);
         $items = $data['items'];
@@ -265,14 +307,14 @@ class ShopInvoiceController extends Controller
         $finalTotal = $data['finalTotal'];
 
         if ($request->boolean('download') || $request->query('format') === 'pdf') {
-            return Pdf::loadView('purchasing.shop-invoices.dompdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal'))
+            return Pdf::loadView('purchasing.shop-invoices.dompdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal', 'finalBill'))
                 ->download("Shop-Invoice-{$invoice->invoice_number}.pdf");
         }
 
         $shareUrl = URL::signedRoute('shop-invoices.shared', ['invoice' => $invoice->invoice_number]);
         $pdfUrl = $request->fullUrl();
 
-        return view('purchasing.shop-invoices.pdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal', 'shareUrl', 'pdfUrl'));
+        return view('purchasing.shop-invoices.pdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal', 'finalBill', 'shareUrl', 'pdfUrl'));
     }
 
     /**

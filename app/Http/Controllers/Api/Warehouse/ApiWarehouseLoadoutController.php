@@ -18,6 +18,7 @@ use App\Models\Warehouse;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use App\Services\ShopInvoices\ShopFinalBillService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Services\Warehouse\AutoLoadAllService;
 use App\Services\Warehouse\WarehouseDispatchService;
@@ -1475,7 +1476,19 @@ class ApiWarehouseLoadoutController extends Controller
         $this->authorizeAccess($request);
 
         $userId = (int) $request->user()->id;
-        $shopOrder->loadMissing(['shop.priceGroup', 'items.product.category', 'invoice.items.product.category', 'invoice.items.orderItem', 'invoice.finalizedBy', 'invoice.discountApprovedBy', 'invoice.paymentApprovedBy', 'invoice.priceUpdatedBy']);
+        $shopOrder->loadMissing([
+            'shop.priceGroup',
+            'items.product.category',
+            'invoice.items.product.category',
+            'invoice.items.orderItem',
+            'invoice.finalizedBy',
+            'invoice.discountApprovedBy',
+            'invoice.paymentApprovedBy',
+            'invoice.priceUpdatedBy',
+            'invoice.creditApplications.creditNote.approvedBy',
+            'invoice.creditApplications.appliedByUser',
+            'invoice.creditNotes.approvedBy',
+        ]);
 
         $invoice = $shopOrder->invoice;
         if (! $invoice) {
@@ -1487,7 +1500,19 @@ class ApiWarehouseLoadoutController extends Controller
                     "Invoice generated for PDF view — order {$shopOrder->order_number}."
                 );
             }
-            $invoice?->loadMissing(['shop', 'order', 'items.product.category', 'items.orderItem', 'finalizedBy', 'discountApprovedBy', 'paymentApprovedBy', 'priceUpdatedBy']);
+            $invoice?->loadMissing([
+                'shop',
+                'order',
+                'items.product.category',
+                'items.orderItem',
+                'finalizedBy',
+                'discountApprovedBy',
+                'paymentApprovedBy',
+                'priceUpdatedBy',
+                'creditApplications.creditNote.approvedBy',
+                'creditApplications.appliedByUser',
+                'creditNotes.approvedBy',
+            ]);
         }
 
         if (! $invoice) {
@@ -1545,7 +1570,9 @@ class ApiWarehouseLoadoutController extends Controller
             $finalTotal = round((float) $invoice->final_total, 2);
         }
 
-        $pdf = Pdf::loadView('purchasing.shop-invoices.dompdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal'));
+        $finalBill = app(ShopFinalBillService::class)->calculate($invoice);
+
+        $pdf = Pdf::loadView('purchasing.shop-invoices.dompdf', compact('invoice', 'items', 'subtotal', 'discountTotal', 'finalTotal', 'finalBill'));
 
         return response($pdf->output(), 200, [
             'Content-Type' => 'application/pdf',

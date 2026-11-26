@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\ShopInvoice\ShopCreditNoteAccountingMode;
 use App\Enums\ShopInvoice\ShopCreditNoteDirection;
+use App\Enums\ShopInvoice\ShopCreditNoteReason;
 use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Services\ShopInvoices\ShopFinalBill;
 use App\Services\ShopInvoices\ShopFinalBillService;
@@ -364,6 +365,106 @@ class ShopInvoice extends Model
             'overpayment_credit' => $overpayment,
             'has_adjustments' => ($credit > 0.0001 || $debit > 0.0001),
         ];
+    }
+
+    /**
+     * Get the collection of finalized and active applied credit and debit adjustments.
+     *
+     * @return Collection<int, array{
+     *     number: string,
+     *     date: string,
+     *     type: string,
+     *     is_debit: bool,
+     *     reason: string,
+     *     notes: string,
+     *     amount: float
+     * }>
+     */
+    public function appliedAdjustments(): Collection
+    {
+        $adjustments = collect();
+
+        // 1. Active credit applications applied to this invoice
+        $applications = $this->relationLoaded('activeCreditApplications')
+            ? $this->activeCreditApplications
+            : ($this->relationLoaded('creditApplications')
+                ? $this->creditApplications->filter(fn ($app): bool => $app->reversed_at === null)
+                : $this->activeCreditApplications()->with('creditNote')->get());
+
+        if ($this->relationLoaded('activeCreditApplications') || $this->relationLoaded('creditApplications')) {
+            $applications->loadMissing('creditNote');
+        }
+
+        $seenCreditNoteIds = [];
+
+        foreach ($applications as $app) {
+            $note = $app->creditNote;
+            if ($note) {
+                $seenCreditNoteIds[] = (int) $note->id;
+            }
+
+            $isDebit = ($note?->direction === ShopCreditNoteDirection::Debit
+                || $note?->direction === 'debit'
+                || $note?->direction?->value === 'debit');
+
+            $reasonLabel = $note?->reason_type instanceof ShopCreditNoteReason
+                ? $note->reason_type->label()
+                : ($note?->reason_type ? str($note->reason_type)->replace('_', ' ')->title() : 'Adjustment');
+
+            $adjustments->push([
+                'number' => (string) ($note?->credit_note_number ?? ('SCN-APP-'.$app->id)),
+                'date' => optional($note?->credit_note_date ?? $app->applied_at)->format('d M Y') ?: '—',
+                'type' => $isDebit ? 'Debit Note' : 'Credit Note',
+                'is_debit' => $isDebit,
+                'reason' => (string) $reasonLabel,
+                'notes' => (string) ($app->notes ?: ($note?->notes ?: '')),
+                'amount' => round((float) $app->amount, 2),
+            ]);
+        }
+
+        // 2. Legacy direct invoice-linked credit notes
+        $legacyNotes = $this->relationLoaded('creditNotes')
+            ? $this->creditNotes
+            : $this->creditNotes()->get();
+
+        $approvedLegacyNotes = $legacyNotes->filter(function ($cn) use ($seenCreditNoteIds): bool {
+            if (in_array((int) $cn->id, $seenCreditNoteIds, true)) {
+                return false;
+            }
+
+            $isApproved = ($cn->status === ShopCreditNoteStatus::Approved
+                || $cn->status === ShopCreditNoteStatus::Approved->value
+                || $cn->status === 'approved');
+
+            $isLegacyMode = ($cn->accounting_mode === null
+                || $cn->accounting_mode === ShopCreditNoteAccountingMode::LegacyInvoiceLinked
+                || $cn->accounting_mode === ShopCreditNoteAccountingMode::LegacyInvoiceLinked->value
+                || $cn->accounting_mode === 'legacy_invoice_linked');
+
+            return $isApproved && $isLegacyMode;
+        });
+
+        foreach ($approvedLegacyNotes as $cn) {
+            $isDebit = ($cn->direction === ShopCreditNoteDirection::Debit
+                || $cn->direction === 'debit'
+                || $cn->direction?->value === 'debit');
+
+            $reasonLabel = $cn->reason_type instanceof ShopCreditNoteReason
+                ? $cn->reason_type->label()
+                : ($cn->reason_type ? str($cn->reason_type)->replace('_', ' ')->title() : 'Adjustment');
+
+            $adjustments->push([
+                'number' => (string) $cn->credit_note_number,
+                'date' => optional($cn->credit_note_date ?? $cn->created_at)->format('d M Y') ?: '—',
+                'type' => $isDebit ? 'Debit Note' : 'Credit Note',
+                'is_debit' => $isDebit,
+                'reason' => (string) $reasonLabel,
+                'notes' => (string) ($cn->notes ?: ''),
+                'amount' => round((float) $cn->total_credit_amount, 2),
+            ]);
+        }
+
+        return $adjustments;
     }
 
     public function isFinalLocked(): bool
