@@ -214,19 +214,13 @@ class AdminAddCreditNoteActionTest extends TestCase
         // 1. Existing Invoice button preserved
         $response->assertSee(route('purchasing.shop-invoices.show', $this->invoice));
 
-        // 2. Add Credit Note uses a CSRF-protected POST selection form
+        // 2. Row-level Add Credit Note button/form is removed from Shop Invoices List
         $selectUrl = route('admin.cashbook.reports.shops.credit-notes.select');
-        $response->assertSee($selectUrl);
-        $response->assertSee('Credit Note');
+        $response->assertDontSee($selectUrl);
+        $response->assertDontSee('Add Credit Note for this invoice');
+        $response->assertDontSee('Cancelled invoices cannot receive credit notes');
 
-        // 3. Sequential invoice ID is not exposed in the URL or in plain hidden fields
-        $response->assertDontSee("credit-notes/create?invoice_id={$this->invoice->id}");
-        $response->assertDontSee('name="invoice_id" value="'.$this->invoice->id.'"', false);
-
-        // 4. Cancelled invoice shows disabled button with restriction title
-        $response->assertSee('Cancelled invoices cannot receive credit notes');
-
-        // 5. Non-admin user does not see the Add Credit Note action
+        // 3. Non-admin user also does not see any row-level Add Credit Note action
         $staffResponse = $this->actingAs($this->staff)->get(route('admin.cashbook.reports.shops.invoices'));
         $staffResponse->assertOk();
         $staffResponse->assertDontSee($selectUrl);

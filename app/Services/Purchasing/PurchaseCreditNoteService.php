@@ -16,10 +16,12 @@ use App\Models\JournalEntry;
 use App\Models\Product;
 use App\Models\PurchaseCreditNote;
 use App\Models\PurchaseCreditNoteItem;
+use App\Models\PurchaseCreditNoteItemMovement;
 use App\Models\PurchaseInvoice;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\VendorAdvance;
+use App\Models\VendorSettlementAllocation;
 use App\Models\Warehouse;
 use App\Services\Finance\JournalService;
 use App\Services\Inventory\StockLedgerService;
@@ -81,8 +83,9 @@ class PurchaseCreditNoteService
                 ? $payload['inventory_action']
                 : (PurchaseCreditInventoryAction::tryFrom((string) $payload['inventory_action']) ?? PurchaseCreditInventoryAction::Out);
 
-            // 4. Validate Company Account for Money In / Money Out
+            // 4. Validate Company Account & Payment Method for Money In / Money Out
             $companyAccount = null;
+            $paymentMethod = null;
             $companyAccountId = ! empty($payload['company_account_id']) ? (int) $payload['company_account_id'] : null;
             if (in_array($moneyEffect, [PurchaseCreditMoneyEffect::MoneyIn, PurchaseCreditMoneyEffect::MoneyOut], true)) {
                 if ($companyAccountId === null) {
@@ -92,6 +95,21 @@ class PurchaseCreditNoteService
                 $companyAccount = CompanyAccount::query()->whereKey($companyAccountId)->lockForUpdate()->first();
                 if (! $companyAccount instanceof CompanyAccount) {
                     throw ValidationException::withMessages(['company_account_id' => 'Selected company account not found.']);
+                }
+
+                $derivedMethod = strtolower((string) $companyAccount->account_type) === 'cash' ? 'cash' : 'bank';
+                $submittedMethod = ! empty($payload['payment_method']) ? strtolower(trim((string) $payload['payment_method'])) : null;
+                if ($submittedMethod !== null) {
+                    $submittedIsCash = $submittedMethod === 'cash';
+                    $accountIsCash = $derivedMethod === 'cash';
+                    if ($submittedIsCash !== $accountIsCash) {
+                        throw ValidationException::withMessages([
+                            'payment_method' => "Payment method '{$payload['payment_method']}' does not match selected {$companyAccount->account_type} company account.",
+                        ]);
+                    }
+                    $paymentMethod = $submittedMethod;
+                } else {
+                    $paymentMethod = $derivedMethod;
                 }
             }
 
@@ -151,6 +169,17 @@ class PurchaseCreditNoteService
                 $lineTotal = round($qty * $unitPrice, 2);
                 $totalAmount = round($totalAmount + $lineTotal, 2);
 
+                ['unit' => $resolvedUnit, 'conversion_to_base' => $conversionToBase] = $this->resolveUnitConversion(
+                    $product,
+                    isset($item['unit']) ? (string) $item['unit'] : null,
+                    $index
+                );
+                $baseQty = round($qty * $conversionToBase, 3);
+                if ($baseQty <= 0.0) {
+                    throw ValidationException::withMessages(["items.{$index}.quantity" => "Converted base quantity for {$product->name} must be greater than zero."]);
+                }
+                $baseUnitCost = round($lineTotal / $baseQty, 4);
+
                 $grade = $item['grade'] ?? $item['product_grade'] ?? 'A';
                 $resolvedGrade = $grade instanceof ProductGrade ? $grade : (ProductGrade::tryResolve((string) $grade) ?? ProductGrade::GradeA);
 
@@ -166,7 +195,11 @@ class PurchaseCreditNoteService
                     'purchaser_cart_item_id' => ! empty($item['purchaser_cart_item_id']) ? (int) $item['purchaser_cart_item_id'] : null,
                     'grade' => $resolvedGrade,
                     'quantity' => $qty,
+                    'unit' => $resolvedUnit,
+                    'conversion_to_base' => $conversionToBase,
+                    'base_qty' => $baseQty,
                     'unit_price' => $unitPrice,
+                    'base_unit_cost' => $baseUnitCost,
                     'line_total' => $lineTotal,
                     'inventory_action' => $itemInventoryAction,
                     'wastage_reason' => $item['wastage_reason'] ?? WastageReason::Unsold,
@@ -220,6 +253,7 @@ class PurchaseCreditNoteService
                 'inventory_action' => $inventoryAction,
                 'status' => PurchaseCreditStatus::Active,
                 'company_account_id' => $companyAccountId,
+                'payment_method' => $paymentMethod,
                 'warehouse_id' => $warehouseId,
                 'wastage_reason' => $reason === PurchaseCreditReason::DamageWastage ? WastageReason::TransitDamage->value : null,
                 'deduct_stock_for_damage' => $deductStockForDamage,
@@ -236,6 +270,7 @@ class PurchaseCreditNoteService
             foreach ($sanitizedItems as $itemRow) {
                 $primaryMovementId = null;
                 $wastageEntryId = null;
+                $createdMovements = collect();
                 $lineInvAction = $itemRow['inventory_action'];
                 $itemNotes = "Purchase Credit Note — PCN: {$creditNoteNumber}; NoteId: {$creditNote->id};";
 
@@ -244,14 +279,15 @@ class PurchaseCreditNoteService
                         productId: $itemRow['product_id'],
                         warehouseId: $warehouseId,
                         grade: $itemRow['grade'],
-                        quantity: $itemRow['quantity'],
+                        quantity: $itemRow['base_qty'],
                         userId: $actor->id,
                         notes: $itemNotes,
                         purchaseInvoiceId: $invoice?->id,
                         allowNegativeStock: $allowNegativeStock,
-                        fallbackUnitCost: $itemRow['unit_price'],
+                        fallbackUnitCost: $itemRow['base_unit_cost'],
                     );
 
+                    $createdMovements = $movements;
                     $primaryMovementId = $movements->first()?->id;
                     $invCostForLine = $movements->sum(fn ($m) => (float) $m->quantity * (float) $m->cost_per_unit);
                     $inventoryCostTotal = round($inventoryCostTotal + $invCostForLine, 2);
@@ -260,21 +296,22 @@ class PurchaseCreditNoteService
                         productId: $itemRow['product_id'],
                         warehouseId: $warehouseId,
                         grade: $itemRow['grade'],
-                        quantity: $itemRow['quantity'],
-                        unitPrice: $itemRow['unit_price'],
+                        quantity: $itemRow['base_qty'],
+                        unitPrice: $itemRow['base_unit_cost'],
                         userId: $actor->id,
                         notes: $itemNotes,
                     );
 
+                    $createdMovements = collect([$movement]);
                     $primaryMovementId = $movement->id;
-                    $inventoryCostTotal = round($inventoryCostTotal + ($itemRow['quantity'] * $itemRow['unit_price']), 2);
+                    $inventoryCostTotal = round($inventoryCostTotal + $itemRow['line_total'], 2);
                 } elseif ($lineInvAction === PurchaseCreditInventoryAction::Damage) {
                     $damageResult = $this->stockLedgerService->recordPurchaseCreditDamage(
                         productId: $itemRow['product_id'],
                         warehouseId: $warehouseId,
                         grade: $itemRow['grade'],
-                        quantity: $itemRow['quantity'],
-                        costPerKg: $itemRow['unit_price'],
+                        quantity: $itemRow['base_qty'],
+                        costPerKg: $itemRow['base_unit_cost'],
                         userId: $actor->id,
                         reason: $itemRow['wastage_reason'] instanceof WastageReason ? $itemRow['wastage_reason'] : WastageReason::Unsold,
                         notes: $itemNotes,
@@ -285,25 +322,39 @@ class PurchaseCreditNoteService
                     );
 
                     $wastageEntryId = $damageResult['wastage']->id;
-                    $primaryMovementId = $damageResult['movements']->first()?->id;
-                    if ($deductStockForDamage && $damageResult['movements']->isNotEmpty()) {
-                        $invCostForLine = $damageResult['movements']->sum(fn ($m) => (float) $m->quantity * (float) $m->cost_per_unit);
+                    $createdMovements = $damageResult['movements'];
+                    $primaryMovementId = $createdMovements->first()?->id;
+                    if ($deductStockForDamage && $createdMovements->isNotEmpty()) {
+                        $invCostForLine = $createdMovements->sum(fn ($m) => (float) $m->quantity * (float) $m->cost_per_unit);
                         $inventoryCostTotal = round($inventoryCostTotal + $invCostForLine, 2);
                     }
                 }
 
-                PurchaseCreditNoteItem::query()->create([
+                $creditNoteItem = PurchaseCreditNoteItem::query()->create([
                     'purchase_credit_note_id' => $creditNote->id,
                     'purchaser_cart_item_id' => $itemRow['purchaser_cart_item_id'],
                     'product_id' => $itemRow['product_id'],
                     'grade' => $itemRow['grade']->value,
                     'quantity' => $itemRow['quantity'],
+                    'unit' => $itemRow['unit'],
+                    'conversion_to_base' => $itemRow['conversion_to_base'],
+                    'base_qty' => $itemRow['base_qty'],
                     'unit_price' => $itemRow['unit_price'],
                     'line_total' => $itemRow['line_total'],
                     'inventory_action' => $lineInvAction,
                     'stock_movement_id' => $primaryMovementId,
                     'wastage_entry_id' => $wastageEntryId,
                 ]);
+
+                foreach ($createdMovements as $movement) {
+                    PurchaseCreditNoteItemMovement::query()->create([
+                        'purchase_credit_note_item_id' => $creditNoteItem->id,
+                        'stock_batch_id' => (int) $movement->batch_id,
+                        'stock_movement_id' => (int) $movement->id,
+                        'quantity' => round((float) $movement->quantity, 3),
+                        'cost_per_unit' => round((float) $movement->cost_per_unit, 4),
+                    ]);
+                }
             }
 
             // 10. Process Money Effect: VendorAdvance or CompanyAccountStatementEntry
@@ -375,6 +426,10 @@ class PurchaseCreditNoteService
                 $statementEntry->update(['journal_entry_id' => $journalEntry->id]);
             }
 
+            if ($invoice instanceof PurchaseInvoice && $appliedToInvoice > 0.0) {
+                $invoice->refreshPaymentStatus();
+            }
+
             if ($allowNegativeStock && function_exists('activity')) {
                 activity('purchase_credit_notes')
                     ->performedOn($creditNote)
@@ -421,6 +476,29 @@ class PurchaseCreditNoteService
 
             if ($lockedNote->isVoided()) {
                 throw ValidationException::withMessages(['status' => 'This purchase credit note is already voided.']);
+            }
+
+            // 0. Guard against voiding when linked invoice has subsequent active settlements
+            $linkedInvoice = null;
+            if ($lockedNote->purchase_invoice_id !== null) {
+                $linkedInvoice = PurchaseInvoice::query()
+                    ->whereKey($lockedNote->purchase_invoice_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($linkedInvoice instanceof PurchaseInvoice && (float) $lockedNote->applied_to_invoice_amount > 0.0) {
+                    $hasSubsequentSettlement = VendorSettlementAllocation::query()
+                        ->where('purchase_invoice_id', $linkedInvoice->id)
+                        ->where('is_reversed', false)
+                        ->where('created_at', '>=', $lockedNote->created_at)
+                        ->exists();
+
+                    if ($hasSubsequentSettlement) {
+                        throw ValidationException::withMessages([
+                            'status' => 'Cannot void this credit note because the linked purchase invoice has subsequent settlement(s). Please reverse the settlement(s) first.',
+                        ]);
+                    }
+                }
             }
 
             // 1. Verify Vendor Advance has not been utilized
@@ -496,13 +574,17 @@ class PurchaseCreditNoteService
                 }
             }
 
-            // 5. Update Status to Voided
+            // 5. Update Status to Voided & refresh linked invoice payment_status
             $lockedNote->update([
                 'status' => PurchaseCreditStatus::Voided,
                 'voided_by' => $actor->id,
                 'voided_at' => now(),
                 'void_reason' => $trimmedReason,
             ]);
+
+            if ($linkedInvoice instanceof PurchaseInvoice && (float) $lockedNote->applied_to_invoice_amount > 0.0) {
+                $linkedInvoice->refreshPaymentStatus();
+            }
 
             return $lockedNote->fresh([
                 'items.product',
@@ -596,7 +678,7 @@ class PurchaseCreditNoteService
             : (PurchaseCreditInventoryAction::tryFrom((string) $inventoryAction) ?? PurchaseCreditInventoryAction::Out);
 
         $demands = [];
-        foreach ($items as $item) {
+        foreach ($items as $index => $item) {
             $lineAction = ! empty($item['inventory_action'])
                 ? ($item['inventory_action'] instanceof PurchaseCreditInventoryAction
                     ? $item['inventory_action']
@@ -621,6 +703,13 @@ class PurchaseCreditNoteService
                 continue;
             }
 
+            ['conversion_to_base' => $conversionToBase] = $this->resolveUnitConversion(
+                $product,
+                isset($item['unit']) ? (string) $item['unit'] : null,
+                $index
+            );
+            $baseQty = round($qty * $conversionToBase, 3);
+
             $grade = $item['grade'] ?? $item['product_grade'] ?? 'A';
             $resolvedGrade = $grade instanceof ProductGrade ? $grade : (ProductGrade::tryResolve((string) $grade) ?? ProductGrade::GradeA);
             $key = "{$productId}_{$resolvedGrade->value}";
@@ -635,7 +724,7 @@ class PurchaseCreditNoteService
                 ];
             }
 
-            $demands[$key]['requested_qty'] = round($demands[$key]['requested_qty'] + $qty, 3);
+            $demands[$key]['requested_qty'] = round($demands[$key]['requested_qty'] + $baseQty, 3);
         }
 
         $shortages = [];
@@ -663,6 +752,118 @@ class PurchaseCreditNoteService
         return [
             'has_shortage' => ! empty($shortages),
             'shortages' => $shortages,
+        ];
+    }
+
+    /**
+     * Compute a vendor's current all-time financial position using bounded aggregate queries.
+     *
+     * Note: Available purchase credit note advance balance is a subset of total open vendor advances
+     * and must not be added to it.
+     *
+     * @return array{
+     *     total_purchases: float,
+     *     total_settled: float,
+     *     outstanding_balance: float,
+     *     available_credit_note_balance: float,
+     *     total_open_vendor_advances: float,
+     *     pending_bills_count: int,
+     *     total_active_credit_notes: int,
+     *     total_active_credit_note_amount: float
+     * }
+     */
+    public function getVendorFinancialSummary(Supplier $supplier): array
+    {
+        $allocSub = DB::table('vendor_settlement_allocations')
+            ->selectRaw('purchase_invoice_id, COALESCE(SUM(total_settled), 0) as settled_sum, COUNT(*) as alloc_count')
+            ->where('is_reversed', false)
+            ->groupBy('purchase_invoice_id');
+
+        $pcnAppliedSub = DB::table('purchase_credit_notes')
+            ->selectRaw('purchase_invoice_id, COALESCE(SUM(applied_to_invoice_amount), 0) as applied_sum')
+            ->where('status', PurchaseCreditStatus::Active->value)
+            ->whereNull('deleted_at')
+            ->whereNotNull('purchase_invoice_id')
+            ->groupBy('purchase_invoice_id');
+
+        $netExpr = 'CASE WHEN (COALESCE(pi.amount, 0) - COALESCE(pi.discount_amount, 0)) > 0 THEN (COALESCE(pi.amount, 0) - COALESCE(pi.discount_amount, 0)) ELSE 0 END';
+        $settledExpr = 'COALESCE(alloc.settled_sum, 0) + CASE WHEN COALESCE(alloc.alloc_count, 0) = 0 AND COALESCE(pi.paid_amount, 0) > 0 THEN COALESCE(pi.paid_amount, 0) ELSE 0 END';
+        $appliedExpr = 'COALESCE(pcn.applied_sum, 0)';
+        $outstandingExpr = "CASE WHEN ({$netExpr} - ({$settledExpr}) - {$appliedExpr}) > 0 THEN ({$netExpr} - ({$settledExpr}) - {$appliedExpr}) ELSE 0 END";
+
+        $invoiceTotals = DB::table('purchase_invoices as pi')
+            ->leftJoinSub($allocSub, 'alloc', fn ($join) => $join->on('alloc.purchase_invoice_id', '=', 'pi.id'))
+            ->leftJoinSub($pcnAppliedSub, 'pcn', fn ($join) => $join->on('pcn.purchase_invoice_id', '=', 'pi.id'))
+            ->where('pi.supplier_id', $supplier->id)
+            ->where('pi.status', '!=', 'cancelled')
+            ->whereNull('pi.deleted_at')
+            ->selectRaw(
+                "COALESCE(SUM({$netExpr}), 0) as total_purchases, ".
+                "COALESCE(SUM({$settledExpr}), 0) as total_settled, ".
+                "COALESCE(SUM({$outstandingExpr}), 0) as outstanding_balance, ".
+                "COALESCE(SUM(CASE WHEN ({$outstandingExpr}) > 0.009 THEN 1 ELSE 0 END), 0) as pending_bills_count"
+            )
+            ->first();
+
+        $totalOpenVendorAdvances = round((float) VendorAdvance::query()
+            ->where('supplier_id', $supplier->id)
+            ->where('amount_remaining', '>', 0)
+            ->sum('amount_remaining'), 2);
+
+        $creditNoteTotals = DB::table('purchase_credit_notes as pcn')
+            ->leftJoin('vendor_advances as va', 'va.id', '=', 'pcn.vendor_advance_id')
+            ->where('pcn.supplier_id', $supplier->id)
+            ->where('pcn.status', PurchaseCreditStatus::Active->value)
+            ->whereNull('pcn.deleted_at')
+            ->selectRaw(
+                'COUNT(*) as total_active_credit_notes, '.
+                'COALESCE(SUM(pcn.total_amount), 0) as total_active_credit_note_amount, '.
+                'COALESCE(SUM(CASE WHEN va.amount_remaining > 0 THEN va.amount_remaining ELSE 0 END), 0) as available_credit_note_balance'
+            )
+            ->first();
+
+        return [
+            'total_purchases' => round((float) ($invoiceTotals->total_purchases ?? 0), 2),
+            'total_settled' => round((float) ($invoiceTotals->total_settled ?? 0), 2),
+            'outstanding_balance' => round((float) ($invoiceTotals->outstanding_balance ?? 0), 2),
+            'available_credit_note_balance' => round((float) ($creditNoteTotals->available_credit_note_balance ?? 0), 2),
+            'total_open_vendor_advances' => $totalOpenVendorAdvances,
+            'pending_bills_count' => (int) ($creditNoteTotals ? ($invoiceTotals->pending_bills_count ?? 0) : 0),
+            'total_active_credit_notes' => (int) ($creditNoteTotals->total_active_credit_notes ?? 0),
+            'total_active_credit_note_amount' => round((float) ($creditNoteTotals->total_active_credit_note_amount ?? 0), 2),
+        ];
+    }
+
+    /**
+     * Resolve and validate unit conversion to product base unit.
+     *
+     * @return array{unit: string, conversion_to_base: float}
+     */
+    private function resolveUnitConversion(Product $product, ?string $unit, int $index): array
+    {
+        $baseUnit = trim((string) ($product->unit ?: 'kg'));
+        $requestedUnit = $unit !== null ? trim($unit) : $baseUnit;
+
+        if ($requestedUnit === '' || $requestedUnit === $baseUnit) {
+            return [
+                'unit' => $baseUnit,
+                'conversion_to_base' => 1.0,
+            ];
+        }
+
+        $productUnit = $product->orderUnits()
+            ->where('unit', $requestedUnit)
+            ->first();
+
+        if (! $productUnit || (float) $productUnit->conversion_to_base <= 0) {
+            throw ValidationException::withMessages([
+                "items.{$index}.unit" => "Invalid unit '{$requestedUnit}' for {$product->name}.",
+            ]);
+        }
+
+        return [
+            'unit' => $requestedUnit,
+            'conversion_to_base' => (float) $productUnit->conversion_to_base,
         ];
     }
 }

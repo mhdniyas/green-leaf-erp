@@ -12,6 +12,7 @@ use App\Enums\Inventory\WastageReason;
 use App\Enums\ShopInvoice\ShopCreditNoteReason;
 use App\Models\Product;
 use App\Models\PurchaseCreditNote;
+use App\Models\PurchaseCreditNoteItemMovement;
 use App\Models\PurchaseInvoice;
 use App\Models\ShopCreditNote;
 use App\Models\ShopCreditNoteItem;
@@ -19,11 +20,14 @@ use App\Models\ShopInvoiceItem;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
+use App\Models\WarehouseCreditNote;
+use App\Models\WarehouseCreditNoteItemMovement;
 use App\Models\WastageEntry;
 use App\Services\Purchasing\PurchaserReadCacheService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class StockLedgerService
@@ -1128,7 +1132,14 @@ class StockLedgerService
             $allowNegativeStock,
             $fallbackUnitCost,
         ): Collection {
-            $this->lockStockBatchesForProduct($productId, $warehouseId, $targetGrade);
+            $lockedBatchIds = StockBatch::query()
+                ->where('product_id', $productId)
+                ->where('warehouse_id', $warehouseId)
+                ->whereNull('deleted_at')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->pluck('id')
+                ->all();
 
             // 1. Identify preferred batch IDs from linked invoice (if any)
             $preferredBatchIds = [];
@@ -1144,8 +1155,8 @@ class StockLedgerService
                 }
             }
 
-            // 2. Fetch available sorted lots for this product and grade
-            $allLots = $this->sortedLotsForProduct($productId, $warehouseId, $targetGrade);
+            // 2. Fetch available sorted lots for this product and grade (locked current state)
+            $allLots = $this->lockedSortedLotsForProduct($productId, $warehouseId, $targetGrade, $lockedBatchIds);
 
             // Sort so preferred batches come first, keeping FIFO within each group
             $sortedLots = $allLots->sortBy(function ($lot) use ($preferredBatchIds) {
@@ -1161,7 +1172,7 @@ class StockLedgerService
             // Check total available across sorted lots and pending batches
             $totalAvailable = round(
                 (float) $sortedLots->sum('available_quantity') +
-                (float) $sortedPending->sum(fn ($b) => $this->pendingBatchAvailableQuantity($b)),
+                (float) $sortedPending->sum(fn (StockBatch $b): float => $this->lockedPendingBatchAvailableQuantity($b)),
                 3
             );
 
@@ -1210,7 +1221,7 @@ class StockLedgerService
                         break;
                     }
 
-                    $available = $this->pendingBatchAvailableQuantity($batch);
+                    $available = $this->lockedPendingBatchAvailableQuantity($batch);
                     if ($available <= 0.0001) {
                         continue;
                     }
@@ -1311,7 +1322,7 @@ class StockLedgerService
                     'received_at' => now()->toDateString(),
                     'total_kg' => $quantityToAdd,
                     'cost_per_kg' => $costPerKg,
-                    'reference' => 'PCN-IN',
+                    'reference' => 'PCN-IN-'.now()->format('Ymd').'-'.strtoupper(Str::random(6)),
                     'notes' => $notes,
                 ]);
             }
@@ -1378,7 +1389,14 @@ class StockLedgerService
             $primaryBatchId = null;
 
             if ($deductStock && $warehouseId !== null) {
-                $this->lockStockBatchesForProduct($productId, $warehouseId, $targetGrade);
+                $lockedBatchIds = StockBatch::query()
+                    ->where('product_id', $productId)
+                    ->where('warehouse_id', $warehouseId)
+                    ->whereNull('deleted_at')
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->pluck('id')
+                    ->all();
 
                 $preferredBatchIds = [];
                 if ($purchaseInvoiceId) {
@@ -1393,7 +1411,7 @@ class StockLedgerService
                     }
                 }
 
-                $allLots = $this->sortedLotsForProduct($productId, $warehouseId, $targetGrade);
+                $allLots = $this->lockedSortedLotsForProduct($productId, $warehouseId, $targetGrade, $lockedBatchIds);
                 $sortedLots = $allLots->sortBy(function ($lot) use ($preferredBatchIds) {
                     return in_array((int) $lot->batch_id, $preferredBatchIds, true) ? 0 : 1;
                 })->values();
@@ -1405,7 +1423,7 @@ class StockLedgerService
 
                 $totalAvailable = round(
                     (float) $sortedLots->sum('available_quantity') +
-                    (float) $sortedPending->sum(fn ($b) => $this->pendingBatchAvailableQuantity($b)),
+                    (float) $sortedPending->sum(fn (StockBatch $b): float => $this->lockedPendingBatchAvailableQuantity($b)),
                     3
                 );
 
@@ -1454,7 +1472,7 @@ class StockLedgerService
                             break;
                         }
 
-                        $available = $this->pendingBatchAvailableQuantity($batch);
+                        $available = $this->lockedPendingBatchAvailableQuantity($batch);
                         if ($available <= 0.0001) {
                             continue;
                         }
@@ -1534,53 +1552,166 @@ class StockLedgerService
     ): void {
         DB::transaction(function () use ($creditNote, $userId, $reason): void {
             $marker = "PCN: {$creditNote->credit_note_number};";
+            $items = $creditNote->items()->with('movements.stockMovement')->get();
 
-            // Find all movements created for this credit note
-            $movements = StockMovement::query()
-                ->where('notes', 'like', "%{$marker}%")
+            $itemMovements = PurchaseCreditNoteItemMovement::query()
+                ->whereIn('purchase_credit_note_item_id', $items->pluck('id'))
                 ->lockForUpdate()
+                ->orderBy('id')
                 ->get();
 
-            foreach ($movements as $movement) {
-                // Skip if this movement is already a reversal
-                if (str_contains((string) $movement->notes, 'Void Reversal')) {
-                    continue;
+            if ($itemMovements->isNotEmpty()) {
+                if ($itemMovements->every(fn (PurchaseCreditNoteItemMovement $m): bool => $m->isReversed())) {
+                    throw ValidationException::withMessages([
+                        'status' => 'Purchase credit note stock movements have already been reversed.',
+                    ]);
                 }
 
-                $qty = (float) $movement->quantity;
-                if ($qty <= 0.0001) {
-                    continue;
+                foreach ($itemMovements as $itemMovement) {
+                    if ($itemMovement->isReversed()) {
+                        continue;
+                    }
+
+                    $origMovement = $itemMovement->stockMovement;
+                    if (! $origMovement instanceof StockMovement) {
+                        throw ValidationException::withMessages([
+                            'stock_movement_id' => "Original stock movement #{$itemMovement->stock_movement_id} not found.",
+                        ]);
+                    }
+
+                    $batch = StockBatch::withTrashed()
+                        ->whereKey($itemMovement->stock_batch_id)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (! $batch instanceof StockBatch || $batch->trashed()) {
+                        throw ValidationException::withMessages([
+                            'stock_batch_id' => "Cannot reverse credit note because batch #{$itemMovement->stock_batch_id} no longer exists.",
+                        ]);
+                    }
+
+                    $qty = round((float) $itemMovement->quantity, 3);
+                    if ($qty <= 0.0001) {
+                        continue;
+                    }
+
+                    $costPerUnit = round((float) $itemMovement->cost_per_unit, 4);
+                    $gradeVal = $origMovement->grade instanceof ProductGrade
+                        ? $origMovement->grade->value
+                        : (string) ($origMovement->grade ?? 'A');
+                    $movType = $origMovement->type instanceof StockMovementType
+                        ? $origMovement->type
+                        : StockMovementType::tryFrom((string) $origMovement->type);
+
+                    if ($movType === StockMovementType::In) {
+                        $this->assertPurchaseCreditInBatchReversible($batch, $gradeVal, $qty);
+
+                        $reversalMovement = StockMovement::create([
+                            'product_id' => $origMovement->product_id,
+                            'batch_id' => $batch->id,
+                            'warehouse_id' => $origMovement->warehouse_id,
+                            'grade' => $gradeVal,
+                            'type' => StockMovementType::Adjustment->value,
+                            'quantity' => $qty,
+                            'cost_per_unit' => $costPerUnit,
+                            'created_by' => $userId,
+                            'notes' => "Void Reversal — Deducted returned stock for PCN: {$creditNote->credit_note_number}; OrigMovement #{$origMovement->id}; Reason: {$reason}",
+                        ]);
+                    } elseif (in_array($movType, [StockMovementType::Out, StockMovementType::Wastage], true)) {
+                        $reversalMovement = StockMovement::create([
+                            'product_id' => $origMovement->product_id,
+                            'batch_id' => $batch->id,
+                            'warehouse_id' => $origMovement->warehouse_id,
+                            'grade' => $gradeVal,
+                            'type' => StockMovementType::In->value,
+                            'quantity' => $qty,
+                            'cost_per_unit' => $costPerUnit,
+                            'created_by' => $userId,
+                            'notes' => "Void Reversal — Restored stock for PCN: {$creditNote->credit_note_number}; OrigMovement #{$origMovement->id}; Reason: {$reason}",
+                        ]);
+                    } else {
+                        continue;
+                    }
+
+                    $itemMovement->update([
+                        'reversal_stock_movement_id' => $reversalMovement->id,
+                        'reversed_at' => now(),
+                    ]);
                 }
+            } else {
+                // Historical compatibility path for credit notes created before purchase_credit_note_item_movements existed
+                $movements = StockMovement::query()
+                    ->where('notes', 'like', "%{$marker}%")
+                    ->lockForUpdate()
+                    ->get();
 
-                $movType = $movement->type instanceof StockMovementType ? $movement->type : StockMovementType::tryFrom((string) $movement->type);
-                $gradeVal = $movement->grade instanceof ProductGrade ? $movement->grade->value : (string) ($movement->grade ?? 'A');
+                $existingReversalIds = $movements
+                    ->filter(fn (StockMovement $m): bool => str_contains((string) $m->notes, 'Void Reversal'))
+                    ->map(function (StockMovement $m): ?int {
+                        if (preg_match('/OrigMovement #(\d+);/', (string) $m->notes, $matches) === 1) {
+                            return (int) $matches[1];
+                        }
 
-                // If original movement was an OUT or WASTAGE deduction, restore stock via StockMovementType::In
-                if (in_array($movType, [StockMovementType::Out, StockMovementType::Wastage], true)) {
-                    StockMovement::create([
-                        'product_id' => $movement->product_id,
-                        'batch_id' => $movement->batch_id,
-                        'warehouse_id' => $movement->warehouse_id,
-                        'grade' => $gradeVal,
-                        'type' => StockMovementType::In->value,
-                        'quantity' => $qty,
-                        'cost_per_unit' => (float) $movement->cost_per_unit,
-                        'created_by' => $userId,
-                        'notes' => "Void Reversal — Restored stock for PCN: {$creditNote->credit_note_number}; OrigMovement #{$movement->id}; Reason: {$reason}",
-                    ]);
-                } elseif ($movType === StockMovementType::In) {
-                    // Original movement was an IN, reverse it via StockMovementType::Adjustment (deduction)
-                    StockMovement::create([
-                        'product_id' => $movement->product_id,
-                        'batch_id' => $movement->batch_id,
-                        'warehouse_id' => $movement->warehouse_id,
-                        'grade' => $gradeVal,
-                        'type' => StockMovementType::Adjustment->value,
-                        'quantity' => $qty,
-                        'cost_per_unit' => (float) $movement->cost_per_unit,
-                        'created_by' => $userId,
-                        'notes' => "Void Reversal — Deducted returned stock for PCN: {$creditNote->credit_note_number}; OrigMovement #{$movement->id}; Reason: {$reason}",
-                    ]);
+                        return null;
+                    })
+                    ->filter()
+                    ->all();
+
+                foreach ($movements as $movement) {
+                    if (str_contains((string) $movement->notes, 'Void Reversal')) {
+                        continue;
+                    }
+
+                    if (in_array((int) $movement->id, $existingReversalIds, true)) {
+                        continue;
+                    }
+
+                    $qty = (float) $movement->quantity;
+                    if ($qty <= 0.0001) {
+                        continue;
+                    }
+
+                    $movType = $movement->type instanceof StockMovementType ? $movement->type : StockMovementType::tryFrom((string) $movement->type);
+                    $gradeVal = $movement->grade instanceof ProductGrade ? $movement->grade->value : (string) ($movement->grade ?? 'A');
+
+                    if (in_array($movType, [StockMovementType::Out, StockMovementType::Wastage], true)) {
+                        StockMovement::create([
+                            'product_id' => $movement->product_id,
+                            'batch_id' => $movement->batch_id,
+                            'warehouse_id' => $movement->warehouse_id,
+                            'grade' => $gradeVal,
+                            'type' => StockMovementType::In->value,
+                            'quantity' => $qty,
+                            'cost_per_unit' => (float) $movement->cost_per_unit,
+                            'created_by' => $userId,
+                            'notes' => "Void Reversal — Restored stock for PCN: {$creditNote->credit_note_number}; OrigMovement #{$movement->id}; Reason: {$reason}",
+                        ]);
+                    } elseif ($movType === StockMovementType::In) {
+                        $batch = StockBatch::withTrashed()
+                            ->whereKey($movement->batch_id)
+                            ->lockForUpdate()
+                            ->first();
+
+                        if (! $batch instanceof StockBatch || $batch->trashed()) {
+                            throw ValidationException::withMessages([
+                                'stock_batch_id' => "Cannot reverse Stock IN because batch #{$movement->batch_id} no longer exists.",
+                            ]);
+                        }
+
+                        $this->assertPurchaseCreditInBatchReversible($batch, $gradeVal, $qty);
+
+                        StockMovement::create([
+                            'product_id' => $movement->product_id,
+                            'batch_id' => $movement->batch_id,
+                            'warehouse_id' => $movement->warehouse_id,
+                            'grade' => $gradeVal,
+                            'type' => StockMovementType::Adjustment->value,
+                            'quantity' => $qty,
+                            'cost_per_unit' => (float) $movement->cost_per_unit,
+                            'created_by' => $userId,
+                            'notes' => "Void Reversal — Deducted returned stock for PCN: {$creditNote->credit_note_number}; OrigMovement #{$movement->id}; Reason: {$reason}",
+                        ]);
+                    }
                 }
             }
 
@@ -1602,6 +1733,594 @@ class StockLedgerService
                 $wastage->delete();
             }
         });
+    }
+
+    private function assertPurchaseCreditInBatchReversible(StockBatch $batch, string $gradeVal, float $qty): void
+    {
+        if ($batch->segregatedBatches()->exists()) {
+            throw ValidationException::withMessages([
+                'stock_batch_id' => "Cannot reverse Stock IN for batch #{$batch->id} because it has already been segregated.",
+            ]);
+        }
+
+        if ($batch->status !== BatchStatus::Sorted || $batch->warehouse_receive_pending) {
+            throw ValidationException::withMessages([
+                'stock_batch_id' => "Cannot reverse Stock IN for batch #{$batch->id} because its status is no longer eligible.",
+            ]);
+        }
+
+        $availableInBatch = $this->availableQuantityInBatchForGrade($batch->id, $gradeVal);
+        if ($qty > ($availableInBatch + 0.0001)) {
+            throw ValidationException::withMessages([
+                'stock_batch_id' => "Cannot reverse Stock IN for batch #{$batch->id}: {$qty} required, only {$availableInBatch} remains.",
+            ]);
+        }
+    }
+
+    /**
+     * Add stock into warehouse for an independent Warehouse Credit Note (Stock IN).
+     *
+     * @throws ValidationException
+     */
+    public function recordWarehouseCreditIn(
+        int $productId,
+        int $warehouseId,
+        string|ProductGrade $grade,
+        float $baseQuantity,
+        float $costPerBaseUnit,
+        int $userId,
+        string $notes,
+        ?string $businessDate = null,
+    ): StockMovement {
+        $quantityToAdd = round($baseQuantity, 3);
+        if ($quantityToAdd <= 0.0) {
+            throw ValidationException::withMessages(['quantity' => 'Quantity must be greater than zero.']);
+        }
+
+        $costPerKg = round($costPerBaseUnit, 4);
+        if ($costPerKg < 0.0) {
+            throw ValidationException::withMessages(['valuation_rate' => 'Valuation rate cannot be negative.']);
+        }
+
+        $targetGrade = $grade instanceof ProductGrade ? $grade : ProductGrade::tryResolve($grade);
+        if (! $targetGrade instanceof ProductGrade || $targetGrade === ProductGrade::Damage) {
+            throw ValidationException::withMessages(['grade' => 'A valid grade (A, B, C, or Mixed/U) is required.']);
+        }
+
+        return DB::transaction(function () use (
+            $productId,
+            $warehouseId,
+            $targetGrade,
+            $quantityToAdd,
+            $costPerKg,
+            $userId,
+            $notes,
+            $businessDate,
+        ): StockMovement {
+            do {
+                $batchReference = 'WCN-IN-'.now()->format('Ymd').'-'.strtoupper(bin2hex(random_bytes(3)));
+            } while (StockBatch::withTrashed()->where('reference', $batchReference)->exists());
+
+            $batch = StockBatch::create([
+                'product_id' => $productId,
+                'warehouse_id' => $warehouseId,
+                'purchase_grade' => $targetGrade->value,
+                'grading_mode' => 'fixed_purchase_grade',
+                'status' => BatchStatus::Sorted,
+                'warehouse_receive_pending' => false,
+                'warehouse_confirmed_at' => now(),
+                'warehouse_confirmed_by' => $userId,
+                'sorted_at' => now(),
+                'created_by' => $userId,
+                'updated_by' => $userId,
+                'received_at' => $businessDate ?? now()->toDateString(),
+                'total_kg' => $quantityToAdd,
+                'cost_per_kg' => $costPerKg,
+                'reference' => $batchReference,
+                'notes' => $notes,
+            ]);
+
+            return StockMovement::create([
+                'product_id' => $productId,
+                'batch_id' => $batch->id,
+                'warehouse_id' => $warehouseId,
+                'grade' => $targetGrade->value,
+                'type' => StockMovementType::In->value,
+                'quantity' => $quantityToAdd,
+                'cost_per_unit' => $costPerKg,
+                'created_by' => $userId,
+                'notes' => $notes,
+            ]);
+        });
+    }
+
+    /**
+     * Deduct exact-grade stock from warehouse via FIFO for an independent Warehouse Credit Note (Stock OUT).
+     * Never falls back to Mixed/U or another grade, and never creates negative stock.
+     *
+     * @return Collection<int, StockMovement>
+     *
+     * @throws ValidationException
+     */
+    public function recordWarehouseCreditOut(
+        int $productId,
+        int $warehouseId,
+        string|ProductGrade $grade,
+        float $baseQuantity,
+        int $userId,
+        string $notes,
+    ): Collection {
+        return $this->deductExactGradeWarehouseCreditStock(
+            productId: $productId,
+            warehouseId: $warehouseId,
+            grade: $grade,
+            baseQuantity: $baseQuantity,
+            movementType: StockMovementType::Out,
+            userId: $userId,
+            notes: $notes,
+        );
+    }
+
+    /**
+     * Record damage/wastage and deduct exact-grade stock via FIFO for an independent Warehouse Credit Note.
+     * Creates WastageEntry directly without calling WastageService::record() to prevent duplicate GL postings.
+     *
+     * @return array{wastage: WastageEntry, movements: Collection<int, StockMovement>, fifo_cost_total: float}
+     *
+     * @throws ValidationException
+     */
+    public function recordWarehouseCreditDamage(
+        int $productId,
+        int $warehouseId,
+        string|ProductGrade $grade,
+        float $baseQuantity,
+        int $userId,
+        WastageReason $reason,
+        string $notes,
+        ?string $wastageDate = null,
+    ): array {
+        return DB::transaction(function () use (
+            $productId,
+            $warehouseId,
+            $grade,
+            $baseQuantity,
+            $userId,
+            $reason,
+            $notes,
+            $wastageDate,
+        ): array {
+            $movements = $this->deductExactGradeWarehouseCreditStock(
+                productId: $productId,
+                warehouseId: $warehouseId,
+                grade: $grade,
+                baseQuantity: $baseQuantity,
+                movementType: StockMovementType::Wastage,
+                userId: $userId,
+                notes: $notes,
+            );
+
+            $quantityToDamage = round($baseQuantity, 3);
+            $fifoCostTotal = round((float) $movements->sum(
+                fn (StockMovement $m): float => (float) $m->quantity * (float) $m->cost_per_unit
+            ), 2);
+            $weightedCostPerKg = $quantityToDamage > 0.0
+                ? round($fifoCostTotal / $quantityToDamage, 4)
+                : 0.0;
+            $targetGrade = $grade instanceof ProductGrade ? $grade : ProductGrade::tryResolve($grade);
+
+            $wastage = WastageEntry::create([
+                'product_id' => $productId,
+                'batch_id' => $movements->first()?->batch_id,
+                'recorded_by' => $userId,
+                'grade' => $targetGrade?->value ?? ProductGrade::GradeA->value,
+                'quantity' => $quantityToDamage,
+                'cost_per_kg' => $weightedCostPerKg,
+                'reason' => $reason,
+                'wastage_date' => $wastageDate ?? now()->toDateString(),
+                'notes' => $notes,
+            ]);
+
+            return [
+                'wastage' => $wastage,
+                'movements' => $movements,
+                'fifo_cost_total' => $fifoCostTotal,
+            ];
+        });
+    }
+
+    /**
+     * Reverse all exact stock movements and wastage entries recorded for a Warehouse Credit Note.
+     *
+     * @throws ValidationException
+     */
+    public function reverseWarehouseCreditNoteMovements(
+        WarehouseCreditNote $creditNote,
+        int $userId,
+        string $reason,
+    ): void {
+        DB::transaction(function () use ($creditNote, $userId, $reason): void {
+            $items = $creditNote->items()->with('movements.stockMovement')->get();
+
+            $itemMovements = WarehouseCreditNoteItemMovement::query()
+                ->whereIn('warehouse_credit_note_item_id', $items->pluck('id'))
+                ->lockForUpdate()
+                ->orderBy('id')
+                ->get();
+
+            if ($itemMovements->isNotEmpty() && $itemMovements->every(fn (WarehouseCreditNoteItemMovement $m): bool => $m->isReversed())) {
+                throw ValidationException::withMessages([
+                    'status' => 'Warehouse credit note stock movements have already been reversed.',
+                ]);
+            }
+
+            foreach ($itemMovements as $itemMovement) {
+                if ($itemMovement->isReversed()) {
+                    continue;
+                }
+
+                $origMovement = $itemMovement->stockMovement;
+                if (! $origMovement instanceof StockMovement) {
+                    throw ValidationException::withMessages([
+                        'stock_movement_id' => "Original stock movement #{$itemMovement->stock_movement_id} not found.",
+                    ]);
+                }
+
+                $batch = StockBatch::withTrashed()
+                    ->whereKey($itemMovement->stock_batch_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $batch instanceof StockBatch || $batch->trashed()) {
+                    throw ValidationException::withMessages([
+                        'stock_batch_id' => "Cannot reverse credit note because batch #{$itemMovement->stock_batch_id} no longer exists.",
+                    ]);
+                }
+
+                $qty = round((float) $itemMovement->quantity, 3);
+                $costPerUnit = round((float) $itemMovement->cost_per_unit, 4);
+                $gradeVal = $origMovement->grade instanceof ProductGrade
+                    ? $origMovement->grade->value
+                    : (string) $origMovement->grade;
+                $movType = $origMovement->type instanceof StockMovementType
+                    ? $origMovement->type
+                    : StockMovementType::tryFrom((string) $origMovement->type);
+
+                if ($movType === StockMovementType::In) {
+                    if ($batch->segregatedBatches()->exists()) {
+                        throw ValidationException::withMessages([
+                            'stock_batch_id' => "Cannot reverse Stock IN for batch #{$batch->id} because it has already been segregated.",
+                        ]);
+                    }
+
+                    if ($batch->status !== BatchStatus::Sorted || $batch->warehouse_receive_pending) {
+                        throw ValidationException::withMessages([
+                            'stock_batch_id' => "Cannot reverse Stock IN for batch #{$batch->id} because its status is no longer eligible.",
+                        ]);
+                    }
+
+                    $availableInBatch = $this->availableQuantityInBatchForGrade($batch->id, $gradeVal);
+                    if ($qty > ($availableInBatch + 0.0001)) {
+                        throw ValidationException::withMessages([
+                            'stock_batch_id' => "Cannot reverse Stock IN for batch #{$batch->id}: {$qty} required, only {$availableInBatch} remains.",
+                        ]);
+                    }
+
+                    $reversalMovement = StockMovement::create([
+                        'product_id' => $origMovement->product_id,
+                        'batch_id' => $batch->id,
+                        'warehouse_id' => $origMovement->warehouse_id,
+                        'grade' => $gradeVal,
+                        'type' => StockMovementType::Adjustment->value,
+                        'quantity' => $qty,
+                        'cost_per_unit' => $costPerUnit,
+                        'created_by' => $userId,
+                        'notes' => "Void Reversal — Deducted WCN IN #{$creditNote->credit_note_number}; OrigMovement #{$origMovement->id}; Reason: {$reason}",
+                    ]);
+                } elseif (in_array($movType, [StockMovementType::Out, StockMovementType::Wastage], true)) {
+                    $reversalMovement = StockMovement::create([
+                        'product_id' => $origMovement->product_id,
+                        'batch_id' => $batch->id,
+                        'warehouse_id' => $origMovement->warehouse_id,
+                        'grade' => $gradeVal,
+                        'type' => StockMovementType::In->value,
+                        'quantity' => $qty,
+                        'cost_per_unit' => $costPerUnit,
+                        'created_by' => $userId,
+                        'notes' => "Void Reversal — Restored WCN stock #{$creditNote->credit_note_number}; OrigMovement #{$origMovement->id}; Reason: {$reason}",
+                    ]);
+                } else {
+                    throw ValidationException::withMessages([
+                        'stock_movement_id' => "Unsupported original movement type '{$origMovement->type?->value}' for reversal.",
+                    ]);
+                }
+
+                $itemMovement->update([
+                    'reversal_stock_movement_id' => $reversalMovement->id,
+                    'reversed_at' => now(),
+                ]);
+            }
+
+            $wastageIds = $items->pluck('wastage_entry_id')->filter()->unique()->values()->all();
+            if ($wastageIds !== []) {
+                $wastages = WastageEntry::query()
+                    ->whereIn('id', $wastageIds)
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($wastages as $wastage) {
+                    $wastage->notes = trim(($wastage->notes ?? '')." [VOIDED: {$reason}]");
+                    $wastage->save();
+                    $wastage->delete();
+                }
+            }
+        });
+    }
+
+    /**
+     * Exact-grade FIFO deduction for Warehouse Credit Note (OUT / Damage).
+     *
+     * @return Collection<int, StockMovement>
+     *
+     * @throws ValidationException
+     */
+    private function deductExactGradeWarehouseCreditStock(
+        int $productId,
+        int $warehouseId,
+        string|ProductGrade $grade,
+        float $baseQuantity,
+        StockMovementType $movementType,
+        int $userId,
+        string $notes,
+    ): Collection {
+        $quantityToDeduct = round($baseQuantity, 3);
+        if ($quantityToDeduct <= 0.0) {
+            throw ValidationException::withMessages(['quantity' => 'Quantity must be greater than zero.']);
+        }
+
+        $targetGrade = $grade instanceof ProductGrade ? $grade : ProductGrade::tryResolve($grade);
+        if (! $targetGrade instanceof ProductGrade || $targetGrade === ProductGrade::Damage) {
+            throw ValidationException::withMessages(['grade' => 'A valid grade (A, B, C, or Mixed/U) is required.']);
+        }
+
+        return DB::transaction(function () use (
+            $productId,
+            $warehouseId,
+            $targetGrade,
+            $quantityToDeduct,
+            $movementType,
+            $userId,
+            $notes,
+        ): Collection {
+            // Lock all batches for (product_id, warehouse_id) to prevent concurrent deductions
+            // including batches segregated from Mixed/U into this grade.
+            $lockedBatchIds = StockBatch::query()
+                ->where('product_id', $productId)
+                ->where('warehouse_id', $warehouseId)
+                ->whereNull('deleted_at')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->pluck('id')
+                ->all();
+
+            $sortedLots = $this->lockedSortedLotsForProduct($productId, $warehouseId, $targetGrade, $lockedBatchIds);
+            $sortedPending = $this->pendingBatchesForProduct($productId, $warehouseId, $targetGrade)->values();
+
+            $totalAvailable = round(
+                (float) $sortedLots->sum('available_quantity') +
+                (float) $sortedPending->sum(fn (StockBatch $b): float => $this->lockedPendingBatchAvailableQuantity($b)),
+                3
+            );
+
+            if ($quantityToDeduct > ($totalAvailable + 0.0001)) {
+                $productName = Product::find($productId)?->name ?? "Product #{$productId}";
+                throw ValidationException::withMessages([
+                    'items' => "Insufficient stock in warehouse for {$productName} (Grade {$targetGrade->value}). Requested: {$quantityToDeduct}, available: {$totalAvailable}.",
+                ]);
+            }
+
+            $remaining = $quantityToDeduct;
+            $movements = collect();
+
+            foreach ($sortedLots as $lot) {
+                if ($remaining <= 0.0001) {
+                    break;
+                }
+
+                $available = round((float) $lot->available_quantity, 3);
+                if ($available <= 0.0001) {
+                    continue;
+                }
+
+                $deduct = round(min($remaining, $available), 3);
+                $movement = StockMovement::create([
+                    'product_id' => $productId,
+                    'batch_id' => (int) $lot->batch_id,
+                    'warehouse_id' => $warehouseId,
+                    'grade' => (string) $lot->grade,
+                    'type' => $movementType->value,
+                    'quantity' => $deduct,
+                    'cost_per_unit' => round((float) $lot->cost_per_unit, 4),
+                    'created_by' => $userId,
+                    'notes' => $notes,
+                ]);
+
+                $movements->push($movement);
+                $remaining = round($remaining - $deduct, 3);
+            }
+
+            if ($remaining > 0.0001) {
+                foreach ($sortedPending as $batch) {
+                    if ($remaining <= 0.0001) {
+                        break;
+                    }
+
+                    $available = $this->lockedPendingBatchAvailableQuantity($batch);
+                    if ($available <= 0.0001) {
+                        continue;
+                    }
+
+                    $deduct = round(min($remaining, $available), 3);
+                    $movement = StockMovement::create([
+                        'product_id' => $productId,
+                        'batch_id' => (int) $batch->id,
+                        'warehouse_id' => $warehouseId,
+                        'grade' => $targetGrade->value,
+                        'type' => $movementType->value,
+                        'quantity' => $deduct,
+                        'cost_per_unit' => round((float) $batch->cost_per_kg, 4),
+                        'created_by' => $userId,
+                        'notes' => $notes,
+                    ]);
+
+                    $movements->push($movement);
+                    $remaining = round($remaining - $deduct, 3);
+                }
+            }
+
+            if ($remaining > 0.0001) {
+                throw ValidationException::withMessages([
+                    'items' => "Insufficient eligible stock to complete exact-grade FIFO deduction (remaining: {$remaining}).",
+                ]);
+            }
+
+            return $movements;
+        });
+    }
+
+    /**
+     * Current-read (FOR UPDATE) sorted lots for exact grade, immune to MySQL REPEATABLE READ stale snapshots.
+     *
+     * @param  array<int, int>  $lockedBatchIds
+     * @return Collection<int, object>
+     */
+    private function lockedSortedLotsForProduct(int $productId, int $warehouseId, ProductGrade $grade, array $lockedBatchIds): Collection
+    {
+        if ($lockedBatchIds === []) {
+            return collect();
+        }
+
+        $eligibleBatches = StockBatch::query()
+            ->whereIn('id', $lockedBatchIds)
+            ->where('status', BatchStatus::Sorted->value)
+            ->where('warehouse_receive_pending', false)
+            ->orderBy('received_at')
+            ->orderBy('id')
+            ->get(['id', 'received_at', 'warehouse_id'])
+            ->keyBy('id');
+
+        if ($eligibleBatches->isEmpty()) {
+            return collect();
+        }
+
+        $movements = StockMovement::query()
+            ->where('product_id', $productId)
+            ->whereIn('batch_id', $eligibleBatches->keys()->all())
+            ->when($grade === ProductGrade::Unsorted, function ($query): void {
+                $query->whereIn('grade', ['U', 'MIXED', 'UNSORTED']);
+            }, function ($query) use ($grade): void {
+                $query->where('grade', $grade->value);
+            })
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get(['batch_id', 'grade', 'type', 'quantity', 'cost_per_unit']);
+
+        $grouped = [];
+        foreach ($movements as $mov) {
+            $batchId = (int) $mov->batch_id;
+            $gradeStr = $mov->grade instanceof ProductGrade ? $mov->grade->value : (string) $mov->grade;
+            $key = "{$batchId}|{$gradeStr}";
+
+            if (! isset($grouped[$key])) {
+                $grouped[$key] = [
+                    'batch_id' => $batchId,
+                    'grade' => $gradeStr,
+                    'warehouse_id' => (int) $eligibleBatches[$batchId]->warehouse_id,
+                    'received_at' => (string) $eligibleBatches[$batchId]->received_at,
+                    'cost_per_unit' => 0.0,
+                    'available_quantity' => 0.0,
+                ];
+            }
+
+            $cost = (float) $mov->cost_per_unit;
+            if ($cost > $grouped[$key]['cost_per_unit']) {
+                $grouped[$key]['cost_per_unit'] = $cost;
+            }
+
+            $movType = $mov->type instanceof StockMovementType ? $mov->type : StockMovementType::tryFrom((string) $mov->type);
+            $qty = (float) $mov->quantity;
+            if (in_array($movType, [StockMovementType::In, StockMovementType::SaleReversal], true)) {
+                $grouped[$key]['available_quantity'] += $qty;
+            } elseif (in_array($movType, [StockMovementType::Out, StockMovementType::Wastage, StockMovementType::Sale, StockMovementType::Adjustment], true)) {
+                $grouped[$key]['available_quantity'] -= $qty;
+            }
+        }
+
+        return collect($grouped)
+            ->map(fn (array $row): object => (object) [
+                'batch_id' => $row['batch_id'],
+                'grade' => $row['grade'],
+                'warehouse_id' => $row['warehouse_id'],
+                'received_at' => $row['received_at'],
+                'cost_per_unit' => $row['cost_per_unit'],
+                'available_quantity' => round($row['available_quantity'], 3),
+            ])
+            ->filter(fn (object $row): bool => $row->available_quantity > 0.0001)
+            ->sortBy([
+                ['received_at', 'asc'],
+                ['batch_id', 'asc'],
+                ['grade', 'asc'],
+            ])
+            ->values();
+    }
+
+    private function lockedPendingBatchAvailableQuantity(StockBatch $batch): float
+    {
+        $movements = StockMovement::query()
+            ->where('batch_id', $batch->id)
+            ->lockForUpdate()
+            ->get(['type', 'quantity']);
+
+        $writeOffQuantity = 0.0;
+        $reversalQuantity = 0.0;
+
+        foreach ($movements as $mov) {
+            $movType = $mov->type instanceof StockMovementType ? $mov->type : StockMovementType::tryFrom((string) $mov->type);
+            $qty = (float) $mov->quantity;
+            if (in_array($movType, [StockMovementType::Out, StockMovementType::Sale, StockMovementType::Wastage, StockMovementType::Adjustment], true)) {
+                $writeOffQuantity += $qty;
+            } elseif ($movType === StockMovementType::SaleReversal) {
+                $reversalQuantity += $qty;
+            }
+        }
+
+        $netWriteOff = max(0.0, $writeOffQuantity - $reversalQuantity);
+
+        return round(max(0.0, (float) $batch->remaining_qty - $netWriteOff), 3);
+    }
+
+    private function availableQuantityInBatchForGrade(int $batchId, string $grade): float
+    {
+        $row = StockMovement::query()
+            ->where('batch_id', $batchId)
+            ->where('grade', $grade)
+            ->selectRaw(
+                'SUM(CASE '.
+                'WHEN type IN (?, ?) THEN quantity '.
+                'WHEN type IN (?, ?, ?, ?) THEN -quantity '.
+                'ELSE 0 END) as available_quantity',
+                [
+                    StockMovementType::In->value,
+                    StockMovementType::SaleReversal->value,
+                    StockMovementType::Out->value,
+                    StockMovementType::Wastage->value,
+                    StockMovementType::Sale->value,
+                    StockMovementType::Adjustment->value,
+                ]
+            )
+            ->toBase()
+            ->first();
+
+        return round((float) ($row->available_quantity ?? 0.0), 3);
     }
 
     /**

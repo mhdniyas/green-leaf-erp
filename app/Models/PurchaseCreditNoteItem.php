@@ -8,6 +8,7 @@ use App\Enums\Purchasing\PurchaseCreditInventoryAction;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PurchaseCreditNoteItem extends Model
 {
@@ -19,6 +20,9 @@ class PurchaseCreditNoteItem extends Model
         'product_id',
         'grade',
         'quantity',
+        'unit',
+        'conversion_to_base',
+        'base_qty',
         'unit_price',
         'line_total',
         'inventory_action',
@@ -30,6 +34,8 @@ class PurchaseCreditNoteItem extends Model
     {
         return [
             'quantity' => 'decimal:3',
+            'conversion_to_base' => 'decimal:6',
+            'base_qty' => 'decimal:3',
             'unit_price' => 'decimal:2',
             'line_total' => 'decimal:2',
             'inventory_action' => PurchaseCreditInventoryAction::class,
@@ -61,5 +67,10 @@ class PurchaseCreditNoteItem extends Model
     public function wastageEntry(): BelongsTo
     {
         return $this->belongsTo(WastageEntry::class, 'wastage_entry_id');
+    }
+
+    public function movements(): HasMany
+    {
+        return $this->hasMany(PurchaseCreditNoteItemMovement::class, 'purchase_credit_note_item_id');
     }
 }

@@ -36,6 +36,12 @@ class CashbookAccess
 
     public const ReportsView = 'cashbook.reports.view';
 
+    public const WarehouseCreditNotesView = 'cashbook.warehouse-credit-notes.view';
+
+    public const WarehouseCreditNotesManage = 'cashbook.warehouse-credit-notes.manage';
+
+    public const WarehouseCreditNotesVoid = 'cashbook.warehouse-credit-notes.void';
+
     public const SettingsView = 'cashbook.settings.view';
 
     public const SettingsManage = 'cashbook.settings.manage';
@@ -142,6 +148,9 @@ class CashbookAccess
             self::InventoryView,
             self::InventoryManage,
             self::ReportsView,
+            self::WarehouseCreditNotesView,
+            self::WarehouseCreditNotesManage,
+            self::WarehouseCreditNotesVoid,
             self::SettingsView,
             self::SettingsManage,
             self::UserAccessManage,
@@ -167,6 +176,9 @@ class CashbookAccess
             self::InventoryView,
             self::InventoryManage,
             self::ReportsView,
+            self::WarehouseCreditNotesView,
+            self::WarehouseCreditNotesManage,
+            self::WarehouseCreditNotesVoid,
             self::SettingsView,
             self::SettingsManage,
         ];
@@ -198,6 +210,7 @@ class CashbookAccess
             self::ReconciliationView,
             self::InventoryView,
             self::ReportsView,
+            self::WarehouseCreditNotesView,
             self::SettingsView,
         ];
     }
@@ -213,6 +226,8 @@ class CashbookAccess
             self::AccountBalanceManage,
             self::ReconciliationManage,
             self::InventoryManage,
+            self::WarehouseCreditNotesManage,
+            self::WarehouseCreditNotesVoid,
             self::SettingsManage,
         ];
     }

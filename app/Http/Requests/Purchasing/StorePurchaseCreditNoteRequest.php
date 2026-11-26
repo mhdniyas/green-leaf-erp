@@ -48,6 +48,7 @@ class StorePurchaseCreditNoteRequest extends FormRequest
             'payment_method' => ['nullable', 'string', 'max:50'],
             'deduct_stock_for_damage' => ['nullable', 'boolean'],
             'allow_negative_stock' => ['nullable', 'boolean'],
+            'submission_token' => ['nullable', 'string', 'max:100'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => [
@@ -57,6 +58,7 @@ class StorePurchaseCreditNoteRequest extends FormRequest
                 Rule::in($allowedProductIds),
             ],
             'items.*.grade' => ['required', 'string', 'max:10'],
+            'items.*.unit' => ['nullable', 'string', 'max:30'],
             'items.*.quantity' => ['required', 'numeric', 'gt:0'],
             'items.*.unit_price' => ['required', 'numeric', 'gte:0'],
             'items.*.purchaser_cart_item_id' => ['nullable', 'integer'],

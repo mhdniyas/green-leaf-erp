@@ -29,6 +29,7 @@ use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Models\WarehouseCreditNote;
 use App\Models\WastageEntry;
 use App\Observers\PurchaserCacheInvalidationObserver;
 use App\Observers\UserObserver;
@@ -40,6 +41,7 @@ use App\Policies\SalesInvoicePolicy;
 use App\Policies\SalesOrderPolicy;
 use App\Policies\SupplierPolicy;
 use App\Policies\UserPolicy;
+use App\Policies\WarehouseCreditNotePolicy;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\PurchaserCartBatchStateResolver;
 use App\Services\Purchasing\PurchaserReadCacheService;
@@ -76,6 +78,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(SalesOrder::class, SalesOrderPolicy::class);
         Gate::policy(SalesInvoice::class, SalesInvoicePolicy::class);
         Gate::policy(User::class, UserPolicy::class);
+        Gate::policy(WarehouseCreditNote::class, WarehouseCreditNotePolicy::class);
 
         Gate::before(function (User $user, string $ability): ?bool {
             if ($user->hasRole('admin') || $user->isMainAdmin()) {

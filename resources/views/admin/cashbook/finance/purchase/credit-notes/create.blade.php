@@ -8,42 +8,155 @@
 @endsection
 
 @section('header_subtitle')
-    Record vendor credit, goods returned to vendor, physical damage write-offs, or refund received.
+    Internal ERP credit note for vendor balance adjustments, cash/bank refunds, or warehouse stock movements.
 @endsection
 
 @section('content')
-<div class="mx-auto max-w-[96rem] space-y-6" x-data="purchaseCreditNoteForm">
-    {{-- Breadcrumb & Top Bar --}}
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-            <a href="{{ route('admin.cashbook.finance.purchase.vendors.show', ['supplier' => $supplier->public_uuid]) }}#credits"
-               class="inline-flex items-center gap-1.5 text-xs font-black text-emerald-700 hover:text-emerald-800">
-                <i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>
-                <span>Back to {{ $supplier->name }}</span>
-            </a>
-            <h1 class="mt-1 text-2xl font-black text-slate-950">Create Purchase Credit Note</h1>
-            <p class="text-xs text-slate-500">Vendor: <span class="font-bold text-slate-800">{{ $supplier->name }}</span> (Code: {{ $supplier->code ?? '#' . $supplier->id }})</p>
+@php
+    $initialCreditDate = old('credit_date', $defaultCreditDate);
+    $initialReason = old('reason', 'return');
+    $initialMoneyEffect = old('money_effect', 'vendor_credit');
+    $initialInventoryAction = old('inventory_action', 'none');
+    $initialInvoiceId = old('purchase_invoice_id', '');
+    $initialWarehouseId = old('warehouse_id', (string) ($warehouses->first()?->id ?? ''));
+    $initialCompanyAccountId = old('company_account_id', (string) ($companyAccounts->first()?->id ?? ''));
+    $initialDeductStock = old('deduct_stock_for_damage') !== null
+        ? (bool) old('deduct_stock_for_damage')
+        : true;
+    $initialNotes = old('notes', '');
+    $initialSubmissionToken = old('submission_token', $submissionToken);
+
+    $productById = collect($productCatalog)->keyBy('id');
+    $oldItems = old('items');
+    if (is_array($oldItems) && count($oldItems) > 0) {
+        $initialItems = collect($oldItems)->values()->map(function (array $row) use ($productById): array {
+            $pid = (int) ($row['product_id'] ?? 0);
+            $prod = $productById->get($pid);
+            $baseUnit = $prod['base_unit'] ?? 'kg';
+
+            return [
+                'isFromInvoice' => ! empty($row['purchaser_cart_item_id']),
+                'product_id' => $pid > 0 ? $pid : '',
+                'product_name' => $prod['name'] ?? '',
+                'productSearch' => $prod['name'] ?? '',
+                'productDropdownOpen' => false,
+                'grade' => (string) ($row['grade'] ?? 'A'),
+                'unit' => (string) ($row['unit'] ?? $baseUnit),
+                'quantity' => (float) ($row['quantity'] ?? 1),
+                'unit_price' => (float) ($row['unit_price'] ?? 0),
+                'purchaser_cart_item_id' => ! empty($row['purchaser_cart_item_id']) ? (int) $row['purchaser_cart_item_id'] : null,
+                'purchased_qty' => null,
+                'returnable_qty' => null,
+            ];
+        })->all();
+    } else {
+        $initialItems = [[
+            'isFromInvoice' => false,
+            'product_id' => '',
+            'product_name' => '',
+            'productSearch' => '',
+            'productDropdownOpen' => false,
+            'grade' => 'A',
+            'unit' => 'kg',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'purchaser_cart_item_id' => null,
+            'purchased_qty' => null,
+            'returnable_qty' => null,
+        ]];
+    }
+@endphp
+
+<div class="mx-auto max-w-[96rem] space-y-5 pb-12" x-data="purchaseCreditNoteForm">
+    {{-- 1. Professional Document Header --}}
+    <div class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-4">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div class="space-y-1">
+                <div class="flex flex-wrap items-center gap-2">
+                    <a href="{{ route('admin.cashbook.purchase-credit-notes.index', ['supplier_id' => $supplier->id]) }}"
+                       class="inline-flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-emerald-700">
+                        <i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>
+                        <span>Back to Credit Notes</span>
+                    </a>
+                    <span class="text-slate-300">·</span>
+                    <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                        Internal ERP Credit Note
+                    </span>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-3 pt-1">
+                    <h1 class="text-xl font-black tracking-tight text-slate-950">Purchase Credit Note</h1>
+                    <span class="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-800">
+                        <i data-lucide="store" class="h-3.5 w-3.5 text-emerald-600"></i>
+                        <span>{{ $vendorInfo['name'] }}</span>
+                    </span>
+                    @if (! empty($vendorInfo['primary_phone']))
+                        <span class="inline-flex items-center gap-1 text-xs font-semibold text-slate-600">
+                            <i data-lucide="phone" class="h-3.5 w-3.5 text-slate-400"></i>
+                            <span>{{ $vendorInfo['primary_phone'] }}</span>
+                        </span>
+                    @endif
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('admin.cashbook.finance.purchase.vendors.show', ['supplier' => $supplier->public_uuid]) }}"
+                   class="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                    <span>More Details</span>
+                    <i data-lucide="external-link" class="h-3.5 w-3.5"></i>
+                </a>
+                <a href="{{ route('admin.cashbook.purchase-credit-notes.index', ['supplier_id' => $supplier->id]) }}"
+                   class="inline-flex h-9 items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 hover:bg-slate-50">
+                    Cancel
+                </a>
+            </div>
         </div>
 
-        <div class="flex items-center gap-3">
-            <a href="{{ route('admin.cashbook.finance.purchase.vendors.show', ['supplier' => $supplier->public_uuid]) }}#credits"
-               class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">
-                Cancel
-            </a>
-            <button type="submit" form="credit-note-form"
-                    :disabled="isSubmitting || isCheckingStock || items.length === 0 || totalAmount() <= 0"
-                    class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2 text-xs font-black text-white hover:bg-emerald-700 disabled:opacity-50">
-                <i data-lucide="check" class="h-4 w-4"></i>
-                <span x-text="isCheckingStock ? 'Checking Stock...' : (isSubmitting ? 'Saving...' : 'Create Credit Note')"></span>
-            </button>
+        {{-- Document Metadata Strip --}}
+        <div class="grid grid-cols-1 gap-3 border-t border-slate-100 pt-3 text-xs sm:grid-cols-3">
+            <div class="flex items-center gap-2 text-slate-600">
+                <i data-lucide="hash" class="h-3.5 w-3.5 text-slate-400"></i>
+                <span class="font-semibold">Credit Note #:</span>
+                <span class="font-mono font-bold text-slate-800">Auto-generated on posting</span>
+            </div>
+            <div class="flex items-center gap-2 text-slate-600">
+                <i data-lucide="user-check" class="h-3.5 w-3.5 text-slate-400"></i>
+                <span class="font-semibold">Created By:</span>
+                <span class="font-bold text-slate-800">{{ auth()->user()?->name ?? 'System' }}</span>
+            </div>
+            <div class="flex items-center gap-2 text-slate-600">
+                <i data-lucide="calendar" class="h-3.5 w-3.5 text-slate-400"></i>
+                <span class="font-semibold">Credit Date:</span>
+                <span class="font-mono font-bold text-slate-800" x-text="creditDate"></span>
+            </div>
+        </div>
+
+        {{-- 2. Compact Vendor Financial Summary --}}
+        <div class="grid grid-cols-2 gap-3 border-t border-slate-100 pt-3 lg:grid-cols-4">
+            <div class="rounded-xl border border-amber-200/80 bg-amber-50/50 px-3.5 py-2.5">
+                <div class="text-[10px] font-bold uppercase tracking-wider text-amber-700">Outstanding Balance</div>
+                <div class="mt-0.5 text-sm font-black text-amber-900">₹{{ number_format($vendorSummary['outstanding_balance'], 2) }}</div>
+            </div>
+            <div class="rounded-xl border border-emerald-200/80 bg-emerald-50/50 px-3.5 py-2.5">
+                <div class="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Available Credit</div>
+                <div class="mt-0.5 text-sm font-black text-emerald-900">₹{{ number_format($vendorSummary['available_credit_note_balance'], 2) }}</div>
+            </div>
+            <div class="rounded-xl border border-blue-200/80 bg-blue-50/50 px-3.5 py-2.5">
+                <div class="text-[10px] font-bold uppercase tracking-wider text-blue-700">Total Open Advances</div>
+                <div class="mt-0.5 text-sm font-black text-blue-900">₹{{ number_format($vendorSummary['total_open_vendor_advances'], 2) }}</div>
+            </div>
+            <div class="rounded-xl border border-slate-200/80 bg-slate-50/70 px-3.5 py-2.5">
+                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Pending Bills</div>
+                <div class="mt-0.5 text-sm font-black text-slate-900">{{ number_format($vendorSummary['pending_bills_count']) }}</div>
+            </div>
         </div>
     </div>
 
     {{-- Error Banner --}}
     @if ($errors->any())
-        <div class="rounded-lg border border-rose-200 bg-rose-50 p-4 text-xs font-bold text-rose-800">
+        <div class="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs font-semibold text-rose-800">
             <div class="flex items-center gap-2 font-black text-rose-900">
-                <i data-lucide="alert-circle" class="h-4 w-4"></i>
+                <i data-lucide="alert-circle" class="h-4 w-4 text-rose-600"></i>
                 <span>Please fix the following validation errors:</span>
             </div>
             <ul class="mt-2 list-inside list-disc space-y-1">
@@ -56,571 +169,490 @@
 
     <form id="credit-note-form" method="POST"
           action="{{ route('admin.cashbook.finance.purchase.vendors.credit-notes.store', $supplier) }}"
-          @submit.prevent="handleSubmit($event)">
+          @submit.prevent="openReviewOrCheckStock()">
         @csrf
         <input type="hidden" name="allow_negative_stock" :value="allowNegativeStock ? 1 : 0">
+        <input type="hidden" name="submission_token" value="{{ $initialSubmissionToken }}">
 
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {{-- Left 2 cols: Main Parameters & Line Items --}}
+            {{-- Left 2 cols --}}
             <div class="space-y-6 lg:col-span-2">
-                {{-- Card 1: Configuration & Primary Routing --}}
-                <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-5">
-                    <h2 class="text-sm font-black uppercase tracking-wider text-slate-500">1. Credit Note Configuration</h2>
+                {{-- Card 1: Document Details & Options --}}
+                <div class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-5">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <h2 class="text-xs font-black uppercase tracking-wider text-slate-600">1. Credit Note Details &amp; Routing</h2>
+                    </div>
 
                     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        {{-- Credit Date --}}
                         <div>
-                            <label class="block text-xs font-black text-slate-700">Credit Date <span class="text-rose-500">*</span></label>
+                            <label class="block text-xs font-bold text-slate-700">Credit Note Date <span class="text-rose-500">*</span></label>
                             <input type="date" name="credit_date" x-model="creditDate" required
-                                   class="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-900 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600">
+                                   class="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
                         </div>
 
-                        {{-- Reason --}}
                         <div>
-                            <label class="block text-xs font-black text-slate-700">Credit Reason <span class="text-rose-500">*</span></label>
+                            <label class="block text-xs font-bold text-slate-700">Reason <span class="text-rose-500">*</span></label>
                             <select name="reason" x-model="reason" required
-                                    class="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-900 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600">
+                                    class="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
                                 @foreach($reasons as $reasonCase)
                                     <option value="{{ $reasonCase->value }}">{{ $reasonCase->label() }}</option>
                                 @endforeach
                             </select>
+                            <p class="mt-1 text-[11px] font-medium text-slate-500" x-text="reasonSuggestionHint()"></p>
                         </div>
                     </div>
 
-                    {{-- Searchable Linked Purchase Invoice (Optional) --}}
+                    {{-- Optional Linked Purchase Invoice --}}
                     <div class="relative" @click.outside="isInvoiceDropdownOpen = false">
-                        <div class="flex items-center justify-between">
-                            <label class="block text-xs font-black text-slate-700">Link to Purchase Invoice / Bill (Optional)</label>
-                            <span class="text-[11px] text-slate-400">Search by invoice #, amount, or date to auto-populate items & remaining debt</span>
+                        <div class="flex flex-wrap items-center justify-between gap-1">
+                            <label class="block text-xs font-bold text-slate-700">Purchase Invoice Reference (Optional)</label>
+                            <span class="text-[11px] text-slate-400">Link a bill to auto-load items &amp; remaining balance</span>
                         </div>
 
-                        {{-- Hidden input for form submission --}}
                         <input type="hidden" name="purchase_invoice_id" :value="purchaseInvoiceId">
 
                         <div class="relative mt-1.5">
-                            <div class="relative flex items-center">
-                                <i data-lucide="search" class="absolute left-3 h-3.5 w-3.5 text-slate-400 pointer-events-none"></i>
-                                <input type="text"
-                                       x-model="invoiceSearch"
-                                       @focus="isInvoiceDropdownOpen = true"
-                                       @input="isInvoiceDropdownOpen = true"
-                                       :placeholder="selectedInvoiceData ? (selectedInvoiceData.invoice_number + ' (₹' + formatMoney(selectedInvoiceData.net_amount) + ') — Click to change') : 'Search bill by invoice #, date, or amount (₹)...'"
-                                       class="w-full rounded-lg border border-slate-300 pl-9 pr-16 py-2 text-xs font-medium text-slate-900 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600">
+                            <i data-lucide="search" class="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400"></i>
+                            <input type="text"
+                                   x-model="invoiceSearch"
+                                   @focus="isInvoiceDropdownOpen = true"
+                                   @input="isInvoiceDropdownOpen = true"
+                                   @keydown.escape="isInvoiceDropdownOpen = false"
+                                   :placeholder="selectedInvoiceData ? (selectedInvoiceData.invoice_number + ' (₹' + formatMoney(selectedInvoiceData.net_amount) + ')') : 'Search bill by invoice #, date, or amount...'"
+                                   class="h-9 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-16 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
 
-                                <div class="absolute right-2 flex items-center gap-1">
-                                    <template x-if="purchaseInvoiceId">
-                                        <button type="button" @click="selectInvoice(null)" title="Unlink bill (Standalone Credit)"
-                                                class="rounded p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition">
-                                            <i data-lucide="x" class="h-3.5 w-3.5"></i>
-                                        </button>
-                                    </template>
-                                    <button type="button" @click="isInvoiceDropdownOpen = !isInvoiceDropdownOpen"
-                                            class="rounded p-1 text-slate-400 hover:text-slate-600 transition">
-                                        <i data-lucide="chevron-down" class="h-3.5 w-3.5 transition-transform" :class="isInvoiceDropdownOpen ? 'rotate-180' : ''"></i>
+                            <div class="absolute right-2 top-1.5 flex items-center gap-1">
+                                <template x-if="purchaseInvoiceId">
+                                    <button type="button" @click="selectInvoice(null)" title="Unlink bill"
+                                            class="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600">
+                                        <i data-lucide="x" class="h-3.5 w-3.5"></i>
                                     </button>
-                                </div>
+                                </template>
+                                <button type="button" @click="isInvoiceDropdownOpen = !isInvoiceDropdownOpen"
+                                        class="rounded-lg p-1 text-slate-400 hover:text-slate-700">
+                                    <i data-lucide="chevron-down" class="h-3.5 w-3.5 transition-transform" :class="isInvoiceDropdownOpen ? 'rotate-180' : ''"></i>
+                                </button>
                             </div>
 
-                            {{-- Dropdown options --}}
-                            <div x-show="isInvoiceDropdownOpen"
-                                 x-cloak
-                                 x-transition
-                                 class="absolute left-0 right-0 z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl divide-y divide-slate-100">
-
-                                {{-- Standalone option --}}
+                            <div x-show="isInvoiceDropdownOpen" x-cloak
+                                 class="absolute left-0 right-0 z-30 mt-1 max-h-64 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-xl">
                                 <div @click="selectInvoice(null)"
-                                     class="flex items-center justify-between p-3 cursor-pointer hover:bg-slate-50 transition"
+                                     class="flex cursor-pointer items-center justify-between p-3 hover:bg-slate-50"
                                      :class="!purchaseInvoiceId ? 'bg-emerald-50/60' : ''">
-                                    <div class="flex items-center gap-2">
-                                        <i data-lucide="file-minus" class="h-4 w-4 text-slate-400"></i>
-                                        <div>
-                                            <div class="text-xs font-black text-slate-800">— Standalone / Direct Vendor Credit —</div>
-                                            <div class="text-[10px] text-slate-400">No linked invoice. Excess credit will remain as Vendor Advance.</div>
-                                        </div>
+                                    <div>
+                                        <div class="text-xs font-bold text-slate-800">Standalone Credit Note (No Bill Linked)</div>
+                                        <div class="text-[11px] text-slate-400">Vendor Credit will remain as Open Vendor Advance.</div>
                                     </div>
-                                    <span x-show="!purchaseInvoiceId" class="text-xs font-bold text-emerald-700">Active</span>
+                                    <span x-show="!purchaseInvoiceId" class="text-[11px] font-bold text-emerald-700">Selected</span>
                                 </div>
 
-                                {{-- Invoices list --}}
                                 <template x-for="inv in filteredInvoices()" :key="inv.id">
                                     <div @click="selectInvoice(inv)"
-                                         class="p-3 cursor-pointer hover:bg-slate-50 transition flex flex-col gap-1.5"
-                                         :class="purchaseInvoiceId == inv.id ? 'bg-emerald-50/60' : ''">
-                                        <div class="flex items-center justify-between gap-2">
-                                            <div class="flex items-center gap-2 flex-wrap">
-                                                <span class="font-mono font-bold text-xs text-slate-900" x-text="inv.invoice_number"></span>
-                                                <span class="text-[11px] font-mono text-slate-500" x-text="inv.date"></span>
-                                                <span class="rounded px-1.5 py-0.2 text-[10px] font-bold uppercase tracking-wider"
-                                                      :class="inv.payment_class === 'Cash' ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'"
-                                                      x-text="inv.payment_class"></span>
+                                         class="cursor-pointer p-3 hover:bg-slate-50"
+                                         :class="String(purchaseInvoiceId) === String(inv.id) ? 'bg-emerald-50/60' : ''">
+                                        <div class="flex items-center justify-between text-xs">
+                                            <div class="flex items-center gap-2">
+                                                <span class="font-mono font-bold text-slate-900" x-text="inv.invoice_number"></span>
+                                                <span class="text-[11px] text-slate-500" x-text="inv.date"></span>
                                             </div>
-                                            <span x-show="purchaseInvoiceId == inv.id" class="text-xs font-bold text-emerald-700">Selected</span>
-                                        </div>
-
-                                        <div class="flex items-center justify-between text-xs font-mono">
-                                            <span class="text-slate-600">
-                                                Bill: <strong class="text-slate-900">₹<span x-text="formatMoney(inv.net_amount)"></span></strong>
-                                            </span>
-                                            <span :class="inv.outstanding_amount > 0 ? 'text-rose-700 font-bold' : 'text-slate-400'">
+                                            <span class="font-mono font-bold" :class="inv.outstanding_amount > 0 ? 'text-rose-700' : 'text-slate-400'">
                                                 Out: ₹<span x-text="formatMoney(inv.outstanding_amount)"></span>
                                             </span>
                                         </div>
                                     </div>
                                 </template>
-
-                                {{-- Empty search result --}}
-                                <div x-show="filteredInvoices().length === 0" class="p-4 text-center text-xs text-slate-400 italic">
-                                    No purchase bills match "<span x-text="invoiceSearch"></span>"
-                                </div>
                             </div>
                         </div>
 
-                        {{-- Selected Invoice Summary Bar --}}
                         <template x-if="selectedInvoiceData">
-                            <div class="mt-2.5 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3.5 shadow-2xs space-y-2">
-                                <div class="flex items-center justify-between flex-wrap gap-2">
-                                    <div class="flex items-center gap-2">
-                                        <i data-lucide="receipt" class="h-4 w-4 text-indigo-600"></i>
-                                        <span class="font-mono font-black text-xs text-indigo-950" x-text="selectedInvoiceData.invoice_number"></span>
-                                        <span class="text-slate-400">·</span>
-                                        <span class="text-xs font-medium text-slate-600" x-text="selectedInvoiceData.date"></span>
-                                        <span class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
-                                              :class="selectedInvoiceData.payment_class === 'Cash' ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'"
-                                              x-text="selectedInvoiceData.payment_class"></span>
+                            <div class="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 px-3.5 py-2.5 text-xs">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="receipt" class="h-4 w-4 text-indigo-600"></i>
+                                    <span class="font-mono font-bold text-indigo-950" x-text="selectedInvoiceData.invoice_number"></span>
+                                    <span class="text-slate-500" x-text="selectedInvoiceData.date"></span>
+                                </div>
+                                <div class="flex items-center gap-4 font-mono">
+                                    <span class="text-slate-600">Net: <strong class="text-slate-900">₹<span x-text="formatMoney(selectedInvoiceData.net_amount)"></span></strong></span>
+                                    <span class="text-rose-700 font-bold">Remaining: ₹<span x-text="formatMoney(selectedInvoiceData.outstanding_amount)"></span></span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    {{-- Financial Effect --}}
+                    <div class="space-y-2 border-t border-slate-100 pt-4">
+                        <label class="block text-xs font-bold text-slate-700">Financial Effect <span class="text-rose-500">*</span></label>
+                        <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+                            @foreach($moneyEffects as $mEffect)
+                                <label class="flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition"
+                                       :class="moneyEffect === '{{ $mEffect->value }}' ? 'border-emerald-600 bg-emerald-50/50 ring-1 ring-emerald-600' : 'border-slate-200 bg-white hover:bg-slate-50'">
+                                    <input type="radio" name="money_effect" value="{{ $mEffect->value }}" x-model="moneyEffect" class="mt-0.5 text-emerald-600 focus:ring-emerald-500">
+                                    <div>
+                                        <div class="text-xs font-bold text-slate-900">{{ $mEffect->label() }}</div>
+                                        <div class="mt-0.5 text-[11px] text-slate-500">
+                                            @if($mEffect->value === 'vendor_credit')
+                                                Adjusts vendor balance or creates advance
+                                            @elseif($mEffect->value === 'in')
+                                                Receive cash or bank refund from vendor
+                                            @else
+                                                Pay cash or bank settlement to vendor
+                                            @endif
+                                        </div>
                                     </div>
-                                    <button type="button" @click="selectInvoice(null)" class="text-[11px] font-bold text-rose-600 hover:text-rose-800 hover:underline">
-                                        Unlink / Standalone
-                                    </button>
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    {{-- Stock Movement --}}
+                    <div class="space-y-2 border-t border-slate-100 pt-4">
+                        <label class="block text-xs font-bold text-slate-700">Stock Movement <span class="text-rose-500">*</span></label>
+                        <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+                            @foreach($inventoryActions as $iAction)
+                                <label class="flex cursor-pointer items-start gap-2 rounded-xl border p-3 transition"
+                                       :class="inventoryAction === '{{ $iAction->value }}' ? 'border-emerald-600 bg-emerald-50/50 ring-1 ring-emerald-600' : 'border-slate-200 bg-white hover:bg-slate-50'">
+                                    <input type="radio" name="inventory_action" value="{{ $iAction->value }}" x-model="inventoryAction" @change="refreshRowStockLevels()" class="mt-0.5 text-emerald-600 focus:ring-emerald-500">
+                                    <div>
+                                        <div class="text-xs font-bold text-slate-900">
+                                            {{ $iAction->value === 'none' ? 'No Stock Movement' : $iAction->label() }}
+                                        </div>
+                                        <div class="mt-0.5 text-[11px] text-slate-500">
+                                            @if($iAction->value === 'none')
+                                                Financial adjustment only
+                                            @elseif($iAction->value === 'out')
+                                                Return stock to vendor
+                                            @elseif($iAction->value === 'in')
+                                                Receive replacement stock
+                                            @else
+                                                Record wastage / damage
+                                            @endif
+                                        </div>
+                                    </div>
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    {{-- Conditional Account & Warehouse --}}
+                    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2"
+                         x-show="['in', 'out'].includes(moneyEffect) || ['out', 'in', 'damage'].includes(inventoryAction)"
+                         x-cloak>
+                        <div x-show="['in', 'out'].includes(moneyEffect)" x-cloak>
+                            <label class="block text-xs font-bold text-slate-700">Cash / Bank Account <span class="text-rose-500">*</span></label>
+                            <select name="company_account_id" x-model="companyAccountId" :required="['in', 'out'].includes(moneyEffect)"
+                                    class="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                                @foreach($companyAccounts as $acc)
+                                    <option value="{{ $acc->id }}">{{ $acc->name }} ({{ ucfirst($acc->account_type) }})</option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        <div x-show="['out', 'in', 'damage'].includes(inventoryAction)" x-cloak>
+                            <label class="block text-xs font-bold text-slate-700">Warehouse <span class="text-rose-500">*</span></label>
+                            <select name="warehouse_id" x-model="warehouseId" @change="refreshRowStockLevels()" :required="['out', 'in'].includes(inventoryAction)"
+                                    class="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                                @foreach($warehouses as $wh)
+                                    <option value="{{ $wh->id }}">{{ $wh->name }} ({{ $wh->code }})</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </div>
+
+                    {{-- Damage Toggle --}}
+                    <div x-show="inventoryAction === 'damage'" x-cloak class="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5">
+                        <label class="flex cursor-pointer items-center gap-2 text-xs font-bold text-amber-950">
+                            <input type="checkbox" name="deduct_stock_for_damage" value="1" x-model="deductStockForDamage" @change="refreshRowStockLevels()"
+                                   class="h-4 w-4 rounded border-amber-300 text-emerald-600 focus:ring-emerald-500">
+                            <span>Deduct physically damaged quantity from warehouse stock</span>
+                        </label>
+                        <p class="mt-1 pl-6 text-[11px] text-amber-800">
+                            Uncheck if damaged items were already rejected at receiving and never entered warehouse stock.
+                        </p>
+                    </div>
+                </div>
+
+                {{-- Card 2: Product Entry --}}
+                <div class="rounded-2xl border border-slate-200/80 bg-white shadow-2xs">
+                    <div class="flex flex-wrap items-center justify-between gap-2 rounded-t-2xl border-b border-slate-200 bg-slate-50/70 px-5 py-3.5">
+                        <div>
+                            <h2 class="text-xs font-black uppercase tracking-wider text-slate-700">2. Products &amp; Credit Amounts</h2>
+                            <p class="text-[11px] text-slate-500">Vendor credit rate determines the credit note amount. FIFO warehouse cost is calculated automatically on posting for Stock OUT / Damage.</p>
+                        </div>
+                        <button type="button" @click="addLineItem()"
+                                class="inline-flex h-8 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                            <i data-lucide="plus" class="h-3.5 w-3.5"></i>
+                            <span>Add Product</span>
+                        </button>
+                    </div>
+
+                    <div x-show="isLoadingInvoiceItems" x-cloak class="bg-slate-50 px-5 py-3 text-xs font-semibold text-slate-500">
+                        <i data-lucide="loader-2" class="mr-1.5 inline h-4 w-4 animate-spin text-emerald-600"></i>
+                        Loading returnable items from selected invoice...
+                    </div>
+
+                    <div class="divide-y divide-slate-100 p-4 space-y-4">
+                        <template x-for="(item, index) in items" :key="index">
+                            <div class="pt-4 first:pt-0 relative" :class="item.productDropdownOpen ? 'z-40' : 'z-0'">
+                                <div class="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
+                                    {{-- Searchable Product --}}
+                                    <div class="relative md:col-span-4" :class="item.productDropdownOpen ? 'z-40' : 'z-10'" @click.outside="item.productDropdownOpen = false">
+                                        <label class="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                                            Product <span class="text-rose-500">*</span>
+                                        </label>
+
+                                        <template x-if="item.isFromInvoice">
+                                            <div class="rounded-xl border border-indigo-200 bg-indigo-50/40 px-3 py-2">
+                                                <div class="flex items-center justify-between gap-1">
+                                                    <span class="text-xs font-bold text-slate-900" x-text="item.product_name"></span>
+                                                    <span class="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">On Bill</span>
+                                                </div>
+                                                <input type="hidden" :name="'items[' + index + '][product_id]'" :value="item.product_id">
+                                                <input type="hidden" :name="'items[' + index + '][purchaser_cart_item_id]'" :value="item.purchaser_cart_item_id">
+                                            </div>
+                                        </template>
+
+                                        <template x-if="!item.isFromInvoice">
+                                            <div>
+                                                <input type="hidden" :name="'items[' + index + '][product_id]'" :value="item.product_id">
+                                                <input type="text"
+                                                       x-model="item.productSearch"
+                                                       @focus="openProductDropdown(item)"
+                                                       @input="openProductDropdown(item)"
+                                                       @keydown.escape="item.productDropdownOpen = false"
+                                                       placeholder="Search vendor product..."
+                                                       autocomplete="off"
+                                                       class="h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
+
+                                                <div x-show="item.productDropdownOpen" x-cloak
+                                                     class="absolute left-0 right-0 z-50 mt-1 max-h-52 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-xl">
+                                                    <template x-for="prod in filteredProducts(item.productSearch)" :key="prod.id">
+                                                        <button type="button"
+                                                                @click="selectProduct(item, prod)"
+                                                                class="flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-emerald-50/70">
+                                                            <span class="font-bold text-slate-900" x-text="prod.name"></span>
+                                                            <span class="text-[11px] text-slate-500" x-text="prod.base_unit"></span>
+                                                        </button>
+                                                    </template>
+                                                    <div x-show="filteredProducts(item.productSearch).length === 0" class="px-3 py-2 text-xs text-slate-400">
+                                                        No matching vendor products
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+
+                                    {{-- Grade --}}
+                                    <div class="md:col-span-2">
+                                        <label class="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500">Grade</label>
+                                        <select :name="'items[' + index + '][grade]'" x-model="item.grade" @change="refreshRowStockLevels()" required
+                                                class="h-9 w-full rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none">
+                                            @foreach($grades as $gradeCase)
+                                                <option value="{{ $gradeCase->value }}">{{ $gradeCase->label() }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+
+                                    {{-- Unit --}}
+                                    <div class="md:col-span-2">
+                                        <label class="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500">Unit</label>
+                                        <select :name="'items[' + index + '][unit]'" x-model="item.unit" required
+                                                class="h-9 w-full rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-800 focus:border-emerald-500 focus:outline-none">
+                                            <template x-for="u in unitsForProduct(item.product_id)" :key="u.unit">
+                                                <option :value="u.unit" x-text="u.label" :selected="u.unit === item.unit"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+
+                                    {{-- Quantity --}}
+                                    <div class="md:col-span-1">
+                                        <label class="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500">Qty</label>
+                                        <input type="number" step="0.001" min="0.001"
+                                               :name="'items[' + index + '][quantity]'"
+                                               x-model.number="item.quantity" required
+                                               class="h-9 w-full rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                                    </div>
+
+                                    {{-- Vendor Credit Rate --}}
+                                    <div class="md:col-span-2">
+                                        <label class="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500">Rate (₹)</label>
+                                        <input type="number" step="0.01" min="0"
+                                               :name="'items[' + index + '][unit_price]'"
+                                               x-model.number="item.unit_price" required
+                                               class="h-9 w-full rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                                    </div>
+
+                                    {{-- Remove --}}
+                                    <div class="flex items-center justify-between md:col-span-1 md:justify-end">
+                                        <span class="font-mono text-xs font-black text-slate-900 md:hidden">
+                                            ₹<span x-text="formatMoney((parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0))"></span>
+                                        </span>
+                                        <button type="button" @click="removeItem(index)" title="Remove row"
+                                                class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600">
+                                            <i data-lucide="trash-2" class="h-4 w-4"></i>
+                                        </button>
+                                    </div>
                                 </div>
 
-                                <div class="grid grid-cols-3 gap-2 pt-1 border-t border-indigo-100/60 text-xs">
-                                    <div>
-                                        <span class="block text-[10px] uppercase font-bold text-slate-500">Bill Net Amount</span>
-                                        <span class="font-mono font-bold text-slate-900">₹<span x-text="formatMoney(selectedInvoiceData.net_amount)"></span></span>
-                                    </div>
-                                    <div>
-                                        <span class="block text-[10px] uppercase font-bold text-slate-500">Paid / Credited</span>
-                                        <span class="font-mono font-bold text-slate-700">₹<span x-text="formatMoney(selectedInvoiceData.settled_amount)"></span></span>
-                                    </div>
-                                    <div>
-                                        <span class="block text-[10px] uppercase font-bold text-slate-500">Remaining Debt</span>
-                                        <span class="font-mono font-black" :class="selectedInvoiceData.outstanding_amount > 0 ? 'text-rose-700' : 'text-slate-500'">
-                                            ₹<span x-text="formatMoney(selectedInvoiceData.outstanding_amount)"></span>
+                                {{-- Row Footer: Calculated Amount & Available Stock --}}
+                                <div class="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                                    <div class="flex items-center gap-3 text-slate-500">
+                                        <span x-show="shouldShowAvailableStock() && item.product_id" x-cloak class="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
+                                            <i data-lucide="package" class="h-3 w-3 text-slate-500"></i>
+                                            <span>Available Stock: <strong x-text="availableStockLabel(item)"></strong></span>
                                         </span>
+                                        <span x-show="item.returnable_qty !== null && item.returnable_qty !== undefined" x-cloak class="text-emerald-700 font-semibold">
+                                            Max returnable on bill: <span x-text="item.returnable_qty"></span>
+                                        </span>
+                                    </div>
+                                    <div class="hidden font-mono text-xs font-black text-slate-900 md:block">
+                                        Line Total: ₹<span x-text="formatMoney((parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0))"></span>
                                     </div>
                                 </div>
                             </div>
                         </template>
                     </div>
 
-                    {{-- Mode & Effect Matrix --}}
-                    <div class="space-y-4 pt-2 border-t border-slate-100">
-                        {{-- Money Effect Selection --}}
-                        <div>
-                            <label class="block text-xs font-black text-slate-700">Money / Financial Settlement Effect <span class="text-rose-500">*</span></label>
-                            <div class="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-                                @foreach($moneyEffects as $mEffect)
-                                    <label class="relative flex cursor-pointer rounded-lg border p-3 shadow-xs focus:outline-none"
-                                           :class="moneyEffect === '{{ $mEffect->value }}' ? 'border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-600' : 'border-slate-200 bg-white hover:bg-slate-50'">
-                                        <input type="radio" name="money_effect" value="{{ $mEffect->value }}" x-model="moneyEffect" class="sr-only">
-                                        <div class="flex flex-col">
-                                            <span class="text-xs font-black text-slate-900">{{ $mEffect->label() }}</span>
-                                            <span class="mt-1 text-[11px] text-slate-500">
-                                                @if($mEffect->value === 'vendor_credit')
-                                                    Reduces bill payable or creates vendor advance
-                                                @elseif($mEffect->value === 'in')
-                                                    Vendor refunded cash or bank transfer to company
-                                                @else
-                                                    Company pays settlement adjustment to vendor
-                                                @endif
-                                            </span>
-                                        </div>
-                                    </label>
-                                @endforeach
-                            </div>
-                        </div>
-
-                        {{-- Inventory Action Selection --}}
-                        <div>
-                            <label class="block text-xs font-black text-slate-700">Inventory / Warehouse Stock Action <span class="text-rose-500">*</span></label>
-                            <div class="mt-2 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-                                @foreach($inventoryActions as $iAction)
-                                    <label class="relative flex cursor-pointer rounded-lg border p-3 shadow-xs focus:outline-none"
-                                           :class="inventoryAction === '{{ $iAction->value }}' ? 'border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-600' : 'border-slate-200 bg-white hover:bg-slate-50'">
-                                        <input type="radio" name="inventory_action" value="{{ $iAction->value }}" x-model="inventoryAction" class="sr-only">
-                                        <div class="flex flex-col">
-                                            <span class="text-xs font-black text-slate-900">{{ $iAction->label() }}</span>
-                                            <span class="mt-0.5 text-[10px] text-slate-500">
-                                                @if($iAction->value === 'out')
-                                                    Deduct & return
-                                                @elseif($iAction->value === 'in')
-                                                    Add stock
-                                                @elseif($iAction->value === 'damage')
-                                                    Log wastage loss
-                                                @else
-                                                    Financial only
-                                                @endif
-                                            </span>
-                                        </div>
-                                    </label>
-                                @endforeach
-                            </div>
-                        </div>
-
-                        {{-- Contextual Selectors based on Money & Inventory actions --}}
-                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 pt-2">
-                            {{-- Warehouse dropdown (required for out, in, damage) --}}
-                            <div x-show="['out', 'in', 'damage'].includes(inventoryAction)" x-transition>
-                                <label class="block text-xs font-black text-slate-700">Warehouse <span class="text-rose-500">*</span></label>
-                                <select name="warehouse_id" x-model="warehouseId" :required="['out', 'in'].includes(inventoryAction)"
-                                        class="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-900 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600">
-                                    @foreach($warehouses as $wh)
-                                        <option value="{{ $wh->id }}">{{ $wh->name }} ({{ $wh->code }})</option>
-                                    @endforeach
-                                </select>
-                            </div>
-
-                            {{-- Company Account dropdown (required for money in / out) --}}
-                            <div x-show="['in', 'out'].includes(moneyEffect)" x-transition>
-                                <label class="block text-xs font-black text-slate-700">Company Bank / Cash Account <span class="text-rose-500">*</span></label>
-                                <select name="company_account_id" x-model="companyAccountId" :required="['in', 'out'].includes(moneyEffect)"
-                                        class="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-900 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600">
-                                    @foreach($companyAccounts as $acc)
-                                        <option value="{{ $acc->id }}">{{ $acc->name }} ({{ ucfirst($acc->account_type) }})</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                        </div>
-
-                        {{-- Damage specific options --}}
-                        <div x-show="inventoryAction === 'damage'" x-transition class="rounded-lg border border-amber-200 bg-amber-50/60 p-4 space-y-3">
-                            <div class="flex items-center gap-2">
-                                <i data-lucide="alert-triangle" class="h-4 w-4 text-amber-600"></i>
-                                <span class="text-xs font-black text-amber-900">Damage / Wastage Parameters</span>
-                            </div>
-                            <div class="flex items-center gap-3">
-                                <label class="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
-                                    <input type="checkbox" name="deduct_stock_for_damage" value="1" x-model="deductStockForDamage"
-                                           class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
-                                    <span>Deduct physically damaged quantity from warehouse inventory?</span>
-                                </label>
-                            </div>
-                            <p class="text-[11px] text-slate-600">
-                                Uncheck this if the goods were already sorted/rejected at Goods Receiving and not currently in active inventory.
-                            </p>
-                        </div>
+                    <div class="flex items-center justify-between rounded-b-2xl border-t border-slate-200 bg-slate-50/80 px-5 py-3 text-xs font-black">
+                        <span class="uppercase tracking-wider text-slate-500">Estimated Credit Total</span>
+                        <span class="font-mono text-base text-emerald-800">₹<span x-text="formatMoney(totalAmount())"></span></span>
                     </div>
                 </div>
 
-                {{-- Card 2: Line Items --}}
-                <div class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                    <div class="flex items-center justify-between border-b border-slate-200 p-4 bg-slate-50/50">
-                        <div>
-                            <h2 class="text-sm font-black uppercase tracking-wider text-slate-700">2. Credited Line Items</h2>
-                            <p class="text-[11px] text-slate-500">Specify returned/credited items, product grade, quantity and unit rate.</p>
-                        </div>
-                        <button type="button" @click="addLineItem()"
-                                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50">
-                            <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Line
-                        </button>
-                    </div>
-
-                    {{-- Invoice Auto-Fill Banner --}}
-                    <div x-show="isLoadingInvoiceItems" class="p-4 text-center text-xs text-slate-500 bg-slate-50">
-                        <i data-lucide="loader" class="inline h-4 w-4 animate-spin text-emerald-600 mr-1.5"></i> Fetching returnable items from invoice...
-                    </div>
-
-                    {{-- Helpful message if no products linked to vendor --}}
-                    @if($products->isEmpty())
-                        <div class="m-4 rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-xs text-amber-900 flex items-start gap-3">
-                            <i data-lucide="info" class="h-4 w-4 text-amber-600 shrink-0 mt-0.5"></i>
-                            <div>
-                                <div class="font-bold text-amber-950">No catalog products linked to this vendor</div>
-                                <p class="mt-0.5 text-amber-800 font-medium">
-                                    This vendor has no products linked in Vendor Settings and no past purchase history. You can link a Purchase Bill above to import items, or assign products to this vendor in Cashbook Settings.
-                                </p>
-                            </div>
-                        </div>
-                    @endif
-
-                    <div class="overflow-x-auto">
-                        <table class="w-full min-w-[50rem] text-left text-xs">
-                            <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
-                                <tr>
-                                    <th class="p-3 w-10 text-center">#</th>
-                                    <th class="p-3">Product</th>
-                                    <th class="p-3 w-32 min-w-[110px]">Grade</th>
-                                    <th class="p-3 w-32">Quantity</th>
-                                    <th class="p-3 w-32">Rate (₹)</th>
-                                    <th class="p-3 w-32 text-right">Line Total (₹)</th>
-                                    <th class="p-3 w-12 text-center"></th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100">
-                                <template x-for="(item, index) in items" :key="index">
-                                    <tr class="hover:bg-slate-50/50">
-                                        <td class="p-3 text-center text-slate-400 font-mono" x-text="index + 1"></td>
-
-                                        {{-- Product select / display --}}
-                                        <td class="p-3">
-                                            <template x-if="item.isFromInvoice">
-                                                <div>
-                                                    <div class="flex items-center gap-1.5">
-                                                        <span class="font-bold text-slate-900" x-text="item.product_name"></span>
-                                                        <span class="rounded bg-indigo-50 text-indigo-700 px-1.5 py-0.2 text-[10px] font-bold">On Bill</span>
-                                                    </div>
-                                                    <input type="hidden" :name="'items[' + index + '][product_id]'" :value="item.product_id">
-                                                    <input type="hidden" :name="'items[' + index + '][purchaser_cart_item_id]'" :value="item.purchaser_cart_item_id">
-                                                    <div class="text-[10px] text-slate-400 mt-0.5" x-show="item.purchased_qty">
-                                                        Purchased: <span x-text="item.purchased_qty"></span> <span x-text="item.unit"></span>
-                                                        · Max returnable: <strong class="text-emerald-700" x-text="item.returnable_qty"></strong> <span x-text="item.unit"></span>
-                                                    </div>
-                                                </div>
-                                            </template>
-                                            <template x-if="!item.isFromInvoice">
-                                                <div>
-                                                    <select :name="'items[' + index + '][product_id]'" x-model.number="item.product_id" required
-                                                            class="w-full rounded border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-900 focus:border-emerald-600">
-                                                        <option value="">— Select Vendor Product —</option>
-                                                        @foreach($products as $p)
-                                                            <option value="{{ $p->id }}" data-unit="{{ $p->unit }}">{{ $p->name }} ({{ $p->unit ?? 'kg' }})</option>
-                                                        @endforeach
-                                                    </select>
-                                                </div>
-                                            </template>
-                                        </td>
-
-                                        {{-- Grade select with min-w-[110px] so it is not clipped --}}
-                                        <td class="p-3 w-32 min-w-[110px]">
-                                            <select :name="'items[' + index + '][grade]'" x-model="item.grade" required
-                                                    class="w-full min-w-[100px] rounded border border-slate-300 px-2 py-1.5 text-xs font-bold text-slate-800 focus:border-emerald-600">
-                                                @foreach($grades as $gradeCase)
-                                                    <option value="{{ $gradeCase->value }}">{{ $gradeCase->label() }}</option>
-                                                @endforeach
-                                            </select>
-                                        </td>
-
-                                        {{-- Quantity --}}
-                                        <td class="p-3 w-32">
-                                            <input type="number" step="0.001" min="0.001"
-                                                   :name="'items[' + index + '][quantity]'"
-                                                   x-model.number="item.quantity" required
-                                                   class="w-full rounded border border-slate-300 px-2 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-600">
-                                        </td>
-
-                                        {{-- Unit Price --}}
-                                        <td class="p-3 w-32">
-                                            <input type="number" step="0.01" min="0"
-                                                   :name="'items[' + index + '][unit_price]'"
-                                                   x-model.number="item.unit_price" required
-                                                   class="w-full rounded border border-slate-300 px-2 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-600">
-                                        </td>
-
-                                        {{-- Line Subtotal --}}
-                                        <td class="p-3 w-32 text-right font-mono font-black text-slate-950">
-                                            ₹<span x-text="formatMoney((parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0))"></span>
-                                        </td>
-
-                                        {{-- Remove Action --}}
-                                        <td class="p-3 w-12 text-center">
-                                            <button type="button" @click="removeItem(index)"
-                                                    class="text-slate-400 hover:text-rose-600 p-1 rounded transition">
-                                                <i data-lucide="trash-2" class="h-4 w-4"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                </template>
-                            </tbody>
-                            <tfoot class="bg-slate-50 font-black border-t border-slate-200">
-                                <tr>
-                                    <td colspan="5" class="p-3 text-right uppercase text-[11px] text-slate-500">Gross Credit Total:</td>
-                                    <td class="p-3 text-right font-mono text-sm text-emerald-800">
-                                        ₹<span x-text="formatMoney(totalAmount())"></span>
-                                    </td>
-                                    <td></td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                </div>
-
-                {{-- Notes / Remarks --}}
-                <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <label class="block text-xs font-black text-slate-700">Audit Notes / Reason Description (Optional)</label>
+                {{-- Remarks --}}
+                <div class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs">
+                    <label class="block text-xs font-bold text-slate-700">Remarks / Notes (Optional)</label>
                     <textarea name="notes" x-model="notes" rows="2"
-                              placeholder="Add any additional context, invoice references, or warehouse inspection remarks..."
-                              class="mt-1.5 w-full rounded-lg border border-slate-300 p-2.5 text-xs text-slate-900 focus:border-emerald-600"></textarea>
+                              placeholder="Optional remarks, supplier credit note reference, or inspection details..."
+                              class="mt-1.5 w-full rounded-xl border border-slate-200 p-3 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"></textarea>
                 </div>
             </div>
 
-            {{-- Right 1 col: Live Financial Breakdown & Settlement Projection --}}
-            <div class="space-y-6">
-                <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4 sticky top-6">
-                    <h2 class="text-sm font-black uppercase tracking-wider text-slate-700 border-b border-slate-100 pb-3">
-                        Financial Impact Summary
+            {{-- Right 1 col: Sticky Summary & Primary Action --}}
+            <div class="space-y-4">
+                <div class="sticky top-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xs space-y-4">
+                    <h2 class="border-b border-slate-100 pb-3 text-xs font-black uppercase tracking-wider text-slate-700">
+                        Credit Note Summary
                     </h2>
 
-                    <div class="space-y-3">
-                        {{-- Total Credit --}}
+                    <div class="space-y-2.5 text-xs">
                         <div class="flex items-center justify-between">
-                            <span class="text-xs text-slate-600">Total Credit Amount:</span>
-                            <span class="font-mono text-base font-black text-emerald-700">
-                                ₹<span x-text="formatMoney(totalAmount())"></span>
-                            </span>
+                            <span class="text-slate-500">Total Credit Amount</span>
+                            <span class="font-mono text-base font-black text-emerald-700">₹<span x-text="formatMoney(totalAmount())"></span></span>
                         </div>
 
-                        {{-- If linked to invoice: show allocation --}}
-                        <div x-show="purchaseInvoiceId" class="space-y-2 pt-2 border-t border-slate-100 text-xs">
+                        <div x-show="moneyEffect === 'vendor_credit'" class="space-y-1.5 border-t border-slate-100 pt-2">
                             <div class="flex items-center justify-between text-slate-600">
-                                <span>Applied to Selected Bill:</span>
-                                <span class="font-mono font-bold text-slate-900">
-                                    -₹<span x-text="formatMoney(appliedToBill())"></span>
-                                </span>
+                                <span>Invoice Adjustment</span>
+                                <span class="font-mono font-bold text-slate-900">₹<span x-text="formatMoney(appliedToBill())"></span></span>
                             </div>
-
-                            <div class="flex items-center justify-between text-indigo-700 font-bold" x-show="excessAdvance() > 0">
-                                <span>Excess (Vendor Advance):</span>
-                                <span class="font-mono font-black">
-                                    +₹<span x-text="formatMoney(excessAdvance())"></span>
-                                </span>
+                            <div class="flex items-center justify-between text-indigo-700 font-semibold">
+                                <span>Excess Vendor Advance</span>
+                                <span class="font-mono font-bold">₹<span x-text="formatMoney(excessAdvance())"></span></span>
                             </div>
                         </div>
 
-                        {{-- Money In / Out badge --}}
-                        <div class="pt-3 border-t border-slate-100">
-                            <span class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">Settlement Routing</span>
-                            <div class="mt-1.5 flex items-center gap-2">
-                                <span class="inline-flex items-center rounded-md px-2 py-1 text-xs font-bold"
-                                      :class="{
-                                          'bg-indigo-50 text-indigo-800 border border-indigo-200': moneyEffect === 'vendor_credit',
-                                          'bg-emerald-50 text-emerald-800 border border-emerald-200': moneyEffect === 'in',
-                                          'bg-amber-50 text-amber-800 border border-amber-200': moneyEffect === 'out'
-                                      }">
-                                    <template x-if="moneyEffect === 'vendor_credit'">
-                                        <span>Vendor Credit / Payable Offset</span>
-                                    </template>
-                                    <template x-if="moneyEffect === 'in'">
-                                        <span>Company Cash/Bank Refund IN</span>
-                                    </template>
-                                    <template x-if="moneyEffect === 'out'">
-                                        <span>Company Settlement OUT</span>
-                                    </template>
-                                </span>
+                        <div class="border-t border-slate-100 pt-2.5 space-y-1.5">
+                            <div class="flex items-center justify-between">
+                                <span class="text-slate-500">Cash / Bank Effect</span>
+                                <span class="font-bold text-slate-800" x-text="cashBankSummaryLabel()"></span>
                             </div>
-                        </div>
-
-                        {{-- Inventory badge --}}
-                        <div class="pt-2">
-                            <span class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">Stock Routing</span>
-                            <div class="mt-1.5 flex items-center gap-2">
-                                <span class="inline-flex items-center rounded-md px-2 py-1 text-xs font-bold"
-                                      :class="{
-                                          'bg-amber-50 text-amber-800 border border-amber-200': inventoryAction === 'out',
-                                          'bg-teal-50 text-teal-800 border border-teal-200': inventoryAction === 'in',
-                                          'bg-rose-50 text-rose-800 border border-rose-200': inventoryAction === 'damage',
-                                          'bg-slate-50 text-slate-700 border border-slate-200': inventoryAction === 'none'
-                                      }">
-                                    <template x-if="inventoryAction === 'out'">
-                                        <span>Stock OUT (Physical Return)</span>
-                                    </template>
-                                    <template x-if="inventoryAction === 'in'">
-                                        <span>Stock IN (Add to Inventory)</span>
-                                    </template>
-                                    <template x-if="inventoryAction === 'damage'">
-                                        <span>Damage / Wastage Write-Off</span>
-                                    </template>
-                                    <template x-if="inventoryAction === 'none'">
-                                        <span>No Inventory Movement</span>
-                                    </template>
-                                </span>
+                            <div class="flex items-center justify-between">
+                                <span class="text-slate-500">Warehouse Stock</span>
+                                <span class="font-bold text-slate-800" x-text="stockSummaryLabel()"></span>
                             </div>
                         </div>
                     </div>
 
-                    <div class="pt-4 border-t border-slate-100">
-                        <button type="submit" form="credit-note-form"
-                                :disabled="isSubmitting || isCheckingStock || items.length === 0 || totalAmount() <= 0"
-                                class="w-full rounded-lg bg-emerald-600 py-2.5 text-xs font-black text-white hover:bg-emerald-700 disabled:opacity-50 transition shadow-sm">
-                            <span x-text="isCheckingStock ? 'Checking Stock...' : (isSubmitting ? 'Processing Transaction...' : 'Save & Post Credit Note')"></span>
-                        </button>
-                    </div>
+                    <button type="submit" form="credit-note-form"
+                            :disabled="isSubmitting || isCheckingStock || items.length === 0 || totalAmount() <= 0"
+                            class="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white shadow-xs transition hover:bg-emerald-700 disabled:opacity-50">
+                        <i data-lucide="check-circle-2" class="h-4 w-4"></i>
+                        <span x-text="isCheckingStock ? 'Checking Stock...' : (isSubmitting ? 'Posting...' : 'Review & Post Credit Note')"></span>
+                    </button>
                 </div>
             </div>
         </div>
     </form>
 
+    {{-- Finalization Preview Modal --}}
+    <div x-cloak x-show="showPreviewModal"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs"
+         @keydown.escape.window="showPreviewModal = false">
+        <div class="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" @click.outside="showPreviewModal = false">
+            <div class="border-b border-slate-100 bg-slate-50 px-5 py-4">
+                <h3 class="text-sm font-black text-slate-900">Confirm Purchase Credit Note</h3>
+                <p class="mt-0.5 text-xs text-slate-500">Review the impact below before posting to vendor balance, cashbook, and inventory.</p>
+            </div>
+            <div class="divide-y divide-slate-100 px-5 py-3 text-xs">
+                <div class="flex justify-between py-2"><span class="text-slate-500">Vendor</span><span class="font-bold text-slate-900">{{ $vendorInfo['name'] }}</span></div>
+                <div class="flex justify-between py-2"><span class="text-slate-500">Credit Note Date</span><span class="font-mono font-bold text-slate-900" x-text="creditDate"></span></div>
+                <div class="flex justify-between py-2"><span class="text-slate-500">Total Credit Amount</span><span class="font-mono font-black text-emerald-700">₹<span x-text="formatMoney(totalAmount())"></span></span></div>
+                <div class="flex justify-between py-2"><span class="text-slate-500">Invoice Adjustment</span><span class="font-mono font-bold text-slate-900">₹<span x-text="formatMoney(appliedToBill())"></span></span></div>
+                <div class="flex justify-between py-2"><span class="text-slate-500">Excess Vendor Advance</span><span class="font-mono font-bold text-indigo-700">₹<span x-text="formatMoney(excessAdvance())"></span></span></div>
+                <div class="flex justify-between py-2"><span class="text-slate-500">Cash / Bank Effect</span><span class="font-bold text-slate-900" x-text="cashBankSummaryLabel()"></span></div>
+                <div class="flex justify-between py-2"><span class="text-slate-500">Warehouse Stock Effect</span><span class="font-bold text-slate-900" x-text="stockSummaryLabel()"></span></div>
+            </div>
+            <div class="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
+                <button type="button" @click="showPreviewModal = false"
+                        class="h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-100">
+                    Back to Edit
+                </button>
+                <button type="button" @click="confirmAndPost()"
+                        class="inline-flex h-9 items-center gap-1.5 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white hover:bg-emerald-700">
+                    <i data-lucide="check" class="h-3.5 w-3.5"></i>
+                    <span>Confirm &amp; Post Credit Note</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     {{-- Negative Stock Confirmation Modal --}}
     <div x-cloak x-show="showNegativeStockModal"
          class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs"
          @keydown.escape.window="closeNegativeStockModal()">
-        <div class="relative w-full max-w-2xl rounded-2xl border border-amber-300 bg-white shadow-2xl overflow-hidden"
-             @click.outside="closeNegativeStockModal()">
-            {{-- Modal Header --}}
-            <div class="bg-amber-50 px-6 py-4 border-b border-amber-200">
+        <div class="relative w-full max-w-2xl overflow-hidden rounded-2xl border border-amber-300 bg-white shadow-2xl" @click.outside="closeNegativeStockModal()">
+            <div class="border-b border-amber-200 bg-amber-50 px-6 py-4">
                 <div class="flex items-start gap-3">
                     <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
                         <i data-lucide="alert-triangle" class="h-5 w-5"></i>
                     </div>
                     <div>
                         <h3 class="text-base font-black text-amber-950">Insufficient Warehouse Stock Warning</h3>
-                        <p class="mt-0.5 text-xs text-amber-800">
-                            The credit note you are attempting to create requires deducting more stock than is currently available in the selected warehouse.
-                        </p>
+                        <p class="mt-0.5 text-xs text-amber-800">Proceeding will push the items below into negative stock.</p>
                     </div>
                 </div>
             </div>
-
-            {{-- Shortages Table --}}
-            <div class="p-6 space-y-4">
-                <p class="text-xs font-semibold text-slate-700">
-                    The following product line items will push warehouse inventory into <span class="font-bold text-rose-600">negative stock</span>:
-                </p>
-
+            <div class="p-6">
                 <div class="overflow-hidden rounded-xl border border-slate-200">
                     <table class="w-full text-left text-xs">
-                        <thead class="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                        <thead class="border-b border-slate-200 bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500">
                             <tr>
                                 <th class="px-3.5 py-2.5">Product</th>
-                                <th class="px-3 py-2.5 text-center">Grade</th>
-                                <th class="px-3 py-2.5 text-right">Available</th>
-                                <th class="px-3 py-2.5 text-right">Requested</th>
-                                <th class="px-3.5 py-2.5 text-right text-rose-600">Resulting Stock</th>
+                                <th class="px-3.5 py-2.5 text-center">Grade</th>
+                                <th class="px-3.5 py-2.5 text-right">Available</th>
+                                <th class="px-3.5 py-2.5 text-right">Requested</th>
+                                <th class="px-3.5 py-2.5 text-right text-rose-600">Resulting</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 bg-white">
                             <template x-for="(shortage, idx) in shortages" :key="idx">
-                                <tr class="hover:bg-slate-50/75">
+                                <tr>
                                     <td class="px-3.5 py-2.5 font-bold text-slate-900" x-text="shortage.product_name"></td>
-                                    <td class="px-3 py-2.5 text-center">
-                                        <span class="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-black text-slate-700" x-text="'Grade ' + shortage.grade"></span>
-                                    </td>
-                                    <td class="px-3 py-2.5 text-right font-medium text-slate-600" x-text="formatQty(shortage.available_qty)"></td>
-                                    <td class="px-3 py-2.5 text-right font-medium text-slate-900" x-text="formatQty(shortage.requested_qty)"></td>
+                                    <td class="px-3.5 py-2.5 text-center" x-text="'Grade ' + shortage.grade"></td>
+                                    <td class="px-3.5 py-2.5 text-right" x-text="formatQty(shortage.available_qty)"></td>
+                                    <td class="px-3.5 py-2.5 text-right" x-text="formatQty(shortage.requested_qty)"></td>
                                     <td class="px-3.5 py-2.5 text-right font-black text-rose-600" x-text="formatQty(shortage.resulting_stock)"></td>
                                 </tr>
                             </template>
                         </tbody>
                     </table>
                 </div>
-
-                <div class="rounded-lg bg-amber-50/80 border border-amber-200/80 p-3 text-[11px] text-amber-900 flex items-start gap-2">
-                    <i data-lucide="info" class="h-4 w-4 shrink-0 text-amber-700 mt-0.5"></i>
-                    <span>
-                        If you proceed, synthetic negative stock batches (<code>NEG-*</code>) will be recorded to maintain FIFO cost tracking and full auditability. Future goods receipts will automatically reconcile this negative inventory.
-                    </span>
-                </div>
             </div>
-
-            {{-- Modal Footer --}}
-            <div class="flex items-center justify-end gap-3 bg-slate-50 px-6 py-3.5 border-t border-slate-200">
-                <button type="button"
-                        @click="closeNegativeStockModal()"
-                        class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-100 transition">
-                    Cancel & Adjust Qty
+            <div class="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-3.5">
+                <button type="button" @click="closeNegativeStockModal()" class="h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-100">
+                    Cancel &amp; Adjust Qty
                 </button>
-                <button type="button"
-                        @click="confirmNegativeStock()"
-                        class="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-700 transition shadow-xs">
+                <button type="button" @click="confirmNegativeStock()" class="inline-flex h-9 items-center gap-1.5 rounded-xl bg-amber-600 px-4 text-xs font-bold text-white hover:bg-amber-700">
                     <i data-lucide="alert-triangle" class="h-3.5 w-3.5"></i>
                     <span>Proceed with Negative Stock</span>
                 </button>
@@ -632,265 +664,345 @@
 <script>
 (function() {
     const purchaseCreditNoteInvoices = {{ Js::from($invoices) }};
+    const purchaseCreditNoteProducts = {{ Js::from($productCatalog) }};
     const purchaseCreditNoteShortages = {{ Js::from(session('negative_stock_shortages') ?? []) }};
     const purchaseCreditNoteHasShortages = {{ session()->has('negative_stock_shortages') ? 'true' : 'false' }};
+    const initialInvoicesById = Object.fromEntries((purchaseCreditNoteInvoices || []).map(i => [String(i.id), i]));
 
     function purchaseCreditNoteForm() {
+        const initInvoiceId = @json((string) $initialInvoiceId);
         return {
             isSubmitting: false,
             isLoadingInvoiceItems: false,
             isCheckingStock: false,
-            allowNegativeStock: false,
+            allowNegativeStock: {{ old('allow_negative_stock') ? 'true' : 'false' }},
             showNegativeStockModal: purchaseCreditNoteHasShortages,
+            showPreviewModal: false,
             shortages: purchaseCreditNoteShortages,
-            creditDate: new Date().toISOString().slice(0, 10),
-            reason: 'return',
-            moneyEffect: 'vendor_credit',
-            inventoryAction: 'out',
-            purchaseInvoiceId: '',
-            warehouseId: '{{ $warehouses->first()?->id ?? "" }}',
-            companyAccountId: '{{ $companyAccounts->first()?->id ?? "" }}',
-            deductStockForDamage: true,
-            notes: '',
+            creditDate: @json((string) $initialCreditDate),
+            reason: @json((string) $initialReason),
+            moneyEffect: @json((string) $initialMoneyEffect),
+            inventoryAction: @json((string) $initialInventoryAction),
+            purchaseInvoiceId: initInvoiceId,
+            warehouseId: @json((string) $initialWarehouseId),
+            companyAccountId: @json((string) $initialCompanyAccountId),
+            deductStockForDamage: {{ $initialDeductStock ? 'true' : 'false' }},
+            notes: @json((string) $initialNotes),
             invoicesList: purchaseCreditNoteInvoices || [],
-        invoiceSearch: '',
-        isInvoiceDropdownOpen: false,
-        selectedInvoiceData: null,
-        selectedInvoice: null,
-        items: [
-            {
-                isFromInvoice: false,
-                product_id: '',
-                product_name: '',
-                unit: 'kg',
-                grade: 'A',
-                quantity: 1,
-                unit_price: 0,
-                purchaser_cart_item_id: null,
-                returnable_qty: null
-            }
-        ],
+            productsList: purchaseCreditNoteProducts || [],
+            stockMap: {},
+            invoiceSearch: '',
+            isInvoiceDropdownOpen: false,
+            selectedInvoiceData: initInvoiceId ? (initialInvoicesById[String(initInvoiceId)] || null) : null,
+            selectedInvoice: null,
+            items: @json($initialItems),
 
-        init() {
-            if (this.showNegativeStockModal) {
-                this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
-            }
-        },
+            init() {
+                this.refreshRowStockLevels();
+                this.$nextTick(() => window.lucide?.createIcons());
+            },
 
-        formatMoney(val) {
-            const num = parseFloat(val) || 0;
-            return num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        },
+            formatMoney(val) {
+                const num = parseFloat(val) || 0;
+                return num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            },
 
-        formatQty(val) {
-            const num = parseFloat(val) || 0;
-            return num.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 3 });
-        },
+            formatQty(val) {
+                const num = parseFloat(val) || 0;
+                return num.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 3 });
+            },
 
-        closeNegativeStockModal() {
-            this.showNegativeStockModal = false;
-            this.allowNegativeStock = false;
-            this.isSubmitting = false;
-            this.isCheckingStock = false;
-        },
+            reasonSuggestionHint() {
+                const map = {
+                    return: 'Suggested: Stock OUT & Vendor Credit',
+                    damage_wastage: 'Suggested: Damage / Wastage & Vendor Credit',
+                    shortage: 'Suggested: No Stock Movement & Vendor Credit',
+                    price_adjustment: 'Suggested: No Stock Movement & Vendor Credit',
+                    other: 'Choose the financial and stock routing that matches this adjustment',
+                };
+                return map[this.reason] || '';
+            },
 
-        confirmNegativeStock() {
-            this.allowNegativeStock = true;
-            this.showNegativeStockModal = false;
-            this.isSubmitting = true;
-            this.$nextTick(() => {
-                document.getElementById('credit-note-form').submit();
-            });
-        },
-
-        async handleSubmit(event) {
-            if (this.isSubmitting || this.isCheckingStock) {
-                return;
-            }
-
-            if (this.allowNegativeStock) {
-                this.isSubmitting = true;
-                event.target.submit();
-                return;
-            }
-
-            const willDeduct = (this.inventoryAction === 'out') || (this.inventoryAction === 'damage' && this.deductStockForDamage);
-            if (!willDeduct || !this.warehouseId) {
-                this.isSubmitting = true;
-                event.target.submit();
-                return;
-            }
-
-            this.isCheckingStock = true;
-
-            try {
-                const response = await fetch('{{ route("admin.cashbook.finance.purchase.vendors.credit-notes.check-stock", $supplier) }}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        warehouse_id: this.warehouseId,
-                        inventory_action: this.inventoryAction,
-                        deduct_stock_for_damage: this.deductStockForDamage,
-                        items: this.items.map(it => ({
-                            product_id: it.product_id,
-                            quantity: it.quantity,
-                            grade: it.grade,
-                            unit_price: it.unit_price,
-                            inventory_action: it.inventory_action || this.inventoryAction
-                        }))
-                    })
+            openProductDropdown(targetItem) {
+                this.items.forEach(it => {
+                    if (it !== targetItem) it.productDropdownOpen = false;
                 });
+                targetItem.productDropdownOpen = true;
+            },
 
-                const data = await response.json();
+            filteredProducts(search) {
+                const q = (search || '').toLowerCase().trim();
+                if (!q) return this.productsList.slice(0, 30);
+                return this.productsList.filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 30);
+            },
+
+            selectProduct(item, prod) {
+                item.product_id = prod.id;
+                item.product_name = prod.name;
+                item.productSearch = prod.name;
+                item.unit = prod.base_unit || 'kg';
+                item.productDropdownOpen = false;
+                this.refreshRowStockLevels();
+            },
+
+            unitsForProduct(productId) {
+                const prod = this.productsList.find(p => Number(p.id) === Number(productId));
+                if (prod && Array.isArray(prod.units) && prod.units.length > 0) {
+                    return prod.units;
+                }
+                return [{ unit: 'kg', label: 'KG (Base)', conversion_to_base: 1 }];
+            },
+
+            shouldShowAvailableStock() {
+                return Boolean(this.warehouseId) && (this.inventoryAction === 'out' || (this.inventoryAction === 'damage' && this.deductStockForDamage));
+            },
+
+            availableStockLabel(item) {
+                const key = `${item.product_id}_${item.grade || 'A'}`;
+                if (this.stockMap[key] === undefined) return '...';
+                return `${this.formatQty(this.stockMap[key])} kg`;
+            },
+
+            async refreshRowStockLevels() {
+                if (!this.shouldShowAvailableStock()) return;
+                const validItems = this.items.filter(it => Number(it.product_id) > 0);
+                if (validItems.length === 0) return;
+
+                try {
+                    const res = await fetch('{{ route("admin.cashbook.finance.purchase.vendors.credit-notes.check-stock", $supplier) }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            warehouse_id: this.warehouseId,
+                            inventory_action: this.inventoryAction,
+                            deduct_stock_for_damage: this.deductStockForDamage,
+                            items: validItems.map(it => ({
+                                product_id: it.product_id,
+                                quantity: it.quantity || 1,
+                                grade: it.grade || 'A',
+                                unit: it.unit || 'kg'
+                            }))
+                        })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.items_stock) {
+                            this.stockMap = Object.assign({}, this.stockMap, data.items_stock);
+                        }
+                    }
+                } catch (e) {
+                    // Non-blocking stock hint
+                }
+            },
+
+            closeNegativeStockModal() {
+                this.showNegativeStockModal = false;
+                this.allowNegativeStock = false;
+                this.isSubmitting = false;
                 this.isCheckingStock = false;
+            },
 
-                if (data.has_shortage) {
-                    this.shortages = data.shortages;
-                    this.showNegativeStockModal = true;
-                    this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            confirmNegativeStock() {
+                this.allowNegativeStock = true;
+                this.showNegativeStockModal = false;
+                this.showPreviewModal = true;
+                this.$nextTick(() => window.lucide?.createIcons());
+            },
+
+            async openReviewOrCheckStock() {
+                if (this.isSubmitting || this.isCheckingStock) return;
+                const willDeduct = (this.inventoryAction === 'out') || (this.inventoryAction === 'damage' && this.deductStockForDamage);
+
+                if (!willDeduct || !this.warehouseId || this.allowNegativeStock) {
+                    this.showPreviewModal = true;
+                    this.$nextTick(() => window.lucide?.createIcons());
                     return;
                 }
 
+                this.isCheckingStock = true;
+                try {
+                    const response = await fetch('{{ route("admin.cashbook.finance.purchase.vendors.credit-notes.check-stock", $supplier) }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            warehouse_id: this.warehouseId,
+                            inventory_action: this.inventoryAction,
+                            deduct_stock_for_damage: this.deductStockForDamage,
+                            items: this.items.map(it => ({
+                                product_id: it.product_id,
+                                quantity: it.quantity,
+                                grade: it.grade,
+                                unit: it.unit,
+                                unit_price: it.unit_price
+                            }))
+                        })
+                    });
+
+                    const data = await response.json();
+                    this.isCheckingStock = false;
+                    if (data.items_stock) {
+                        this.stockMap = Object.assign({}, this.stockMap, data.items_stock);
+                    }
+                    if (data.has_shortage) {
+                        this.shortages = data.shortages;
+                        this.showNegativeStockModal = true;
+                        this.$nextTick(() => window.lucide?.createIcons());
+                        return;
+                    }
+                    this.showPreviewModal = true;
+                    this.$nextTick(() => window.lucide?.createIcons());
+                } catch (err) {
+                    this.isCheckingStock = false;
+                    this.showPreviewModal = true;
+                }
+            },
+
+            confirmAndPost() {
+                if (this.isSubmitting) return;
+                this.showPreviewModal = false;
                 this.isSubmitting = true;
-                event.target.submit();
-            } catch (err) {
-                console.error('Stock pre-check error, falling back to form submit:', err);
-                this.isCheckingStock = false;
-                this.isSubmitting = true;
-                event.target.submit();
-            }
-        },
+                document.getElementById('credit-note-form').submit();
+            },
 
-        filteredInvoices() {
-            if (!this.invoiceSearch || !this.invoiceSearch.trim()) {
-                return this.invoicesList;
-            }
-            const q = this.invoiceSearch.toLowerCase().replace(/,/g, '').trim();
-            return this.invoicesList.filter(inv => {
-                const invNum = (inv.invoice_number || '').toLowerCase();
-                const net = (inv.net_amount !== undefined ? inv.net_amount.toString().replace(/,/g, '') : '');
-                const out = (inv.outstanding_amount !== undefined ? inv.outstanding_amount.toString().replace(/,/g, '') : '');
-                const dt = (inv.date || '').toLowerCase();
-                const rawDt = (inv.raw_date || '').toLowerCase();
-                const pClass = (inv.payment_class || '').toLowerCase();
+            cashBankSummaryLabel() {
+                if (this.moneyEffect === 'in') return 'Money IN (+₹' + this.formatMoney(this.totalAmount()) + ')';
+                if (this.moneyEffect === 'out') return 'Money OUT (-₹' + this.formatMoney(this.totalAmount()) + ')';
+                return 'None (Vendor Credit)';
+            },
 
-                return invNum.includes(q)
-                    || net.includes(q)
-                    || out.includes(q)
-                    || dt.includes(q)
-                    || rawDt.includes(q)
-                    || pClass.includes(q);
-            });
-        },
+            stockSummaryLabel() {
+                if (this.inventoryAction === 'out') return 'Stock OUT (FIFO Deduction)';
+                if (this.inventoryAction === 'in') return 'Stock IN (Add Batch)';
+                if (this.inventoryAction === 'damage') return this.deductStockForDamage ? 'Damage + Stock Deduction' : 'Damage Log Only';
+                return 'No Stock Movement';
+            },
 
-        selectInvoice(inv) {
-            if (inv) {
-                this.purchaseInvoiceId = inv.id;
-                this.selectedInvoiceData = inv;
-                this.isInvoiceDropdownOpen = false;
-                this.invoiceSearch = '';
-                this.fetchInvoiceItems(inv.public_uuid);
-            } else {
-                this.purchaseInvoiceId = '';
-                this.selectedInvoiceData = null;
-                this.selectedInvoice = null;
-                this.isInvoiceDropdownOpen = false;
-                this.invoiceSearch = '';
-                this.items = [
-                    {
+            filteredInvoices() {
+                if (!this.invoiceSearch || !this.invoiceSearch.trim()) return this.invoicesList;
+                const q = this.invoiceSearch.toLowerCase().replace(/,/g, '').trim();
+                return this.invoicesList.filter(inv =>
+                    (inv.invoice_number || '').toLowerCase().includes(q)
+                    || String(inv.net_amount || '').includes(q)
+                    || String(inv.outstanding_amount || '').includes(q)
+                    || (inv.date || '').toLowerCase().includes(q)
+                );
+            },
+
+            selectInvoice(inv) {
+                if (inv) {
+                    this.purchaseInvoiceId = inv.id;
+                    this.selectedInvoiceData = inv;
+                    this.isInvoiceDropdownOpen = false;
+                    this.invoiceSearch = '';
+                    this.fetchInvoiceItems(inv.public_uuid);
+                } else {
+                    this.purchaseInvoiceId = '';
+                    this.selectedInvoiceData = null;
+                    this.selectedInvoice = null;
+                    this.isInvoiceDropdownOpen = false;
+                    this.invoiceSearch = '';
+                    this.items = [{
                         isFromInvoice: false,
                         product_id: '',
                         product_name: '',
+                        productSearch: '',
+                        productDropdownOpen: false,
                         unit: 'kg',
                         grade: 'A',
                         quantity: 1,
                         unit_price: 0,
                         purchaser_cart_item_id: null,
                         returnable_qty: null
-                    }
-                ];
-            }
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
-        },
-
-        addLineItem() {
-            this.items.push({
-                isFromInvoice: false,
-                product_id: '',
-                product_name: '',
-                unit: 'kg',
-                grade: 'A',
-                quantity: 1,
-                unit_price: 0,
-                purchaser_cart_item_id: null,
-                returnable_qty: null
-            });
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
-        },
-
-        removeItem(index) {
-            if (this.items.length > 1) {
-                this.items.splice(index, 1);
-            } else {
-                alert('At least one line item is required.');
-            }
-        },
-
-        totalAmount() {
-            return this.items.reduce((sum, it) => sum + ((parseFloat(it.quantity) || 0) * (parseFloat(it.unit_price) || 0)), 0);
-        },
-
-        appliedToBill() {
-            if (!this.selectedInvoiceData) return 0;
-            const outstanding = this.selectedInvoiceData.outstanding_amount !== undefined
-                ? this.selectedInvoiceData.outstanding_amount
-                : (this.selectedInvoice?.remaining_balance || 0);
-            return Math.min(this.totalAmount(), Math.max(0, outstanding));
-        },
-
-        excessAdvance() {
-            return Math.max(0, this.totalAmount() - this.appliedToBill());
-        },
-
-        async fetchInvoiceItems(invoiceUuid) {
-            this.isLoadingInvoiceItems = true;
-            try {
-                const url = `{{ url('admin/cashbook/finance/purchase/vendors/' . $supplier->public_uuid . '/invoices') }}/${invoiceUuid}/returnable-items`;
-                const response = await fetch(url);
-                const data = await response.json();
-
-                if (data.success) {
-                    this.selectedInvoice = data.invoice;
-                    if (data.items && data.items.length > 0) {
-                        this.items = data.items.map(it => ({
-                            isFromInvoice: true,
-                            product_id: it.product_id,
-                            product_name: it.product_name,
-                            unit: it.unit || 'kg',
-                            grade: it.grade || 'A',
-                            quantity: it.returnable_qty > 0 ? it.returnable_qty : it.purchased_qty,
-                            purchased_qty: it.purchased_qty,
-                            returnable_qty: it.returnable_qty,
-                            unit_price: it.unit_price || 0,
-                            purchaser_cart_item_id: it.purchaser_cart_item_id
-                        }));
-                    }
+                    }];
                 }
-            } catch (err) {
-                console.error('Failed to load invoice items:', err);
-            } finally {
-                this.isLoadingInvoiceItems = false;
-                this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+                this.$nextTick(() => window.lucide?.createIcons());
+            },
+
+            addLineItem() {
+                this.items.push({
+                    isFromInvoice: false,
+                    product_id: '',
+                    product_name: '',
+                    productSearch: '',
+                    productDropdownOpen: false,
+                    unit: 'kg',
+                    grade: 'A',
+                    quantity: 1,
+                    unit_price: 0,
+                    purchaser_cart_item_id: null,
+                    returnable_qty: null
+                });
+                this.$nextTick(() => window.lucide?.createIcons());
+            },
+
+            removeItem(index) {
+                if (this.items.length > 1) {
+                    this.items.splice(index, 1);
+                }
+            },
+
+            totalAmount() {
+                return this.items.reduce((sum, it) => sum + ((parseFloat(it.quantity) || 0) * (parseFloat(it.unit_price) || 0)), 0);
+            },
+
+            appliedToBill() {
+                if (this.moneyEffect !== 'vendor_credit' || !this.selectedInvoiceData) return 0;
+                const outstanding = this.selectedInvoiceData.outstanding_amount !== undefined
+                    ? this.selectedInvoiceData.outstanding_amount
+                    : (this.selectedInvoice?.remaining_balance || 0);
+                return Math.min(this.totalAmount(), Math.max(0, outstanding));
+            },
+
+            excessAdvance() {
+                if (this.moneyEffect !== 'vendor_credit') return 0;
+                return Math.max(0, this.totalAmount() - this.appliedToBill());
+            },
+
+            async fetchInvoiceItems(invoiceUuid) {
+                this.isLoadingInvoiceItems = true;
+                try {
+                    const url = `{{ url('admin/cashbook/finance/purchase/vendors/' . $supplier->public_uuid . '/invoices') }}/${invoiceUuid}/returnable-items`;
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    if (data.success) {
+                        this.selectedInvoice = data.invoice;
+                        if (data.items && data.items.length > 0) {
+                            this.items = data.items.map(it => ({
+                                isFromInvoice: true,
+                                product_id: it.product_id,
+                                product_name: it.product_name,
+                                productSearch: it.product_name,
+                                productDropdownOpen: false,
+                                unit: it.unit || 'kg',
+                                grade: it.grade || 'A',
+                                quantity: it.returnable_qty > 0 ? it.returnable_qty : it.purchased_qty,
+                                purchased_qty: it.purchased_qty,
+                                returnable_qty: it.returnable_qty,
+                                unit_price: it.unit_price || 0,
+                                purchaser_cart_item_id: it.purchaser_cart_item_id
+                            }));
+                            this.refreshRowStockLevels();
+                        }
+                    }
+                } catch (err) {
+                    console.error('Failed to load invoice items:', err);
+                } finally {
+                    this.isLoadingInvoiceItems = false;
+                    this.$nextTick(() => window.lucide?.createIcons());
+                }
             }
-        }
-    };
+        };
+    }
 
     window.purchaseCreditNoteForm = purchaseCreditNoteForm;
-
     if (window.Alpine) {
         window.Alpine.data('purchaseCreditNoteForm', purchaseCreditNoteForm);
     } else {

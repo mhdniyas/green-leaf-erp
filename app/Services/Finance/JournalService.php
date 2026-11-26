@@ -27,6 +27,7 @@ use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\User;
 use App\Models\VendorSettlement;
+use App\Models\WarehouseCreditNote;
 use App\Models\WastageEntry;
 use App\Repositories\Finance\JournalEntryRepository;
 use App\Services\Cashbook\CompanyPaymentReconciliationService;
@@ -1144,7 +1145,7 @@ class JournalService
         float $inventoryCostTotal,
         User $actor,
     ): JournalEntry {
-        $creditNote->loadMissing('supplier');
+        $creditNote->loadMissing(['supplier', 'companyAccount']);
 
         $totalAmount = round((float) $creditNote->total_amount, 2);
         if ($totalAmount <= 0.0) {
@@ -1157,6 +1158,8 @@ class JournalService
 
         $lines = [];
 
+        $resolvedPaymentMode = $creditNote->companyAccount?->account_type ?: ($creditNote->payment_method ?? 'cash');
+
         // 1. Money / Payable side
         if ($creditNote->money_effect === PurchaseCreditMoneyEffect::VendorCredit) {
             if ($appliedToInvoice > 0.0) {
@@ -1166,10 +1169,10 @@ class JournalService
                 $lines[] = ['account_id' => $this->getAccountIdByCode('1400'), 'type' => 'debit', 'amount' => $excessAdvance];
             }
         } elseif ($creditNote->money_effect === PurchaseCreditMoneyEffect::MoneyIn) {
-            $cashAccount = $this->cashAccountIdForPaymentMode($creditNote->payment_method ?? 'cash');
+            $cashAccount = $this->cashAccountIdForPaymentMode($resolvedPaymentMode);
             $lines[] = ['account_id' => $cashAccount, 'type' => 'debit', 'amount' => $totalAmount];
         } elseif ($creditNote->money_effect === PurchaseCreditMoneyEffect::MoneyOut) {
-            $cashAccount = $this->cashAccountIdForPaymentMode($creditNote->payment_method ?? 'cash');
+            $cashAccount = $this->cashAccountIdForPaymentMode($resolvedPaymentMode);
             $lines[] = ['account_id' => $cashAccount, 'type' => 'credit', 'amount' => $totalAmount];
         }
 
@@ -1279,6 +1282,86 @@ class JournalService
             sourceType: PurchaseCreditNote::class,
             sourceId: $creditNote->id,
             sourceEvent: 'purchase_credit_note',
+        );
+
+        return $this->createEntry($data, $actor->id);
+    }
+
+    /**
+     * Record balanced double-entry journal entry for an independent Warehouse Credit Note.
+     *
+     * Stock IN:  Dr 1200 Inventory / Cr 5210 Inventory Adjustment Gain/Loss
+     * Stock OUT: Dr 5210 Inventory Adjustment Gain/Loss / Cr 1200 Inventory
+     * Damage:    Dr 5200 Wastage Expense / Cr 1200 Inventory
+     *
+     * @throws RuntimeException
+     */
+    public function recordWarehouseCreditNote(
+        WarehouseCreditNote $creditNote,
+        User $actor,
+    ): JournalEntry {
+        $existingEntry = $this->entryForSource(
+            WarehouseCreditNote::class,
+            $creditNote->id,
+            'warehouse_credit_note',
+        );
+        if ($existingEntry instanceof JournalEntry) {
+            throw new RuntimeException("Journal entry already exists for Warehouse Credit Note #{$creditNote->credit_note_number}.");
+        }
+
+        $creditNote->loadMissing(['warehouse', 'items']);
+
+        $stockInTotal = 0.0;
+        $stockOutTotal = 0.0;
+        $damageTotal = 0.0;
+
+        foreach ($creditNote->items as $item) {
+            $action = $item->inventory_action?->value ?? (string) $item->inventory_action;
+            if ($action === 'in') {
+                $stockInTotal = round($stockInTotal + (float) $item->line_total, 2);
+            } elseif ($action === 'out') {
+                $stockOutTotal = round($stockOutTotal + (float) $item->fifo_cost_total, 2);
+            } elseif ($action === 'damage') {
+                $damageTotal = round($damageTotal + (float) $item->fifo_cost_total, 2);
+            }
+        }
+
+        $inventoryAccountId = $this->getAccountIdByCode('1200');
+        $adjustmentAccountId = $this->getAccountIdByCode('5210');
+        $wastageAccountId = $this->getAccountIdByCode('5200');
+
+        $lines = [];
+
+        if ($stockInTotal > 0.009) {
+            $lines[] = ['account_id' => $inventoryAccountId, 'type' => 'debit', 'amount' => $stockInTotal];
+            $lines[] = ['account_id' => $adjustmentAccountId, 'type' => 'credit', 'amount' => $stockInTotal];
+        }
+
+        if ($stockOutTotal > 0.009) {
+            $lines[] = ['account_id' => $adjustmentAccountId, 'type' => 'debit', 'amount' => $stockOutTotal];
+            $lines[] = ['account_id' => $inventoryAccountId, 'type' => 'credit', 'amount' => $stockOutTotal];
+        }
+
+        if ($damageTotal > 0.009) {
+            $lines[] = ['account_id' => $wastageAccountId, 'type' => 'debit', 'amount' => $damageTotal];
+            $lines[] = ['account_id' => $inventoryAccountId, 'type' => 'credit', 'amount' => $damageTotal];
+        }
+
+        if ($lines === []) {
+            throw new RuntimeException('Warehouse credit note must have positive valuation amount to post journal entry.');
+        }
+
+        $entryDate = $creditNote->business_date?->format('Y-m-d') ?? now()->toDateString();
+        $warehouseName = $creditNote->warehouse?->name ?? 'Warehouse';
+
+        $data = new JournalEntryData(
+            entryDate: $entryDate,
+            reference: (string) $creditNote->credit_note_number,
+            description: "Warehouse Credit Note #{$creditNote->credit_note_number} ({$warehouseName})",
+            lines: $lines,
+            sourceType: WarehouseCreditNote::class,
+            sourceId: $creditNote->id,
+            sourceEvent: 'warehouse_credit_note',
         );
 
         return $this->createEntry($data, $actor->id);

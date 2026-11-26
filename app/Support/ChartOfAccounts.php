@@ -30,6 +30,7 @@ class ChartOfAccounts
             ['code' => '4200', 'name' => 'Vendor Settlement Discounts', 'type' => 'revenue', 'is_active' => true, 'parent_id' => null],
             ['code' => '5100', 'name' => 'Cost of Goods Sold', 'type' => 'expense', 'is_active' => true, 'parent_id' => null],
             ['code' => '5200', 'name' => 'Wastage Expense', 'type' => 'expense', 'is_active' => true, 'parent_id' => null],
+            ['code' => '5210', 'name' => 'Inventory Adjustment Gain/Loss', 'type' => 'expense', 'is_active' => true, 'parent_id' => null],
             ['code' => '5300', 'name' => 'Transport Expenses', 'type' => 'expense', 'is_active' => true, 'parent_id' => null],
             ['code' => '5400', 'name' => 'Labour Expenses', 'type' => 'expense', 'is_active' => true, 'parent_id' => null],
             ['code' => '5500', 'name' => 'Utilities Expense', 'type' => 'expense', 'is_active' => true, 'parent_id' => null],

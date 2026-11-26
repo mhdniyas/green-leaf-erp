@@ -282,29 +282,6 @@
                                         <span>Invoice</span>
                                     </a>
 
-                                    @if ($canCreateCreditNote ?? false)
-                                        @if ($inv->status === 'cancelled')
-                                            <button type="button"
-                                                disabled
-                                                class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-400 cursor-not-allowed shadow-2xs opacity-60"
-                                                title="Cancelled invoices cannot receive credit notes">
-                                                <i data-lucide="ban" class="w-3 h-3 text-slate-400"></i>
-                                                <span>Credit Note</span>
-                                            </button>
-                                        @else
-                                            <form method="POST" action="{{ route('admin.cashbook.reports.shops.credit-notes.select') }}" class="inline">
-                                                @csrf
-                                                <input type="hidden" name="invoice_ref" value="{{ \Illuminate\Support\Facades\Crypt::encryptString((string) $inv->id) }}">
-                                                <button type="submit"
-                                                    class="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 hover:border-emerald-400 transition shadow-2xs cursor-pointer"
-                                                    title="Add Credit Note for this invoice">
-                                                    <i data-lucide="plus-circle" class="w-3 h-3 text-emerald-600"></i>
-                                                    <span>Credit Note</span>
-                                                </button>
-                                            </form>
-                                        @endif
-                                    @endif
-
                                     @if ($notesCount > 0)
                                         <button type="button"
                                             @click="activeCreditNotesInvoiceId = {{ $inv->id }}"

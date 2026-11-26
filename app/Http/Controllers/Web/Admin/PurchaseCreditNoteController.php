@@ -9,6 +9,7 @@ use App\Enums\Inventory\WastageReason;
 use App\Enums\Purchasing\PurchaseCreditInventoryAction;
 use App\Enums\Purchasing\PurchaseCreditMoneyEffect;
 use App\Enums\Purchasing\PurchaseCreditReason;
+use App\Enums\Purchasing\PurchaseCreditStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Purchasing\StorePurchaseCreditNoteRequest;
 use App\Http\Requests\Purchasing\VoidPurchaseCreditNoteRequest;
@@ -16,12 +17,19 @@ use App\Models\Cashbook\CompanyAccount;
 use App\Models\PurchaseCreditNote;
 use App\Models\PurchaseInvoice;
 use App\Models\Supplier;
+use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Inventory\StockLedgerService;
 use App\Services\Purchasing\PurchaseCreditNoteService;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class PurchaseCreditNoteController extends Controller
@@ -29,6 +37,350 @@ class PurchaseCreditNoteController extends Controller
     public function __construct(
         private readonly PurchaseCreditNoteService $creditNoteService,
     ) {}
+
+    public function index(Request $request, PurchaserBusinessDayService $businessDayService): View|JsonResponse
+    {
+        $rawPreset = trim((string) $request->input('date_preset', ''));
+        if ($rawPreset === '') {
+            $rawPreset = ($request->filled('start_date') || $request->filled('end_date')) ? 'custom' : 'today';
+        }
+
+        $allowedPresets = ['today', 'yesterday', 'last_7_days', 'last_30_days', 'this_month', 'last_month', 'custom', 'all_time'];
+        if (! in_array($rawPreset, $allowedPresets, true)) {
+            $rawPreset = 'today';
+        }
+
+        $startDate = null;
+        $endDate = null;
+        $calendarToday = \Illuminate\Support\Carbon::now('Asia/Kolkata')->startOfDay();
+        $today = $businessDayService->operationalDate(\Illuminate\Support\Carbon::now('Asia/Kolkata'));
+
+        switch ($rawPreset) {
+            case 'today':
+                $startDate = $calendarToday->toDateString();
+                $endDate = $today->toDateString();
+                break;
+            case 'yesterday':
+                $yesterday = $today->copy()->subDay();
+                $startDate = $yesterday->toDateString();
+                $endDate = $yesterday->toDateString();
+                break;
+            case 'last_7_days':
+                $startDate = $today->copy()->subDays(6)->toDateString();
+                $endDate = $today->toDateString();
+                break;
+            case 'last_30_days':
+                $startDate = $today->copy()->subDays(29)->toDateString();
+                $endDate = $today->toDateString();
+                break;
+            case 'this_month':
+                $startDate = $today->copy()->startOfMonth()->toDateString();
+                $endDate = $today->copy()->endOfMonth()->toDateString();
+                break;
+            case 'last_month':
+                $lastMonth = $today->copy()->subMonthNoOverflow();
+                $startDate = $lastMonth->copy()->startOfMonth()->toDateString();
+                $endDate = $lastMonth->copy()->endOfMonth()->toDateString();
+                break;
+            case 'custom':
+                $validatedDates = $request->validate([
+                    'start_date' => ['nullable', 'date_format:Y-m-d'],
+                    'end_date' => ['nullable', 'date_format:Y-m-d'],
+                ]);
+                $startDate = $validatedDates['start_date'] ?? null;
+                $endDate = $validatedDates['end_date'] ?? null;
+                if ($startDate !== null && $endDate !== null && $startDate > $endDate) {
+                    throw ValidationException::withMessages([
+                        'end_date' => 'To Date must be on or after From Date.',
+                    ]);
+                }
+                break;
+            case 'all_time':
+                $startDate = null;
+                $endDate = null;
+                break;
+        }
+
+        $rawPurchaser = trim((string) $request->input('purchaser_id', ''));
+        $purchaserFilter = $rawPurchaser === 'unassigned'
+            ? 'unassigned'
+            : (is_numeric($rawPurchaser) && (int) $rawPurchaser > 0 ? (string) ((int) $rawPurchaser) : '');
+
+        $filters = [
+            'supplier_id' => $request->filled('supplier_id') ? (int) $request->input('supplier_id') : null,
+            'purchaser_id' => $purchaserFilter,
+            'date_preset' => $rawPreset,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'status' => $request->input('status'),
+            'reason' => $request->input('reason'),
+            'money_effect' => $request->input('money_effect'),
+            'q' => trim((string) $request->input('q', '')),
+        ];
+
+        $baseQuery = PurchaseCreditNote::query()
+            ->when($filters['supplier_id'] !== null, fn (Builder $q) => $q->where('supplier_id', $filters['supplier_id']))
+            ->when($filters['purchaser_id'] === 'unassigned', function (Builder $q): void {
+                $q->whereDoesntHave('purchaseInvoice', fn (Builder $iq) => $iq->whereNotNull('purchaser_cart_id'))
+                    ->whereDoesntHave('items', fn (Builder $itq) => $itq->whereHas('purchaserCartItem.cart'));
+            })
+            ->when(is_numeric($filters['purchaser_id']), function (Builder $q) use ($filters): void {
+                $pid = (int) $filters['purchaser_id'];
+                $q->where(function (Builder $sub) use ($pid): void {
+                    $sub->whereHas('purchaseInvoice.purchaserCart', fn (Builder $cq) => $cq->where('user_id', $pid))
+                        ->orWhereHas('items.purchaserCartItem.cart', fn (Builder $cq) => $cq->where('user_id', $pid));
+                });
+            })
+            ->when($filters['start_date'], fn (Builder $q) => $q->whereDate('credit_date', '>=', (string) $filters['start_date']))
+            ->when($filters['end_date'], fn (Builder $q) => $q->whereDate('credit_date', '<=', (string) $filters['end_date']))
+            ->when($filters['reason'], fn (Builder $q) => $q->where('reason', (string) $filters['reason']))
+            ->when($filters['money_effect'], fn (Builder $q) => $q->where('money_effect', (string) $filters['money_effect']))
+            ->when($filters['q'] !== '', function (Builder $q) use ($filters): void {
+                $search = $filters['q'];
+                $q->where(function (Builder $sub) use ($search): void {
+                    $sub->where('credit_note_number', 'like', "%{$search}%")
+                        ->orWhere('notes', 'like', "%{$search}%")
+                        ->orWhereHas('supplier', fn (Builder $sq) => $sq->where('name', 'like', "%{$search}%"));
+                });
+            });
+
+        $summaryRow = (clone $baseQuery)
+            ->where('status', PurchaseCreditStatus::Active->value)
+            ->selectRaw(
+                'COUNT(*) as active_count, '.
+                'COALESCE(SUM(CASE WHEN money_effect = ? THEN total_amount ELSE 0 END), 0) as vendor_credit_total, '.
+                'COALESCE(SUM(CASE WHEN money_effect = ? THEN total_amount ELSE 0 END), 0) as money_in_total, '.
+                'COALESCE(SUM(CASE WHEN money_effect = ? THEN total_amount ELSE 0 END), 0) as money_out_total',
+                [
+                    PurchaseCreditMoneyEffect::VendorCredit->value,
+                    PurchaseCreditMoneyEffect::MoneyIn->value,
+                    PurchaseCreditMoneyEffect::MoneyOut->value,
+                ]
+            )
+            ->toBase()
+            ->first();
+
+        $summary = [
+            'vendor_credit_total' => round((float) ($summaryRow->vendor_credit_total ?? 0), 2),
+            'money_in_total' => round((float) ($summaryRow->money_in_total ?? 0), 2),
+            'money_out_total' => round((float) ($summaryRow->money_out_total ?? 0), 2),
+            'total_count' => (int) ($summaryRow->active_count ?? 0),
+        ];
+
+        $creditNotes = (clone $baseQuery)
+            ->when($filters['status'], fn (Builder $q) => $q->where('status', (string) $filters['status']))
+            ->with([
+                'supplier:id,public_uuid,name',
+                'purchaseInvoice:id,purchaser_cart_id',
+                'purchaseInvoice.purchaserCart:id,user_id',
+                'purchaseInvoice.purchaserCart.user:id,name',
+            ])
+            ->withCount('items')
+            ->orderByDesc('credit_date')
+            ->orderByDesc('id')
+            ->paginate(20)
+            ->withQueryString();
+
+        $hasActiveFilters = $filters['supplier_id'] !== null
+            || $filters['purchaser_id'] !== ''
+            || $filters['date_preset'] !== 'today'
+            || ! empty($filters['status'])
+            || ! empty($filters['reason'])
+            || ! empty($filters['money_effect'])
+            || $filters['q'] !== '';
+
+        if ($request->ajax() || $request->wantsJson() || $request->boolean('async')) {
+            return response()->json([
+                'summary' => $summary,
+                'filters' => $filters,
+                'has_active_filters' => $hasActiveFilters,
+                'table_html' => view('admin.cashbook.purchase-credit-notes.partials.table', compact('creditNotes'))->render(),
+            ]);
+        }
+
+        $selectedSupplierModel = $filters['supplier_id'] !== null
+            ? Supplier::query()->select(['id', 'public_uuid', 'name', 'contact', 'mobile_number'])->find($filters['supplier_id'])
+            : null;
+        $selectedSupplier = $selectedSupplierModel ? $this->serializeVendor($selectedSupplierModel) : null;
+
+        $selectedPurchaser = is_numeric($filters['purchaser_id'])
+            ? User::query()->select(['id', 'name', 'email'])->find((int) $filters['purchaser_id'])
+            : null;
+
+        $statuses = PurchaseCreditStatus::cases();
+        $reasons = PurchaseCreditReason::cases();
+        $moneyEffects = PurchaseCreditMoneyEffect::cases();
+
+        return view('admin.cashbook.purchase-credit-notes.index', compact(
+            'creditNotes',
+            'summary',
+            'filters',
+            'hasActiveFilters',
+            'selectedSupplier',
+            'selectedPurchaser',
+            'statuses',
+            'reasons',
+            'moneyEffects',
+        ));
+    }
+
+    public function globalCreate(Request $request): View
+    {
+        $supplierUuid = trim((string) $request->query('supplier', ''));
+        if ($supplierUuid !== '') {
+            $supplier = Supplier::query()
+                ->where('public_uuid', $supplierUuid)
+                ->orWhere('id', is_numeric($supplierUuid) ? (int) $supplierUuid : 0)
+                ->firstOrFail();
+
+            return $this->create($request, $supplier);
+        }
+
+        return view('admin.cashbook.purchase-credit-notes.select-vendor');
+    }
+
+    public function searchVendors(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'q' => ['nullable', 'string', 'max:100'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:50'],
+        ]);
+
+        $search = trim((string) ($validated['q'] ?? ''));
+        $limit = (int) ($validated['limit'] ?? 20);
+
+        $vendorsQuery = Supplier::query()
+            ->when($search !== '', function (Builder $q) use ($search): void {
+                $q->where(function (Builder $sub) use ($search): void {
+                    $sub->where('name', 'like', "%{$search}%")
+                        ->orWhere('contact', 'like', "%{$search}%")
+                        ->orWhere('mobile_number', 'like', "%{$search}%");
+                });
+            });
+
+        if ($search !== '') {
+            $lowerSearch = mb_strtolower($search);
+            $vendorsQuery->orderByRaw(
+                'CASE WHEN LOWER(name) = ? THEN 0 WHEN LOWER(name) LIKE ? THEN 1 WHEN LOWER(name) LIKE ? THEN 2 ELSE 3 END',
+                [$lowerSearch, "{$lowerSearch}%", "%{$lowerSearch}%"]
+            );
+        }
+
+        $vendors = $vendorsQuery
+            ->orderBy('name')
+            ->limit($limit)
+            ->get(['id', 'public_uuid', 'name', 'contact', 'mobile_number']);
+
+        return response()->json([
+            'items' => $vendors->map(fn (Supplier $s): array => $this->serializeVendor($s))->values(),
+        ]);
+    }
+
+    public function searchPurchasers(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'q' => ['nullable', 'string', 'max:100'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:50'],
+        ]);
+
+        $search = trim((string) ($validated['q'] ?? ''));
+        $limit = (int) ($validated['limit'] ?? 20);
+
+        $purchasersQuery = User::query()
+            ->where(function (Builder $q): void {
+                $q->whereHas('roles', fn (Builder $rq) => $rq->where('name', 'purchaser'))
+                    ->orWhereIn('id', function ($sub): void {
+                        $sub->select('user_id')->from('purchaser_carts')->whereNotNull('user_id');
+                    });
+            })
+            ->when($search !== '', function (Builder $q) use ($search): void {
+                $q->where(function (Builder $sub) use ($search): void {
+                    $sub->where('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
+                });
+            });
+
+        if ($search !== '') {
+            $lowerSearch = mb_strtolower($search);
+            $purchasersQuery->orderByRaw(
+                'CASE WHEN LOWER(name) = ? THEN 0 WHEN LOWER(name) LIKE ? THEN 1 ELSE 2 END',
+                [$lowerSearch, "{$lowerSearch}%"]
+            );
+        }
+
+        $purchasers = $purchasersQuery
+            ->orderBy('name')
+            ->limit($limit)
+            ->get(['id', 'name', 'email']);
+
+        return response()->json([
+            'items' => $purchasers->map(fn (User $u): array => [
+                'id' => $u->id,
+                'name' => $u->name,
+                'email' => $u->email,
+            ])->values(),
+        ]);
+    }
+
+    public function vendorSummary(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'supplier_id' => ['required', 'integer', 'exists:suppliers,id'],
+        ]);
+
+        $supplier = Supplier::query()
+            ->select(['id', 'public_uuid', 'name', 'contact', 'mobile_number'])
+            ->findOrFail((int) $validated['supplier_id']);
+
+        return response()->json([
+            'supplier' => $this->serializeVendor($supplier),
+            'summary' => $this->creditNoteService->getVendorFinancialSummary($supplier),
+            'more_details_url' => route('admin.cashbook.finance.purchase.vendors.show', [
+                'supplier' => $supplier->public_uuid,
+            ]),
+        ]);
+    }
+
+    /**
+     * @return array{id: int, public_uuid: string, name: string, primary_phone: ?string, secondary_phone: ?string}
+     */
+    private function serializeVendor(Supplier $supplier): array
+    {
+        $mobile = $this->cleanPhone($supplier->mobile_number);
+        $contact = $this->cleanPhone($supplier->contact);
+
+        $primaryPhone = $mobile !== '' ? $mobile : ($contact !== '' ? $contact : null);
+        $secondaryPhone = null;
+
+        if ($mobile !== '' && $contact !== '' && $this->normalizePhoneForCompare($mobile) !== $this->normalizePhoneForCompare($contact)) {
+            $secondaryPhone = $contact;
+        }
+
+        return [
+            'id' => $supplier->id,
+            'public_uuid' => $supplier->public_uuid,
+            'name' => $supplier->name,
+            'primary_phone' => $primaryPhone,
+            'secondary_phone' => $secondaryPhone,
+        ];
+    }
+
+    private function cleanPhone(?string $phone): string
+    {
+        return trim((string) ($phone ?? ''));
+    }
+
+    private function normalizePhoneForCompare(string $phone): string
+    {
+        $digits = preg_replace('/\D+/', '', $phone) ?? '';
+        if (strlen($digits) > 10 && str_starts_with($digits, '91')) {
+            $digits = substr($digits, -10);
+        } elseif (strlen($digits) > 10 && str_starts_with($digits, '0')) {
+            $digits = ltrim($digits, '0');
+        }
+
+        return $digits;
+    }
 
     public function create(Request $request, Supplier $supplier): View
     {
@@ -75,6 +427,42 @@ class PurchaseCreditNoteController extends Controller
         })->values()->all();
 
         $products = $supplier->relatedProducts();
+        $products->loadMissing('orderUnits');
+
+        $productCatalog = $products->map(function ($product): array {
+            $baseUnit = trim((string) ($product->unit ?: 'kg'));
+            $units = [
+                [
+                    'unit' => $baseUnit,
+                    'label' => strtoupper($baseUnit).' (Base)',
+                    'conversion_to_base' => 1.0,
+                ],
+            ];
+
+            foreach ($product->orderUnits as $orderUnit) {
+                $unitCode = trim((string) $orderUnit->unit);
+                if ($unitCode === '' || $unitCode === $baseUnit) {
+                    continue;
+                }
+                $units[] = [
+                    'unit' => $unitCode,
+                    'label' => trim((string) ($orderUnit->label ?: $unitCode))." ({$orderUnit->conversion_to_base} {$baseUnit})",
+                    'conversion_to_base' => (float) $orderUnit->conversion_to_base,
+                ];
+            }
+
+            return [
+                'id' => $product->id,
+                'name' => $product->name,
+                'base_unit' => $baseUnit,
+                'units' => $units,
+            ];
+        })->values()->all();
+
+        $vendorInfo = $this->serializeVendor($supplier);
+        $vendorSummary = $this->creditNoteService->getVendorFinancialSummary($supplier);
+        $defaultCreditDate = now('Asia/Kolkata')->toDateString();
+        $submissionToken = (string) Str::uuid();
 
         $warehouses = Warehouse::query()
             ->where('is_active', true)
@@ -94,8 +482,13 @@ class PurchaseCreditNoteController extends Controller
 
         return view('admin.cashbook.finance.purchase.credit-notes.create', compact(
             'supplier',
+            'vendorInfo',
+            'vendorSummary',
+            'defaultCreditDate',
+            'submissionToken',
             'invoices',
             'products',
+            'productCatalog',
             'warehouses',
             'companyAccounts',
             'reasons',
@@ -108,11 +501,30 @@ class PurchaseCreditNoteController extends Controller
 
     public function store(StorePurchaseCreditNoteRequest $request, Supplier $supplier): RedirectResponse
     {
-        $payload = array_merge($request->validated(), [
+        $validated = $request->validated();
+        $submissionToken = trim((string) ($validated['submission_token'] ?? ''));
+        $cacheKey = $submissionToken !== ''
+            ? "pcn_submission:{$request->user()->id}:{$submissionToken}"
+            : null;
+
+        if ($cacheKey !== null && ! Cache::add($cacheKey, true, now()->addMinutes(10))) {
+            return redirect()
+                ->route('admin.cashbook.finance.purchase.vendors.show', ['supplier' => $supplier->public_uuid])
+                ->with('status', 'This Purchase Credit Note submission was already processed.');
+        }
+
+        $payload = array_merge($validated, [
             'supplier_id' => $supplier->id,
         ]);
 
-        $creditNote = $this->creditNoteService->create($payload, $request->user());
+        try {
+            $creditNote = $this->creditNoteService->create($payload, $request->user());
+        } catch (\Throwable $e) {
+            if ($cacheKey !== null) {
+                Cache::forget($cacheKey);
+            }
+            throw $e;
+        }
 
         return redirect()
             ->route('admin.cashbook.finance.purchase.vendors.show', ['supplier' => $supplier->public_uuid])
@@ -169,7 +581,23 @@ class PurchaseCreditNoteController extends Controller
             deductStockForDamage: $deductStockForDamage,
         );
 
-        return response()->json($stockCheck);
+        $stockLedger = app(StockLedgerService::class);
+        $itemsStock = [];
+        foreach ($items as $item) {
+            $productId = (int) ($item['product_id'] ?? 0);
+            if ($productId <= 0) {
+                continue;
+            }
+            $grade = ProductGrade::tryResolve((string) ($item['grade'] ?? 'A')) ?? ProductGrade::GradeA;
+            $key = "{$productId}_{$grade->value}";
+            if (! array_key_exists($key, $itemsStock)) {
+                $itemsStock[$key] = round((float) $stockLedger->availableStockForProduct($productId, $warehouseId, $grade), 3);
+            }
+        }
+
+        return response()->json(array_merge($stockCheck, [
+            'items_stock' => $itemsStock,
+        ]));
     }
 
     public function returnableItems(Request $request, Supplier $supplier, PurchaseInvoice $purchaseInvoice): JsonResponse

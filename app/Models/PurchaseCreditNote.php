@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -35,6 +36,7 @@ class PurchaseCreditNote extends Model
         'inventory_action',
         'status',
         'company_account_id',
+        'payment_method',
         'warehouse_id',
         'wastage_reason',
         'deduct_stock_for_damage',
@@ -211,5 +213,15 @@ class PurchaseCreditNote extends Model
     public function items(): HasMany
     {
         return $this->hasMany(PurchaseCreditNoteItem::class, 'purchase_credit_note_id');
+    }
+
+    public function itemMovements(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            PurchaseCreditNoteItemMovement::class,
+            PurchaseCreditNoteItem::class,
+            'purchase_credit_note_id',
+            'purchase_credit_note_item_id'
+        );
     }
 }

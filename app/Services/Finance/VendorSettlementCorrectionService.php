@@ -110,10 +110,11 @@ final class VendorSettlementCorrectionService
             }
 
             if ((float) $settlement->vendor_advance_used_amount > 0) {
-                // Restore used advance back to open vendor advances for supplier
+                // Restore used advance back to open/used vendor advances for supplier
                 $openAdvances = VendorAdvance::query()
                     ->where('supplier_id', $supplier->id)
-                    ->where('status', 'used')
+                    ->whereIn('status', ['used', 'open'])
+                    ->whereColumn('amount_remaining', '<', 'amount_original')
                     ->orderByDesc('id')
                     ->lockForUpdate()
                     ->get();
@@ -152,17 +153,9 @@ final class VendorSettlementCorrectionService
                             ->delete();
                     }
 
-                    // Recalculate remaining settled balance after deleting this allocation
+                    // Recalculate remaining settled balance & payment status after deleting this allocation
                     $alloc->delete();
-
-                    $remainingSettled = (float) VendorSettlementAllocation::query()
-                        ->where('purchase_invoice_id', $invoice->id)
-                        ->sum('total_settled');
-                    $net = round((float) $invoice->amount - (float) $invoice->discount_amount, 2);
-
-                    $invoice->update([
-                        'payment_status' => $remainingSettled >= $net - 0.01 ? 'paid' : ($remainingSettled > 0.01 ? 'partial' : 'unpaid'),
-                    ]);
+                    $invoice->refreshPaymentStatus();
                 }
             }
 

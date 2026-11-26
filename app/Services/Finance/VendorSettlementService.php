@@ -109,9 +109,10 @@ class VendorSettlementService
 
             foreach ($allocations as $row) {
                 $invoice = $invoices->get((int) $row['purchase_invoice_id']);
+                $invoice->unsetRelation('vendorSettlementAllocations');
+                $invoice->unsetRelation('purchaseCreditNotes');
                 $allocated = round((float) $row['cash_allocated'] + (float) $row['advance_allocated'] + (float) $row['discount_allocated'], 2);
-                $existing = round((float) VendorSettlementAllocation::query()->where('is_reversed', false)->where('purchase_invoice_id', $invoice->id)->sum('total_settled'), 2);
-                $outstanding = round(max(0, ((float) $invoice->amount - (float) $invoice->discount_amount) - $existing), 2);
+                $outstanding = $invoice->settlementOutstanding();
                 if ($allocated > $outstanding + 0.01) {
                     throw ValidationException::withMessages(['allocations' => "Invoice {$invoice->invoice_number} has only ₹{$outstanding} outstanding."]);
                 }
@@ -140,9 +141,12 @@ class VendorSettlementService
                 if ($cashAllocation > 0) {
                     PurchaseInvoicePayment::query()->create(['purchase_invoice_id' => $invoice->id, 'supplier_id' => $supplier->id, 'payment_date' => $payload['payment_date'], 'amount' => $cashAllocation, 'discount_amount' => 0, 'payment_method' => $payload['payment_method'] ?? 'Bank', 'payment_paid_by' => 'company', 'note' => $payload['note'] ?? null, 'created_by' => $userId]);
                 }
-                $settledForInvoice = round((float) VendorSettlementAllocation::query()->where('purchase_invoice_id', $invoice->id)->sum('total_settled'), 2);
-                $net = round((float) $invoice->amount - (float) $invoice->discount_amount, 2);
-                $invoice->update(['paid_amount' => round((float) $invoice->paid_amount + $cashAllocation, 2), 'payment_method' => $payload['payment_method'] ?? $invoice->payment_method, 'payment_paid_by' => 'company', 'payment_status' => $settledForInvoice >= $net - 0.01 ? 'paid' : ($settledForInvoice > 0 ? 'partial' : 'unpaid')]);
+                $invoice->update([
+                    'paid_amount' => round((float) $invoice->paid_amount + $cashAllocation, 2),
+                    'payment_method' => $payload['payment_method'] ?? $invoice->payment_method,
+                    'payment_paid_by' => 'company',
+                ]);
+                $invoice->refreshPaymentStatus();
             }
 
             $remainingAdvanceUse = $advanceUsed;
@@ -205,14 +209,12 @@ class VendorSettlementService
                 ->lockForUpdate()
                 ->get()
                 ->map(function (PurchaseInvoice $invoice): array {
-                    $settled = round((float) VendorSettlementAllocation::query()
-                        ->where('is_reversed', false)
-                        ->where('purchase_invoice_id', $invoice->id)
-                        ->sum('total_settled'), 2);
+                    $invoice->unsetRelation('vendorSettlementAllocations');
+                    $invoice->unsetRelation('purchaseCreditNotes');
 
                     return [
                         'invoice' => $invoice,
-                        'outstanding' => round(max(0, (float) $invoice->amount - (float) $invoice->discount_amount - $settled), 2),
+                        'outstanding' => $invoice->settlementOutstanding(),
                     ];
                 })
                 ->filter(fn (array $row): bool => $row['outstanding'] > 0.01)

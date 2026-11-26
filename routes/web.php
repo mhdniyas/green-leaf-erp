@@ -50,6 +50,7 @@ use App\Http\Controllers\Web\Admin\StaffSyncFlagController;
 use App\Http\Controllers\Web\Admin\UserAccessController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Admin\WarehouseController;
+use App\Http\Controllers\Web\Admin\WarehouseCreditNoteController;
 use App\Http\Controllers\Web\Auth\LoginController;
 use App\Http\Controllers\Web\Auth\ShopOwnerRegistrationController;
 use App\Http\Controllers\Web\BusinessDaySettingsController;
@@ -1278,6 +1279,30 @@ Route::middleware('auth')->group(function () {
                     Route::post('{creditNote}/cancel', [ShopCreditNoteDetailController::class, 'cancel'])->name('cancel');
                     Route::post('{creditNote}/applications/{application}/reverse', [ShopCreditNoteDetailController::class, 'reverseApplication'])->name('applications.reverse');
                 });
+            });
+
+            // ── Warehouse Credit Notes ────────────────────────────────────────
+            Route::prefix('warehouse-credit-notes')->name('warehouse-credit-notes.')->group(function () {
+                Route::get('/', [WarehouseCreditNoteController::class, 'index'])->name('index')->middleware('can:cashbook.warehouse-credit-notes.view');
+                Route::get('create', [WarehouseCreditNoteController::class, 'create'])->name('create')->middleware('can:cashbook.warehouse-credit-notes.manage');
+                Route::post('/', [WarehouseCreditNoteController::class, 'store'])->name('store')->middleware('can:cashbook.warehouse-credit-notes.manage');
+                Route::get('search-products', [WarehouseCreditNoteController::class, 'searchProducts'])->name('search-products')->middleware('can:cashbook.warehouse-credit-notes.manage');
+                Route::get('stock-availability', [WarehouseCreditNoteController::class, 'stockAvailability'])->name('stock-availability')->middleware('can:cashbook.warehouse-credit-notes.manage');
+                Route::get('{creditNote:public_uuid}', [WarehouseCreditNoteController::class, 'show'])->name('show')->middleware('can:cashbook.warehouse-credit-notes.view');
+                Route::get('{creditNote:public_uuid}/edit', [WarehouseCreditNoteController::class, 'edit'])->name('edit')->middleware('can:cashbook.warehouse-credit-notes.manage');
+                Route::match(['PUT', 'PATCH'], '{creditNote:public_uuid}', [WarehouseCreditNoteController::class, 'update'])->name('update')->middleware('can:cashbook.warehouse-credit-notes.manage');
+                Route::delete('{creditNote:public_uuid}', [WarehouseCreditNoteController::class, 'destroy'])->name('destroy')->middleware('can:cashbook.warehouse-credit-notes.manage');
+                Route::post('{creditNote:public_uuid}/finalize', [WarehouseCreditNoteController::class, 'finalize'])->name('finalize')->middleware('can:cashbook.warehouse-credit-notes.manage');
+                Route::post('{creditNote:public_uuid}/void', [WarehouseCreditNoteController::class, 'void'])->name('void')->middleware('can:cashbook.warehouse-credit-notes.void');
+            });
+
+            // ── Purchase Credit Notes (Global Cashbook Listing & Vendor Picker) ──
+            Route::prefix('purchase-credit-notes')->name('purchase-credit-notes.')->group(function () {
+                Route::get('/', [PurchaseCreditNoteController::class, 'index'])->name('index')->middleware('can:cashbook.reconciliation.view');
+                Route::get('create', [PurchaseCreditNoteController::class, 'globalCreate'])->name('create')->middleware('can:cashbook.reconciliation.manage');
+                Route::get('search-vendors', [PurchaseCreditNoteController::class, 'searchVendors'])->name('search-vendors')->middleware('can:cashbook.reconciliation.view');
+                Route::get('search-purchasers', [PurchaseCreditNoteController::class, 'searchPurchasers'])->name('search-purchasers')->middleware('can:cashbook.reconciliation.view');
+                Route::get('vendor-summary', [PurchaseCreditNoteController::class, 'vendorSummary'])->name('vendor-summary')->middleware('can:cashbook.reconciliation.view');
             });
 
             // ── Green Leaf Monthly Reports ────────────────────────────────────

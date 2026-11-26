@@ -324,7 +324,34 @@ class PurchaseInvoice extends Model
             ? round((float) $this->purchaseCreditNotes->where('status', PurchaseCreditStatus::Active)->sum('applied_to_invoice_amount'), 2)
             : round((float) $this->purchaseCreditNotes()->where('status', PurchaseCreditStatus::Active->value)->sum('applied_to_invoice_amount'), 2);
 
-        return round(max(0, ((float) $this->amount - (float) $this->discount_amount) - $this->settlementTotal() - $creditNotesApplied), 2);
+        $settled = $this->settlementTotal();
+        $hasActiveAllocations = $this->vendorSettlementAllocations()
+            ->where('is_reversed', false)
+            ->exists();
+
+        if (! $hasActiveAllocations && (float) $this->paid_amount > 0) {
+            $settled += (float) $this->paid_amount;
+        }
+
+        return round(max(0, ((float) $this->amount - (float) $this->discount_amount) - $settled - $creditNotesApplied), 2);
+    }
+
+    /**
+     * Recompute and persist payment_status from authoritative invoice balance.
+     */
+    public function refreshPaymentStatus(): void
+    {
+        $this->unsetRelation('vendorSettlementAllocations');
+        $this->unsetRelation('purchaseCreditNotes');
+
+        $netPayable = max(0.0, round((float) $this->amount - (float) ($this->discount_amount ?? 0), 2));
+        $remaining = $this->remainingBalance();
+
+        $status = $remaining <= 0.01
+            ? 'paid'
+            : ($remaining < ($netPayable - 0.01) ? 'partial' : 'unpaid');
+
+        $this->update(['payment_status' => $status]);
     }
 
     public function purchaserSubmittedBy(): BelongsTo
