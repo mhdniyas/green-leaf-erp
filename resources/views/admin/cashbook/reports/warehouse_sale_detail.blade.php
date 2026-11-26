@@ -33,7 +33,24 @@
             </div>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
+            @if($sale->isConfirmed() && auth()->user()?->can('cancel', $sale))
+                <button type="button"
+                        onclick="if(confirm('Are you sure you want to cancel this sale and revert all deducted inventory?')) { document.getElementById('cashbook-cancel-sale-form').submit(); }"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold shadow-sm transition cursor-pointer">
+                    Cancel Sale
+                </button>
+                <form id="cashbook-cancel-sale-form" method="POST" action="{{ route('admin.cashbook.warehouse-sales.cancel', $sale) }}" class="hidden">
+                    @csrf
+                    <input type="hidden" name="reason" value="Cancelled from Cashbook">
+                </form>
+            @endif
+            <a href="{{ route('admin.cashbook.warehouse-sales.pdf', $sale) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-xs font-semibold text-white shadow-sm transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                Download PDF
+            </a>
             <button onclick="window.print()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition">
                 <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
@@ -42,6 +59,22 @@
             </button>
         </div>
     </div>
+
+    @if(session('success'))
+        <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-xs font-bold text-emerald-800 flex items-center justify-between">
+            <span>{{ session('success') }}</span>
+            <button type="button" onclick="this.parentElement.remove()" class="text-emerald-600 hover:text-emerald-900 font-bold">✕</button>
+        </div>
+    @endif
+
+    @if($sale->isCancelled())
+        <div class="rounded-xl border border-rose-200 bg-rose-50 p-3.5 text-xs font-bold text-rose-800">
+            <span>This sale was cancelled on {{ $sale->cancelled_at?->timezone('Asia/Kolkata')->format('d M Y, h:i A') }} by {{ $sale->cancelledBy?->name ?? 'User' }}.</span>
+            @if($sale->cancel_reason)
+                <span class="block text-[11px] font-normal text-rose-700 mt-0.5">Reason: {{ $sale->cancel_reason }}</span>
+            @endif
+        </div>
+    @endif
 
     {{-- Overview Cards --}}
     <div class="grid grid-cols-1 md:grid-cols-3 gap-5">

@@ -13,21 +13,27 @@ use App\Enums\Inventory\WastageReason;
 use App\Exports\InventoryAdvanceOnlyExport;
 use App\Exports\InventoryBusinessDayExport;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Web\Warehouse\CancelWarehouseSaleRequest;
+use App\Http\Requests\Web\Warehouse\StoreWarehouseCustomerRequest;
+use App\Http\Requests\Web\Warehouse\StoreWarehouseSaleRequest;
 use App\Models\AdvanceReceiveMatch;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Category;
 use App\Models\DailyPriceApproval;
 use App\Models\DailyPricePublication;
+use App\Models\DailyProductPrice;
 use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
 use App\Models\Product;
+use App\Models\ProductSellingPrice;
 use App\Models\ProductUnit;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseProductFilter;
 use App\Models\Shop;
 use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
+use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\User;
@@ -37,6 +43,7 @@ use App\Models\WarehouseSale;
 use App\Repositories\Inventory\StockMovementRepository;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\ShopSalesReportService;
+use App\Services\Inventory\StockLedgerService;
 use App\Services\Inventory\WastageService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\AdvanceAvailableBalanceCalculator;
@@ -46,11 +53,14 @@ use App\Services\Purchasing\AutoAdvanceClearPlanningService;
 use App\Services\Purchasing\DailyInventoryComparisonService;
 use App\Services\Purchasing\DailyPendingAdvanceWhatsAppService;
 use App\Services\Purchasing\GoodsReceivedService;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
 use App\Services\Purchasing\WarehouseReceiptStateResolver;
 use App\Services\Reports\ShopProfitIntelligenceService;
 use App\Services\ShopInvoices\ShopFinalBill;
 use App\Services\ShopInvoices\ShopFinalBillService;
+use App\Services\Warehouse\WarehouseSalesAccessService;
+use App\Services\Warehouse\WarehouseSaleService;
 use App\Support\CashbookAccess;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
@@ -58,6 +68,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -78,6 +89,11 @@ class AdminCashbookReportsController extends Controller
         private readonly ShopProfitIntelligenceService $profitIntelligence,
         private readonly PriceBoardService $priceBoardService,
         private readonly ShopSalesReportService $shopSalesReportService,
+        private readonly WarehouseSalesAccessService $warehouseSalesAccessService,
+        private readonly WarehouseSaleService $warehouseSaleService,
+        private readonly StockLedgerService $stockLedgerService,
+        private readonly StockMovementRepository $stockMovementRepository,
+        private readonly PurchaserBusinessDayService $businessDayService,
     ) {}
 
     /**
@@ -4270,5 +4286,379 @@ class AdminCashbookReportsController extends Controller
             'sale' => $warehouseSale,
             'shops' => $shops,
         ]);
+    }
+
+    /**
+     * Download PDF invoice for a Warehouse Sale from Cashbook Reports.
+     */
+    public function warehouseSalePdf(WarehouseSale $warehouseSale): Response
+    {
+        $this->ensureAuthorized(request());
+
+        $warehouseSale->loadMissing([
+            'items.product',
+            'payments.moneyHolderUser',
+            'warehouse',
+            'customer',
+            'soldBy',
+            'cancelledBy',
+            'shop',
+        ]);
+
+        $filename = "warehouse-sale-{$warehouseSale->invoice_number}.pdf";
+
+        return Pdf::loadView('warehouse.sales.pdf', [
+            'sale' => $warehouseSale,
+        ])
+            ->setPaper('a4', 'portrait')
+            ->download($filename);
+    }
+
+    /**
+     * Show Create Warehouse Sale page within Cashbook layout.
+     */
+    public function warehouseSaleCreate(Request $request): View
+    {
+        $this->ensureWarehouseSalesAuthorized($request);
+
+        $user = $request->user();
+        $allowedWarehouses = $this->warehouseSalesAccessService->allowedWarehousesForUser($user);
+
+        if ($allowedWarehouses->isEmpty()) {
+            abort(403, 'You do not have any assigned warehouses for Warehouse Sales.');
+        }
+
+        $selectedWarehouseId = $request->filled('warehouse_id')
+            ? $request->integer('warehouse_id')
+            : (int) $allowedWarehouses->first()->id;
+
+        if (! $this->warehouseSalesAccessService->canUserSellFromWarehouse($user, $selectedWarehouseId)) {
+            $selectedWarehouseId = (int) $allowedWarehouses->first()->id;
+        }
+
+        $shops = Shop::query()
+            ->orderBy('name')
+            ->get(['id', 'name', 'code', 'contact_phone']);
+
+        $customers = WarehouseCustomer::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'uuid', 'name', 'phone']);
+
+        $products = Product::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name', 'sku', 'unit', 'base_price']);
+
+        $businessDate = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
+        $stockMap = $this->resolveWarehouseSaleStockMap($products->pluck('id')->all(), $selectedWarehouseId, $businessDate);
+        $priceMap = $this->resolveWarehouseSaleProductPrices($products, $businessDate);
+
+        $productsWithStock = $products->map(function (Product $p) use ($stockMap, $priceMap) {
+            return [
+                'id' => $p->id,
+                'name' => $p->name,
+                'sku' => $p->sku,
+                'unit' => $p->unit ?: 'kg',
+                'price' => (float) ($priceMap[$p->id] ?? $p->base_price ?? 0),
+                'available_stock' => (float) ($stockMap[$p->id] ?? 0),
+            ];
+        })->values();
+
+        $allStaff = User::query()
+            ->with('roles:id,name')
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        $purchaserStaff = $allStaff->filter(fn (User $u) => $u->hasRole('purchaser'));
+        $otherStaff = $allStaff->reject(fn (User $u) => $u->hasRole('purchaser'));
+        $staffUsers = $purchaserStaff->concat($otherStaff)->map(fn (User $u) => [
+            'id' => $u->id,
+            'name' => $u->name,
+            'is_purchaser' => $u->hasRole('purchaser'),
+            'role_label' => $u->hasRole('purchaser') ? 'Purchaser' : ($u->roles->pluck('name')->first() ?: 'Staff'),
+        ])->values();
+
+        return view('admin.cashbook.reports.warehouse_sale_create', [
+            'allowedWarehouses' => $allowedWarehouses,
+            'selectedWarehouseId' => $selectedWarehouseId,
+            'shops' => $shops,
+            'customers' => $customers,
+            'productsWithStock' => $productsWithStock,
+            'staffUsers' => $staffUsers,
+            'date' => $businessDate,
+        ]);
+    }
+
+    /**
+     * Store a new Warehouse Sale from Cashbook and stay within Cashbook.
+     */
+    public function warehouseSaleStore(StoreWarehouseSaleRequest $request): RedirectResponse|JsonResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $sale = $this->warehouseSaleService->createSale($request->validated(), $request->user());
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'status' => 'success',
+                'message' => "Sale {$sale->invoice_number} created successfully.",
+                'sale' => $sale,
+                'redirect_url' => route('admin.cashbook.warehouse-sales.show', $sale),
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.cashbook.warehouse-sales.show', $sale)
+            ->with('success', "Sale #{$sale->invoice_number} confirmed successfully.");
+    }
+
+    /**
+     * Cancel a Warehouse Sale from Cashbook and stay within Cashbook.
+     */
+    public function warehouseSaleCancel(CancelWarehouseSaleRequest $request, WarehouseSale $warehouseSale): RedirectResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $validated = $request->validated();
+        $this->warehouseSaleService->cancelSale($warehouseSale, $request->user(), $validated['reason'] ?? null);
+
+        return redirect()
+            ->route('admin.cashbook.warehouse-sales.show', $warehouseSale)
+            ->with('success', "Sale #{$warehouseSale->invoice_number} has been cancelled and stock restored.");
+    }
+
+    /**
+     * Search products with stock availability for Cashbook Warehouse Sale create form.
+     */
+    public function warehouseSaleSearchProducts(Request $request): JsonResponse
+    {
+        $this->ensureWarehouseSalesAuthorized($request);
+
+        $warehouseId = $request->integer('warehouse_id');
+        $search = trim((string) $request->input('q', ''));
+        $products = Product::query()
+            ->where('is_active', true)
+            ->when($search !== '', function (Builder $query) use ($search) {
+                $query->where(function (Builder $sub) use ($search) {
+                    $sub->where('name', 'like', "%{$search}%")
+                        ->orWhere('sku', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy('name')
+            ->get(['id', 'name', 'sku', 'unit', 'base_price']);
+
+        $businessDate = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
+        $stockMap = $this->resolveWarehouseSaleStockMap($products->pluck('id')->all(), $warehouseId ?: null, $businessDate);
+        $priceMap = $this->resolveWarehouseSaleProductPrices($products, $businessDate);
+
+        $data = $products->map(function (Product $p) use ($stockMap, $priceMap) {
+            return [
+                'id' => $p->id,
+                'name' => $p->name,
+                'sku' => $p->sku,
+                'unit' => $p->unit ?: 'kg',
+                'price' => (float) ($priceMap[$p->id] ?? $p->base_price ?? 0),
+                'available_stock' => (float) ($stockMap[$p->id] ?? 0),
+            ];
+        })->values();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $data,
+        ]);
+    }
+
+    /**
+     * Render the existing Warehouse Inventory product card for a product popup on Cashbook Warehouse Sale create.
+     */
+    public function warehouseSaleProductInventory(Request $request, Product $product): JsonResponse
+    {
+        $this->ensureWarehouseSalesAuthorized($request);
+
+        $warehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        $date = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
+
+        $grades = $this->stockMovementRepository->currentStockByProductAndGrade($date, $warehouseId, null, '', $product->id);
+
+        if ($grades->isEmpty()) {
+            $product->loadMissing('category:id,name');
+            $grades = collect([(object) [
+                'product_id' => $product->id,
+                'product_route_key' => $product->getRouteKey(),
+                'product_name' => $product->name,
+                'product_sku' => $product->sku,
+                'product_unit' => $product->unit,
+                'product_image' => $product->image,
+                'category_name' => $product->category?->name ?? 'Other',
+                'buffer_qty' => $product->buffer_qty,
+                'carryover_enabled' => $product->carryover_enabled,
+                'grade' => 'Unsorted',
+                'current_stock' => 0.0,
+            ]]);
+        }
+
+        $prodAllocations = ShopOrderItem::query()
+            ->whereHas('order', function (Builder $query) use ($date): void {
+                $query->where('business_date', $date)
+                    ->where('state', 'approved');
+            })
+            ->where('product_id', $product->id)
+            ->with(['order:id,shop_id,business_date,state', 'order.shop:id,name'])
+            ->get()
+            ->sortBy('order.shop.name');
+
+        $html = view('inventory.stock.partials._product_card', [
+            'grades' => $grades,
+            'prodAllocations' => $prodAllocations,
+            'selectedWarehouseId' => $warehouseId,
+            'allowInventoryActions' => false,
+            'layout' => 'modal',
+        ])->render();
+
+        return response()->json([
+            'status' => 'success',
+            'product_name' => $product->name,
+            'html' => $html,
+        ]);
+    }
+
+    /**
+     * Search warehouse customers for Cashbook Warehouse Sale create form.
+     */
+    public function warehouseSaleSearchCustomers(Request $request): JsonResponse
+    {
+        $this->ensureWarehouseSalesAuthorized($request);
+
+        $q = trim((string) $request->input('q', ''));
+
+        $customers = WarehouseCustomer::query()
+            ->where('is_active', true)
+            ->when($q !== '', function ($query) use ($q) {
+                $query->where(function ($sub) use ($q) {
+                    $sub->where('name', 'like', "%{$q}%")
+                        ->orWhere('phone', 'like', "%{$q}%");
+                });
+            })
+            ->limit(20)
+            ->get(['id', 'uuid', 'name', 'phone']);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $customers,
+        ]);
+    }
+
+    /**
+     * Store a new warehouse customer from Cashbook Warehouse Sale create form.
+     */
+    public function warehouseSaleStoreCustomer(StoreWarehouseCustomerRequest $request): JsonResponse
+    {
+        $this->ensureWarehouseSalesAuthorized($request);
+
+        $validated = $request->validated();
+
+        $customer = WarehouseCustomer::query()->create([
+            'name' => $validated['name'],
+            'phone' => $validated['phone'] ?? null,
+            'address' => $validated['address'] ?? null,
+            'tax_number' => $validated['tax_number'] ?? null,
+            'is_active' => true,
+            'created_by' => $request->user()->id,
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Customer created successfully.',
+            'customer' => $customer,
+        ]);
+    }
+
+    /**
+     * Resolve actual warehouse stock (including negative and zero stock) using the Warehouse Inventory repository.
+     *
+     * @param  array<int, int>  $productIds
+     * @return array<int, float>
+     */
+    private function resolveWarehouseSaleStockMap(array $productIds, ?int $warehouseId, ?string $date = null): array
+    {
+        if ($productIds === []) {
+            return [];
+        }
+
+        $targetDate = $date ? Carbon::parse($date)->toDateString() : $this->businessDayService->operationalDate()->toDateString();
+        $rows = $this->stockMovementRepository->currentStockByProductAndGrade($targetDate, $warehouseId, null, '', null, $productIds);
+
+        return $rows
+            ->groupBy('product_id')
+            ->map(fn (Collection $group): float => round((float) $group->sum('current_stock'), 2))
+            ->all();
+    }
+
+    private function resolveWarehouseSaleProductPrices(Collection $products, ?string $date = null): array
+    {
+        $productIds = $products->pluck('id')->all();
+        if ($productIds === []) {
+            return [];
+        }
+
+        $targetDate = $date ? Carbon::parse($date)->toDateString() : Carbon::today()->toDateString();
+
+        $approvedPrices = DailyPriceApproval::query()
+            ->whereIn('product_id', $productIds)
+            ->whereDate('business_date', '<=', $targetDate)
+            ->where('status', 'approved')
+            ->orderByDesc('business_date')
+            ->get(['product_id', 'price_a'])
+            ->unique('product_id')
+            ->keyBy('product_id');
+
+        $dailyPrices = DailyProductPrice::query()
+            ->whereIn('product_id', $productIds)
+            ->where('grade', 'A')
+            ->orderByDesc('id')
+            ->get(['product_id', 'selling_price'])
+            ->unique('product_id')
+            ->keyBy('product_id');
+
+        $fixedPrices = ProductSellingPrice::query()
+            ->whereIn('product_id', $productIds)
+            ->where('pricing_mode', ProductSellingPrice::MODE_FIXED_PRICE)
+            ->whereNotNull('fixed_price')
+            ->pluck('fixed_price', 'product_id');
+
+        $prices = [];
+        foreach ($products as $product) {
+            $pid = (int) $product->id;
+            $approved = $approvedPrices->get($pid);
+            $daily = $dailyPrices->get($pid);
+            $fixed = $fixedPrices->get($pid);
+
+            if ($approved && (float) $approved->price_a > 0) {
+                $prices[$pid] = round((float) $approved->price_a, 2);
+            } elseif ($daily && (float) $daily->selling_price > 0) {
+                $prices[$pid] = round((float) $daily->selling_price, 2);
+            } elseif ($fixed !== null && (float) $fixed > 0) {
+                $prices[$pid] = round((float) $fixed, 2);
+            } else {
+                $prices[$pid] = round((float) ($product->base_price ?? 0), 2);
+            }
+        }
+
+        return $prices;
+    }
+
+    private function ensureWarehouseSalesAuthorized(Request $request): void
+    {
+        $this->ensureAuthorized($request);
+
+        $user = $request->user();
+        if (! $this->warehouseSalesAccessService->canUserMakeSales($user)) {
+            if (($user->hasRole('admin') || $user->isMainAdmin()) && ! $this->warehouseSalesAccessService->isFeatureEnabled()) {
+                abort(403, 'Warehouse Sales is currently disabled in Company Settings.');
+            }
+
+            abort(403, 'You do not have access to Warehouse Sales.');
+        }
     }
 }

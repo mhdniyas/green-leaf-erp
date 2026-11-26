@@ -216,7 +216,15 @@ class WarehouseSaleService
                 ];
             }
 
-            $discount = max(0.0, (float) ($data['discount'] ?? 0));
+            $subtotal = round($subtotal, 2);
+            $discount = round(max(0.0, (float) ($data['discount'] ?? 0)), 2);
+
+            if ($discount > $subtotal) {
+                throw ValidationException::withMessages([
+                    'discount' => 'Discount cannot exceed the sale subtotal.',
+                ]);
+            }
+
             $totalAmount = max(0.0, round($subtotal - $discount, 2));
 
             $invoiceNumber = $this->generateInvoiceNumber($businessDate);

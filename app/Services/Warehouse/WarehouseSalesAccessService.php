@@ -125,12 +125,12 @@ class WarehouseSalesAccessService
             // Fallback: Check if user has explicit warehouses attached on User model
             $userAttachedIds = $user->warehouses()->pluck('warehouses.id')->all();
             if (! empty($userAttachedIds)) {
-                return Warehouse::query()->active()->whereIn('id', $userAttachedIds)->orderBy('name')->get();
+                return Warehouse::query()->active()->whereIn('id', $userAttachedIds)->orderBy('id')->get();
             }
 
             // If user has all warehouse access or no specific filter, return all active
             if ($user->hasAllWarehouseAccess() || $user->hasRole('admin') || $user->isMainAdmin()) {
-                return Warehouse::query()->active()->orderBy('name')->get();
+                return Warehouse::query()->active()->orderBy('id')->get();
             }
 
             return collect();
@@ -139,7 +139,7 @@ class WarehouseSalesAccessService
         return Warehouse::query()
             ->active()
             ->whereIn('id', $configuredWarehouseIds)
-            ->orderBy('name')
+            ->orderBy('id')
             ->get();
     }
 

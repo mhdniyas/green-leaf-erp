@@ -136,6 +136,7 @@
         || $isSalesSectionActive
         || $isExpensesActive
         || $isShopsReportActive
+        || request()->routeIs('admin.cashbook.warehouse-sales*')
         || request()->routeIs('admin.cashbook.monthly-report.*');
 
     $isPurchaseReportActive = request()->routeIs('admin.cashbook.finance.purchase')
@@ -259,6 +260,12 @@
                         'active' => request()->routeIs('admin.cashbook.reports.shops.invoices'),
                     ],
                 ],
+            ],
+            [
+                'label' => 'Warehouse Sales',
+                'href' => route('admin.cashbook.warehouse-sales'),
+                'active' => request()->routeIs('admin.cashbook.warehouse-sales*'),
+                'icon' => '<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M4.5 21V9.75l7.5-4.5 7.5 4.5V21M9 21v-6h6v6M9 12h.008v.008H9V12Zm3 0h.008v.008H12V12Zm3 0h.008v.008H15V12Z" /></svg>',
             ],
         ],
     ];

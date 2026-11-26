@@ -792,6 +792,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/search-customers', [WarehouseSalesController::class, 'searchCustomers'])->name('search-customers');
         Route::post('/customers', [WarehouseSalesController::class, 'storeCustomer'])->name('customers.store');
         Route::get('/{warehouseSale}', [WarehouseSalesController::class, 'show'])->name('show');
+        Route::get('/{warehouseSale}/pdf', [WarehouseSalesController::class, 'invoicePdf'])->name('pdf');
         Route::post('/{warehouseSale}/cancel', [WarehouseSalesController::class, 'cancel'])->name('cancel');
     });
 
@@ -1243,6 +1244,15 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/gl-bills/export/csv', [AdminCashbookReportsController::class, 'glBillsExportCsv'])->name('reports.gl-bills.export.csv')->middleware('can:cashbook.reports.view');
             Route::get('reports/gl-bills/export/pdf', [AdminCashbookReportsController::class, 'glBillsExportPdf'])->name('reports.gl-bills.export.pdf')->middleware('can:cashbook.reports.view');
             Route::get('warehouse-sales', [AdminCashbookReportsController::class, 'warehouseSales'])->name('warehouse-sales')->middleware('can:cashbook.reports.view');
+            Route::get('warehouse-sales/create', [AdminCashbookReportsController::class, 'warehouseSaleCreate'])->name('warehouse-sales.create')->middleware('can:cashbook.reports.view');
+            Route::post('warehouse-sales', [AdminCashbookReportsController::class, 'warehouseSaleStore'])->name('warehouse-sales.store')->middleware('can:cashbook.reports.view');
+            Route::get('warehouse-sales/search-products', [AdminCashbookReportsController::class, 'warehouseSaleSearchProducts'])->name('warehouse-sales.search-products')->middleware('can:cashbook.reports.view');
+            Route::get('warehouse-sales/product-inventory/{product:id}', [AdminCashbookReportsController::class, 'warehouseSaleProductInventory'])->name('warehouse-sales.product-inventory')->middleware('can:cashbook.reports.view');
+            Route::get('warehouse-sales/search-customers', [AdminCashbookReportsController::class, 'warehouseSaleSearchCustomers'])->name('warehouse-sales.search-customers')->middleware('can:cashbook.reports.view');
+            Route::post('warehouse-sales/customers', [AdminCashbookReportsController::class, 'warehouseSaleStoreCustomer'])->name('warehouse-sales.customers.store')->middleware('can:cashbook.reports.view');
+            Route::get('warehouse-sales/{warehouseSale}', [AdminCashbookReportsController::class, 'warehouseSaleDetail'])->name('warehouse-sales.show')->middleware('can:cashbook.reports.view');
+            Route::get('warehouse-sales/{warehouseSale}/pdf', [AdminCashbookReportsController::class, 'warehouseSalePdf'])->name('warehouse-sales.pdf')->middleware('can:cashbook.reports.view');
+            Route::post('warehouse-sales/{warehouseSale}/cancel', [AdminCashbookReportsController::class, 'warehouseSaleCancel'])->name('warehouse-sales.cancel')->middleware('can:cashbook.reports.view');
             Route::get('finance/gl-bills', [AdminCashbookReportsController::class, 'glBills'])->name('finance.gl-bills')->middleware('can:cashbook.reports.view');
             Route::get('reports/api/hub', [AdminCashbookReportsController::class, 'apiHubData'])->name('reports.api.hub')->middleware('can:cashbook.reports.view');
             Route::get('mobile/ledger/{shop}', [AdminCashbookReportsController::class, 'mobileLedger'])->name('reports.mobile-ledger')->middleware('can:cashbook.reports.view');

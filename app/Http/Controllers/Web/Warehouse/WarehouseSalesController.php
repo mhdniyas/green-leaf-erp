@@ -13,13 +13,17 @@ use App\Models\Shop;
 use App\Models\User;
 use App\Models\WarehouseCustomer;
 use App\Models\WarehouseSale;
+use App\Repositories\Inventory\StockMovementRepository;
 use App\Services\Inventory\StockLedgerService;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Warehouse\WarehouseSalesAccessService;
 use App\Services\Warehouse\WarehouseSaleService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\View\View;
 
 class WarehouseSalesController extends Controller
@@ -28,6 +32,8 @@ class WarehouseSalesController extends Controller
         private readonly WarehouseSalesAccessService $accessService,
         private readonly WarehouseSaleService $saleService,
         private readonly StockLedgerService $stockLedgerService,
+        private readonly StockMovementRepository $stockMovementRepository,
+        private readonly PurchaserBusinessDayService $businessDayService,
     ) {}
 
     public function index(Request $request): View
@@ -114,8 +120,13 @@ class WarehouseSalesController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'sku', 'unit', 'base_price']);
 
+        $date = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
         $productIds = $products->pluck('id')->all();
-        $stockMap = $this->stockLedgerService->availableSortedStockForProducts($productIds, $selectedWarehouseId);
+        $stockMap = $this->stockMovementRepository
+            ->currentStockByProductAndGrade($date, $selectedWarehouseId, null, '', null, $productIds)
+            ->groupBy('product_id')
+            ->map(fn ($group): float => round((float) $group->sum('current_stock'), 2))
+            ->all();
 
         $productsWithStock = $products->map(function (Product $p) use ($stockMap) {
             $stock = (float) ($stockMap[$p->id] ?? 0);
@@ -191,6 +202,34 @@ class WarehouseSalesController extends Controller
         ]);
     }
 
+    public function invoicePdf(WarehouseSale $warehouseSale): Response
+    {
+        $this->ensureAuthorized(request());
+
+        $user = request()->user();
+        if (! $this->accessService->canUserSellFromWarehouse($user, (int) $warehouseSale->warehouse_id) && ! $user->isMainAdmin()) {
+            abort(403, 'You are not authorized to view sales from this warehouse.');
+        }
+
+        $warehouseSale->loadMissing([
+            'items.product',
+            'payments.moneyHolderUser',
+            'warehouse',
+            'customer',
+            'soldBy',
+            'cancelledBy',
+            'shop',
+        ]);
+
+        $filename = "warehouse-sale-{$warehouseSale->invoice_number}.pdf";
+
+        return Pdf::loadView('warehouse.sales.pdf', [
+            'sale' => $warehouseSale,
+        ])
+            ->setPaper('a4', 'portrait')
+            ->download($filename);
+    }
+
     public function cancel(CancelWarehouseSaleRequest $request, WarehouseSale $warehouseSale): RedirectResponse
     {
         $validated = $request->validated();
@@ -255,7 +294,12 @@ class WarehouseSalesController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'sku', 'unit', 'base_price']);
 
-        $stockMap = $this->stockLedgerService->availableSortedStockForProducts($products->pluck('id')->all(), $warehouseId ?: null);
+        $date = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
+        $stockMap = $this->stockMovementRepository
+            ->currentStockByProductAndGrade($date, $warehouseId ?: null, null, '', null, $products->pluck('id')->all())
+            ->groupBy('product_id')
+            ->map(fn ($group): float => round((float) $group->sum('current_stock'), 2))
+            ->all();
 
         $data = $products->map(function (Product $p) use ($stockMap) {
             $stock = (float) ($stockMap[$p->id] ?? 0);

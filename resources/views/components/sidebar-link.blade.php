@@ -99,6 +99,14 @@
                                 'text-slate-600 hover:bg-slate-100/90 hover:text-slate-900' => ! $childActive,
                             ])
                         >
+                            @if (! empty($child['icon']))
+                                <span @class([
+                                    'shrink-0 transition-colors [&_svg]:h-4 [&_svg]:w-4',
+                                    'text-emerald-600' => $childActive,
+                                    'text-slate-400 group-hover/child:text-slate-700' => ! $childActive,
+                                ])>{!! $child['icon'] !!}</span>
+                            @endif
+
                             <span class="min-w-0 flex-1 truncate">{{ $child['label'] }}</span>
 
                             @if (filled($childBadge) && (int) $childBadge > 0)

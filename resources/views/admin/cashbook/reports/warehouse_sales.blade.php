@@ -210,8 +210,17 @@
                     <h2 class="text-sm font-black text-slate-900">Warehouse Sales Ledger</h2>
                     <p class="text-xs text-slate-500">Trace every sale to invoice, customer type, customer, payment, money holder, and inventory movements.</p>
                 </div>
-                <div class="text-xs font-bold text-slate-500">
-                    Showing <span class="font-black text-slate-900">{{ $sales->count() }}</span> records
+                <div class="flex items-center gap-3">
+                    <div class="text-xs font-bold text-slate-500">
+                        Showing <span class="font-black text-slate-900">{{ $sales->count() }}</span> records
+                    </div>
+                    @if(\App\Services\Warehouse\WarehouseSalesAccessService::userCanMakeSales(auth()->user()))
+                        <a href="{{ route('admin.cashbook.warehouse-sales.create') }}"
+                           class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-3.5 py-2 text-xs font-black text-white shadow-xs transition">
+                            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                            <span>+ New Warehouse Sale</span>
+                        </a>
+                    @endif
                 </div>
             </div>
 
@@ -313,7 +322,10 @@
 
                                 <!-- Total Amount -->
                                 <td class="py-3 px-4 text-right font-mono font-black text-slate-950 text-sm whitespace-nowrap">
-                                    ₹{{ number_format((float) $sale->total_amount, 2) }}
+                                    <div>₹{{ number_format((float) $sale->total_amount, 2) }}</div>
+                                    @if((float) $sale->discount > 0)
+                                        <div class="text-[10px] font-bold text-rose-600">Disc: -₹{{ number_format((float) $sale->discount, 2) }}</div>
+                                    @endif
                                 </td>
 
                                 <!-- Payment Method -->
@@ -356,11 +368,19 @@
 
                                 <!-- Action -->
                                 <td class="py-3 px-3 text-center whitespace-nowrap">
-                                    <a href="{{ route('admin.cashbook.warehouse-sales.show', $sale) }}"
-                                       class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition shadow-2xs">
-                                        <i data-lucide="eye" class="w-3 h-3 text-slate-500"></i>
-                                        <span>View</span>
-                                    </a>
+                                    <div class="inline-flex items-center gap-1.5">
+                                        <a href="{{ route('admin.cashbook.warehouse-sales.show', $sale) }}"
+                                           class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition shadow-2xs">
+                                            <i data-lucide="eye" class="w-3 h-3 text-slate-500"></i>
+                                            <span>View</span>
+                                        </a>
+                                        <a href="{{ route('admin.cashbook.warehouse-sales.pdf', $sale) }}"
+                                           title="Download Invoice PDF"
+                                           class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition shadow-2xs">
+                                            <i data-lucide="file-down" class="w-3 h-3 text-emerald-600"></i>
+                                            <span>PDF</span>
+                                        </a>
+                                    </div>
                                 </td>
                             </tr>
                         @empty
