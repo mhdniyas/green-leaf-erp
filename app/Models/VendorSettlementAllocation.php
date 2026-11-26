@@ -19,6 +19,7 @@ class VendorSettlementAllocation extends Model
         'purchase_invoice_id',
         'cash_allocated',
         'advance_allocated',
+        'credit_allocated',
         'discount_allocated',
         'total_settled',
         'is_reversed',
@@ -32,6 +33,7 @@ class VendorSettlementAllocation extends Model
         return [
             'cash_allocated' => 'decimal:2',
             'advance_allocated' => 'decimal:2',
+            'credit_allocated' => 'decimal:2',
             'discount_allocated' => 'decimal:2',
             'total_settled' => 'decimal:2',
             'is_reversed' => 'boolean',

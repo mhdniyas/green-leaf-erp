@@ -22,10 +22,12 @@ use App\Models\Supplier;
 use App\Models\User;
 use App\Models\VendorAdvance;
 use App\Models\VendorSettlementAllocation;
+use App\Models\VendorSettlementCreditAllocation;
 use App\Models\Warehouse;
 use App\Services\Finance\JournalService;
 use App\Services\Inventory\StockLedgerService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -48,411 +50,491 @@ class PurchaseCreditNoteService
      */
     public function create(array $payload, User $actor): PurchaseCreditNote
     {
-        return DB::transaction(function () use ($payload, $actor): PurchaseCreditNote {
-            // 1. Validate Supplier
-            $supplierId = (int) ($payload['supplier_id'] ?? 0);
-            $supplier = Supplier::query()->whereKey($supplierId)->lockForUpdate()->first();
-            if (! $supplier instanceof Supplier) {
-                throw ValidationException::withMessages(['supplier_id' => 'Valid supplier is required.']);
-            }
+        $submissionToken = isset($payload['submission_token']) ? trim((string) $payload['submission_token']) : '';
 
-            // 2. Validate linked PurchaseInvoice (optional)
-            $invoice = null;
-            $purchaseInvoiceId = ! empty($payload['purchase_invoice_id']) ? (int) $payload['purchase_invoice_id'] : null;
-            if ($purchaseInvoiceId !== null) {
-                $invoice = PurchaseInvoice::query()->whereKey($purchaseInvoiceId)->lockForUpdate()->first();
-                if (! $invoice instanceof PurchaseInvoice) {
-                    throw ValidationException::withMessages(['purchase_invoice_id' => 'Selected purchase invoice not found.']);
-                }
+        try {
+            return DB::transaction(function () use ($payload, $actor, $submissionToken): PurchaseCreditNote {
+                // 0. Durable idempotency check via submission_token
+                if ($submissionToken !== '') {
+                    $existingByToken = PurchaseCreditNote::query()
+                        ->where('submission_token', $submissionToken)
+                        ->lockForUpdate()
+                        ->first();
+                    if ($existingByToken instanceof PurchaseCreditNote) {
+                        $this->assertSubmissionTokenMatchesPayload($existingByToken, $payload);
 
-                if ((int) $invoice->supplier_id !== $supplier->id) {
-                    throw ValidationException::withMessages(['purchase_invoice_id' => 'Purchase invoice does not belong to the selected supplier.']);
-                }
-            }
-
-            // 3. Resolve Enums
-            $reason = $payload['reason'] instanceof PurchaseCreditReason
-                ? $payload['reason']
-                : (PurchaseCreditReason::tryFrom((string) $payload['reason']) ?? PurchaseCreditReason::Return);
-
-            $moneyEffect = $payload['money_effect'] instanceof PurchaseCreditMoneyEffect
-                ? $payload['money_effect']
-                : (PurchaseCreditMoneyEffect::tryFrom((string) $payload['money_effect']) ?? PurchaseCreditMoneyEffect::VendorCredit);
-
-            $inventoryAction = $payload['inventory_action'] instanceof PurchaseCreditInventoryAction
-                ? $payload['inventory_action']
-                : (PurchaseCreditInventoryAction::tryFrom((string) $payload['inventory_action']) ?? PurchaseCreditInventoryAction::Out);
-
-            // 4. Validate Company Account & Payment Method for Money In / Money Out
-            $companyAccount = null;
-            $paymentMethod = null;
-            $companyAccountId = ! empty($payload['company_account_id']) ? (int) $payload['company_account_id'] : null;
-            if (in_array($moneyEffect, [PurchaseCreditMoneyEffect::MoneyIn, PurchaseCreditMoneyEffect::MoneyOut], true)) {
-                if ($companyAccountId === null) {
-                    throw ValidationException::withMessages(['company_account_id' => 'Company account is required for money in/out refunds.']);
-                }
-
-                $companyAccount = CompanyAccount::query()->whereKey($companyAccountId)->lockForUpdate()->first();
-                if (! $companyAccount instanceof CompanyAccount) {
-                    throw ValidationException::withMessages(['company_account_id' => 'Selected company account not found.']);
-                }
-
-                $derivedMethod = strtolower((string) $companyAccount->account_type) === 'cash' ? 'cash' : 'bank';
-                $submittedMethod = ! empty($payload['payment_method']) ? strtolower(trim((string) $payload['payment_method'])) : null;
-                if ($submittedMethod !== null) {
-                    $submittedIsCash = $submittedMethod === 'cash';
-                    $accountIsCash = $derivedMethod === 'cash';
-                    if ($submittedIsCash !== $accountIsCash) {
-                        throw ValidationException::withMessages([
-                            'payment_method' => "Payment method '{$payload['payment_method']}' does not match selected {$companyAccount->account_type} company account.",
+                        return $existingByToken->fresh([
+                            'items.product',
+                            'supplier',
+                            'purchaseInvoice',
+                            'companyAccount',
+                            'warehouse',
+                            'vendorAdvance',
+                            'journalEntry.transactions.account',
                         ]);
                     }
-                    $paymentMethod = $submittedMethod;
-                } else {
-                    $paymentMethod = $derivedMethod;
-                }
-            }
-
-            // 5. Validate Warehouse for Inventory Actions
-            $warehouseId = ! empty($payload['warehouse_id']) ? (int) $payload['warehouse_id'] : null;
-            if (in_array($inventoryAction, [PurchaseCreditInventoryAction::Out, PurchaseCreditInventoryAction::In], true) && $warehouseId === null) {
-                throw ValidationException::withMessages(['warehouse_id' => 'Warehouse is required for inventory movements.']);
-            }
-
-            if ($warehouseId !== null) {
-                $warehouseExists = Warehouse::query()->whereKey($warehouseId)->exists();
-                if (! $warehouseExists) {
-                    throw ValidationException::withMessages(['warehouse_id' => 'Selected warehouse not found.']);
-                }
-            }
-
-            // 6. Validate Line Items
-            $itemsData = $payload['items'] ?? [];
-            if (! is_array($itemsData) || empty($itemsData)) {
-                throw ValidationException::withMessages(['items' => 'At least one line item is required for a purchase credit note.']);
-            }
-
-            $creditDate = ! empty($payload['credit_date'])
-                ? Carbon::parse((string) $payload['credit_date'])
-                : today();
-
-            $deductStockForDamage = (bool) ($payload['deduct_stock_for_damage'] ?? true);
-            $allowNegativeStock = (bool) ($payload['allow_negative_stock'] ?? false);
-            $creditNoteNumber = PurchaseCreditNote::generateCreditNoteNumber($creditDate);
-
-            // Compute gross total
-            $totalAmount = 0.0;
-            $sanitizedItems = [];
-            $allowedProductIds = $supplier->relatedProductIds($invoice?->id);
-
-            foreach ($itemsData as $index => $item) {
-                $productId = (int) ($item['product_id'] ?? 0);
-                $product = Product::find($productId);
-                if (! $product) {
-                    throw ValidationException::withMessages(["items.{$index}.product_id" => "Product at line {$index} is invalid."]);
                 }
 
-                if (! in_array($productId, $allowedProductIds, true)) {
-                    throw ValidationException::withMessages(["items.{$index}.product_id" => "Product {$product->name} is not associated with this vendor."]);
+                // 1. Validate Supplier
+                $supplierId = (int) ($payload['supplier_id'] ?? 0);
+                $supplier = Supplier::query()->whereKey($supplierId)->lockForUpdate()->first();
+                if (! $supplier instanceof Supplier) {
+                    throw ValidationException::withMessages(['supplier_id' => 'Valid supplier is required.']);
                 }
 
-                $qty = round((float) ($item['quantity'] ?? 0.0), 3);
-                if ($qty <= 0.0) {
-                    throw ValidationException::withMessages(["items.{$index}.quantity" => "Quantity for {$product->name} must be greater than zero."]);
-                }
-
-                $unitPrice = round((float) ($item['unit_price'] ?? 0.0), 2);
-                if ($unitPrice < 0.0) {
-                    throw ValidationException::withMessages(["items.{$index}.unit_price" => "Unit price for {$product->name} cannot be negative."]);
-                }
-
-                $lineTotal = round($qty * $unitPrice, 2);
-                $totalAmount = round($totalAmount + $lineTotal, 2);
-
-                ['unit' => $resolvedUnit, 'conversion_to_base' => $conversionToBase] = $this->resolveUnitConversion(
-                    $product,
-                    isset($item['unit']) ? (string) $item['unit'] : null,
-                    $index
-                );
-                $baseQty = round($qty * $conversionToBase, 3);
-                if ($baseQty <= 0.0) {
-                    throw ValidationException::withMessages(["items.{$index}.quantity" => "Converted base quantity for {$product->name} must be greater than zero."]);
-                }
-                $baseUnitCost = round($lineTotal / $baseQty, 4);
-
-                $grade = $item['grade'] ?? $item['product_grade'] ?? 'A';
-                $resolvedGrade = $grade instanceof ProductGrade ? $grade : (ProductGrade::tryResolve((string) $grade) ?? ProductGrade::GradeA);
-
-                $itemInventoryAction = ! empty($item['inventory_action'])
-                    ? ($item['inventory_action'] instanceof PurchaseCreditInventoryAction
-                        ? $item['inventory_action']
-                        : (PurchaseCreditInventoryAction::tryFrom((string) $item['inventory_action']) ?? $inventoryAction))
-                    : $inventoryAction;
-
-                $sanitizedItems[] = [
-                    'product_id' => $productId,
-                    'product_name' => $product->name,
-                    'purchaser_cart_item_id' => ! empty($item['purchaser_cart_item_id']) ? (int) $item['purchaser_cart_item_id'] : null,
-                    'grade' => $resolvedGrade,
-                    'quantity' => $qty,
-                    'unit' => $resolvedUnit,
-                    'conversion_to_base' => $conversionToBase,
-                    'base_qty' => $baseQty,
-                    'unit_price' => $unitPrice,
-                    'base_unit_cost' => $baseUnitCost,
-                    'line_total' => $lineTotal,
-                    'inventory_action' => $itemInventoryAction,
-                    'wastage_reason' => $item['wastage_reason'] ?? WastageReason::Unsold,
-                    'notes' => $item['notes'] ?? null,
-                ];
-            }
-
-            if ($totalAmount <= 0.0) {
-                throw ValidationException::withMessages(['total_amount' => 'Total credit note amount must be greater than zero.']);
-            }
-
-            // Check stock availability if negative stock is not explicitly approved
-            if (! $allowNegativeStock && $warehouseId !== null) {
-                $stockCheck = $this->checkStockAvailability(
-                    warehouseId: $warehouseId,
-                    items: $sanitizedItems,
-                    inventoryAction: $inventoryAction,
-                    deductStockForDamage: $deductStockForDamage,
-                );
-
-                if ($stockCheck['has_shortage']) {
-                    if (function_exists('session') && request()->hasSession()) {
-                        session()->flash('negative_stock_shortages', $stockCheck['shortages']);
+                // 2. Validate linked PurchaseInvoice (optional)
+                $invoice = null;
+                $purchaseInvoiceId = ! empty($payload['purchase_invoice_id']) ? (int) $payload['purchase_invoice_id'] : null;
+                if ($purchaseInvoiceId !== null) {
+                    $invoice = PurchaseInvoice::query()->whereKey($purchaseInvoiceId)->lockForUpdate()->first();
+                    if (! $invoice instanceof PurchaseInvoice) {
+                        throw ValidationException::withMessages(['purchase_invoice_id' => 'Selected purchase invoice not found.']);
                     }
 
-                    throw ValidationException::withMessages([
-                        'allow_negative_stock' => 'Requested credit quantities exceed available warehouse stock. Confirmation required to allow negative stock.',
-                    ]);
-                }
-            }
-
-            // 7. Calculate Invoice Allocation and Vendor Advance
-            $appliedToInvoice = 0.0;
-            if ($moneyEffect === PurchaseCreditMoneyEffect::VendorCredit && $invoice instanceof PurchaseInvoice) {
-                $outstanding = (float) $invoice->remainingBalance();
-                $appliedToInvoice = min($totalAmount, max(0.0, $outstanding));
-            }
-
-            $excessAdvance = round(max(0.0, $totalAmount - $appliedToInvoice), 2);
-
-            // 8. Create PurchaseCreditNote Record
-            /** @var PurchaseCreditNote $creditNote */
-            $creditNote = PurchaseCreditNote::query()->create([
-                'public_uuid' => (string) Str::uuid(),
-                'credit_note_number' => $creditNoteNumber,
-                'supplier_id' => $supplier->id,
-                'purchase_invoice_id' => $invoice?->id,
-                'credit_date' => $creditDate->toDateString(),
-                'reason' => $reason,
-                'money_effect' => $moneyEffect,
-                'inventory_action' => $inventoryAction,
-                'status' => PurchaseCreditStatus::Active,
-                'company_account_id' => $companyAccountId,
-                'payment_method' => $paymentMethod,
-                'warehouse_id' => $warehouseId,
-                'wastage_reason' => $reason === PurchaseCreditReason::DamageWastage ? WastageReason::TransitDamage->value : null,
-                'deduct_stock_for_damage' => $deductStockForDamage,
-                'allowed_negative_stock' => $allowNegativeStock,
-                'total_amount' => $totalAmount,
-                'applied_to_invoice_amount' => $appliedToInvoice,
-                'notes' => $payload['notes'] ?? null,
-                'created_by' => $actor->id,
-            ]);
-
-            // 9. Process Inventory Actions & Create Line Items
-            $inventoryCostTotal = 0.0;
-
-            foreach ($sanitizedItems as $itemRow) {
-                $primaryMovementId = null;
-                $wastageEntryId = null;
-                $createdMovements = collect();
-                $lineInvAction = $itemRow['inventory_action'];
-                $itemNotes = "Purchase Credit Note — PCN: {$creditNoteNumber}; NoteId: {$creditNote->id};";
-
-                if ($lineInvAction === PurchaseCreditInventoryAction::Out && $warehouseId !== null) {
-                    $movements = $this->stockLedgerService->recordPurchaseCreditOut(
-                        productId: $itemRow['product_id'],
-                        warehouseId: $warehouseId,
-                        grade: $itemRow['grade'],
-                        quantity: $itemRow['base_qty'],
-                        userId: $actor->id,
-                        notes: $itemNotes,
-                        purchaseInvoiceId: $invoice?->id,
-                        allowNegativeStock: $allowNegativeStock,
-                        fallbackUnitCost: $itemRow['base_unit_cost'],
-                    );
-
-                    $createdMovements = $movements;
-                    $primaryMovementId = $movements->first()?->id;
-                    $invCostForLine = $movements->sum(fn ($m) => (float) $m->quantity * (float) $m->cost_per_unit);
-                    $inventoryCostTotal = round($inventoryCostTotal + $invCostForLine, 2);
-                } elseif ($lineInvAction === PurchaseCreditInventoryAction::In && $warehouseId !== null) {
-                    $movement = $this->stockLedgerService->recordPurchaseCreditIn(
-                        productId: $itemRow['product_id'],
-                        warehouseId: $warehouseId,
-                        grade: $itemRow['grade'],
-                        quantity: $itemRow['base_qty'],
-                        unitPrice: $itemRow['base_unit_cost'],
-                        userId: $actor->id,
-                        notes: $itemNotes,
-                    );
-
-                    $createdMovements = collect([$movement]);
-                    $primaryMovementId = $movement->id;
-                    $inventoryCostTotal = round($inventoryCostTotal + $itemRow['line_total'], 2);
-                } elseif ($lineInvAction === PurchaseCreditInventoryAction::Damage) {
-                    $damageResult = $this->stockLedgerService->recordPurchaseCreditDamage(
-                        productId: $itemRow['product_id'],
-                        warehouseId: $warehouseId,
-                        grade: $itemRow['grade'],
-                        quantity: $itemRow['base_qty'],
-                        costPerKg: $itemRow['base_unit_cost'],
-                        userId: $actor->id,
-                        reason: $itemRow['wastage_reason'] instanceof WastageReason ? $itemRow['wastage_reason'] : WastageReason::Unsold,
-                        notes: $itemNotes,
-                        deductStock: $deductStockForDamage && $warehouseId !== null,
-                        wastageDate: $creditDate->toDateString(),
-                        purchaseInvoiceId: $invoice?->id,
-                        allowNegativeStock: $allowNegativeStock,
-                    );
-
-                    $wastageEntryId = $damageResult['wastage']->id;
-                    $createdMovements = $damageResult['movements'];
-                    $primaryMovementId = $createdMovements->first()?->id;
-                    if ($deductStockForDamage && $createdMovements->isNotEmpty()) {
-                        $invCostForLine = $createdMovements->sum(fn ($m) => (float) $m->quantity * (float) $m->cost_per_unit);
-                        $inventoryCostTotal = round($inventoryCostTotal + $invCostForLine, 2);
+                    if ((int) $invoice->supplier_id !== $supplier->id) {
+                        throw ValidationException::withMessages(['purchase_invoice_id' => 'Purchase invoice does not belong to the selected supplier.']);
                     }
                 }
 
-                $creditNoteItem = PurchaseCreditNoteItem::query()->create([
-                    'purchase_credit_note_id' => $creditNote->id,
-                    'purchaser_cart_item_id' => $itemRow['purchaser_cart_item_id'],
-                    'product_id' => $itemRow['product_id'],
-                    'grade' => $itemRow['grade']->value,
-                    'quantity' => $itemRow['quantity'],
-                    'unit' => $itemRow['unit'],
-                    'conversion_to_base' => $itemRow['conversion_to_base'],
-                    'base_qty' => $itemRow['base_qty'],
-                    'unit_price' => $itemRow['unit_price'],
-                    'line_total' => $itemRow['line_total'],
-                    'inventory_action' => $lineInvAction,
-                    'stock_movement_id' => $primaryMovementId,
-                    'wastage_entry_id' => $wastageEntryId,
-                ]);
+                // 3. Resolve Enums
+                $reason = $payload['reason'] instanceof PurchaseCreditReason
+                    ? $payload['reason']
+                    : (PurchaseCreditReason::tryFrom((string) $payload['reason']) ?? PurchaseCreditReason::Return);
 
-                foreach ($createdMovements as $movement) {
-                    PurchaseCreditNoteItemMovement::query()->create([
-                        'purchase_credit_note_item_id' => $creditNoteItem->id,
-                        'stock_batch_id' => (int) $movement->batch_id,
-                        'stock_movement_id' => (int) $movement->id,
-                        'quantity' => round((float) $movement->quantity, 3),
-                        'cost_per_unit' => round((float) $movement->cost_per_unit, 4),
-                    ]);
+                $moneyEffect = $payload['money_effect'] instanceof PurchaseCreditMoneyEffect
+                    ? $payload['money_effect']
+                    : (PurchaseCreditMoneyEffect::tryFrom((string) $payload['money_effect']) ?? PurchaseCreditMoneyEffect::VendorCredit);
+
+                $inventoryAction = $payload['inventory_action'] instanceof PurchaseCreditInventoryAction
+                    ? $payload['inventory_action']
+                    : (PurchaseCreditInventoryAction::tryFrom((string) $payload['inventory_action']) ?? PurchaseCreditInventoryAction::Out);
+
+                // 4. Validate Company Account & Payment Method for Money In / Money Out
+                $companyAccount = null;
+                $paymentMethod = null;
+                $companyAccountId = ! empty($payload['company_account_id']) ? (int) $payload['company_account_id'] : null;
+                if (in_array($moneyEffect, [PurchaseCreditMoneyEffect::MoneyIn, PurchaseCreditMoneyEffect::MoneyOut], true)) {
+                    if ($companyAccountId === null) {
+                        throw ValidationException::withMessages(['company_account_id' => 'Company account is required for money in/out refunds.']);
+                    }
+
+                    $companyAccount = CompanyAccount::query()->whereKey($companyAccountId)->lockForUpdate()->first();
+                    if (! $companyAccount instanceof CompanyAccount) {
+                        throw ValidationException::withMessages(['company_account_id' => 'Selected company account not found.']);
+                    }
+
+                    $derivedMethod = strtolower((string) $companyAccount->account_type) === 'cash' ? 'cash' : 'bank';
+                    $submittedMethod = ! empty($payload['payment_method']) ? strtolower(trim((string) $payload['payment_method'])) : null;
+                    if ($submittedMethod !== null) {
+                        $submittedIsCash = $submittedMethod === 'cash';
+                        $accountIsCash = $derivedMethod === 'cash';
+                        if ($submittedIsCash !== $accountIsCash) {
+                            throw ValidationException::withMessages([
+                                'payment_method' => "Payment method '{$payload['payment_method']}' does not match selected {$companyAccount->account_type} company account.",
+                            ]);
+                        }
+                        $paymentMethod = $submittedMethod;
+                    } else {
+                        $paymentMethod = $derivedMethod;
+                    }
                 }
-            }
 
-            // 10. Process Money Effect: VendorAdvance or CompanyAccountStatementEntry
-            $vendorAdvance = null;
-            if ($moneyEffect === PurchaseCreditMoneyEffect::VendorCredit && $excessAdvance > 0.0) {
-                $vendorAdvance = VendorAdvance::query()->create([
+                // 5. Validate Warehouse for Inventory Actions
+                $warehouseId = ! empty($payload['warehouse_id']) ? (int) $payload['warehouse_id'] : null;
+                if (in_array($inventoryAction, [PurchaseCreditInventoryAction::Out, PurchaseCreditInventoryAction::In], true) && $warehouseId === null) {
+                    throw ValidationException::withMessages(['warehouse_id' => 'Warehouse is required for inventory movements.']);
+                }
+
+                if ($warehouseId !== null) {
+                    $warehouseExists = Warehouse::query()->whereKey($warehouseId)->exists();
+                    if (! $warehouseExists) {
+                        throw ValidationException::withMessages(['warehouse_id' => 'Selected warehouse not found.']);
+                    }
+                }
+
+                // 6. Validate Line Items
+                $itemsData = $payload['items'] ?? [];
+                if (! is_array($itemsData) || empty($itemsData)) {
+                    throw ValidationException::withMessages(['items' => 'At least one line item is required for a purchase credit note.']);
+                }
+
+                $creditDate = ! empty($payload['credit_date'])
+                    ? Carbon::parse((string) $payload['credit_date'])
+                    : today();
+
+                $deductStockForDamage = (bool) ($payload['deduct_stock_for_damage'] ?? true);
+                $allowNegativeStock = (bool) ($payload['allow_negative_stock'] ?? false);
+                $creditNoteNumber = PurchaseCreditNote::generateCreditNoteNumber($creditDate);
+
+                // Compute gross total
+                $totalAmount = 0.0;
+                $sanitizedItems = [];
+                $allowedProductIds = $supplier->relatedProductIds($invoice?->id);
+
+                foreach ($itemsData as $index => $item) {
+                    $productId = (int) ($item['product_id'] ?? 0);
+                    $product = Product::find($productId);
+                    if (! $product) {
+                        throw ValidationException::withMessages(["items.{$index}.product_id" => "Product at line {$index} is invalid."]);
+                    }
+
+                    if (! in_array($productId, $allowedProductIds, true)) {
+                        throw ValidationException::withMessages(["items.{$index}.product_id" => "Product {$product->name} is not associated with this vendor."]);
+                    }
+
+                    $qty = round((float) ($item['quantity'] ?? 0.0), 3);
+                    if ($qty <= 0.0) {
+                        throw ValidationException::withMessages(["items.{$index}.quantity" => "Quantity for {$product->name} must be greater than zero."]);
+                    }
+
+                    $unitPrice = round((float) ($item['unit_price'] ?? 0.0), 2);
+                    if ($unitPrice < 0.0) {
+                        throw ValidationException::withMessages(["items.{$index}.unit_price" => "Unit price for {$product->name} cannot be negative."]);
+                    }
+
+                    $lineTotal = round($qty * $unitPrice, 2);
+                    $totalAmount = round($totalAmount + $lineTotal, 2);
+
+                    ['unit' => $resolvedUnit, 'conversion_to_base' => $conversionToBase] = $this->resolveUnitConversion(
+                        $product,
+                        isset($item['unit']) ? (string) $item['unit'] : null,
+                        $index
+                    );
+                    $baseQty = round($qty * $conversionToBase, 3);
+                    if ($baseQty <= 0.0) {
+                        throw ValidationException::withMessages(["items.{$index}.quantity" => "Converted base quantity for {$product->name} must be greater than zero."]);
+                    }
+                    $baseUnitCost = round($lineTotal / $baseQty, 4);
+
+                    $grade = $item['grade'] ?? $item['product_grade'] ?? 'A';
+                    $resolvedGrade = $grade instanceof ProductGrade ? $grade : (ProductGrade::tryResolve((string) $grade) ?? ProductGrade::GradeA);
+
+                    $itemInventoryAction = ! empty($item['inventory_action'])
+                        ? ($item['inventory_action'] instanceof PurchaseCreditInventoryAction
+                            ? $item['inventory_action']
+                            : (PurchaseCreditInventoryAction::tryFrom((string) $item['inventory_action']) ?? $inventoryAction))
+                        : $inventoryAction;
+
+                    $sanitizedItems[] = [
+                        'product_id' => $productId,
+                        'product_name' => $product->name,
+                        'purchaser_cart_item_id' => ! empty($item['purchaser_cart_item_id']) ? (int) $item['purchaser_cart_item_id'] : null,
+                        'grade' => $resolvedGrade,
+                        'quantity' => $qty,
+                        'unit' => $resolvedUnit,
+                        'conversion_to_base' => $conversionToBase,
+                        'base_qty' => $baseQty,
+                        'unit_price' => $unitPrice,
+                        'base_unit_cost' => $baseUnitCost,
+                        'line_total' => $lineTotal,
+                        'inventory_action' => $itemInventoryAction,
+                        'wastage_reason' => $item['wastage_reason'] ?? WastageReason::Unsold,
+                        'notes' => $item['notes'] ?? null,
+                    ];
+                }
+
+                if ($totalAmount <= 0.0) {
+                    throw ValidationException::withMessages(['total_amount' => 'Total credit note amount must be greater than zero.']);
+                }
+
+                // Check stock availability if negative stock is not explicitly approved
+                if (! $allowNegativeStock && $warehouseId !== null) {
+                    $stockCheck = $this->checkStockAvailability(
+                        warehouseId: $warehouseId,
+                        items: $sanitizedItems,
+                        inventoryAction: $inventoryAction,
+                        deductStockForDamage: $deductStockForDamage,
+                    );
+
+                    if ($stockCheck['has_shortage']) {
+                        if (function_exists('session') && request()->hasSession()) {
+                            session()->flash('negative_stock_shortages', $stockCheck['shortages']);
+                        }
+
+                        throw ValidationException::withMessages([
+                            'allow_negative_stock' => 'Requested credit quantities exceed available warehouse stock. Confirmation required to allow negative stock.',
+                        ]);
+                    }
+                }
+
+                // 7. Server-controlled accounting version (V1 legacy vs V2 independent) & Invoice Allocation
+                $accountingVersion = config('greenleaf.purchase_credit_notes_v2_enabled', false) ? 'v2' : 'v1';
+
+                $appliedToInvoice = 0.0;
+                if ($accountingVersion === 'v1' && $moneyEffect === PurchaseCreditMoneyEffect::VendorCredit && $invoice instanceof PurchaseInvoice) {
+                    $outstanding = (float) $invoice->remainingBalance();
+                    $appliedToInvoice = min($totalAmount, max(0.0, $outstanding));
+                }
+
+                $excessAdvance = round(max(0.0, $totalAmount - $appliedToInvoice), 2);
+                $vendorCreditNoteRef = isset($payload['vendor_credit_note_ref']) ? trim((string) $payload['vendor_credit_note_ref']) : null;
+                if ($vendorCreditNoteRef === '') {
+                    $vendorCreditNoteRef = null;
+                }
+
+                // 8. Create PurchaseCreditNote Record
+                /** @var PurchaseCreditNote $creditNote */
+                $creditNote = PurchaseCreditNote::query()->create([
+                    'public_uuid' => (string) Str::uuid(),
+                    'submission_token' => $submissionToken !== '' ? $submissionToken : null,
+                    'credit_note_number' => $creditNoteNumber,
+                    'vendor_credit_note_ref' => $vendorCreditNoteRef,
                     'supplier_id' => $supplier->id,
-                    'source_settlement_id' => null,
-                    'amount_original' => $excessAdvance,
-                    'amount_remaining' => $excessAdvance,
-                    'business_date' => $creditDate->toDateString(),
-                    'payment_method' => $payload['payment_method'] ?? 'Vendor Credit',
-                    'reference' => $creditNoteNumber,
-                    'notes' => "Excess credit note amount from PCN #{$creditNoteNumber}",
-                    'status' => 'open',
-                    'journal_entry_id' => null,
+                    'purchase_invoice_id' => $invoice?->id,
+                    'credit_date' => $creditDate->toDateString(),
+                    'reason' => $reason,
+                    'money_effect' => $moneyEffect,
+                    'inventory_action' => $inventoryAction,
+                    'status' => PurchaseCreditStatus::Active,
+                    'accounting_version' => $accountingVersion,
+                    'company_account_id' => $companyAccountId,
+                    'payment_method' => $paymentMethod,
+                    'warehouse_id' => $warehouseId,
+                    'wastage_reason' => $reason === PurchaseCreditReason::DamageWastage ? WastageReason::TransitDamage->value : null,
+                    'deduct_stock_for_damage' => $deductStockForDamage,
+                    'allowed_negative_stock' => $allowNegativeStock,
+                    'total_amount' => $totalAmount,
+                    'applied_to_invoice_amount' => $appliedToInvoice,
+                    'utilized_amount' => 0.00,
+                    'notes' => $payload['notes'] ?? null,
                     'created_by' => $actor->id,
                 ]);
 
-                $creditNote->update(['vendor_advance_id' => $vendorAdvance->id]);
-            }
+                // 9. Process Inventory Actions & Create Line Items
+                $inventoryCostTotal = 0.0;
 
-            $statementEntry = null;
-            if ($companyAccount instanceof CompanyAccount) {
-                $direction = $moneyEffect === PurchaseCreditMoneyEffect::MoneyIn ? 'in' : 'out';
-                $statementEntry = CompanyAccountStatementEntry::query()->create([
-                    'company_account_id' => $companyAccount->id,
-                    'public_uuid' => (string) Str::uuid(),
-                    'transaction_date' => $creditDate->toDateString(),
-                    'value_date' => $creditDate->toDateString(),
-                    'direction' => $direction,
-                    'amount' => $totalAmount,
-                    'reference' => $creditNoteNumber,
-                    'narration' => "Purchase Credit Note {$creditNoteNumber} from {$supplier->name}",
-                    'source' => 'purchase_credit_note',
-                    'source_type' => PurchaseCreditNote::class,
-                    'source_id' => $creditNote->id,
-                    'counterpart_type' => Supplier::class,
-                    'counterpart_id' => $supplier->id,
-                    'status' => 'finalized',
-                    'is_finalized' => true,
-                    'finalized_at' => now(),
-                    'matched_amount' => $totalAmount,
-                    'notes' => $payload['notes'] ?? null,
-                    'imported_by' => $actor->id,
+                foreach ($sanitizedItems as $itemRow) {
+                    $primaryMovementId = null;
+                    $wastageEntryId = null;
+                    $createdMovements = collect();
+                    $lineInvAction = $itemRow['inventory_action'];
+                    $itemNotes = "Purchase Credit Note — PCN: {$creditNoteNumber}; NoteId: {$creditNote->id};";
+
+                    if ($lineInvAction === PurchaseCreditInventoryAction::Out && $warehouseId !== null) {
+                        $movements = $this->stockLedgerService->recordPurchaseCreditOut(
+                            productId: $itemRow['product_id'],
+                            warehouseId: $warehouseId,
+                            grade: $itemRow['grade'],
+                            quantity: $itemRow['base_qty'],
+                            userId: $actor->id,
+                            notes: $itemNotes,
+                            purchaseInvoiceId: $invoice?->id,
+                            allowNegativeStock: $allowNegativeStock,
+                            fallbackUnitCost: $itemRow['base_unit_cost'],
+                        );
+
+                        $createdMovements = $movements;
+                        $primaryMovementId = $movements->first()?->id;
+                        $invCostForLine = $movements->sum(fn ($m) => (float) $m->quantity * (float) $m->cost_per_unit);
+                        $inventoryCostTotal = round($inventoryCostTotal + $invCostForLine, 2);
+                    } elseif ($lineInvAction === PurchaseCreditInventoryAction::In && $warehouseId !== null) {
+                        $movement = $this->stockLedgerService->recordPurchaseCreditIn(
+                            productId: $itemRow['product_id'],
+                            warehouseId: $warehouseId,
+                            grade: $itemRow['grade'],
+                            quantity: $itemRow['base_qty'],
+                            unitPrice: $itemRow['base_unit_cost'],
+                            userId: $actor->id,
+                            notes: $itemNotes,
+                        );
+
+                        $createdMovements = collect([$movement]);
+                        $primaryMovementId = $movement->id;
+                        $inventoryCostTotal = round($inventoryCostTotal + $itemRow['line_total'], 2);
+                    } elseif ($lineInvAction === PurchaseCreditInventoryAction::Damage) {
+                        $damageResult = $this->stockLedgerService->recordPurchaseCreditDamage(
+                            productId: $itemRow['product_id'],
+                            warehouseId: $warehouseId,
+                            grade: $itemRow['grade'],
+                            quantity: $itemRow['base_qty'],
+                            costPerKg: $itemRow['base_unit_cost'],
+                            userId: $actor->id,
+                            reason: $itemRow['wastage_reason'] instanceof WastageReason ? $itemRow['wastage_reason'] : WastageReason::Unsold,
+                            notes: $itemNotes,
+                            deductStock: $deductStockForDamage && $warehouseId !== null,
+                            wastageDate: $creditDate->toDateString(),
+                            purchaseInvoiceId: $invoice?->id,
+                            allowNegativeStock: $allowNegativeStock,
+                        );
+
+                        $wastageEntryId = $damageResult['wastage']->id;
+                        $createdMovements = $damageResult['movements'];
+                        $primaryMovementId = $createdMovements->first()?->id;
+                        if ($deductStockForDamage && $createdMovements->isNotEmpty()) {
+                            $invCostForLine = $createdMovements->sum(fn ($m) => (float) $m->quantity * (float) $m->cost_per_unit);
+                            $inventoryCostTotal = round($inventoryCostTotal + $invCostForLine, 2);
+                        }
+                    }
+
+                    $creditNoteItem = PurchaseCreditNoteItem::query()->create([
+                        'purchase_credit_note_id' => $creditNote->id,
+                        'purchaser_cart_item_id' => $itemRow['purchaser_cart_item_id'],
+                        'product_id' => $itemRow['product_id'],
+                        'grade' => $itemRow['grade']->value,
+                        'quantity' => $itemRow['quantity'],
+                        'unit' => $itemRow['unit'],
+                        'conversion_to_base' => $itemRow['conversion_to_base'],
+                        'base_qty' => $itemRow['base_qty'],
+                        'unit_price' => $itemRow['unit_price'],
+                        'line_total' => $itemRow['line_total'],
+                        'inventory_action' => $lineInvAction,
+                        'stock_movement_id' => $primaryMovementId,
+                        'wastage_entry_id' => $wastageEntryId,
+                    ]);
+
+                    foreach ($createdMovements as $movement) {
+                        PurchaseCreditNoteItemMovement::query()->create([
+                            'purchase_credit_note_item_id' => $creditNoteItem->id,
+                            'stock_batch_id' => (int) $movement->batch_id,
+                            'stock_movement_id' => (int) $movement->id,
+                            'quantity' => round((float) $movement->quantity, 3),
+                            'cost_per_unit' => round((float) $movement->cost_per_unit, 4),
+                        ]);
+                    }
+                }
+
+                // 10. Process Money Effect: VendorAdvance (V1 legacy only) or CompanyAccountStatementEntry
+                $vendorAdvance = null;
+                if ($accountingVersion === 'v1' && $moneyEffect === PurchaseCreditMoneyEffect::VendorCredit && $excessAdvance > 0.0) {
+                    $vendorAdvance = VendorAdvance::query()->create([
+                        'supplier_id' => $supplier->id,
+                        'source_settlement_id' => null,
+                        'amount_original' => $excessAdvance,
+                        'amount_remaining' => $excessAdvance,
+                        'business_date' => $creditDate->toDateString(),
+                        'payment_method' => $payload['payment_method'] ?? 'Vendor Credit',
+                        'reference' => $creditNoteNumber,
+                        'notes' => "Excess credit note amount from PCN #{$creditNoteNumber}",
+                        'status' => 'open',
+                        'journal_entry_id' => null,
+                        'created_by' => $actor->id,
+                    ]);
+
+                    $creditNote->update(['vendor_advance_id' => $vendorAdvance->id]);
+                }
+
+                $statementEntry = null;
+                if ($companyAccount instanceof CompanyAccount) {
+                    $direction = $moneyEffect === PurchaseCreditMoneyEffect::MoneyIn ? 'in' : 'out';
+                    $statementEntry = CompanyAccountStatementEntry::query()->create([
+                        'company_account_id' => $companyAccount->id,
+                        'public_uuid' => (string) Str::uuid(),
+                        'transaction_date' => $creditDate->toDateString(),
+                        'value_date' => $creditDate->toDateString(),
+                        'direction' => $direction,
+                        'amount' => $totalAmount,
+                        'reference' => $creditNoteNumber,
+                        'narration' => "Purchase Credit Note {$creditNoteNumber} from {$supplier->name}",
+                        'source' => 'purchase_credit_note',
+                        'source_type' => PurchaseCreditNote::class,
+                        'source_id' => $creditNote->id,
+                        'counterpart_type' => Supplier::class,
+                        'counterpart_id' => $supplier->id,
+                        'status' => 'finalized',
+                        'is_finalized' => true,
+                        'finalized_at' => now(),
+                        'matched_amount' => $totalAmount,
+                        'notes' => $payload['notes'] ?? null,
+                        'imported_by' => $actor->id,
+                    ]);
+
+                    if ($direction === 'in') {
+                        $companyAccount->increment('current_balance', $totalAmount);
+                    } else {
+                        $companyAccount->decrement('current_balance', $totalAmount);
+                    }
+                }
+
+                // 11. Record Balanced Double-Entry Journal Entry
+                $journalEntry = $this->journalService->recordPurchaseCreditNote(
+                    creditNote: $creditNote,
+                    inventoryCostTotal: $inventoryCostTotal,
+                    actor: $actor,
+                );
+
+                $creditNote->update(['journal_entry_id' => $journalEntry->id]);
+
+                if ($vendorAdvance instanceof VendorAdvance) {
+                    $vendorAdvance->update(['journal_entry_id' => $journalEntry->id]);
+                }
+
+                if ($statementEntry instanceof CompanyAccountStatementEntry) {
+                    $statementEntry->update(['journal_entry_id' => $journalEntry->id]);
+                }
+
+                if ($invoice instanceof PurchaseInvoice && $appliedToInvoice > 0.0) {
+                    $invoice->refreshPaymentStatus();
+                }
+
+                if ($allowNegativeStock && function_exists('activity')) {
+                    activity('purchase_credit_notes')
+                        ->performedOn($creditNote)
+                        ->causedBy($actor)
+                        ->withProperties([
+                            'credit_note_number' => $creditNoteNumber,
+                            'supplier_id' => $supplier->id,
+                            'warehouse_id' => $warehouseId,
+                            'allowed_negative_stock' => true,
+                        ])
+                        ->log("Purchase Credit Note {$creditNoteNumber} created with allowed negative stock.");
+                }
+
+                return $creditNote->fresh([
+                    'items.product',
+                    'supplier',
+                    'purchaseInvoice',
+                    'companyAccount',
+                    'warehouse',
+                    'vendorAdvance',
+                    'journalEntry.transactions.account',
                 ]);
+            }, attempts: 3);
+        } catch (QueryException $e) {
+            if ($submissionToken !== '' && ($e->getCode() === '23000' || str_contains($e->getMessage(), 'submission_token'))) {
+                $existingByToken = PurchaseCreditNote::query()->where('submission_token', $submissionToken)->first();
+                if ($existingByToken instanceof PurchaseCreditNote) {
+                    $this->assertSubmissionTokenMatchesPayload($existingByToken, $payload);
 
-                if ($direction === 'in') {
-                    $companyAccount->increment('current_balance', $totalAmount);
-                } else {
-                    $companyAccount->decrement('current_balance', $totalAmount);
+                    return $existingByToken->fresh([
+                        'items.product',
+                        'supplier',
+                        'purchaseInvoice',
+                        'companyAccount',
+                        'warehouse',
+                        'vendorAdvance',
+                        'journalEntry.transactions.account',
+                    ]);
                 }
             }
 
-            // 11. Record Balanced Double-Entry Journal Entry
-            $journalEntry = $this->journalService->recordPurchaseCreditNote(
-                creditNote: $creditNote,
-                inventoryCostTotal: $inventoryCostTotal,
-                actor: $actor,
-            );
+            throw $e;
+        }
+    }
 
-            $creditNote->update(['journal_entry_id' => $journalEntry->id]);
+    /**
+     * @param  array<string, mixed>  $payload
+     *
+     * @throws ValidationException
+     */
+    private function assertSubmissionTokenMatchesPayload(PurchaseCreditNote $existing, array $payload): void
+    {
+        $supplierId = (int) ($payload['supplier_id'] ?? 0);
+        $itemsSum = round((float) collect($payload['items'] ?? [])->sum(
+            fn (array $row): float => round((float) ($row['quantity'] ?? 0) * (float) ($row['unit_price'] ?? 0), 2)
+        ), 2);
+        $moneyEffect = $payload['money_effect'] instanceof PurchaseCreditMoneyEffect
+            ? $payload['money_effect']->value
+            : (string) ($payload['money_effect'] ?? PurchaseCreditMoneyEffect::VendorCredit->value);
 
-            if ($vendorAdvance instanceof VendorAdvance) {
-                $vendorAdvance->update(['journal_entry_id' => $journalEntry->id]);
-            }
-
-            if ($statementEntry instanceof CompanyAccountStatementEntry) {
-                $statementEntry->update(['journal_entry_id' => $journalEntry->id]);
-            }
-
-            if ($invoice instanceof PurchaseInvoice && $appliedToInvoice > 0.0) {
-                $invoice->refreshPaymentStatus();
-            }
-
-            if ($allowNegativeStock && function_exists('activity')) {
-                activity('purchase_credit_notes')
-                    ->performedOn($creditNote)
-                    ->causedBy($actor)
-                    ->withProperties([
-                        'credit_note_number' => $creditNoteNumber,
-                        'supplier_id' => $supplier->id,
-                        'warehouse_id' => $warehouseId,
-                        'allowed_negative_stock' => true,
-                    ])
-                    ->log("Purchase Credit Note {$creditNoteNumber} created with allowed negative stock.");
-            }
-
-            return $creditNote->fresh([
-                'items.product',
-                'supplier',
-                'purchaseInvoice',
-                'companyAccount',
-                'warehouse',
-                'vendorAdvance',
-                'journalEntry.transactions.account',
+        if (
+            (int) $existing->supplier_id !== $supplierId
+            || $existing->money_effect->value !== $moneyEffect
+            || abs((float) $existing->total_amount - $itemsSum) > 0.02
+        ) {
+            throw ValidationException::withMessages([
+                'submission_token' => 'This submission token has already been used for a different credit note payload.',
             ]);
-        }, attempts: 3);
+        }
     }
 
     /**
@@ -478,9 +560,20 @@ class PurchaseCreditNoteService
                 throw ValidationException::withMessages(['status' => 'This purchase credit note is already voided.']);
             }
 
-            // 0. Guard against voiding when linked invoice has subsequent active settlements
+            // 0. Guard against voiding when utilized (V2) or linked invoice has subsequent settlements (V1)
             $linkedInvoice = null;
-            if ($lockedNote->purchase_invoice_id !== null) {
+            if ($lockedNote->isV2()) {
+                $hasActiveCreditAllocations = VendorSettlementCreditAllocation::query()
+                    ->where('purchase_credit_note_id', $lockedNote->id)
+                    ->where('is_reversed', false)
+                    ->exists();
+
+                if ($hasActiveCreditAllocations || (float) $lockedNote->utilized_amount > 0.009) {
+                    throw ValidationException::withMessages([
+                        'status' => 'Cannot void this purchase credit note because it has active settlement allocations. Please reverse the settlement(s) first.',
+                    ]);
+                }
+            } elseif ($lockedNote->purchase_invoice_id !== null) {
                 $linkedInvoice = PurchaseInvoice::query()
                     ->whereKey($lockedNote->purchase_invoice_id)
                     ->lockForUpdate()
@@ -805,10 +898,17 @@ class PurchaseCreditNoteService
             )
             ->first();
 
-        $totalOpenVendorAdvances = round((float) VendorAdvance::query()
-            ->where('supplier_id', $supplier->id)
-            ->where('amount_remaining', '>', 0)
-            ->sum('amount_remaining'), 2);
+        $advanceTotals = DB::table('vendor_advances as va')
+            ->where('va.supplier_id', $supplier->id)
+            ->where('va.amount_remaining', '>', 0)
+            ->selectRaw(
+                'COALESCE(SUM(va.amount_remaining), 0) as total_open_vendor_advances, '.
+                'COALESCE(SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM purchase_credit_notes pcn_ref WHERE pcn_ref.vendor_advance_id = va.id) THEN va.amount_remaining ELSE 0 END), 0) as actual_cash_vendor_advances'
+            )
+            ->first();
+
+        $totalOpenVendorAdvances = round((float) ($advanceTotals->total_open_vendor_advances ?? 0), 2);
+        $actualCashVendorAdvances = round((float) ($advanceTotals->actual_cash_vendor_advances ?? 0), 2);
 
         $creditNoteTotals = DB::table('purchase_credit_notes as pcn')
             ->leftJoin('vendor_advances as va', 'va.id', '=', 'pcn.vendor_advance_id')
@@ -818,17 +918,30 @@ class PurchaseCreditNoteService
             ->selectRaw(
                 'COUNT(*) as total_active_credit_notes, '.
                 'COALESCE(SUM(pcn.total_amount), 0) as total_active_credit_note_amount, '.
-                'COALESCE(SUM(CASE WHEN va.amount_remaining > 0 THEN va.amount_remaining ELSE 0 END), 0) as available_credit_note_balance'
+                "COALESCE(SUM(CASE WHEN pcn.accounting_version = 'v2' AND pcn.money_effect = ? THEN (CASE WHEN pcn.total_amount > pcn.utilized_amount THEN pcn.total_amount - pcn.utilized_amount ELSE 0 END) ELSE 0 END), 0) as available_v2_credit_notes, ".
+                "COALESCE(SUM(CASE WHEN pcn.accounting_version != 'v2' AND va.amount_remaining > 0 THEN va.amount_remaining ELSE 0 END), 0) as available_legacy_credit_notes",
+                [PurchaseCreditMoneyEffect::VendorCredit->value]
             )
             ->first();
+
+        $availableV2Credits = round((float) ($creditNoteTotals->available_v2_credit_notes ?? 0), 2);
+        $availableLegacyCredits = round((float) ($creditNoteTotals->available_legacy_credit_notes ?? 0), 2);
+        $availablePurchaseCredits = round($availableV2Credits + $availableLegacyCredits, 2);
+        $outstandingBalance = round((float) ($invoiceTotals->outstanding_balance ?? 0), 2);
+        $netVendorPayable = round($outstandingBalance - $availablePurchaseCredits - $actualCashVendorAdvances, 2);
 
         return [
             'total_purchases' => round((float) ($invoiceTotals->total_purchases ?? 0), 2),
             'total_settled' => round((float) ($invoiceTotals->total_settled ?? 0), 2),
-            'outstanding_balance' => round((float) ($invoiceTotals->outstanding_balance ?? 0), 2),
-            'available_credit_note_balance' => round((float) ($creditNoteTotals->available_credit_note_balance ?? 0), 2),
+            'outstanding_balance' => $outstandingBalance,
+            'available_v2_credit_notes' => $availableV2Credits,
+            'available_legacy_credit_notes' => $availableLegacyCredits,
+            'available_credit_note_balance' => $availablePurchaseCredits,
+            'available_purchase_credits' => $availablePurchaseCredits,
+            'actual_cash_vendor_advances' => $actualCashVendorAdvances,
             'total_open_vendor_advances' => $totalOpenVendorAdvances,
-            'pending_bills_count' => (int) ($creditNoteTotals ? ($invoiceTotals->pending_bills_count ?? 0) : 0),
+            'net_vendor_payable' => $netVendorPayable,
+            'pending_bills_count' => (int) ($invoiceTotals->pending_bills_count ?? 0),
             'total_active_credit_notes' => (int) ($creditNoteTotals->total_active_credit_notes ?? 0),
             'total_active_credit_note_amount' => round((float) ($creditNoteTotals->total_active_credit_note_amount ?? 0), 2),
         ];

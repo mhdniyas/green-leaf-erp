@@ -286,6 +286,15 @@ class PurchaseInvoice extends Model
         return round((float) $this->vendorSettlementAllocations()->where('is_reversed', false)->sum('advance_allocated'), 2);
     }
 
+    public function settlementCreditTotal(): float
+    {
+        if ($this->relationLoaded('vendorSettlementAllocations')) {
+            return round((float) $this->vendorSettlementAllocations->where('is_reversed', false)->sum('credit_allocated'), 2);
+        }
+
+        return round((float) $this->vendorSettlementAllocations()->where('is_reversed', false)->sum('credit_allocated'), 2);
+    }
+
     public function remainingBalance(): float
     {
         if ($this->isCancelled()) {
@@ -300,7 +309,8 @@ class PurchaseInvoice extends Model
 
         $cashPaid = round((float) ($this->paid_amount ?? 0), 2);
         $settlementAdvance = $this->settlementAdvanceTotal();
-        $totalPaidOrCovered = round($cashPaid + $settlementAdvance, 2);
+        $settlementCredit = $this->settlementCreditTotal();
+        $totalPaidOrCovered = round($cashPaid + $settlementAdvance + $settlementCredit, 2);
 
         $creditNotesApplied = $this->relationLoaded('purchaseCreditNotes')
             ? round((float) $this->purchaseCreditNotes->where('status', PurchaseCreditStatus::Active)->sum('applied_to_invoice_amount'), 2)

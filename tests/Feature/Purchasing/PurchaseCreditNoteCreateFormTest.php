@@ -208,13 +208,13 @@ class PurchaseCreditNoteCreateFormTest extends TestCase
 
         $this->assertEquals(1, PurchaseCreditNote::count());
 
-        // Simulating cache expiry (after 10 minutes) allows resubmission (temporary lock, not permanent DB idempotency)
+        // Simulating cache expiry (after 10 minutes) STILL blocks resubmission thanks to durable DB submission_token
         Cache::forget("pcn_submission:{$this->admin->id}:unique-submit-token-123");
         $this->actingAs($this->admin)
             ->post(route('admin.cashbook.finance.purchase.vendors.credit-notes.store', $this->supplier), $payload)
             ->assertRedirect(route('admin.cashbook.finance.purchase.vendors.show', ['supplier' => $this->supplier->public_uuid]));
 
-        $this->assertEquals(2, PurchaseCreditNote::count());
+        $this->assertEquals(1, PurchaseCreditNote::count());
 
         // Missing submission_token still works for API/legacy callers without error
         unset($payload['submission_token']);
@@ -222,6 +222,6 @@ class PurchaseCreditNoteCreateFormTest extends TestCase
             ->post(route('admin.cashbook.finance.purchase.vendors.credit-notes.store', $this->supplier), $payload)
             ->assertRedirect(route('admin.cashbook.finance.purchase.vendors.show', ['supplier' => $this->supplier->public_uuid]));
 
-        $this->assertEquals(3, PurchaseCreditNote::count());
+        $this->assertEquals(2, PurchaseCreditNote::count());
     }
 }

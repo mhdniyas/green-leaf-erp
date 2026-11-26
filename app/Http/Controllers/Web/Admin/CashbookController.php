@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web\Admin;
 
 use App\Enums\Cashbook\TransactionStatus;
+use App\Enums\Purchasing\PurchaseCreditMoneyEffect;
+use App\Enums\Purchasing\PurchaseCreditStatus;
 use App\Enums\ShopInvoice\ShopCreditNoteStatus;
 use App\Exports\PurchasePriceReportExport;
 use App\Exports\PurchaserExpenseReportExport;
@@ -73,6 +75,7 @@ use App\Models\ProcurementExpenseCategory;
 use App\Models\ProcurementExpenseSubCategory;
 use App\Models\Product;
 use App\Models\ProductUnit;
+use App\Models\PurchaseCreditNote;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseProductFilter;
 use App\Models\PurchaserCart;
@@ -152,19 +155,20 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 /**
  * Admin-only Cashbook dashboard — a complete port of the standalone ledger-app.
  *
  * Dynamically connects to Green Leaf ERP's owned shops (via CashbookShopSyncService).
  * All actions use dedicated FormRequests and Policy-backed authorization.
  */
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Process\Process;
 use Throwable;
 
@@ -9547,9 +9551,13 @@ final class CashbookController extends Controller
         $company = config('greenleaf');
         $currentShop = $shops->first();
 
+        $hasV2CreditColumns = Schema::hasColumn('purchase_credit_notes', 'utilized_amount')
+            && Schema::hasColumn('vendor_settlement_allocations', 'credit_allocated');
+
         $supplierBaseInvoices = PurchaseInvoice::query()
-            ->withSum('vendorSettlementAllocations', 'advance_allocated')
-            ->withSum('vendorSettlementAllocations', 'discount_allocated')
+            ->withSum(['vendorSettlementAllocations as vendor_settlement_allocations_sum_advance_allocated' => fn ($q) => $q->where('is_reversed', false)], 'advance_allocated')
+            ->when($hasV2CreditColumns, fn ($q) => $q->withSum(['vendorSettlementAllocations as vendor_settlement_allocations_sum_credit_allocated' => fn ($q) => $q->where('is_reversed', false)], 'credit_allocated'))
+            ->withSum(['vendorSettlementAllocations as vendor_settlement_allocations_sum_discount_allocated' => fn ($q) => $q->where('is_reversed', false)], 'discount_allocated')
             ->withSum(['purchaseCreditNotes as credit_notes_applied' => fn ($q) => $q->active()], 'applied_to_invoice_amount')
             ->where('supplier_id', $supplier->id)
             ->whereNull('deleted_at')
@@ -9572,6 +9580,7 @@ final class CashbookController extends Controller
             $net = max(0, (float) $invoice->amount - (float) $invoice->discount_amount);
             $settled = (float) $invoice->paid_amount
                 + (float) ($invoice->vendor_settlement_allocations_sum_advance_allocated ?? 0)
+                + (float) ($invoice->vendor_settlement_allocations_sum_credit_allocated ?? 0)
                 + (float) ($invoice->vendor_settlement_allocations_sum_discount_allocated ?? 0)
                 + (float) ($invoice->credit_notes_applied ?? 0);
 
@@ -9588,7 +9597,7 @@ final class CashbookController extends Controller
 
         $query = PurchaseInvoice::query()
             ->with(['purchaserCart:id,business_date,bill_number,cart_number', 'supplier:id,name,mobile_number,contact'])
-            ->withSum('vendorSettlementAllocations', 'total_settled')
+            ->withSum(['vendorSettlementAllocations as vendor_settlement_allocations_sum_total_settled' => fn ($q) => $q->where('is_reversed', false)], 'total_settled')
             ->withSum(['purchaseCreditNotes as credit_notes_applied' => fn ($q) => $q->active()], 'applied_to_invoice_amount')
             ->where('supplier_id', $supplier->id)
             ->whereNull('deleted_at')
@@ -9639,6 +9648,42 @@ final class CashbookController extends Controller
             ->where('supplier_id', $supplier->id)
             ->where('amount_remaining', '>', 0)
             ->sum('amount_remaining'), 2);
+        $actualCashVendorAdvance = round((float) VendorAdvance::query()
+            ->where('supplier_id', $supplier->id)
+            ->where('amount_remaining', '>', 0)
+            ->whereNotExists(function ($sub): void {
+                $sub->selectRaw('1')
+                    ->from('purchase_credit_notes as pcn_ref')
+                    ->whereColumn('pcn_ref.vendor_advance_id', 'vendor_advances.id');
+            })
+            ->sum('amount_remaining'), 2);
+        $isV2Enabled = (bool) config('greenleaf.purchase_credit_notes_v2_enabled', false) && $hasV2CreditColumns;
+        $availableCreditNotes = $isV2Enabled
+            ? PurchaseCreditNote::query()
+                ->with('purchaseInvoice:id,invoice_number')
+                ->where('supplier_id', $supplier->id)
+                ->where('accounting_version', 'v2')
+                ->where('status', PurchaseCreditStatus::Active->value)
+                ->where('money_effect', PurchaseCreditMoneyEffect::VendorCredit->value)
+                ->whereRaw('total_amount > utilized_amount')
+                ->orderBy('credit_date')
+                ->orderBy('id')
+                ->get()
+                ->map(fn (PurchaseCreditNote $note): array => [
+                    'id' => $note->id,
+                    'credit_note_number' => $note->credit_note_number,
+                    'vendor_credit_note_ref' => $note->vendor_credit_note_ref,
+                    'credit_date' => $note->credit_date?->toDateString(),
+                    'invoice_number' => $note->purchaseInvoice?->invoice_number,
+                    'total_amount' => (float) $note->total_amount,
+                    'utilized_amount' => (float) $note->utilized_amount,
+                    'available_credit' => $note->available_credit,
+                    'selected' => false,
+                    'use_amount' => 0.0,
+                ])
+                ->values()
+            : collect();
+        $settlementSubmissionToken = (string) Str::uuid();
         $settlementHistory = VendorSettlement::query()
             ->with(['companyAccount', 'journalEntry', 'allocations.purchaseInvoice'])
             ->withCount('allocations')
@@ -9648,7 +9693,7 @@ final class CashbookController extends Controller
             ->latest('id')
             ->get();
         $settlementCandidates = PurchaseInvoice::query()
-            ->withSum('vendorSettlementAllocations', 'total_settled')
+            ->withSum(['vendorSettlementAllocations as vendor_settlement_allocations_sum_total_settled' => fn ($q) => $q->where('is_reversed', false)], 'total_settled')
             ->withSum(['purchaseCreditNotes as credit_notes_applied' => fn ($q) => $q->active()], 'applied_to_invoice_amount')
             ->where('supplier_id', $supplier->id)
             ->whereNull('deleted_at')
@@ -9695,6 +9740,10 @@ final class CashbookController extends Controller
             'startDate',
             'endDate',
             'availableVendorAdvance',
+            'actualCashVendorAdvance',
+            'isV2Enabled',
+            'availableCreditNotes',
+            'settlementSubmissionToken',
             'settlementHistory',
             'settlementCandidates',
             'statementTransactions',
@@ -9757,8 +9806,11 @@ final class CashbookController extends Controller
             'createdBy',
             'journalEntry.statementEntries.companyAccount',
             'journalEntry.statementEntries.reconciledBy',
-            'allocations.purchaseInvoice.vendorSettlementAllocations',
+            'allocations.purchaseInvoice.vendorSettlementAllocations' => fn ($q) => $q->where('is_reversed', false),
         ]);
+        if (Schema::hasTable('vendor_settlement_credit_allocations')) {
+            $vendorSettlement->load(['creditAllocations.purchaseCreditNote', 'creditAllocations.purchaseInvoice']);
+        }
 
         $statementEntry = $vendorSettlement->journalEntry?->statementEntries->first();
         $allocationRows = $vendorSettlement->allocations->map(function ($allocation): array {
@@ -9843,6 +9895,11 @@ final class CashbookController extends Controller
             'actual_payment_amount' => ['required', 'numeric', 'min:0'],
             'settlement_discount_amount' => ['nullable', 'numeric', 'min:0'],
             'vendor_advance_used_amount' => ['nullable', 'numeric', 'min:0'],
+            'purchase_credit_used_amount' => ['nullable', 'numeric', 'min:0'],
+            'submission_token' => ['nullable', 'string', 'max:100'],
+            'credit_notes' => ['nullable', 'array'],
+            'credit_notes.*.purchase_credit_note_id' => ['required', 'integer', 'exists:purchase_credit_notes,id'],
+            'credit_notes.*.amount' => ['required', 'numeric', 'gt:0'],
             'payment_date' => ['required', 'date'],
             'payment_method' => ['nullable', 'string', 'in:Cash,Bank,Online,GPay'],
             'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
@@ -9863,10 +9920,12 @@ final class CashbookController extends Controller
 
         if (isset($validated['invoice_ids'])) {
             $vendorSettlementService->createAutomatic($supplier, [
+                'submission_token' => $validated['submission_token'] ?? null,
                 'invoice_ids' => $validated['invoice_ids'],
                 'actual_payment_amount' => (float) $validated['actual_payment_amount'],
                 'settlement_discount_amount' => (float) ($validated['settlement_discount_amount'] ?? 0),
                 'use_vendor_advance' => (bool) ($validated['use_vendor_advance'] ?? false),
+                'credit_notes' => $validated['credit_notes'] ?? [],
                 'difference_treatment' => $validated['difference_treatment'] ?? 'outstanding',
                 'allocation_order' => $validated['allocation_order'] ?? 'oldest',
                 'payment_date' => $validated['payment_date'], 'payment_method' => $validated['payment_method'] ?? null,
@@ -9876,15 +9935,18 @@ final class CashbookController extends Controller
             ], (int) $request->user()->id);
         } else {
             $vendorSettlementService->create($supplier, [
+                'submission_token' => $validated['submission_token'] ?? null,
                 'actual_payment_amount' => (float) $validated['actual_payment_amount'],
                 'settlement_discount_amount' => (float) ($validated['settlement_discount_amount'] ?? 0),
                 'vendor_advance_used_amount' => (float) ($validated['vendor_advance_used_amount'] ?? 0),
+                'purchase_credit_used_amount' => (float) ($validated['purchase_credit_used_amount'] ?? 0),
+                'credit_notes' => $validated['credit_notes'] ?? [],
                 'payment_date' => $validated['payment_date'], 'payment_method' => $validated['payment_method'] ?? null,
                 'company_account_id' => $validated['company_account_id'] ?? null, 'reference' => $validated['reference'] ?? null,
                 'statement_entry_id' => $validated['statement_entry_id'] ?? null,
                 'note' => $validated['note'] ?? null, 'allocations' => collect($validated['allocations'])->map(fn (array $row): array => [
                     'purchase_invoice_id' => (int) $row['purchase_invoice_id'], 'cash_allocated' => (float) ($row['cash_allocated'] ?? 0),
-                    'advance_allocated' => (float) ($row['advance_allocated'] ?? 0), 'discount_allocated' => (float) ($row['discount_allocated'] ?? 0),
+                    'advance_allocated' => (float) ($row['advance_allocated'] ?? 0), 'credit_allocated' => (float) ($row['credit_allocated'] ?? 0), 'discount_allocated' => (float) ($row['discount_allocated'] ?? 0),
                 ])->all(),
             ], (int) $request->user()->id);
         }

@@ -1101,8 +1101,9 @@ class JournalService
         $cash = round((float) $settlement->actual_payment_amount, 2);
         $discount = round((float) $settlement->settlement_discount_amount, 2);
         $advanceUsed = round((float) $settlement->vendor_advance_used_amount, 2);
+        $creditUsed = round((float) ($settlement->purchase_credit_used_amount ?? 0.0), 2);
         $newAdvance = round((float) $settlement->new_vendor_advance_amount, 2);
-        $payable = round($cash + $discount + $advanceUsed - $newAdvance, 2);
+        $payable = round($cash + $discount + $advanceUsed + $creditUsed - $newAdvance, 2);
 
         if ($payable <= 0.0) {
             throw new RuntimeException('Vendor settlement must settle a positive payable amount.');
@@ -1120,8 +1121,9 @@ class JournalService
         if ($discount > 0.0) {
             $lines[] = ['account_id' => $this->getAccountIdByCode('4200'), 'type' => 'credit', 'amount' => $discount];
         }
-        if ($advanceUsed > 0.0) {
-            $lines[] = ['account_id' => $this->getAccountIdByCode('1400'), 'type' => 'credit', 'amount' => $advanceUsed];
+        $total1400Credit = round($advanceUsed + $creditUsed, 2);
+        if ($total1400Credit > 0.0) {
+            $lines[] = ['account_id' => $this->getAccountIdByCode('1400'), 'type' => 'credit', 'amount' => $total1400Credit];
         }
 
         return $this->createEntry(new JournalEntryData(
@@ -1218,13 +1220,24 @@ class JournalService
                         unset($l);
                     }
                 } else {
-                    $lines[] = ['account_id' => $this->getAccountIdByCode('5200'), 'type' => 'credit', 'amount' => $totalAmount];
+                    $creditAccountCode = $creditNote->isV2() ? '4200' : '5200';
+                    $lines[] = ['account_id' => $this->getAccountIdByCode($creditAccountCode), 'type' => 'credit', 'amount' => $totalAmount];
                 }
             } elseif ($creditNote->inventory_action === PurchaseCreditInventoryAction::None) {
                 $lines[] = ['account_id' => $this->getAccountIdByCode('4200'), 'type' => 'credit', 'amount' => $totalAmount];
             } elseif ($creditNote->inventory_action === PurchaseCreditInventoryAction::In) {
                 $lines[] = ['account_id' => $this->getAccountIdByCode('1200'), 'type' => 'debit', 'amount' => $totalAmount];
-                $lines[] = ['account_id' => $this->getAccountIdByCode('2100'), 'type' => 'credit', 'amount' => $totalAmount];
+                if ($creditNote->isV2()) {
+                    $lines[] = ['account_id' => $this->getAccountIdByCode('4200'), 'type' => 'credit', 'amount' => $totalAmount];
+                    if ($creditNote->money_effect === PurchaseCreditMoneyEffect::VendorCredit) {
+                        $lines[] = ['account_id' => $this->getAccountIdByCode('4200'), 'type' => 'credit', 'amount' => $totalAmount];
+                    }
+                } else {
+                    $lines[] = ['account_id' => $this->getAccountIdByCode('2100'), 'type' => 'credit', 'amount' => $totalAmount];
+                    if ($creditNote->money_effect === PurchaseCreditMoneyEffect::VendorCredit) {
+                        $lines[] = ['account_id' => $this->getAccountIdByCode('4200'), 'type' => 'credit', 'amount' => $totalAmount];
+                    }
+                }
             }
         }
 

@@ -36,6 +36,14 @@
         </div>
 
         <div class="flex items-center gap-2">
+            @if($creditNote->available_credit > 0.009)
+                <a href="{{ route('admin.cashbook.finance.vendor-credit.show', ['supplier' => $supplier->public_uuid]) }}"
+                   class="inline-flex h-9 items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 text-xs font-bold text-white hover:bg-emerald-700 transition shadow-2xs">
+                    <i data-lucide="credit-card" class="h-3.5 w-3.5"></i>
+                    <span>Settle Vendor</span>
+                </a>
+            @endif
+
             {{-- Print Button --}}
             <button type="button" onclick="window.print()"
                     class="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition shadow-2xs">
@@ -118,18 +126,27 @@
                 </span>
             </div>
             <div class="mt-2 text-[11px] text-slate-600 space-y-0.5 font-medium">
-                @if($creditNote->applied_to_invoice_amount > 0)
-                    <div>Applied to Bill: <span class="font-mono font-bold text-slate-800">₹{{ number_format((float) $creditNote->applied_to_invoice_amount, 2) }}</span></div>
-                @endif
-                @if($creditNote->vendor_advance_amount > 0)
-                    <div>Vendor Advance: <span class="font-mono font-bold text-slate-800">₹{{ number_format((float) $creditNote->vendor_advance_amount, 2) }}</span></div>
-                @endif
-                @if($creditNote->cash_refund_amount > 0)
-                    <div>Refund: <span class="font-mono font-bold text-slate-800">₹{{ number_format((float) $creditNote->cash_refund_amount, 2) }}</span>
-                    @if($creditNote->companyAccount)
-                        via {{ $creditNote->companyAccount->account_name }}
-                    @endif
+                @if($creditNote->isV2() && $creditNote->money_effect->value === 'vendor_credit')
+                    <div>Original Credit: <span class="font-mono font-bold text-slate-800">₹{{ number_format((float) $creditNote->total_amount, 2) }}</span></div>
+                    <div>Utilized: <span class="font-mono font-bold text-amber-700">₹{{ number_format((float) $creditNote->utilized_amount, 2) }}</span></div>
+                    <div>Available: <span class="font-mono font-bold text-emerald-700">₹{{ number_format((float) $creditNote->available_credit, 2) }}</span></div>
+                    <div class="pt-0.5">
+                        Status: <span class="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-700">{{ str_replace('_', ' ', $creditNote->utilization_status) }}</span>
                     </div>
+                @else
+                    @if($creditNote->applied_to_invoice_amount > 0)
+                        <div>Applied to Bill: <span class="font-mono font-bold text-slate-800">₹{{ number_format((float) $creditNote->applied_to_invoice_amount, 2) }}</span></div>
+                    @endif
+                    @if($creditNote->vendor_advance_amount > 0)
+                        <div>Vendor Advance: <span class="font-mono font-bold text-slate-800">₹{{ number_format((float) $creditNote->vendor_advance_amount, 2) }}</span></div>
+                    @endif
+                    @if($creditNote->cash_refund_amount > 0)
+                        <div>Refund: <span class="font-mono font-bold text-slate-800">₹{{ number_format((float) $creditNote->cash_refund_amount, 2) }}</span>
+                        @if($creditNote->companyAccount)
+                            via {{ $creditNote->companyAccount->account_name }}
+                        @endif
+                        </div>
+                    @endif
                 @endif
             </div>
         </div>
@@ -165,8 +182,14 @@
             </div>
             <div class="mt-1 text-[11px] text-slate-600 space-y-0.5 font-medium">
                 <div>Reason: <span class="font-bold text-slate-800">{{ $creditNote->reason->label() }}</span></div>
+                @if($creditNote->vendor_credit_note_ref)
+                    <div>Supplier Ref: <span class="font-mono font-bold text-slate-800">{{ $creditNote->vendor_credit_note_ref }}</span></div>
+                @endif
                 @if($creditNote->purchaseInvoice)
-                    <div>Linked Bill: <span class="font-mono font-bold text-indigo-700">{{ $creditNote->purchaseInvoice->invoice_number }}</span></div>
+                    <div>
+                        {{ $creditNote->isV2() ? 'Invoice Ref (Reference Only):' : 'Linked Bill:' }}
+                        <span class="font-mono font-bold text-indigo-700">{{ $creditNote->purchaseInvoice->invoice_number }}</span>
+                    </div>
                 @else
                     <div>Type: <span class="text-slate-500">Standalone Credit</span></div>
                 @endif
@@ -257,6 +280,55 @@
             </table>
         </div>
     </div>
+
+    {{-- 2b. V2 Credit Allocation History --}}
+    @if($creditNote->isV2() && $creditNote->money_effect->value === 'vendor_credit')
+        <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
+            <div class="border-b border-slate-200 bg-slate-50/70 px-5 py-4 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="git-branch" class="h-4 w-4 text-emerald-600"></i>
+                    <h2 class="text-sm font-black text-slate-900">Settlement Allocation History</h2>
+                </div>
+                <span class="text-xs font-bold text-slate-500">
+                    Utilized: ₹{{ number_format((float) $creditNote->utilized_amount, 2) }} / ₹{{ number_format((float) $creditNote->total_amount, 2) }}
+                </span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                    <thead>
+                        <tr class="border-b border-slate-200 bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500">
+                            <th class="py-3 pl-5 pr-3">Settlement Date</th>
+                            <th class="px-3 py-3">Settlement Ref</th>
+                            <th class="px-3 py-3">Invoice</th>
+                            <th class="px-3 py-3 text-right">Amount Applied (₹)</th>
+                            <th class="py-3 pl-3 pr-5 text-right">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @forelse($creditNote->creditAllocations as $alloc)
+                            <tr class="{{ $alloc->is_reversed ? 'bg-rose-50/40 text-slate-400' : 'hover:bg-slate-50/50' }}">
+                                <td class="py-3 pl-5 pr-3 font-mono font-semibold">{{ $alloc->settlement?->payment_date?->format('d M Y') ?? $alloc->created_at?->format('d M Y') }}</td>
+                                <td class="px-3 py-3 font-mono font-bold">{{ $alloc->settlement?->reference ?: ('SETTLE-'.$alloc->vendor_settlement_id) }}</td>
+                                <td class="px-3 py-3 font-mono font-bold text-indigo-700">{{ $alloc->purchaseInvoice?->invoice_number ?? '#'.$alloc->purchase_invoice_id }}</td>
+                                <td class="px-3 py-3 text-right font-mono font-bold {{ $alloc->is_reversed ? 'line-through' : 'text-emerald-700' }}">₹{{ number_format((float) $alloc->amount, 2) }}</td>
+                                <td class="py-3 pl-3 pr-5 text-right">
+                                    @if($alloc->is_reversed)
+                                        <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase text-rose-700">Reversed</span>
+                                    @else
+                                        <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700">Applied</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="5" class="py-6 text-center text-xs text-slate-400 italic">Not yet allocated to any vendor settlement. Full ₹{{ number_format($creditNote->available_credit, 2) }} is available.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    @endif
 
     {{-- 3. Double-Entry Accounting Journal Breakdown & Audit Details --}}
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">

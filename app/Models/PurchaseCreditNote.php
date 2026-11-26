@@ -27,7 +27,9 @@ class PurchaseCreditNote extends Model
 
     protected $fillable = [
         'public_uuid',
+        'submission_token',
         'credit_note_number',
+        'vendor_credit_note_ref',
         'supplier_id',
         'purchase_invoice_id',
         'credit_date',
@@ -35,6 +37,7 @@ class PurchaseCreditNote extends Model
         'money_effect',
         'inventory_action',
         'status',
+        'accounting_version',
         'company_account_id',
         'payment_method',
         'warehouse_id',
@@ -43,6 +46,7 @@ class PurchaseCreditNote extends Model
         'allowed_negative_stock',
         'total_amount',
         'applied_to_invoice_amount',
+        'utilized_amount',
         'vendor_advance_id',
         'journal_entry_id',
         'notes',
@@ -50,6 +54,11 @@ class PurchaseCreditNote extends Model
         'created_by',
         'voided_by',
         'voided_at',
+    ];
+
+    protected $attributes = [
+        'accounting_version' => 'v1',
+        'utilized_amount' => 0.00,
     ];
 
     protected function casts(): array
@@ -64,6 +73,7 @@ class PurchaseCreditNote extends Model
             'allowed_negative_stock' => 'boolean',
             'total_amount' => 'decimal:2',
             'applied_to_invoice_amount' => 'decimal:2',
+            'utilized_amount' => 'decimal:2',
             'voided_at' => 'datetime',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
@@ -152,6 +162,72 @@ class PurchaseCreditNote extends Model
         return $this->status === PurchaseCreditStatus::Voided;
     }
 
+    public function isV2(): bool
+    {
+        return ($this->accounting_version ?? 'v1') === 'v2';
+    }
+
+    public function isV1(): bool
+    {
+        return ! $this->isV2();
+    }
+
+    public function getAvailableCreditAttribute(): float
+    {
+        if ($this->isVoided() || $this->money_effect !== PurchaseCreditMoneyEffect::VendorCredit) {
+            return 0.0;
+        }
+
+        if ($this->isV2()) {
+            return round(max(0.0, (float) $this->total_amount - (float) $this->utilized_amount), 2);
+        }
+
+        // Legacy V1: only excess advance (if any) is available
+        if ($this->vendor_advance_id !== null && $this->vendorAdvance instanceof VendorAdvance) {
+            return round(max(0.0, (float) $this->vendorAdvance->amount_remaining), 2);
+        }
+
+        return 0.0;
+    }
+
+    public function getUtilizationStatusAttribute(): string
+    {
+        if ($this->isVoided()) {
+            return 'voided';
+        }
+
+        if ($this->money_effect !== PurchaseCreditMoneyEffect::VendorCredit) {
+            return 'settled';
+        }
+
+        if ($this->isV2()) {
+            $utilized = round((float) $this->utilized_amount, 2);
+            $total = round((float) $this->total_amount, 2);
+
+            if ($utilized <= 0.009) {
+                return 'open';
+            }
+
+            if ($utilized >= ($total - 0.009)) {
+                return 'fully_utilized';
+            }
+
+            return 'partially_utilized';
+        }
+
+        // Legacy V1 utilization status
+        $total = round((float) $this->total_amount, 2);
+        $available = $this->available_credit;
+        if ($available <= 0.009) {
+            return 'fully_utilized';
+        }
+        if ($available < ($total - 0.009)) {
+            return 'partially_utilized';
+        }
+
+        return 'open';
+    }
+
     public function getVendorAdvanceAmountAttribute(): float
     {
         if ($this->money_effect === PurchaseCreditMoneyEffect::VendorCredit) {
@@ -223,5 +299,15 @@ class PurchaseCreditNote extends Model
             'purchase_credit_note_id',
             'purchase_credit_note_item_id'
         );
+    }
+
+    public function creditAllocations(): HasMany
+    {
+        return $this->hasMany(VendorSettlementCreditAllocation::class, 'purchase_credit_note_id');
+    }
+
+    public function activeCreditAllocations(): HasMany
+    {
+        return $this->hasMany(VendorSettlementCreditAllocation::class, 'purchase_credit_note_id')->where('is_reversed', false);
     }
 }

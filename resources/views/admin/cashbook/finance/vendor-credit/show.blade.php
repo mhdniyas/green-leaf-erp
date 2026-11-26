@@ -15,7 +15,7 @@
 @endsection
 
 @section('content')
-    <div class="mx-auto max-w-[96rem] space-y-6" x-data="vendorSettlement({{ Js::from($settlementCandidates) }})">
+    <div class="mx-auto max-w-[96rem] space-y-6" x-data="vendorSettlement({{ Js::from($settlementCandidates) }}, {{ Js::from($availableCreditNotes ?? []) }})">
         <!-- KPI METRICS FOR THIS SUPPLIER -->
         <section class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
@@ -44,13 +44,25 @@
             <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <h2 class="text-base font-extrabold text-slate-950">Admin Vendor Credit Settlement</h2>
-                    <p class="mt-0.5 text-xs font-semibold text-slate-500">Enter payment amount to auto-select bills, or customize bill selection and difference treatment.</p>
+                    <p class="mt-0.5 text-xs font-semibold text-slate-500">Select outstanding bills, apply available purchase credit notes or cash advances, and confirm payment.</p>
                 </div>
-                <span class="rounded-lg bg-sky-50 px-3 py-1.5 font-mono text-xs font-extrabold text-sky-800">Available Advance: ₹{{ number_format($availableVendorAdvance, 2) }}</span>
+                <div class="flex flex-wrap items-center gap-2">
+                    @if(($isV2Enabled ?? false))
+                        <span class="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5 font-mono text-xs font-extrabold text-emerald-800">
+                            Available Purchase Credit: ₹{{ number_format(($availableCreditNotes ?? collect())->sum('available_credit'), 2) }}
+                        </span>
+                        <span class="rounded-lg bg-sky-50 border border-sky-200 px-3 py-1.5 font-mono text-xs font-extrabold text-sky-800">
+                            Available Cash Advance: ₹{{ number_format($actualCashVendorAdvance ?? $availableVendorAdvance, 2) }}
+                        </span>
+                    @else
+                        <span class="rounded-lg bg-sky-50 px-3 py-1.5 font-mono text-xs font-extrabold text-sky-800">Available Advance: ₹{{ number_format($availableVendorAdvance, 2) }}</span>
+                    @endif
+                </div>
             </div>
 
             <form method="POST" action="{{ route('admin.cashbook.finance.vendor-credit.settle', $supplier) }}" class="space-y-4">
                 @csrf
+                <input type="hidden" name="submission_token" value="{{ $settlementSubmissionToken ?? '' }}">
                 <div class="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
                     <span class="text-[10px] font-black uppercase tracking-wider text-slate-500">Payment Source</span>
                     <div class="mt-2 flex flex-wrap gap-4 text-xs font-bold">
@@ -120,6 +132,9 @@
                                 <th class="p-2.5">Date</th>
                                 <th class="p-2.5 text-right">Outstanding</th>
                                 <th class="p-2.5 text-right">Cash Allocation</th>
+                                @if($isV2Enabled ?? false)
+                                    <th class="p-2.5 text-right">Credit Applied</th>
+                                @endif
                                 <th class="p-2.5 text-right">Advance / Discount</th>
                                 <th class="p-2.5 text-right">Remaining Due</th>
                             </tr>
@@ -134,6 +149,9 @@
                                     <td class="p-2.5 text-slate-600 font-mono text-[11px]" x-text="row.date"></td>
                                     <td class="p-2.5 text-right font-mono font-bold text-slate-900" x-text="rupees(row.outstanding)"></td>
                                     <td class="p-2.5 text-right font-mono font-bold text-emerald-700" x-text="rupees(row.cash)"></td>
+                                    @if($isV2Enabled ?? false)
+                                        <td class="p-2.5 text-right font-mono font-bold text-indigo-700" x-text="rupees(row.credit)"></td>
+                                    @endif
                                     <td class="p-2.5 text-right font-mono font-bold text-amber-700" x-text="rupees(row.advance + row.discount)"></td>
                                     <td class="p-2.5 text-right font-mono font-extrabold" :class="row.remaining > 0 ? 'text-rose-700' : 'text-slate-400'" x-text="rupees(row.remaining)"></td>
                                 </tr>
@@ -141,6 +159,62 @@
                         </tbody>
                     </table>
                 </div>
+
+                {{-- Available Purchase Credit Notes (V2) --}}
+                @if(($isV2Enabled ?? false) && ($availableCreditNotes ?? collect())->isNotEmpty())
+                    <div class="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 space-y-3">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                                <h3 class="text-xs font-black uppercase tracking-wider text-emerald-900">Available Purchase Credit Notes</h3>
+                                <p class="text-[11px] font-medium text-emerald-700">Select credit notes and enter the amount to apply toward the selected bills.</p>
+                            </div>
+                            <span class="rounded-lg bg-emerald-100 px-2.5 py-1 font-mono text-xs font-black text-emerald-900" x-text="`Credit Selected: ${rupees(creditUsed)}`"></span>
+                        </div>
+                        <div class="overflow-x-auto rounded-xl border border-emerald-200/80 bg-white">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-emerald-50/80 text-[10px] font-black uppercase text-emerald-800">
+                                    <tr class="border-b border-emerald-100">
+                                        <th class="p-2.5 w-10 text-center">Use</th>
+                                        <th class="p-2.5">Credit Note #</th>
+                                        <th class="p-2.5">Date</th>
+                                        <th class="p-2.5">Ref Invoice</th>
+                                        <th class="p-2.5 text-right">Available</th>
+                                        <th class="p-2.5 text-right w-40">Amount to Apply (₹)</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    <template x-for="(cn, cnIndex) in creditNotes" :key="cn.id">
+                                        <tr :class="cn.selected ? 'bg-emerald-50/30' : ''">
+                                            <td class="p-2.5 text-center">
+                                                <input type="checkbox" :checked="cn.selected" @change="toggleCreditNote(cn.id)" class="h-4 w-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer">
+                                            </td>
+                                            <td class="p-2.5 font-mono font-bold text-slate-900">
+                                                <span x-text="cn.credit_note_number"></span>
+                                                <span x-show="cn.vendor_credit_note_ref" class="block text-[10px] text-slate-500" x-text="'Sup Ref: ' + cn.vendor_credit_note_ref"></span>
+                                            </td>
+                                            <td class="p-2.5 font-mono text-slate-600" x-text="cn.credit_date"></td>
+                                            <td class="p-2.5 font-mono text-indigo-700" x-text="cn.invoice_number ? cn.invoice_number + ' (Ref)' : 'Standalone'"></td>
+                                            <td class="p-2.5 text-right font-mono font-bold text-emerald-700" x-text="rupees(cn.available_credit)"></td>
+                                            <td class="p-2.5 text-right">
+                                                <input type="number" step="0.01" min="0" :max="cn.available_credit"
+                                                       x-model.number="cn.use_amount"
+                                                       @input="onCreditAmountInput(cn)"
+                                                       :disabled="!cn.selected"
+                                                       class="h-8 w-full rounded-lg border border-slate-300 px-2 text-right font-mono text-xs font-bold text-slate-900 disabled:bg-slate-50 disabled:text-slate-400">
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                        <template x-for="(cn, idx) in selectedCreditNotes" :key="cn.id">
+                            <div>
+                                <input type="hidden" :name="`credit_notes[${idx}][purchase_credit_note_id]`" :value="cn.id">
+                                <input type="hidden" :name="`credit_notes[${idx}][amount]`" :value="cn.use_amount">
+                            </div>
+                        </template>
+                    </div>
+                @endif
 
                 {{-- Statement Transaction Selector (when paymentSource === 'statement') --}}
                 <div x-show="paymentSource === 'statement'" class="rounded-xl border border-sky-200 bg-sky-50/70 p-3.5">
@@ -214,21 +288,22 @@
 
                 {{-- Floating Calculation Summary Strip --}}
                 <aside class="sticky bottom-3 z-10 rounded-2xl bg-slate-950 p-4 text-white shadow-2xl border border-slate-800">
-                    <div class="grid gap-3 text-xs font-bold sm:grid-cols-4 xl:grid-cols-7">
+                    <div class="grid gap-3 text-xs font-bold sm:grid-cols-4 xl:grid-cols-8">
                         <div><span class="text-[9px] text-slate-400 uppercase font-black">SELECTED BILLS</span><b class="block font-mono text-sm text-slate-100" x-text="rupees(selectedTotal)"></b></div>
-                        <div><span class="text-[9px] text-slate-400 uppercase font-black">VENDOR ADVANCE</span><b class="block font-mono text-sm text-amber-400" x-text="rupees(advanceUsed)"></b></div>
+                        <div><span class="text-[9px] text-slate-400 uppercase font-black">PURCHASE CREDIT</span><b class="block font-mono text-sm text-indigo-400" x-text="rupees(creditUsed)"></b></div>
+                        <div><span class="text-[9px] text-slate-400 uppercase font-black">CASH ADVANCE</span><b class="block font-mono text-sm text-amber-400" x-text="rupees(advanceUsed)"></b></div>
                         <div><span class="text-[9px] text-slate-400 uppercase font-black">CASH/BANK PAYMENT</span><b class="block font-mono text-sm text-emerald-400" x-text="rupees(cash)"></b></div>
                         <div><span class="text-[9px] text-slate-400 uppercase font-black">SETTLEMENT DISCOUNT</span><b class="block font-mono text-sm text-sky-400" x-text="rupees(discount)"></b></div>
                         <div><span class="text-[9px] text-slate-400 uppercase font-black">TOTAL SETTLED</span><b class="block font-mono text-sm text-white" x-text="rupees(totalSettled)"></b></div>
                         <div><span class="text-[9px] text-slate-400 uppercase font-black">REMAINING OUTSTANDING</span><b class="block font-mono text-sm text-rose-400" x-text="rupees(remaining)"></b></div>
-                        <div><span class="text-[9px] text-slate-400 uppercase font-black">NEW VENDOR ADVANCE</span><b class="block font-mono text-sm text-emerald-300" x-text="rupees(newAdvance)"></b></div>
+                        <div><span class="text-[9px] text-slate-400 uppercase font-black">NEW CASH ADVANCE</span><b class="block font-mono text-sm text-emerald-300" x-text="rupees(newAdvance)"></b></div>
                     </div>
                 </aside>
 
                 <div class="flex justify-end pt-2">
-                    <button type="submit" :disabled="selectedRows.length === 0" class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-xs font-extrabold text-white shadow-md hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-400 transition">
+                    <button type="submit" :disabled="selectedRows.length === 0 || totalSettled <= 0" class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-xs font-extrabold text-white shadow-md hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-400 transition">
                         <i data-lucide="check-circle-2" class="h-4 w-4"></i>
-                        <span x-text="`Confirm ${rupees(cash)} Vendor Settlement`"></span>
+                        <span x-text="Number(cash || 0) <= 0 && creditUsed > 0 ? `Confirm ${rupees(creditUsed)} Credit-Only Settlement` : `Confirm ${rupees(cash)} Vendor Settlement`"></span>
                     </button>
                 </div>
             </form>
@@ -683,32 +758,60 @@
         </div>
     </div>
     <script>
-        function vendorSettlement(candidates) {
+        function vendorSettlement(candidates, availableCredits = []) {
             return {
                 showPayModal: false, selectedInvoice: null, payAmount: 0, cash: 0, paymentSource: 'company', statementEntryId: '', companyAccountId: '{{ App\Models\Cashbook\CompanyAccount::resolveSelectedId(old('company_account_id'), $companyAccounts) ?? '' }}', paymentDate: '{{ now()->toDateString() }}', reference: '',
                 useAdvance: false, differenceTreatment: 'outstanding', allocationOrder: 'oldest',
                 showEditModal: false, editTarget: null, editReason: '',
                 showDeleteModal: false, deleteTarget: null, deleteReason: '', deleteNotes: '',
                 rows: candidates.map(row => ({ ...row, selected: false })),
+                creditNotes: (availableCredits || []).map(cn => ({ ...cn, selected: false, use_amount: 0 })),
                 rupees(value) { return `₹${Number(value || 0).toFixed(2)}` },
                 get selectedRows() { return this.rows.filter(row => row.selected) },
                 get selectedTotal() { return this.selectedRows.reduce((sum, row) => sum + Number(row.outstanding), 0) },
-                get advanceUsed() { return this.useAdvance ? Math.min({{ $availableVendorAdvance }}, this.selectedTotal) : 0 },
-                get cashForInvoices() { return Math.min(Number(this.cash || 0), Math.max(0, this.selectedTotal - this.advanceUsed)) },
-                get difference() { return Math.max(0, this.selectedTotal - this.advanceUsed - this.cashForInvoices) },
+                get selectedCreditNotes() { return this.creditNotes.filter(cn => cn.selected && Number(cn.use_amount || 0) > 0) },
+                get creditUsed() { return Math.min(this.selectedCreditNotes.reduce((sum, cn) => sum + Math.min(Number(cn.use_amount || 0), Number(cn.available_credit || 0)), 0), this.selectedTotal) },
+                get afterCreditTotal() { return Math.max(0, this.selectedTotal - this.creditUsed) },
+                get advanceUsed() { return this.useAdvance ? Math.min({{ $availableVendorAdvance }}, this.afterCreditTotal) : 0 },
+                get cashForInvoices() { return Math.min(Number(this.cash || 0), Math.max(0, this.afterCreditTotal - this.advanceUsed)) },
+                get difference() { return Math.max(0, this.afterCreditTotal - this.advanceUsed - this.cashForInvoices) },
                 get discount() { return this.differenceTreatment === 'discount' ? this.difference : 0 },
-                get totalSettled() { return this.cashForInvoices + this.advanceUsed + this.discount },
+                get totalSettled() { return this.cashForInvoices + this.creditUsed + this.advanceUsed + this.discount },
                 get remaining() { return Math.max(0, this.selectedTotal - this.totalSettled) },
                 get newAdvance() { return Math.max(0, Number(this.cash || 0) - this.cashForInvoices) },
                 get preview() {
-                    let cash = this.cashForInvoices; let advance = this.advanceUsed; let discount = this.discount;
+                    let credit = this.creditUsed; let cash = this.cashForInvoices; let advance = this.advanceUsed; let discount = this.discount;
                     let rows = this.allocationOrder === 'newest' ? [...this.rows].reverse() : this.rows;
                     return rows.map(row => {
                         if (!row.selected) {
-                            return { ...row, cash: 0, advance: 0, discount: 0, remaining: row.outstanding };
+                            return { ...row, credit: 0, cash: 0, advance: 0, discount: 0, remaining: row.outstanding };
                         }
-                        const paidCash = Math.min(cash, row.outstanding); cash -= paidCash; const afterCash = row.outstanding - paidCash; const paidAdvance = Math.min(advance, afterCash); advance -= paidAdvance; const afterAdvance = afterCash - paidAdvance; const paidDiscount = Math.min(discount, afterAdvance); discount -= paidDiscount; return { ...row, cash: paidCash, advance: paidAdvance, discount: paidDiscount, remaining: afterAdvance - paidDiscount };
+                        const paidCredit = Math.min(credit, row.outstanding); credit -= paidCredit; const afterCredit = row.outstanding - paidCredit;
+                        const paidAdvance = Math.min(advance, afterCredit); advance -= paidAdvance; const afterAdvance = afterCredit - paidAdvance;
+                        const paidCash = Math.min(cash, afterAdvance); cash -= paidCash; const afterCash = afterAdvance - paidCash;
+                        const paidDiscount = Math.min(discount, afterCash); discount -= paidDiscount;
+                        return { ...row, credit: paidCredit, cash: paidCash, advance: paidAdvance, discount: paidDiscount, remaining: afterCash - paidDiscount };
                     });
+                },
+                toggleCreditNote(id) {
+                    const cn = this.creditNotes.find(c => c.id === id);
+                    if (!cn) return;
+                    cn.selected = !cn.selected;
+                    if (cn.selected) {
+                        const otherUsed = this.creditNotes.filter(c => c.id !== id && c.selected).reduce((s, c) => s + Number(c.use_amount || 0), 0);
+                        const needed = Math.max(0, this.selectedTotal - otherUsed);
+                        cn.use_amount = Number(Math.min(cn.available_credit, needed > 0 ? needed : cn.available_credit).toFixed(2));
+                    } else {
+                        cn.use_amount = 0;
+                    }
+                },
+                onCreditAmountInput(cn) {
+                    if (Number(cn.use_amount || 0) > Number(cn.available_credit || 0)) {
+                        cn.use_amount = Number(cn.available_credit || 0);
+                    }
+                    if (Number(cn.use_amount || 0) < 0) {
+                        cn.use_amount = 0;
+                    }
                 },
                 onCashInput() {
                     if (this.cash > 0 && this.selectedRows.length === 0) {

@@ -14,16 +14,24 @@ use App\Models\VendorAdvance;
 use App\Models\VendorSettlement;
 use App\Models\VendorSettlementAllocation;
 use App\Services\Cashbook\CompanyPaymentReconciliationService;
+use App\Services\Purchasing\PurchaseCreditAllocationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 final class VendorSettlementCorrectionService
 {
     public function __construct(
         private readonly JournalService $journalService,
         private readonly CompanyPaymentReconciliationService $companyPaymentReconciliationService,
-        private readonly VendorSettlementService $vendorSettlementService
+        private readonly VendorSettlementService $vendorSettlementService,
+        private readonly ?PurchaseCreditAllocationService $creditAllocationService = null,
     ) {}
+
+    private function getCreditAllocationService(): PurchaseCreditAllocationService
+    {
+        return $this->creditAllocationService ?? app(PurchaseCreditAllocationService::class);
+    }
 
     /**
      * Preview reversal impact before an admin edits or deletes a settlement entry.
@@ -56,7 +64,15 @@ final class VendorSettlementCorrectionService
 
         DB::transaction(function () use ($settlement, $actor, $reason, $notes): void {
             $settlement = VendorSettlement::query()->whereKey($settlement->id)->lockForUpdate()->firstOrFail();
+
+            if ($settlement->status === 'reversed') {
+                throw ValidationException::withMessages([
+                    'status' => 'This vendor settlement has already been reversed.',
+                ]);
+            }
+
             $supplier = $settlement->supplier;
+            $hasCreditAllocations = $settlement->creditAllocations()->exists();
 
             // 1. Unmatch or delete statement entries linked to this settlement
             if ($settlement->journal_entry_id || $settlement->id) {
@@ -97,8 +113,20 @@ final class VendorSettlementCorrectionService
                 if ($settlement->journal_entry_id) {
                     $journalEntry = JournalEntry::query()->whereKey($settlement->journal_entry_id)->lockForUpdate()->first();
                     if ($journalEntry instanceof JournalEntry) {
-                        $journalEntry->transactions()->delete();
-                        $journalEntry->delete();
+                        if ($hasCreditAllocations) {
+                            $this->journalService->correctJournalEntry(
+                                journalEntry: $journalEntry,
+                                data: [
+                                    'reason' => "Reversed Vendor Settlement #{$settlement->id}: {$reason}",
+                                    'amount' => 0,
+                                    'confirm_shortfall' => true,
+                                ],
+                                actor: $actor,
+                            );
+                        } else {
+                            $journalEntry->transactions()->delete();
+                            $journalEntry->delete();
+                        }
                     }
                 }
             }
@@ -135,6 +163,11 @@ final class VendorSettlementCorrectionService
                 }
             }
 
+            // 2b. Reverse V2 Purchase Credit Note Allocations (preserving audit rows)
+            if ($hasCreditAllocations) {
+                $this->getCreditAllocationService()->reverseForSettlement($settlement, $actor, $reason);
+            }
+
             // 3. Reverse Purchase Invoice Allocations and restore Invoice Balances
             $allocations = VendorSettlementAllocation::query()->where('vendor_settlement_id', $settlement->id)->lockForUpdate()->get();
             foreach ($allocations as $alloc) {
@@ -153,14 +186,21 @@ final class VendorSettlementCorrectionService
                             ->delete();
                     }
 
-                    // Recalculate remaining settled balance & payment status after deleting this allocation
-                    $alloc->delete();
+                    if ($hasCreditAllocations) {
+                        $alloc->reverse($actor, $reason);
+                    } else {
+                        $alloc->delete();
+                    }
                     $invoice->refreshPaymentStatus();
                 }
             }
 
-            // 4. Delete settlement record
-            $settlement->delete();
+            // 4. Mark settlement reversed (for V2 credit settlements) or delete (legacy)
+            if ($hasCreditAllocations) {
+                $settlement->update(['status' => 'reversed']);
+            } else {
+                $settlement->delete();
+            }
 
             Log::info('Vendor settlement deleted with reversal by admin', [
                 'settlement_id' => $settlement->id,

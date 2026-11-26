@@ -36,6 +36,7 @@
              'start_date' => $filters['start_date'] ?? '',
              'end_date' => $filters['end_date'] ?? '',
              'status' => $filters['status'] ?? '',
+             'utilization_status' => $filters['utilization_status'] ?? '',
              'reason' => $filters['reason'] ?? '',
              'money_effect' => $filters['money_effect'] ?? '',
              'q' => $filters['q'] ?? '',
@@ -165,6 +166,12 @@
             </div>
 
             <div class="flex items-center gap-2">
+                <a x-show="selectedVendor"
+                   :href="selectedVendor ? `{{ url('admin/cashbook/finance/vendor-credit') }}/${encodeURIComponent(selectedVendor.public_uuid)}` : '#'"
+                   class="inline-flex h-9 items-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-xs font-bold text-white shadow-2xs transition hover:bg-emerald-700">
+                    <i data-lucide="credit-card" class="h-3.5 w-3.5"></i>
+                    <span>Settle Vendor</span>
+                </a>
                 <a x-show="moreDetailsUrl"
                    :href="moreDetailsUrl"
                    class="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-2xs transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800">
@@ -193,99 +200,108 @@
             </button>
         </div>
 
-        {{-- Summary Grid --}}
+        {{-- Summary Grid (Canonical Vendor Financial Position) --}}
         <div x-show="!loadingSummary && !summaryError && vendorSummary" x-cloak class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div class="rounded-xl border border-slate-200/80 bg-slate-50/60 p-3.5">
-                <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Purchases</div>
-                <div class="mt-1.5 text-lg font-black text-slate-900" x-text="formatMoney(vendorSummary?.total_purchases)"></div>
-            </div>
-
-            <div class="rounded-xl border border-slate-200/80 bg-slate-50/60 p-3.5">
-                <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Settled</div>
-                <div class="mt-1.5 text-lg font-black text-emerald-700" x-text="formatMoney(vendorSummary?.total_settled)"></div>
-            </div>
-
             <div class="rounded-xl border border-amber-200/80 bg-amber-50/50 p-3.5">
-                <div class="text-[11px] font-bold uppercase tracking-wider text-amber-700">Outstanding Balance</div>
+                <div class="text-[11px] font-bold uppercase tracking-wider text-amber-700">Unpaid Bills (<span x-text="vendorSummary?.pending_bills_count ?? 0"></span>)</div>
                 <div class="mt-1.5 text-lg font-black text-amber-800" x-text="formatMoney(vendorSummary?.outstanding_balance)"></div>
             </div>
 
-            <div class="rounded-xl border border-slate-200/80 bg-slate-50/60 p-3.5">
-                <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Pending Bills Count</div>
-                <div class="mt-1.5 text-lg font-black text-slate-900" x-text="vendorSummary?.pending_bills_count ?? 0"></div>
+            <div class="rounded-xl border border-emerald-200/80 bg-emerald-50/50 p-3.5">
+                <div class="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Available Purchase Credits</div>
+                <div class="mt-1.5 text-lg font-black text-emerald-800" x-text="formatMoney(vendorSummary?.available_purchase_credits ?? vendorSummary?.available_credit_note_balance)"></div>
             </div>
 
             <div class="rounded-xl border border-blue-200/80 bg-blue-50/50 p-3.5">
-                <div class="text-[11px] font-bold uppercase tracking-wider text-blue-700">Total Open Vendor Advances</div>
-                <div class="mt-1.5 text-lg font-black text-blue-800" x-text="formatMoney(vendorSummary?.total_open_vendor_advances)"></div>
-            </div>
-
-            <div class="rounded-xl border border-emerald-200/80 bg-emerald-50/50 p-3.5">
-                <div class="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Available Credit Note Balance</div>
-                <div class="mt-1.5 text-lg font-black text-emerald-800" x-text="formatMoney(vendorSummary?.available_credit_note_balance)"></div>
-                <div class="mt-0.5 text-[10px] font-semibold text-emerald-700/80">Subset of Open Vendor Advances</div>
+                <div class="text-[11px] font-bold uppercase tracking-wider text-blue-700">Actual Cash Advances</div>
+                <div class="mt-1.5 text-lg font-black text-blue-800" x-text="formatMoney(vendorSummary?.actual_cash_vendor_advances ?? vendorSummary?.total_open_vendor_advances)"></div>
             </div>
 
             <div class="rounded-xl border border-slate-200/80 bg-slate-50/60 p-3.5">
-                <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Active Credit Notes</div>
-                <div class="mt-1.5 text-lg font-black text-slate-900" x-text="vendorSummary?.total_active_credit_notes ?? 0"></div>
-            </div>
-
-            <div class="rounded-xl border border-slate-200/80 bg-slate-50/60 p-3.5">
-                <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Active Credit Note Amount</div>
-                <div class="mt-1.5 text-lg font-black text-slate-900" x-text="formatMoney(vendorSummary?.total_active_credit_note_amount)"></div>
+                <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Net Payable</div>
+                <div class="mt-1.5 text-lg font-black" :class="Number(vendorSummary?.net_vendor_payable || 0) < 0 ? 'text-emerald-700' : 'text-slate-900'" x-text="formatMoney(vendorSummary?.net_vendor_payable ?? vendorSummary?.outstanding_balance)"></div>
             </div>
         </div>
     </div>
 
-    {{-- 4. Existing Credit Note Summary Cards (Date & Filter Scoped) --}}
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    {{-- 4. Credit Note Summary Cards (6 Cards: Current Credit Balances vs Filtered Period Totals) --}}
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
         <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
             <div class="flex items-center justify-between">
-                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Vendor Credit (Filtered)</span>
+                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Purchase Credits</span>
                 <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
                     <i data-lucide="wallet" class="h-4 w-4"></i>
                 </span>
             </div>
-            <div class="mt-2 text-2xl font-black tracking-tight text-emerald-700" x-text="formatMoney(listSummary.vendor_credit_total)">
+            <div class="mt-2 text-xl font-black tracking-tight text-emerald-700" x-text="formatMoney(listSummary.vendor_credit_total)">
                 ₹{{ number_format($summary['vendor_credit_total'], 2) }}
             </div>
+            <div class="mt-0.5 text-[10px] font-semibold text-slate-400">Filtered period</div>
         </div>
 
-        <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+        <div class="rounded-2xl border border-emerald-200/80 bg-emerald-50/30 p-4 shadow-2xs">
             <div class="flex items-center justify-between">
-                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Money IN (Filtered)</span>
-                <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                    <i data-lucide="arrow-down-left" class="h-4 w-4"></i>
+                <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Available Credits</span>
+                <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                    <i data-lucide="badge-check" class="h-4 w-4"></i>
                 </span>
             </div>
-            <div class="mt-2 text-2xl font-black tracking-tight text-blue-700" x-text="formatMoney(listSummary.money_in_total)">
-                ₹{{ number_format($summary['money_in_total'], 2) }}
+            <div class="mt-2 text-xl font-black tracking-tight text-emerald-800" x-text="formatMoney(listSummary.available_credits)">
+                ₹{{ number_format($summary['available_credits'] ?? 0, 2) }}
             </div>
+            <div class="mt-0.5 text-[10px] font-semibold text-emerald-700/80">Current live balance</div>
         </div>
 
-        <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+        <div class="rounded-2xl border border-indigo-200/80 bg-indigo-50/30 p-4 shadow-2xs">
             <div class="flex items-center justify-between">
-                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Money OUT (Filtered)</span>
-                <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
-                    <i data-lucide="arrow-up-right" class="h-4 w-4"></i>
+                <span class="text-[11px] font-bold uppercase tracking-wider text-indigo-700">Utilized Credits</span>
+                <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700">
+                    <i data-lucide="check-check" class="h-4 w-4"></i>
                 </span>
             </div>
-            <div class="mt-2 text-2xl font-black tracking-tight text-amber-700" x-text="formatMoney(listSummary.money_out_total)">
-                ₹{{ number_format($summary['money_out_total'], 2) }}
+            <div class="mt-2 text-xl font-black tracking-tight text-indigo-800" x-text="formatMoney(listSummary.utilized_credits)">
+                ₹{{ number_format($summary['utilized_credits'] ?? 0, 2) }}
             </div>
+            <div class="mt-0.5 text-[10px] font-semibold text-indigo-700/80">All-time applied</div>
         </div>
 
         <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
             <div class="flex items-center justify-between">
-                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Credit Notes (Filtered)</span>
+                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Open Credit Notes</span>
                 <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
                     <i data-lucide="file-stack" class="h-4 w-4"></i>
                 </span>
             </div>
-            <div class="mt-2 text-2xl font-black tracking-tight text-slate-900" x-text="Number(listSummary.total_count || 0).toLocaleString('en-IN')">
-                {{ number_format($summary['total_count']) }}
+            <div class="mt-2 text-xl font-black tracking-tight text-slate-900" x-text="Number(listSummary.open_credit_notes_count || 0).toLocaleString('en-IN')">
+                {{ number_format($summary['open_credit_notes_count'] ?? 0) }}
             </div>
+            <div class="mt-0.5 text-[10px] font-semibold text-slate-400">With available balance</div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+            <div class="flex items-center justify-between">
+                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Money IN</span>
+                <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                    <i data-lucide="arrow-down-left" class="h-4 w-4"></i>
+                </span>
+            </div>
+            <div class="mt-2 text-xl font-black tracking-tight text-blue-700" x-text="formatMoney(listSummary.money_in_total)">
+                ₹{{ number_format($summary['money_in_total'], 2) }}
+            </div>
+            <div class="mt-0.5 text-[10px] font-semibold text-slate-400">Filtered period</div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+            <div class="flex items-center justify-between">
+                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Money OUT</span>
+                <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                    <i data-lucide="arrow-up-right" class="h-4 w-4"></i>
+                </span>
+            </div>
+            <div class="mt-2 text-xl font-black tracking-tight text-amber-700" x-text="formatMoney(listSummary.money_out_total)">
+                ₹{{ number_format($summary['money_out_total'], 2) }}
+            </div>
+            <div class="mt-0.5 text-[10px] font-semibold text-slate-400">Filtered period</div>
         </div>
     </div>
 
@@ -355,6 +371,20 @@
                     <option value="last_month">Last Month</option>
                     <option value="custom">Custom Range</option>
                     <option value="all_time">All Time</option>
+                </select>
+            </div>
+
+            {{-- Utilization Status --}}
+            <div>
+                <label class="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500">Utilization</label>
+                <select x-model="filters.utilization_status"
+                        @change="applyFilters(1)"
+                        class="h-9 w-full rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-800 focus:border-emerald-500 focus:outline-none">
+                    <option value="">All Utilization</option>
+                    <option value="open">Open</option>
+                    <option value="partially_utilized">Partially Utilized</option>
+                    <option value="fully_utilized">Fully Utilized</option>
+                    <option value="voided">Voided</option>
                 </select>
             </div>
 
@@ -681,6 +711,7 @@ function purchaseCreditNoteDashboard(config) {
                 start_date: '',
                 end_date: '',
                 status: '',
+                utilization_status: '',
                 reason: '',
                 money_effect: '',
                 q: '',
@@ -708,6 +739,7 @@ function purchaseCreditNoteDashboard(config) {
                 if (this.filters.end_date) params.set('end_date', this.filters.end_date);
             }
             if (this.filters.status) params.set('status', this.filters.status);
+            if (this.filters.utilization_status) params.set('utilization_status', this.filters.utilization_status);
             if (this.filters.reason) params.set('reason', this.filters.reason);
             if (this.filters.money_effect) params.set('money_effect', this.filters.money_effect);
             if (this.filters.q.trim() !== '') params.set('q', this.filters.q.trim());

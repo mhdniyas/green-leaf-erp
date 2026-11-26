@@ -134,20 +134,22 @@
         {{-- 2. Compact Vendor Financial Summary --}}
         <div class="grid grid-cols-2 gap-3 border-t border-slate-100 pt-3 lg:grid-cols-4">
             <div class="rounded-xl border border-amber-200/80 bg-amber-50/50 px-3.5 py-2.5">
-                <div class="text-[10px] font-bold uppercase tracking-wider text-amber-700">Outstanding Balance</div>
+                <div class="text-[10px] font-bold uppercase tracking-wider text-amber-700">Unpaid Bills ({{ number_format($vendorSummary['pending_bills_count']) }})</div>
                 <div class="mt-0.5 text-sm font-black text-amber-900">₹{{ number_format($vendorSummary['outstanding_balance'], 2) }}</div>
             </div>
             <div class="rounded-xl border border-emerald-200/80 bg-emerald-50/50 px-3.5 py-2.5">
-                <div class="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Available Credit</div>
-                <div class="mt-0.5 text-sm font-black text-emerald-900">₹{{ number_format($vendorSummary['available_credit_note_balance'], 2) }}</div>
+                <div class="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Available Purchase Credit</div>
+                <div class="mt-0.5 text-sm font-black text-emerald-900">₹{{ number_format($vendorSummary['available_purchase_credits'] ?? $vendorSummary['available_credit_note_balance'], 2) }}</div>
             </div>
             <div class="rounded-xl border border-blue-200/80 bg-blue-50/50 px-3.5 py-2.5">
-                <div class="text-[10px] font-bold uppercase tracking-wider text-blue-700">Total Open Advances</div>
-                <div class="mt-0.5 text-sm font-black text-blue-900">₹{{ number_format($vendorSummary['total_open_vendor_advances'], 2) }}</div>
+                <div class="text-[10px] font-bold uppercase tracking-wider text-blue-700">Actual Cash Advances</div>
+                <div class="mt-0.5 text-sm font-black text-blue-900">₹{{ number_format($vendorSummary['actual_cash_vendor_advances'] ?? $vendorSummary['total_open_vendor_advances'], 2) }}</div>
             </div>
             <div class="rounded-xl border border-slate-200/80 bg-slate-50/70 px-3.5 py-2.5">
-                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Pending Bills</div>
-                <div class="mt-0.5 text-sm font-black text-slate-900">{{ number_format($vendorSummary['pending_bills_count']) }}</div>
+                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Net Payable</div>
+                <div class="mt-0.5 text-sm font-black {{ ($vendorSummary['net_vendor_payable'] ?? 0) < 0 ? 'text-emerald-700' : 'text-slate-900' }}">
+                    ₹{{ number_format($vendorSummary['net_vendor_payable'] ?? $vendorSummary['outstanding_balance'], 2) }}
+                </div>
             </div>
         </div>
     </div>
@@ -183,7 +185,7 @@
                         <h2 class="text-xs font-black uppercase tracking-wider text-slate-600">1. Credit Note Details &amp; Routing</h2>
                     </div>
 
-                    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
                         <div>
                             <label class="block text-xs font-bold text-slate-700">Credit Note Date <span class="text-rose-500">*</span></label>
                             <input type="date" name="credit_date" x-model="creditDate" required
@@ -200,13 +202,26 @@
                             </select>
                             <p class="mt-1 text-[11px] font-medium text-slate-500" x-text="reasonSuggestionHint()"></p>
                         </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700">Supplier Credit Note Ref (Optional)</label>
+                            <input type="text" name="vendor_credit_note_ref" x-model="vendorCreditNoteRef" maxlength="100"
+                                   value="{{ old('vendor_credit_note_ref', '') }}"
+                                   placeholder="e.g. SUP-CN-2026-041"
+                                   class="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                        </div>
                     </div>
 
                     {{-- Optional Linked Purchase Invoice --}}
                     <div class="relative" @click.outside="isInvoiceDropdownOpen = false">
                         <div class="flex flex-wrap items-center justify-between gap-1">
-                            <label class="block text-xs font-bold text-slate-700">Purchase Invoice Reference (Optional)</label>
-                            <span class="text-[11px] text-slate-400">Link a bill to auto-load items &amp; remaining balance</span>
+                            <div class="flex items-center gap-2">
+                                <label class="block text-xs font-bold text-slate-700">Purchase Invoice Reference (Optional)</label>
+                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-600">Reference Only</span>
+                            </div>
+                            <span class="text-[11px] text-slate-400">
+                                {{ $isV2Enabled ? 'For record reference only — bill balance stays unchanged until settlement' : 'Link a bill to auto-load items & balance' }}
+                            </span>
                         </div>
 
                         <input type="hidden" name="purchase_invoice_id" :value="purchaseInvoiceId">
@@ -266,14 +281,20 @@
 
                         <template x-if="selectedInvoiceData">
                             <div class="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 px-3.5 py-2.5 text-xs">
-                                <div class="flex items-center gap-2">
+                                <div class="flex flex-wrap items-center gap-2">
                                     <i data-lucide="receipt" class="h-4 w-4 text-indigo-600"></i>
                                     <span class="font-mono font-bold text-indigo-950" x-text="selectedInvoiceData.invoice_number"></span>
                                     <span class="text-slate-500" x-text="selectedInvoiceData.date"></span>
+                                    <span class="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-700">Reference Only</span>
                                 </div>
-                                <div class="flex items-center gap-4 font-mono">
-                                    <span class="text-slate-600">Net: <strong class="text-slate-900">₹<span x-text="formatMoney(selectedInvoiceData.net_amount)"></span></strong></span>
-                                    <span class="text-rose-700 font-bold">Remaining: ₹<span x-text="formatMoney(selectedInvoiceData.outstanding_amount)"></span></span>
+                                <div class="flex flex-wrap items-center gap-3 font-mono">
+                                    <span class="text-slate-600">Original: <strong class="text-slate-900">₹<span x-text="formatMoney(selectedInvoiceData.net_amount)"></span></strong></span>
+                                    <span class="text-slate-600">Current Outstanding (Info): <strong class="text-rose-700">₹<span x-text="formatMoney(selectedInvoiceData.outstanding_amount)"></span></strong></span>
+                                    <button type="button" @click="importInvoiceItems()"
+                                            class="inline-flex h-7 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2.5 font-sans text-[11px] font-bold text-indigo-700 hover:bg-indigo-50">
+                                        <i data-lucide="download" class="h-3 w-3"></i>
+                                        <span>Import Invoice Products</span>
+                                    </button>
                                 </div>
                             </div>
                         </template>
@@ -288,10 +309,18 @@
                                        :class="moneyEffect === '{{ $mEffect->value }}' ? 'border-emerald-600 bg-emerald-50/50 ring-1 ring-emerald-600' : 'border-slate-200 bg-white hover:bg-slate-50'">
                                     <input type="radio" name="money_effect" value="{{ $mEffect->value }}" x-model="moneyEffect" class="mt-0.5 text-emerald-600 focus:ring-emerald-500">
                                     <div>
-                                        <div class="text-xs font-bold text-slate-900">{{ $mEffect->label() }}</div>
+                                        <div class="text-xs font-bold text-slate-900">
+                                            @if($mEffect->value === 'vendor_credit')
+                                                Add to Vendor Credit Balance
+                                            @elseif($mEffect->value === 'in')
+                                                Receive Money from Vendor
+                                            @else
+                                                Pay Money to Vendor
+                                            @endif
+                                        </div>
                                         <div class="mt-0.5 text-[11px] text-slate-500">
                                             @if($mEffect->value === 'vendor_credit')
-                                                Adjusts vendor balance or creates advance
+                                                This amount will be available for your next vendor settlement.
                                             @elseif($mEffect->value === 'in')
                                                 Receive cash or bank refund from vendor
                                             @else
@@ -304,9 +333,9 @@
                         </div>
                     </div>
 
-                    {{-- Stock Movement --}}
+                    {{-- Stock Adjustment --}}
                     <div class="space-y-2 border-t border-slate-100 pt-4">
-                        <label class="block text-xs font-bold text-slate-700">Stock Movement <span class="text-rose-500">*</span></label>
+                        <label class="block text-xs font-bold text-slate-700">Stock Adjustment <span class="text-rose-500">*</span></label>
                         <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
                             @foreach($inventoryActions as $iAction)
                                 <label class="flex cursor-pointer items-start gap-2 rounded-xl border p-3 transition"
@@ -314,17 +343,25 @@
                                     <input type="radio" name="inventory_action" value="{{ $iAction->value }}" x-model="inventoryAction" @change="refreshRowStockLevels()" class="mt-0.5 text-emerald-600 focus:ring-emerald-500">
                                     <div>
                                         <div class="text-xs font-bold text-slate-900">
-                                            {{ $iAction->value === 'none' ? 'No Stock Movement' : $iAction->label() }}
+                                            @if($iAction->value === 'none')
+                                                No Stock Movement
+                                            @elseif($iAction->value === 'out')
+                                                Return Stock to Vendor
+                                            @elseif($iAction->value === 'in')
+                                                Receive Replacement Stock
+                                            @else
+                                                Damage / Wastage
+                                            @endif
                                         </div>
                                         <div class="mt-0.5 text-[11px] text-slate-500">
                                             @if($iAction->value === 'none')
                                                 Financial adjustment only
                                             @elseif($iAction->value === 'out')
-                                                Return stock to vendor
+                                                Deduct from warehouse (FIFO cost)
                                             @elseif($iAction->value === 'in')
-                                                Receive replacement stock
+                                                Add replacement batch to warehouse
                                             @else
-                                                Record wastage / damage
+                                                Record damaged or spoiled stock
                                             @endif
                                         </div>
                                     </div>
@@ -541,14 +578,25 @@
                         </div>
 
                         <div x-show="moneyEffect === 'vendor_credit'" class="space-y-1.5 border-t border-slate-100 pt-2">
-                            <div class="flex items-center justify-between text-slate-600">
-                                <span>Invoice Adjustment</span>
-                                <span class="font-mono font-bold text-slate-900">₹<span x-text="formatMoney(appliedToBill())"></span></span>
-                            </div>
-                            <div class="flex items-center justify-between text-indigo-700 font-semibold">
-                                <span>Excess Vendor Advance</span>
-                                <span class="font-mono font-bold">₹<span x-text="formatMoney(excessAdvance())"></span></span>
-                            </div>
+                            @if($isV2Enabled)
+                                <div class="flex items-center justify-between text-emerald-700 font-semibold">
+                                    <span>New Available Vendor Credit</span>
+                                    <span class="font-mono font-bold">₹<span x-text="formatMoney(totalAmount())"></span></span>
+                                </div>
+                                <div x-show="selectedInvoiceData" class="flex items-center justify-between text-slate-600">
+                                    <span>Invoice Balance Unchanged</span>
+                                    <span class="font-mono font-bold text-slate-700" x-text="selectedInvoiceData?.invoice_number + ' (Ref Only)'"></span>
+                                </div>
+                            @else
+                                <div class="flex items-center justify-between text-slate-600">
+                                    <span>Invoice Adjustment</span>
+                                    <span class="font-mono font-bold text-slate-900">₹<span x-text="formatMoney(appliedToBill())"></span></span>
+                                </div>
+                                <div class="flex items-center justify-between text-indigo-700 font-semibold">
+                                    <span>Excess Vendor Advance</span>
+                                    <span class="font-mono font-bold">₹<span x-text="formatMoney(excessAdvance())"></span></span>
+                                </div>
+                            @endif
                         </div>
 
                         <div class="border-t border-slate-100 pt-2.5 space-y-1.5">
@@ -586,11 +634,18 @@
             <div class="divide-y divide-slate-100 px-5 py-3 text-xs">
                 <div class="flex justify-between py-2"><span class="text-slate-500">Vendor</span><span class="font-bold text-slate-900">{{ $vendorInfo['name'] }}</span></div>
                 <div class="flex justify-between py-2"><span class="text-slate-500">Credit Note Date</span><span class="font-mono font-bold text-slate-900" x-text="creditDate"></span></div>
+                <div class="flex justify-between py-2" x-show="selectedInvoiceData"><span class="text-slate-500">Invoice Reference</span><span class="font-mono font-bold text-indigo-700" x-text="(selectedInvoiceData?.invoice_number || '') + ' (Reference Only)'"></span></div>
+                <div class="flex justify-between py-2" x-show="vendorCreditNoteRef"><span class="text-slate-500">Supplier Credit Ref</span><span class="font-mono font-bold text-slate-900" x-text="vendorCreditNoteRef"></span></div>
                 <div class="flex justify-between py-2"><span class="text-slate-500">Total Credit Amount</span><span class="font-mono font-black text-emerald-700">₹<span x-text="formatMoney(totalAmount())"></span></span></div>
-                <div class="flex justify-between py-2"><span class="text-slate-500">Invoice Adjustment</span><span class="font-mono font-bold text-slate-900">₹<span x-text="formatMoney(appliedToBill())"></span></span></div>
-                <div class="flex justify-between py-2"><span class="text-slate-500">Excess Vendor Advance</span><span class="font-mono font-bold text-indigo-700">₹<span x-text="formatMoney(excessAdvance())"></span></span></div>
+                @if($isV2Enabled)
+                    <div class="flex justify-between py-2" x-show="moneyEffect === 'vendor_credit'"><span class="text-slate-500">New Available Vendor Credit</span><span class="font-mono font-bold text-emerald-700">₹<span x-text="formatMoney(totalAmount())"></span></span></div>
+                    <div class="flex justify-between py-2" x-show="moneyEffect === 'vendor_credit' && selectedInvoiceData"><span class="text-slate-500">Invoice Balance Unchanged</span><span class="font-bold text-slate-700">Settled separately</span></div>
+                @else
+                    <div class="flex justify-between py-2"><span class="text-slate-500">Invoice Adjustment</span><span class="font-mono font-bold text-slate-900">₹<span x-text="formatMoney(appliedToBill())"></span></span></div>
+                    <div class="flex justify-between py-2"><span class="text-slate-500">Excess Vendor Advance</span><span class="font-mono font-bold text-indigo-700">₹<span x-text="formatMoney(excessAdvance())"></span></span></div>
+                @endif
                 <div class="flex justify-between py-2"><span class="text-slate-500">Cash / Bank Effect</span><span class="font-bold text-slate-900" x-text="cashBankSummaryLabel()"></span></div>
-                <div class="flex justify-between py-2"><span class="text-slate-500">Warehouse Stock Effect</span><span class="font-bold text-slate-900" x-text="stockSummaryLabel()"></span></div>
+                <div class="flex justify-between py-2"><span class="text-slate-500">Stock Adjustment</span><span class="font-bold text-slate-900" x-text="stockSummaryLabel()"></span></div>
             </div>
             <div class="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
                 <button type="button" @click="showPreviewModal = false"
@@ -680,6 +735,8 @@
             showPreviewModal: false,
             shortages: purchaseCreditNoteShortages,
             creditDate: @json((string) $initialCreditDate),
+            vendorCreditNoteRef: @json((string) old('vendor_credit_note_ref', '')),
+            isV2Enabled: {{ $isV2Enabled ? 'true' : 'false' }},
             reason: @json((string) $initialReason),
             moneyEffect: @json((string) $initialMoneyEffect),
             inventoryAction: @json((string) $initialInventoryAction),
@@ -902,28 +959,26 @@
                     this.selectedInvoiceData = inv;
                     this.isInvoiceDropdownOpen = false;
                     this.invoiceSearch = '';
-                    this.fetchInvoiceItems(inv.public_uuid);
+                    if (!this.isV2Enabled) {
+                        this.fetchInvoiceItems(inv.public_uuid);
+                    }
                 } else {
                     this.purchaseInvoiceId = '';
                     this.selectedInvoiceData = null;
                     this.selectedInvoice = null;
                     this.isInvoiceDropdownOpen = false;
                     this.invoiceSearch = '';
-                    this.items = [{
-                        isFromInvoice: false,
-                        product_id: '',
-                        product_name: '',
-                        productSearch: '',
-                        productDropdownOpen: false,
-                        unit: 'kg',
-                        grade: 'A',
-                        quantity: 1,
-                        unit_price: 0,
-                        purchaser_cart_item_id: null,
-                        returnable_qty: null
-                    }];
                 }
                 this.$nextTick(() => window.lucide?.createIcons());
+            },
+
+            importInvoiceItems() {
+                if (!this.selectedInvoiceData) return;
+                const hasEnteredData = this.items.some(it => Number(it.product_id) > 0 || (parseFloat(it.unit_price) || 0) > 0);
+                if (hasEnteredData && !window.confirm('Import products from this invoice? This will replace your currently entered product rows.')) {
+                    return;
+                }
+                this.fetchInvoiceItems(this.selectedInvoiceData.public_uuid);
             },
 
             addLineItem() {

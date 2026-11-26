@@ -39,6 +39,7 @@ class StorePurchaseCreditNoteRequest extends FormRequest
 
         return [
             'credit_date' => ['required', 'date'],
+            'vendor_credit_note_ref' => ['nullable', 'string', 'max:100'],
             'reason' => ['required', new Enum(PurchaseCreditReason::class)],
             'money_effect' => ['required', new Enum(PurchaseCreditMoneyEffect::class)],
             'inventory_action' => ['required', new Enum(PurchaseCreditInventoryAction::class)],

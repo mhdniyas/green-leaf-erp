@@ -27,7 +27,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -113,6 +113,7 @@ class PurchaseCreditNoteController extends Controller
             'start_date' => $startDate,
             'end_date' => $endDate,
             'status' => $request->input('status'),
+            'utilization_status' => $request->input('utilization_status'),
             'reason' => $request->input('reason'),
             'money_effect' => $request->input('money_effect'),
             'q' => trim((string) $request->input('q', '')),
@@ -144,6 +145,8 @@ class PurchaseCreditNoteController extends Controller
                 });
             });
 
+        $hasV2Cols = Schema::hasColumn('purchase_credit_notes', 'utilized_amount');
+
         $summaryRow = (clone $baseQuery)
             ->where('status', PurchaseCreditStatus::Active->value)
             ->selectRaw(
@@ -160,8 +163,39 @@ class PurchaseCreditNoteController extends Controller
             ->toBase()
             ->first();
 
+        // Current all-time available & utilized credit balances (kept separate from date-filtered transaction totals)
+        $creditBalancesQuery = PurchaseCreditNote::query()
+            ->when($filters['supplier_id'] !== null, fn (Builder $q) => $q->where('purchase_credit_notes.supplier_id', $filters['supplier_id']))
+            ->where('purchase_credit_notes.status', PurchaseCreditStatus::Active->value)
+            ->where('purchase_credit_notes.money_effect', PurchaseCreditMoneyEffect::VendorCredit->value);
+
+        if ($hasV2Cols) {
+            $creditBalanceRow = $creditBalancesQuery
+                ->leftJoin('vendor_advances as va', 'va.id', '=', 'purchase_credit_notes.vendor_advance_id')
+                ->selectRaw(
+                    "COALESCE(SUM(CASE WHEN purchase_credit_notes.accounting_version = 'v2' THEN (CASE WHEN purchase_credit_notes.total_amount > purchase_credit_notes.utilized_amount THEN purchase_credit_notes.total_amount - purchase_credit_notes.utilized_amount ELSE 0 END) WHEN va.amount_remaining > 0 THEN va.amount_remaining ELSE 0 END), 0) as available_credits, ".
+                    "COALESCE(SUM(CASE WHEN purchase_credit_notes.accounting_version = 'v2' THEN purchase_credit_notes.utilized_amount ELSE (CASE WHEN purchase_credit_notes.total_amount > COALESCE(va.amount_remaining, 0) THEN purchase_credit_notes.total_amount - COALESCE(va.amount_remaining, 0) ELSE 0 END) END), 0) as utilized_credits, ".
+                    "COALESCE(SUM(CASE WHEN (purchase_credit_notes.accounting_version = 'v2' AND purchase_credit_notes.total_amount > purchase_credit_notes.utilized_amount) OR (purchase_credit_notes.accounting_version != 'v2' AND va.amount_remaining > 0) THEN 1 ELSE 0 END), 0) as open_credit_notes_count"
+                )
+                ->toBase()
+                ->first();
+        } else {
+            $creditBalanceRow = $creditBalancesQuery
+                ->leftJoin('vendor_advances as va', 'va.id', '=', 'purchase_credit_notes.vendor_advance_id')
+                ->selectRaw(
+                    'COALESCE(SUM(CASE WHEN va.amount_remaining > 0 THEN va.amount_remaining ELSE 0 END), 0) as available_credits, '.
+                    'COALESCE(SUM(CASE WHEN purchase_credit_notes.total_amount > COALESCE(va.amount_remaining, 0) THEN purchase_credit_notes.total_amount - COALESCE(va.amount_remaining, 0) ELSE 0 END), 0) as utilized_credits, '.
+                    'COALESCE(SUM(CASE WHEN va.amount_remaining > 0 THEN 1 ELSE 0 END), 0) as open_credit_notes_count'
+                )
+                ->toBase()
+                ->first();
+        }
+
         $summary = [
             'vendor_credit_total' => round((float) ($summaryRow->vendor_credit_total ?? 0), 2),
+            'available_credits' => round((float) ($creditBalanceRow->available_credits ?? 0), 2),
+            'utilized_credits' => round((float) ($creditBalanceRow->utilized_credits ?? 0), 2),
+            'open_credit_notes_count' => (int) ($creditBalanceRow->open_credit_notes_count ?? 0),
             'money_in_total' => round((float) ($summaryRow->money_in_total ?? 0), 2),
             'money_out_total' => round((float) ($summaryRow->money_out_total ?? 0), 2),
             'total_count' => (int) ($summaryRow->active_count ?? 0),
@@ -169,11 +203,40 @@ class PurchaseCreditNoteController extends Controller
 
         $creditNotes = (clone $baseQuery)
             ->when($filters['status'], fn (Builder $q) => $q->where('status', (string) $filters['status']))
+            ->when($filters['utilization_status'], function (Builder $q) use ($filters, $hasV2Cols): void {
+                $uStatus = (string) $filters['utilization_status'];
+                if ($uStatus === 'voided') {
+                    $q->where('status', PurchaseCreditStatus::Voided->value);
+
+                    return;
+                }
+
+                $q->where('status', PurchaseCreditStatus::Active->value)
+                    ->where('money_effect', PurchaseCreditMoneyEffect::VendorCredit->value);
+
+                if (! $hasV2Cols) {
+                    return;
+                }
+
+                if ($uStatus === 'open') {
+                    $q->where('accounting_version', 'v2')->where('utilized_amount', '<=', 0.009);
+                } elseif ($uStatus === 'partially_utilized') {
+                    $q->where('accounting_version', 'v2')
+                        ->where('utilized_amount', '>', 0.009)
+                        ->whereColumn('utilized_amount', '<', 'total_amount');
+                } elseif ($uStatus === 'fully_utilized') {
+                    $q->where(function (Builder $sub): void {
+                        $sub->where(fn (Builder $v2) => $v2->where('accounting_version', 'v2')->whereColumn('utilized_amount', '>=', 'total_amount'))
+                            ->orWhere(fn (Builder $v1) => $v1->where('accounting_version', '!=', 'v2'));
+                    });
+                }
+            })
             ->with([
                 'supplier:id,public_uuid,name',
-                'purchaseInvoice:id,purchaser_cart_id',
+                'purchaseInvoice:id,invoice_number,purchaser_cart_id',
                 'purchaseInvoice.purchaserCart:id,user_id',
                 'purchaseInvoice.purchaserCart.user:id,name',
+                'vendorAdvance:id,amount_remaining',
             ])
             ->withCount('items')
             ->orderByDesc('credit_date')
@@ -185,6 +248,7 @@ class PurchaseCreditNoteController extends Controller
             || $filters['purchaser_id'] !== ''
             || $filters['date_preset'] !== 'today'
             || ! empty($filters['status'])
+            || ! empty($filters['utilization_status'])
             || ! empty($filters['reason'])
             || ! empty($filters['money_effect'])
             || $filters['q'] !== '';
@@ -479,6 +543,7 @@ class PurchaseCreditNoteController extends Controller
         $inventoryActions = PurchaseCreditInventoryAction::cases();
         $wastageReasons = WastageReason::cases();
         $grades = ProductGrade::cases();
+        $isV2Enabled = (bool) config('greenleaf.purchase_credit_notes_v2_enabled', false);
 
         return view('admin.cashbook.finance.purchase.credit-notes.create', compact(
             'supplier',
@@ -496,35 +561,18 @@ class PurchaseCreditNoteController extends Controller
             'inventoryActions',
             'wastageReasons',
             'grades',
+            'isV2Enabled',
         ));
     }
 
     public function store(StorePurchaseCreditNoteRequest $request, Supplier $supplier): RedirectResponse
     {
         $validated = $request->validated();
-        $submissionToken = trim((string) ($validated['submission_token'] ?? ''));
-        $cacheKey = $submissionToken !== ''
-            ? "pcn_submission:{$request->user()->id}:{$submissionToken}"
-            : null;
-
-        if ($cacheKey !== null && ! Cache::add($cacheKey, true, now()->addMinutes(10))) {
-            return redirect()
-                ->route('admin.cashbook.finance.purchase.vendors.show', ['supplier' => $supplier->public_uuid])
-                ->with('status', 'This Purchase Credit Note submission was already processed.');
-        }
-
         $payload = array_merge($validated, [
             'supplier_id' => $supplier->id,
         ]);
 
-        try {
-            $creditNote = $this->creditNoteService->create($payload, $request->user());
-        } catch (\Throwable $e) {
-            if ($cacheKey !== null) {
-                Cache::forget($cacheKey);
-            }
-            throw $e;
-        }
+        $creditNote = $this->creditNoteService->create($payload, $request->user());
 
         return redirect()
             ->route('admin.cashbook.finance.purchase.vendors.show', ['supplier' => $supplier->public_uuid])
@@ -541,6 +589,8 @@ class PurchaseCreditNoteController extends Controller
             'companyAccount',
             'warehouse',
             'vendorAdvance',
+            'creditAllocations.settlement',
+            'creditAllocations.purchaseInvoice',
             'journalEntry.transactions.account',
             'createdBy',
             'voidedBy',
