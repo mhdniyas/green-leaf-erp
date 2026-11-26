@@ -95,7 +95,7 @@
                         <input id="ws-product-search"
                                type="text"
                                x-model="productQuery"
-                               @input.debounce.180ms="searchProducts()"
+                               @input.debounce.280ms="searchProducts()"
                                @focus="openProductResults()"
                                @keydown.arrow-down.prevent="moveProductHighlight(1)"
                                @keydown.arrow-up.prevent="moveProductHighlight(-1)"
@@ -537,6 +537,7 @@ function cashbookWarehouseSaleCreate() {
         productDropdownOpen: false,
         highlightedIndex: 0,
         searchingProducts: false,
+        searchAbortController: null,
 
         items: [],
 
@@ -581,7 +582,6 @@ function cashbookWarehouseSaleCreate() {
         storeCustomerUrl: @json(route('admin.cashbook.warehouse-sales.customers.store')),
 
         init() {
-            this.productResults = this.productsCache.slice(0, 20);
             this.$nextTick(() => {
                 if (window.lucide) window.lucide.createIcons();
             });
@@ -595,34 +595,35 @@ function cashbookWarehouseSaleCreate() {
         },
 
         async onWarehouseChange() {
-            this.searchingProducts = true;
-            try {
-                const url = `${this.searchProductsUrl}?warehouse_id=${encodeURIComponent(this.warehouseId)}&date=${encodeURIComponent(this.businessDate)}&q=${encodeURIComponent(this.productQuery)}`;
-                const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                const json = await res.json();
-                if (res.ok && json.data) {
-                    if (this.productQuery === '') {
-                        this.productsCache = json.data;
+            if (this.items.length > 0) {
+                const ids = this.items.map(i => i.product_id).join(',');
+                try {
+                    const url = `${this.searchProductsUrl}?warehouse_id=${encodeURIComponent(this.warehouseId)}&date=${encodeURIComponent(this.businessDate)}&product_ids=${encodeURIComponent(ids)}`;
+                    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                    const json = await res.json();
+                    if (res.ok && json.data) {
+                        this.items.forEach(item => {
+                            const match = json.data.find(p => Number(p.id) === Number(item.product_id));
+                            if (match) {
+                                item.available_stock = Number(match.available_stock || 0);
+                            }
+                        });
                     }
-                    this.productResults = json.data.slice(0, 25);
-                    this.items.forEach(item => {
-                        const match = json.data.find(p => Number(p.id) === Number(item.product_id));
-                        if (match) {
-                            item.available_stock = Number(match.available_stock || 0);
-                        }
-                    });
+                } catch (e) {
+                    this.errorMessage = 'Failed to refresh warehouse stock.';
                 }
-            } catch (e) {
-                this.errorMessage = 'Failed to refresh warehouse stock.';
-            } finally {
-                this.searchingProducts = false;
+            }
+
+            this.productResults = [];
+            if (this.productDropdownOpen) {
+                await this.searchProducts();
             }
         },
 
         openProductResults() {
             this.productDropdownOpen = true;
             if (this.productResults.length === 0) {
-                this.productResults = this.productsCache.slice(0, 20);
+                this.searchProducts();
             }
         },
 
@@ -630,18 +631,26 @@ function cashbookWarehouseSaleCreate() {
             this.productDropdownOpen = true;
             this.highlightedIndex = 0;
             this.searchingProducts = true;
+
+            if (this.searchAbortController) {
+                this.searchAbortController.abort();
+            }
+            this.searchAbortController = new AbortController();
+
             try {
                 const url = `${this.searchProductsUrl}?warehouse_id=${encodeURIComponent(this.warehouseId)}&date=${encodeURIComponent(this.businessDate)}&q=${encodeURIComponent(this.productQuery)}`;
-                const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                const res = await fetch(url, {
+                    headers: { 'Accept': 'application/json' },
+                    signal: this.searchAbortController.signal,
+                });
                 const json = await res.json();
                 if (res.ok && json.data) {
-                    this.productResults = json.data.slice(0, 25);
+                    this.productResults = json.data;
                 }
             } catch (e) {
-                const q = this.productQuery.toLowerCase();
-                this.productResults = this.productsCache.filter(p =>
-                    (p.name || '').toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q)
-                ).slice(0, 25);
+                if (e.name !== 'AbortError') {
+                    this.errorMessage = 'Failed to search products.';
+                }
             } finally {
                 this.searchingProducts = false;
             }

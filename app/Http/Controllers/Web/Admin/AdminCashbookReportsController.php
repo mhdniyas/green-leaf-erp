@@ -62,6 +62,7 @@ use App\Services\ShopInvoices\ShopFinalBillService;
 use App\Services\Warehouse\WarehouseSalesAccessService;
 use App\Services\Warehouse\WarehouseSaleService;
 use App\Support\CashbookAccess;
+use App\Support\WarehouseSalesCache;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -4336,55 +4337,15 @@ class AdminCashbookReportsController extends Controller
             $selectedWarehouseId = (int) $allowedWarehouses->first()->id;
         }
 
-        $shops = Shop::query()
-            ->orderBy('name')
-            ->get(['id', 'name', 'code', 'contact_phone']);
-
-        $customers = WarehouseCustomer::query()
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get(['id', 'uuid', 'name', 'phone']);
-
-        $products = Product::query()
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get(['id', 'name', 'sku', 'unit', 'base_price']);
-
+        $shops = WarehouseSalesCache::activeShops();
         $businessDate = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
-        $stockMap = $this->resolveWarehouseSaleStockMap($products->pluck('id')->all(), $selectedWarehouseId, $businessDate);
-        $priceMap = $this->resolveWarehouseSaleProductPrices($products, $businessDate);
-
-        $productsWithStock = $products->map(function (Product $p) use ($stockMap, $priceMap) {
-            return [
-                'id' => $p->id,
-                'name' => $p->name,
-                'sku' => $p->sku,
-                'unit' => $p->unit ?: 'kg',
-                'price' => (float) ($priceMap[$p->id] ?? $p->base_price ?? 0),
-                'available_stock' => (float) ($stockMap[$p->id] ?? 0),
-            ];
-        })->values();
-
-        $allStaff = User::query()
-            ->with('roles:id,name')
-            ->orderBy('name')
-            ->get(['id', 'name']);
-
-        $purchaserStaff = $allStaff->filter(fn (User $u) => $u->hasRole('purchaser'));
-        $otherStaff = $allStaff->reject(fn (User $u) => $u->hasRole('purchaser'));
-        $staffUsers = $purchaserStaff->concat($otherStaff)->map(fn (User $u) => [
-            'id' => $u->id,
-            'name' => $u->name,
-            'is_purchaser' => $u->hasRole('purchaser'),
-            'role_label' => $u->hasRole('purchaser') ? 'Purchaser' : ($u->roles->pluck('name')->first() ?: 'Staff'),
-        ])->values();
+        $staffUsers = WarehouseSalesCache::staffUsers();
 
         return view('admin.cashbook.reports.warehouse_sale_create', [
             'allowedWarehouses' => $allowedWarehouses,
             'selectedWarehouseId' => $selectedWarehouseId,
             'shops' => $shops,
-            'customers' => $customers,
-            'productsWithStock' => $productsWithStock,
+            'productsWithStock' => [],
             'staffUsers' => $staffUsers,
             'date' => $businessDate,
         ]);
@@ -4436,23 +4397,27 @@ class AdminCashbookReportsController extends Controller
         $this->ensureWarehouseSalesAuthorized($request);
 
         $warehouseId = $request->integer('warehouse_id');
-        $search = trim((string) $request->input('q', ''));
-        $products = Product::query()
-            ->where('is_active', true)
-            ->when($search !== '', function (Builder $query) use ($search) {
-                $query->where(function (Builder $sub) use ($search) {
-                    $sub->where('name', 'like', "%{$search}%")
-                        ->orWhere('sku', 'like', "%{$search}%");
-                });
-            })
-            ->orderBy('name')
-            ->get(['id', 'name', 'sku', 'unit', 'base_price']);
+        $search = mb_strtolower(trim((string) $request->input('q', '')));
+        $requestedIds = array_values(array_filter(array_map('intval', explode(',', (string) $request->input('product_ids', '')))));
+        $catalog = WarehouseSalesCache::productsCatalog();
+
+        if ($requestedIds !== []) {
+            $products = $catalog->whereIn('id', $requestedIds)->values();
+        } elseif ($search !== '') {
+            $products = $catalog->filter(function (object $p) use ($search): bool {
+                return str_contains(mb_strtolower((string) $p->name), $search)
+                    || str_contains(mb_strtolower((string) ($p->sku ?? '')), $search);
+            })->take(20)->values();
+        } else {
+            $products = $catalog->take(20)->values();
+        }
 
         $businessDate = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
-        $stockMap = $this->resolveWarehouseSaleStockMap($products->pluck('id')->all(), $warehouseId ?: null, $businessDate);
+        $productIds = $products->pluck('id')->all();
+        $stockMap = $this->resolveWarehouseSaleStockMap($productIds, $warehouseId ?: null, $businessDate);
         $priceMap = $this->resolveWarehouseSaleProductPrices($products, $businessDate);
 
-        $data = $products->map(function (Product $p) use ($stockMap, $priceMap) {
+        $data = $products->map(function (object $p) use ($stockMap, $priceMap) {
             return [
                 'id' => $p->id,
                 'name' => $p->name,

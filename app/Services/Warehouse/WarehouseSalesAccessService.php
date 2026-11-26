@@ -7,6 +7,7 @@ namespace App\Services\Warehouse;
 use App\Models\BusinessSetting;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Support\WarehouseSalesCache;
 use Illuminate\Support\Collection;
 
 class WarehouseSalesAccessService
@@ -22,9 +23,7 @@ class WarehouseSalesAccessService
      */
     public function isFeatureEnabled(): bool
     {
-        $val = BusinessSetting::query()
-            ->where('key', self::SETTING_ENABLED)
-            ->value('value');
+        $val = WarehouseSalesCache::setting(self::SETTING_ENABLED);
 
         return filter_var($val ?? false, FILTER_VALIDATE_BOOLEAN);
     }
@@ -36,9 +35,7 @@ class WarehouseSalesAccessService
      */
     public function allowedUserIds(): array
     {
-        $raw = BusinessSetting::query()
-            ->where('key', self::SETTING_ALLOWED_USER_IDS)
-            ->value('value');
+        $raw = WarehouseSalesCache::setting(self::SETTING_ALLOWED_USER_IDS);
 
         if (empty($raw)) {
             return [];
@@ -59,9 +56,7 @@ class WarehouseSalesAccessService
      */
     public function userWarehousesMap(): array
     {
-        $raw = BusinessSetting::query()
-            ->where('key', self::SETTING_USER_WAREHOUSES)
-            ->value('value');
+        $raw = WarehouseSalesCache::setting(self::SETTING_USER_WAREHOUSES);
 
         if (empty($raw)) {
             return [];
@@ -120,27 +115,23 @@ class WarehouseSalesAccessService
 
         $map = $this->userWarehousesMap();
         $configuredWarehouseIds = $map[(int) $user->id] ?? [];
+        $allActive = WarehouseSalesCache::activeWarehouses();
 
         if (empty($configuredWarehouseIds)) {
-            // Fallback: Check if user has explicit warehouses attached on User model
-            $userAttachedIds = $user->warehouses()->pluck('warehouses.id')->all();
-            if (! empty($userAttachedIds)) {
-                return Warehouse::query()->active()->whereIn('id', $userAttachedIds)->orderBy('id')->get();
+            // If user has all warehouse access or admin, return all active without extra pivot query
+            if ($user->hasAllWarehouseAccess() || $user->hasRole('admin') || $user->isMainAdmin()) {
+                return $allActive;
             }
 
-            // If user has all warehouse access or no specific filter, return all active
-            if ($user->hasAllWarehouseAccess() || $user->hasRole('admin') || $user->isMainAdmin()) {
-                return Warehouse::query()->active()->orderBy('id')->get();
+            $userAttachedIds = $user->warehouses()->pluck('warehouses.id')->all();
+            if (! empty($userAttachedIds)) {
+                return $allActive->whereIn('id', $userAttachedIds)->values();
             }
 
             return collect();
         }
 
-        return Warehouse::query()
-            ->active()
-            ->whereIn('id', $configuredWarehouseIds)
-            ->orderBy('id')
-            ->get();
+        return $allActive->whereIn('id', $configuredWarehouseIds)->values();
     }
 
     /**
@@ -181,5 +172,7 @@ class WarehouseSalesAccessService
             ['key' => self::SETTING_USER_WAREHOUSES],
             ['value' => json_encode($config['user_warehouses'] ?? [])]
         );
+
+        WarehouseSalesCache::forgetSettings();
     }
 }

@@ -20,7 +20,7 @@
         <div class="flex flex-col sm:flex-row gap-4 items-start rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-3.5">
             <div class="relative h-28 w-28 shrink-0 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden flex items-center justify-center">
                 @if($productImage)
-                    <img src="{{ asset('storage/' . $productImage) }}" class="w-full h-full object-cover" alt="{{ $productName }}">
+                    <img src="{{ asset('storage/' . $productImage) }}" loading="lazy" class="w-full h-full object-cover" alt="{{ $productName }}">
                 @else
                     <svg class="w-9 h-9 stroke-[1.5] text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />

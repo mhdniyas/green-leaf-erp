@@ -20,6 +20,7 @@ use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\SalesInvoice;
 use App\Models\SalesOrder;
+use App\Models\Shop;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
 use App\Models\ShopOrder;
@@ -29,6 +30,7 @@ use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Models\WarehouseCreditNote;
 use App\Models\WastageEntry;
 use App\Observers\PurchaserCacheInvalidationObserver;
@@ -46,6 +48,7 @@ use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\PurchaserCartBatchStateResolver;
 use App\Services\Purchasing\PurchaserReadCacheService;
 use App\Support\CashbookAccess;
+use App\Support\WarehouseSalesCache;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -126,6 +129,17 @@ class AppServiceProvider extends ServiceProvider
         WastageEntry::observe($purchaserObserver);
         GoodsReceived::observe($purchaserObserver);
         GoodsReceivedItem::observe($purchaserObserver);
+
+        Product::saved(fn () => WarehouseSalesCache::forgetProducts());
+        Product::deleted(fn () => WarehouseSalesCache::forgetProducts());
+        Warehouse::saved(fn () => WarehouseSalesCache::forgetWarehouses());
+        Warehouse::deleted(fn () => WarehouseSalesCache::forgetWarehouses());
+        Shop::saved(fn () => WarehouseSalesCache::forgetShops());
+        Shop::deleted(fn () => WarehouseSalesCache::forgetShops());
+        User::saved(fn () => WarehouseSalesCache::forgetStaff());
+        User::deleted(fn () => WarehouseSalesCache::forgetStaff());
+        BusinessSetting::saved(fn () => WarehouseSalesCache::forgetSettings());
+        BusinessSetting::deleted(fn () => WarehouseSalesCache::forgetSettings());
 
         Activity::creating(function (Activity $activity): void {
             if (app()->runningInConsole() && ! app()->environment('testing')) {
