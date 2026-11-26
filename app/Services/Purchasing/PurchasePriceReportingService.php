@@ -16,9 +16,9 @@ use Illuminate\Support\Facades\DB;
 
 final class PurchasePriceReportingService
 {
-    private const PRODUCT_ORDER_EXPRESSION = "CASE WHEN products.sku IS NULL OR products.sku = '' THEN 1 ELSE 0 END ASC, products.sku ASC, products.name ASC";
+    private const PRODUCT_ORDER_EXPRESSION = "CASE WHEN products.sku IS NULL OR products.sku = '' THEN 1 ELSE 0 END ASC, LENGTH(products.sku) ASC, products.sku ASC, products.name ASC";
 
-    private const CATEGORY_ORDER_EXPRESSION = "CASE WHEN categories.name IS NULL OR categories.name = '' THEN 1 ELSE 0 END ASC, categories.name ASC, CASE WHEN products.sku IS NULL OR products.sku = '' THEN 1 ELSE 0 END ASC, products.sku ASC, products.name ASC";
+    private const CATEGORY_ORDER_EXPRESSION = "CASE WHEN categories.name IS NULL OR categories.name = '' THEN 1 ELSE 0 END ASC, categories.name ASC, CASE WHEN products.sku IS NULL OR products.sku = '' THEN 1 ELSE 0 END ASC, LENGTH(products.sku) ASC, products.sku ASC, products.name ASC";
 
     private const NORMALIZED_CART_GRADE = "CASE WHEN purchaser_cart_items.grade IS NULL OR TRIM(purchaser_cart_items.grade) = '' THEN 'U' WHEN UPPER(TRIM(purchaser_cart_items.grade)) IN ('MIXED', 'UNSORTED', 'MIXED / UNSEGREGATED', 'UNSEGREGATED') THEN 'U' ELSE UPPER(TRIM(purchaser_cart_items.grade)) END";
 
