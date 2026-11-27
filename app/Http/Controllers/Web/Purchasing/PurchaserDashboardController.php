@@ -725,7 +725,7 @@ class PurchaserDashboardController extends Controller
         }
 
         $baseQuery = ShopOrder::query()
-            ->with(['shop:id,name,code,client_id', 'shop.client:id,name', 'items:id,shop_order_id,product_id,quantity,unit_price', 'items.product:id,name,sku,unit', 'creator:id,name', 'reviewedBy:id,name'])
+            ->with(['shop:id,name,code,client_id', 'shop.client:id,name', 'items', 'items.product:id,name,sku,unit', 'creator:id,name', 'reviewedBy:id,name'])
             ->withCount('items')
             ->whereDate('business_date', $date)
             ->when($status !== '', fn ($query) => $query->where('state', $status))
@@ -2254,7 +2254,7 @@ class PurchaserDashboardController extends Controller
         $dateString = $date->format('Y-m-d');
 
         $baseInvoiceQuery = PurchaseInvoice::query()
-            ->with(['supplier:id,public_uuid,name,mobile_number,location', 'goodsReceived:id,purchase_invoice_id,grn_number,status,bill_status', 'purchaserCart:id,cart_number,bill_number,business_date,payment_method,payment_status'])
+            ->with(['supplier:id,public_uuid,name,mobile_number,location', 'goodsReceived', 'purchaserCart:id,cart_number,bill_number,business_date,payment_method,payment_status'])
             ->whereHas('purchaserCart', function ($query) use ($userId, $date): void {
                 $query
                     ->where('user_id', $userId)
