@@ -222,4 +222,14 @@
             updateCount();
         });
     </script>
+
+    @include('purchasing.purchaser.partials.load-more', [
+        'containerId' => 'products-load-more',
+        'hasMore' => $hasMorePages ?? false,
+        'currentPage' => $currentPage ?? 1,
+        'loadedCount' => $products->count(),
+        'totalCount' => $totalRowsCount ?? $products->count(),
+        'pageParam' => 'page',
+        'targetSelector' => 'table tbody',
+    ])
 </x-layouts.app>

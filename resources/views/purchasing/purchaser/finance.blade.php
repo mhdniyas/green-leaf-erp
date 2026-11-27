@@ -50,5 +50,15 @@
             'financeAudience' => $financeAudience,
             'canManageSuppliers' => $canManageSuppliers,
         ])
+
+        @include('purchasing.purchaser.partials.load-more', [
+            'containerId' => 'finance-load-more',
+            'hasMore' => $invoices->hasMorePages(),
+            'currentPage' => $invoices->currentPage(),
+            'loadedCount' => $invoices->count(),
+            'totalCount' => $invoices->total(),
+            'pageParam' => 'page',
+            'targetSelector' => 'table tbody',
+        ])
     </div>
 </x-layouts.app>

@@ -252,7 +252,7 @@ class PurchaserDashboardController extends Controller
             ->with('status', 'Purchaser preferences saved successfully.');
     }
 
-    public function products(Request $request): View
+    public function products(Request $request): View|JsonResponse
     {
         $this->ensurePurchaser($request);
 
@@ -271,7 +271,10 @@ class PurchaserDashboardController extends Controller
             ->orderBy('name')
             ->get(['id', 'name']);
 
-        $products = Product::query()
+        $perPage = 30;
+        $page = max(1, (int) $request->integer('page', 1));
+
+        $paginatedProducts = Product::query()
             ->select(['id', 'category_id', 'name', 'sku', 'unit', 'is_active', 'image'])
             ->where('show_in_purchaser_order', true)
             ->with(['category:id,name', 'orderUnits'])
@@ -290,13 +293,30 @@ class PurchaserDashboardController extends Controller
             })
             ->orderByDesc('is_active')
             ->ordered()
-            ->get()
-            ->sortBy([
-                fn (Product $product): string => $product->category?->name ?? 'Uncategorized',
-                fn (Product $product): string => $product->sku_sort_value,
-                fn (Product $product): string => $product->name,
-            ])
-            ->values();
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        $products = collect($paginatedProducts->items())->values();
+
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json([
+                'status' => 'success',
+                'data' => $products->map(fn (Product $product): array => [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'sku' => $product->sku,
+                    'unit' => $product->unit,
+                    'category_name' => $product->category?->name ?? 'Uncategorized',
+                    'is_active' => (bool) $product->is_active,
+                ])->values(),
+                'pagination' => [
+                    'current_page' => $paginatedProducts->currentPage(),
+                    'per_page' => $paginatedProducts->perPage(),
+                    'total_records' => $paginatedProducts->total(),
+                    'last_page' => $paginatedProducts->lastPage(),
+                    'has_more' => $paginatedProducts->hasMorePages(),
+                ],
+            ]);
+        }
 
         return view('purchasing.purchaser.products', [
             'products' => $products,
@@ -305,6 +325,9 @@ class PurchaserDashboardController extends Controller
             'selectedStatus' => $status,
             'selectedUnit' => $unit,
             'search' => $search,
+            'hasMorePages' => $paginatedProducts->hasMorePages(),
+            'currentPage' => $paginatedProducts->currentPage(),
+            'totalRowsCount' => $paginatedProducts->total(),
         ]);
     }
 
@@ -679,7 +702,7 @@ class PurchaserDashboardController extends Controller
             ->values();
     }
 
-    public function shopOrders(Request $request): View|RedirectResponse
+    public function shopOrders(Request $request): View|RedirectResponse|JsonResponse
     {
         $this->ensurePurchaser($request);
 
@@ -702,7 +725,7 @@ class PurchaserDashboardController extends Controller
         }
 
         $baseQuery = ShopOrder::query()
-            ->with(['shop.client', 'items.product', 'creator', 'reviewedBy'])
+            ->with(['shop:id,name,code,client_id', 'shop.client:id,name', 'items:id,shop_order_id,product_id,quantity,unit_price', 'items.product:id,name,sku,unit', 'creator:id,name', 'reviewedBy:id,name'])
             ->withCount('items')
             ->whereDate('business_date', $date)
             ->when($status !== '', fn ($query) => $query->where('state', $status))
@@ -724,10 +747,13 @@ class PurchaserDashboardController extends Controller
                 });
             });
 
+        $perPage = 20;
+        $page = max(1, (int) $request->integer('orders_page', $request->integer('page', 1)));
+
         $orders = (clone $baseQuery)
             ->orderByRaw("CASE state WHEN 'submitted' THEN 1 WHEN 'update_requested' THEN 2 WHEN 'approved' THEN 3 WHEN 'rejected' THEN 4 ELSE 5 END")
             ->latest('id')
-            ->paginate(15, ['*'], 'orders_page')
+            ->paginate($perPage, ['*'], 'orders_page', $page)
             ->withQueryString();
 
         $statusCounts = ShopOrder::query()
@@ -737,6 +763,32 @@ class PurchaserDashboardController extends Controller
             ->pluck('aggregate', 'state')
             ->all();
 
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json([
+                'status' => 'success',
+                'data' => collect($orders->items())->map(fn (ShopOrder $order): array => [
+                    'id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'state' => $order->state,
+                    'order_source' => $order->order_source,
+                    'shop_name' => $order->shop?->name,
+                    'shop_code' => $order->shop?->code,
+                    'client_name' => $order->shop?->client?->name,
+                    'items_count' => (int) ($order->items_count ?? $order->items->count()),
+                    'show_url' => route('purchaser.shop-orders.show', $order->order_number),
+                ])->values(),
+                'pagination' => [
+                    'current_page' => $orders->currentPage(),
+                    'per_page' => $orders->perPage(),
+                    'total_records' => $orders->total(),
+                    'last_page' => $orders->lastPage(),
+                    'has_more' => $orders->hasMorePages(),
+                ],
+                'status_counts' => $statusCounts,
+                'total_orders' => array_sum($statusCounts),
+            ]);
+        }
+
         return view('purchasing.purchaser.shop_orders.index', [
             'date' => $date->format('Y-m-d'),
             'orders' => $orders,
@@ -745,7 +797,7 @@ class PurchaserDashboardController extends Controller
             'search' => $search,
             'statusCounts' => $statusCounts,
             'totalOrders' => array_sum($statusCounts),
-            'deadlineAlert' => $this->buildDeadlineAlert((int) $request->user()->id, $date),
+            'deadlineAlert' => $this->buildSupplierHubDeadlineAlert((int) $request->user()->id, $date),
         ]);
     }
 
@@ -2183,7 +2235,7 @@ class PurchaserDashboardController extends Controller
         ]);
     }
 
-    public function finance(Request $request): View|RedirectResponse
+    public function finance(Request $request): View|RedirectResponse|JsonResponse
     {
         $this->ensurePurchaser($request);
 
@@ -2198,12 +2250,14 @@ class PurchaserDashboardController extends Controller
             $selectedTab = 'today';
         }
         $search = trim($request->string('search')->toString());
+        $userId = (int) $request->user()->id;
+        $dateString = $date->format('Y-m-d');
 
         $baseInvoiceQuery = PurchaseInvoice::query()
-            ->with(['supplier', 'goodsReceived', 'purchaserCart'])
-            ->whereHas('purchaserCart', function ($query) use ($request, $date): void {
+            ->with(['supplier:id,public_uuid,name,mobile_number,location', 'goodsReceived:id,purchase_invoice_id,grn_number,status,bill_status', 'purchaserCart:id,cart_number,bill_number,business_date,payment_method,payment_status'])
+            ->whereHas('purchaserCart', function ($query) use ($userId, $date): void {
                 $query
-                    ->where('user_id', $request->user()->id)
+                    ->where('user_id', $userId)
                     ->whereDate('business_date', '<=', $date);
             })
             ->when($search !== '', function ($query) use ($search): void {
@@ -2237,22 +2291,65 @@ class PurchaserDashboardController extends Controller
             ->orderByDesc('id')
             ->paginate(20);
 
+        $tabCountsRow = DB::table('purchase_invoices as pi')
+            ->join('purchaser_carts as pc', 'pc.purchase_invoice_id', '=', 'pi.id')
+            ->whereNull('pi.deleted_at')
+            ->where('pc.user_id', $userId)
+            ->whereDate('pc.business_date', '<=', $dateString)
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->whereIn('pi.id', function ($sub) use ($search): void {
+                    $sub->select('id')->from('purchase_invoices')
+                        ->where('invoice_number', 'like', '%'.$search.'%')
+                        ->orWhere('payment_status', 'like', '%'.$search.'%')
+                        ->orWhere('payment_method', 'like', '%'.$search.'%');
+                });
+            })
+            ->selectRaw(
+                'SUM(CASE WHEN DATE(pc.business_date) = ? THEN 1 ELSE 0 END) as today_count, SUM(CASE WHEN DATE(pc.business_date) < ? THEN 1 ELSE 0 END) as old_count',
+                [$dateString, $dateString]
+            )
+            ->first();
+
+        $financeTabs = [
+            'today' => (int) ($tabCountsRow->today_count ?? 0),
+            'old' => (int) ($tabCountsRow->old_count ?? 0),
+        ];
+
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json([
+                'status' => 'success',
+                'data' => collect($invoices->items())->map(fn (PurchaseInvoice $invoice): array => [
+                    'id' => $invoice->id,
+                    'invoice_number' => $invoice->invoice_number,
+                    'supplier_name' => $invoice->supplier?->name,
+                    'amount' => round((float) $invoice->amount, 2),
+                    'discount_amount' => round((float) $invoice->discount_amount, 2),
+                    'paid_amount' => round((float) $invoice->paid_amount, 2),
+                    'payment_status' => $invoice->payment_status,
+                    'payment_method' => $invoice->payment_method,
+                    'business_date' => $invoice->purchaserCart?->business_date?->format('Y-m-d'),
+                    'show_url' => route('purchaser.invoices.show', $invoice),
+                ])->values(),
+                'pagination' => [
+                    'current_page' => $invoices->currentPage(),
+                    'per_page' => $invoices->perPage(),
+                    'total_records' => $invoices->total(),
+                    'last_page' => $invoices->lastPage(),
+                    'has_more' => $invoices->hasMorePages(),
+                ],
+                'finance_tabs' => $financeTabs,
+            ]);
+        }
+
         return view('purchasing.purchaser.finance', [
-            'date' => $date->format('Y-m-d'),
+            'date' => $dateString,
             'invoices' => $invoices,
             'search' => $search,
             'selectedTab' => $selectedTab,
-            'financeTabs' => [
-                'today' => (clone $baseInvoiceQuery)
-                    ->whereHas('purchaserCart', fn ($query) => $query->whereDate('business_date', $date))
-                    ->count(),
-                'old' => (clone $baseInvoiceQuery)
-                    ->whereHas('purchaserCart', fn ($query) => $query->whereDate('business_date', '<', $date))
-                    ->count(),
-            ],
+            'financeTabs' => $financeTabs,
             'financeAudience' => 'purchaser',
             'canManageSuppliers' => true,
-            'deadlineAlert' => $this->buildDeadlineAlert((int) $request->user()->id, $date),
+            'deadlineAlert' => $this->buildSupplierHubDeadlineAlert($userId, $date),
         ]);
     }
 
@@ -2572,7 +2669,7 @@ class PurchaserDashboardController extends Controller
         ]);
     }
 
-    public function supplierShow(Request $request, Supplier $supplier): View|RedirectResponse
+    public function supplierShow(Request $request, Supplier $supplier): View|RedirectResponse|JsonResponse
     {
         $this->ensurePurchaser($request);
 
@@ -2585,32 +2682,35 @@ class PurchaserDashboardController extends Controller
         $userId = (int) $request->user()->id;
         $supplier = $request->user()->scopedSuppliersQuery()
             ->whereKey($supplier->id)
-            ->with([
-                'purchaseInvoices' => fn ($query) => $query
-                    ->with([
-                        'purchaserCart.goodsReceived.items.product',
-                        'purchaserCart.goodsReceived.items.purchaseOrderItem.product',
-                        'goodsReceived.items.product',
-                        'goodsReceived.items.purchaseOrderItem.product',
-                        'vendorSettlementAllocations',
-                        'purchaseCreditNotes',
-                    ])
-                    ->latest('updated_at'),
-                'purchaserCarts' => fn ($query) => $query
-                    ->with([
-                        'items.product',
-                        'purchaseInvoice.vendorSettlementAllocations',
-                        'purchaseInvoice.purchaseCreditNotes',
-                        'goodsReceived.items.product',
-                        'goodsReceived.items.purchaseOrderItem.product',
-                    ])
-                    ->latest('business_date'),
-            ])
             ->firstOrFail();
 
         $operationalDate = $this->businessDayService->operationalDate();
-        $relatedBatchState = $this->relatedBatchStateForCarts($supplier->purchaserCarts);
-        $vendorHistoryEntries = $supplier->purchaserCarts
+        $perPage = 20;
+        $page = max(1, (int) $request->integer('page', 1));
+
+        $paginatedCarts = PurchaserCart::query()
+            ->where('supplier_id', $supplier->id)
+            ->with([
+                'supplier:id,name,credit_approved',
+                'items:id,purchaser_cart_id,product_id,grade,quantity,unit_price,line_total',
+                'items.product:id,name,unit',
+                'purchaseInvoice',
+                'purchaseInvoice.purchaserCart',
+                'purchaseInvoice.vendorSettlementAllocations',
+                'purchaseInvoice.purchaseCreditNotes',
+                'goodsReceived:id,purchaser_cart_id,grn_number,notes,received_at,status,bill_status',
+                'goodsReceived.items',
+                'goodsReceived.items.product:id,name,unit',
+                'goodsReceived.items.purchaseOrderItem:id,product_id',
+                'goodsReceived.items.purchaseOrderItem.product:id,name,unit',
+            ])
+            ->orderByDesc('business_date')
+            ->orderByDesc('id')
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        $pageCarts = collect($paginatedCarts->items());
+        $relatedBatchState = $this->relatedBatchStateForCarts($pageCarts);
+        $vendorHistoryEntries = $pageCarts
             ->map(function (PurchaserCart $cart) use ($relatedBatchState, $operationalDate): array {
                 $invoice = $cart->purchaseInvoice;
                 $batchState = $relatedBatchState[(int) $cart->id] ?? [];
@@ -2723,17 +2823,43 @@ class PurchaserDashboardController extends Controller
         $vendorHistory = $groupHistory($activeEntries);
         $cancelledHistory = $groupHistory($cancelledEntries);
 
+        $aggregates = $this->supplierHubFinancialAggregates([$supplier->id])->get($supplier->id);
+        $cartCounts = DB::table('purchaser_carts as pc')
+            ->where('pc.supplier_id', $supplier->id)
+            ->where('pc.status', '!=', 'cancelled')
+            ->where(function ($q) use ($operationalDate): void {
+                $q->where('pc.status', '!=', 'draft')
+                    ->orWhereDate('pc.business_date', '>=', $operationalDate->format('Y-m-d'));
+            })
+            ->selectRaw('COUNT(*) as record_count')
+            ->first();
+
         $historyTotals = [
-            'pending_amount' => round((float) $activeEntries->sum('balance_amount'), 2),
-            'paid_amount' => round((float) $activeEntries->sum('paid_amount'), 2),
-            'total_amount' => round((float) $activeEntries->sum('amount'), 2),
-            'discount_amount' => round((float) $activeEntries->sum(fn (array $entry): float => max(0, $entry['amount'] - $entry['paid_amount'] - $entry['balance_amount'])), 2),
+            'pending_amount' => round((float) ($aggregates->balance_amount ?? 0), 2),
+            'paid_amount' => round((float) ($aggregates->paid_amount ?? 0), 2),
+            'total_amount' => round((float) ($aggregates->total_amount ?? 0), 2),
+            'discount_amount' => round((float) ($aggregates->discount_amount ?? 0), 2),
             'item_count' => (int) $activeEntries->sum('item_count'),
-            'record_count' => (int) $activeEntries->count(),
+            'record_count' => (int) ($cartCounts->record_count ?? $activeEntries->count()),
         ];
 
         $pendingEntries = $activeEntries->where('is_operationally_unresolved', true)->values();
         $completedEntries = $activeEntries->where('is_operationally_unresolved', false)->values();
+
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json([
+                'status' => 'success',
+                'data' => $vendorHistoryEntries->values(),
+                'pagination' => [
+                    'current_page' => $paginatedCarts->currentPage(),
+                    'per_page' => $paginatedCarts->perPage(),
+                    'total_records' => $paginatedCarts->total(),
+                    'last_page' => $paginatedCarts->lastPage(),
+                    'has_more' => $paginatedCarts->hasMorePages(),
+                ],
+                'history_totals' => $historyTotals,
+            ]);
+        }
 
         return view('purchasing.purchaser.suppliers.show', [
             'date' => $date->format('Y-m-d'),
@@ -2743,7 +2869,10 @@ class PurchaserDashboardController extends Controller
             'vendorHistory' => $vendorHistory,
             'cancelledHistory' => $cancelledHistory,
             'historyTotals' => $historyTotals,
-            'deadlineAlert' => $this->buildDeadlineAlert($userId, $date),
+            'hasMorePages' => $paginatedCarts->hasMorePages(),
+            'currentPage' => $paginatedCarts->currentPage(),
+            'totalRowsCount' => $paginatedCarts->total(),
+            'deadlineAlert' => $this->buildSupplierHubDeadlineAlert($userId, $date),
         ]);
     }
 

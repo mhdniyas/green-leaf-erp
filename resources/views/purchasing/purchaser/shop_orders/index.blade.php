@@ -134,6 +134,14 @@
             </table>
         </section>
 
-        {{ $orders->links() }}
+        @include('purchasing.purchaser.partials.load-more', [
+            'containerId' => 'shop-orders-load-more',
+            'hasMore' => $orders->hasMorePages(),
+            'currentPage' => $orders->currentPage(),
+            'loadedCount' => $orders->count(),
+            'totalCount' => $orders->total(),
+            'pageParam' => 'orders_page',
+            'targetSelector' => 'table tbody',
+        ])
     </div>
 </x-layouts.app>

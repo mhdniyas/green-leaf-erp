@@ -707,4 +707,14 @@
             form.submit();
         }
     </script>
+
+    @include('purchasing.purchaser.partials.load-more', [
+        'containerId' => 'supplier-history-load-more',
+        'hasMore' => $hasMorePages ?? false,
+        'currentPage' => $currentPage ?? 1,
+        'loadedCount' => $vendorHistory->sum('record_count'),
+        'totalCount' => $totalRowsCount ?? $vendorHistory->sum('record_count'),
+        'pageParam' => 'page',
+        'targetSelector' => 'table tbody',
+    ])
 </x-layouts.app>
