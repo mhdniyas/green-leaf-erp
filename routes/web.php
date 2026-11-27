@@ -42,6 +42,7 @@ use App\Http\Controllers\Web\Admin\PurchaseProductFilterController;
 use App\Http\Controllers\Web\Admin\PurchaserMonthlySummaryController;
 use App\Http\Controllers\Web\Admin\SellingPriceCategoryController;
 use App\Http\Controllers\Web\Admin\SellingPriceManagementController;
+use App\Http\Controllers\Web\Admin\ShopCreditNoteReportController;
 use App\Http\Controllers\Web\Admin\ShopCreditNotes\ShopCreditNoteDetailController;
 use App\Http\Controllers\Web\Admin\ShopCreditNotes\ShopCreditNoteDraftController;
 use App\Http\Controllers\Web\Admin\ShopSellingPriceController;
@@ -1267,6 +1268,13 @@ Route::middleware('auth')->group(function () {
             Route::prefix('reports/shops')->name('reports.shops.')->middleware('can:cashbook.reports.view')->group(function () {
                 Route::get('invoices', [AdminShopReportsController::class, 'invoices'])->name('invoices');
                 Route::get('credit-notes', [AdminShopReportsController::class, 'creditNotes'])->name('credit-notes');
+                Route::get('credit-notes/report', [ShopCreditNoteReportController::class, 'index'])->name('credit-notes.report');
+                Route::get('credit-notes/report/export/detailed/pdf', [ShopCreditNoteReportController::class, 'exportDetailedPdf'])->name('credit-notes.report.export.detailed.pdf');
+                Route::get('credit-notes/report/export/detailed/excel', [ShopCreditNoteReportController::class, 'exportDetailedExcel'])->name('credit-notes.report.export.detailed.excel');
+                Route::get('credit-notes/report/export/detailed/csv', [ShopCreditNoteReportController::class, 'exportDetailedCsv'])->name('credit-notes.report.export.detailed.csv');
+                Route::get('credit-notes/report/export/summary/pdf', [ShopCreditNoteReportController::class, 'exportSummaryPdf'])->name('credit-notes.report.export.summary.pdf');
+                Route::get('credit-notes/report/export/summary/excel', [ShopCreditNoteReportController::class, 'exportSummaryExcel'])->name('credit-notes.report.export.summary.excel');
+                Route::get('credit-notes/report/export/summary/csv', [ShopCreditNoteReportController::class, 'exportSummaryCsv'])->name('credit-notes.report.export.summary.csv');
                 Route::post('credit-notes/select', [AdminShopReportsController::class, 'selectInvoiceForCreditNote'])->name('credit-notes.select');
                 Route::get('credit-notes/create', [AdminShopReportsController::class, 'createCreditNote'])->name('credit-notes.create');
                 Route::post('credit-notes', [AdminShopReportsController::class, 'storeCreditNote'])->name('credit-notes.store');

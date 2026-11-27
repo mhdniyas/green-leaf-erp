@@ -32,6 +32,13 @@
                     <span>Credit Notes</span>
                 </span>
             </a>
+            <a href="{{ route('admin.cashbook.reports.shops.credit-notes.report') }}"
+                class="rounded-xl px-3 sm:px-4 py-1 text-xs font-extrabold transition-all {{ $activeTab === 'credit-note-report' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
+                <span class="flex items-center gap-1.5">
+                    <i data-lucide="bar-chart-3" class="w-3.5 h-3.5 {{ $activeTab === 'credit-note-report' ? 'text-emerald-600' : 'text-slate-400' }}"></i>
+                    <span>Credit Note Report</span>
+                </span>
+            </a>
         </div>
     </div>
 
